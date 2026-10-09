@@ -386,7 +386,7 @@
 								{:else if tool.control === 'collection'}
 									<Icon name="chevron-right" className="w-3.5 h-3.5 flex-shrink-0 text-fg-subtle" />
 								{:else if tool.source === 'plugin' && variant === 'entry'}
-									<span class="shrink-0 px-1 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle border border-line rounded-sm">
+									<span class="shrink-0 px-1 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle border border-line rounded-sm">
 										Plugin
 									</span>
 								{:else if availability.enabled && tool.shortcut && !sheet}

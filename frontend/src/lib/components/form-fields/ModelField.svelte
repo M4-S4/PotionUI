@@ -16,6 +16,7 @@
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { IconButton } from '$lib/components/ui';
 	import { noteModelKind } from '$lib/services/cloudCapabilities';
 	import { refFor, matchesStoredValue, findModelForValue, MODEL_REF_PREFIX } from '$lib/utils/modelRef';
@@ -490,9 +491,11 @@
 					{displayName(selectedModelData)}
 				</div>
 				{#if originLine(selectedModelData)}
-					<div class="truncate font-mono text-2xs text-fg-subtle" title={modelIsCloud(selectedModelData) ? undefined : selectedModelData.filename}>
-						{originLine(selectedModelData)}
-					</div>
+					<Tooltip text={modelIsCloud(selectedModelData) ? '' : selectedModelData.filename} wrapperClass="flex min-w-0">
+						<div class="truncate font-mono text-xs text-fg-subtle">
+							{originLine(selectedModelData)}
+						</div>
+					</Tooltip>
 				{/if}
 				<div class="mt-1 flex min-w-0 items-center gap-1 overflow-hidden">
 					{#each summaryParts(selectedModelData) as part, index}

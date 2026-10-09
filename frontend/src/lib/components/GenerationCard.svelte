@@ -506,7 +506,7 @@
 				<div
 					data-testid={stackEntry ? 'grid-stack-chip' : 'grid-cell-chip'}
 					data-grid-id={gridIdOf(generation)}
-					class="absolute top-2 z-30 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-2xs tabular-nums tracking-[0.07em] text-fg backdrop-blur-sm {showCheckbox
+					class="absolute top-2 z-30 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-xs tabular-nums tracking-[0.07em] text-fg backdrop-blur-sm {showCheckbox
 						? 'left-9'
 						: 'left-2'}"
 				>
@@ -664,10 +664,10 @@
 				style="height: {chromeBucket.barHeight}px"
 			>
 				{#if stackText}
-					<span data-testid="grid-stack-title" class="min-w-0 truncate font-mono text-2xs tracking-[0.07em] text-fg-muted">
+					<span data-testid="grid-stack-title" class="min-w-0 truncate font-mono text-xs tracking-[0.07em] text-fg-muted">
 						{stackText.title}
 					</span>
-					<span data-testid="grid-stack-count" class="ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em] text-fg-subtle">
+					<span data-testid="grid-stack-count" class="ml-auto shrink-0 font-mono tabular-nums text-xs tracking-[0.07em] text-fg-subtle">
 						{stackText.count}
 					</span>
 				{:else}

@@ -7,6 +7,7 @@
 	import { autoOrganizeCounts, autoOrganizeHref } from '$lib/stores/autoOrganizeCounts';
 	import { readLastSubject } from '$lib/organize/lastSubject';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Card } from '$lib/components/ui';
 	import MenuUsage from '$lib/plans/components/MenuUsage.svelte';
 	import { limits, storageUsed } from '$lib/plans/store';
@@ -55,7 +56,7 @@
 	];
 
 	const headerClass =
-		'flex items-center justify-between px-1 pb-1.5 font-mono text-2xs uppercase tracking-wide text-fg-subtle';
+		'flex items-center justify-between px-1 pb-1.5 font-mono text-xs uppercase tracking-wide text-fg-subtle';
 	const itemClass = sheet
 		? 'flex min-h-12 w-full items-center gap-3 rounded px-2.5 text-left text-base transition-colors'
 		: 'flex min-h-9 w-full items-center gap-2.5 rounded px-2.5 py-2 text-left text-sm transition-colors';
@@ -102,10 +103,10 @@
 				<AccountAvatar username={user.username} avatar={user.avatar_url} size="lg" />
 				<div class="min-w-0 flex-1">
 					<p class="truncate text-sm font-medium text-fg">{user.username}</p>
-					<p class="text-2xs text-fg-subtle">{roleLabel(user.account_type)}</p>
+					<p class="text-xs text-fg-subtle">{roleLabel(user.account_type)}</p>
 				</div>
 				<span
-					class="flex shrink-0 items-center gap-1 font-mono text-2xs uppercase tracking-wide text-signal"
+					class="flex shrink-0 items-center gap-1 font-mono text-xs uppercase tracking-wide text-signal"
 					data-testid="user-menu-active"
 				>
 					<Icon name="check" className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -134,12 +135,12 @@
 					/>
 					<div class="mx-2.5 my-1 border-t border-line"></div>
 				{/if}
+				<Tooltip text={canAdd ? '' : 'Remove an account first'} wrapperClass="flex w-full">
 				<button
 					type="button"
 					role="menuitem"
 					data-testid={ids.add}
 					disabled={!canAdd}
-					title={canAdd ? undefined : 'Remove an account first'}
 					onclick={handleAddAccount}
 					class="{itemClass} {itemTone} disabled:cursor-not-allowed disabled:opacity-50"
 				>
@@ -152,9 +153,10 @@
 					</span>
 					<span class="flex-1">Add account</span>
 					{#if !canAdd}
-						<span class="shrink-0 text-2xs text-fg-subtle">Limit reached</span>
+						<span class="shrink-0 text-xs text-fg-subtle">Limit reached</span>
 					{/if}
 				</button>
+				</Tooltip>
 			</Card>
 		</section>
 
@@ -184,7 +186,7 @@
 							></span>
 						{/if}
 						<span
-							class="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle"
+							class="shrink-0 font-mono text-xs tabular-nums text-fg-subtle"
 							data-testid="user-menu-auto-organize-count">{autoActive}</span
 						>
 					{/if}
@@ -216,7 +218,7 @@
 									type="button"
 									role="radio"
 									aria-checked={$nsfwFilterStore.mode === option.value}
-									class="flex-1 rounded-sm px-2 text-2xs font-medium transition-colors duration-100 {sheet
+									class="flex-1 rounded-sm px-2 text-xs font-medium transition-colors duration-100 {sheet
 										? 'min-h-10 text-xs'
 										: 'py-1'} {$nsfwFilterStore.mode === option.value
 										? 'bg-signal/10 text-signal'
@@ -255,7 +257,7 @@
 					>
 						<Icon name="group" className={iconClass} strokeWidth={1.5} />
 						<span class="flex-1">Log out of all accounts</span>
-						<span class="shrink-0 font-mono text-2xs tabular-nums text-fg-subtle">{accounts.length}</span>
+						<span class="shrink-0 font-mono text-xs tabular-nums text-fg-subtle">{accounts.length}</span>
 					</button>
 				{/if}
 			</Card>

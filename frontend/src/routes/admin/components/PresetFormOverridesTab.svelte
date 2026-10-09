@@ -356,7 +356,7 @@
 											{/if}
 										{/if}
 										{#if ignoredDefaultNotice(field)}
-											<p class="mt-1 max-w-[16rem] text-2xs text-warning">{ignoredDefaultNotice(field)}</p>
+											<p class="mt-1 max-w-[16rem] text-xs text-warning">{ignoredDefaultNotice(field)}</p>
 										{/if}
 									</td>
 									<td class="px-4 py-3 align-top">

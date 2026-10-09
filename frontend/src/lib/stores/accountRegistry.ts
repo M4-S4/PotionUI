@@ -96,17 +96,6 @@ export function upsertAccount(
 	return { registry: { ...registry, accounts: [...registry.accounts, entry] }, outcome: 'added' };
 }
 
-export function refreshProfile(registry: AccountRegistry, profile: AccountProfile): AccountRegistry {
-	return {
-		...registry,
-		accounts: registry.accounts.map((a) =>
-			a.userId === profile.userId
-				? { ...a, username: profile.username, role: profile.role, avatar: profile.avatar }
-				: a
-		)
-	};
-}
-
 export function setActive(registry: AccountRegistry, userId: string | null): AccountRegistry {
 	return { ...registry, activeId: userId };
 }
@@ -153,15 +142,6 @@ export function parseRegistry(raw: string | null, now: number = Date.now()): Acc
 			{ v: 1, activeId: typeof parsed.activeId === 'string' ? parsed.activeId : null, accounts },
 			now
 		);
-	} catch {
-		return emptyRegistry();
-	}
-}
-
-export function loadRegistry(now: number = Date.now()): AccountRegistry {
-	if (typeof localStorage === 'undefined') return emptyRegistry();
-	try {
-		return parseRegistry(localStorage.getItem(ACCOUNTS_STORAGE_KEY), now);
 	} catch {
 		return emptyRegistry();
 	}

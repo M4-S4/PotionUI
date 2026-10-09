@@ -11,7 +11,7 @@
 </script>
 
 <section class="space-y-2" aria-label="Start from a template">
-	<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Start from a template</h3>
+	<h3 class="font-mono text-xs uppercase tracking-[0.07em] text-fg-muted">Start from a template</h3>
 	<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
 		{#each templates as template (template.key)}
 			<button

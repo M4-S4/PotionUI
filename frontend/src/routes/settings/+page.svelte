@@ -376,7 +376,7 @@
 						{#if user.email}
 							<p class="text-fg-muted text-sm truncate">{user.email}</p>
 						{/if}
-						<p class="mt-0.5 font-mono text-2xs uppercase tracking-wide text-fg-subtle md:hidden">
+						<p class="mt-0.5 font-mono text-xs uppercase tracking-wide text-fg-subtle md:hidden">
 							{user.account_type} &middot; {accountCount} {accountCount === 1 ? 'account' : 'accounts'}
 						</p>
 						<div class="flex items-center gap-3 mt-2">

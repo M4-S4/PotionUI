@@ -64,7 +64,7 @@
 			{#each report.steps as step, index (step.id)}
 				<li class="flex items-start gap-3" data-status={step.status}>
 					<span
-						class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border font-mono text-2xs tabular-nums {markerClasses[step.status]}"
+						class="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border font-mono text-xs tabular-nums {markerClasses[step.status]}"
 						aria-hidden="true"
 					>
 						{#if step.status === 'done'}

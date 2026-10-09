@@ -1,7 +1,8 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import type { LimitRow } from '../meApi';
-	import { formatBytes, formatSize } from '../format';
+	import { formatBytes } from '../format';
+	import { formatBytes as formatFileSize } from '$lib/utils/format';
 	import { formatAmount, leftNote, percentOf, resetNote } from '../limitView';
 	import LimitBar from './LimitBar.svelte';
 
@@ -42,7 +43,7 @@
 					<Icon name="upload" className="w-4 h-4 shrink-0 text-fg-subtle" strokeWidth={1.5} />
 					<p class="text-sm font-medium text-fg min-w-0 flex-1 truncate">{row.label}</p>
 					<p class="font-mono tabular-nums text-sm text-fg">
-						{formatSize(row.limit)} <span class="font-sans text-fg-subtle">per file</span>
+						{formatFileSize(row.limit, 1)} <span class="font-sans text-fg-subtle">per file</span>
 					</p>
 				</li>
 			{:else}

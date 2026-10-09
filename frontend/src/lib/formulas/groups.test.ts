@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { indexFields } from './fieldIndex';
-import { buildDraft, countSelected, filterFormulas, groupStates, nextCopyName, preselectedIds } from './groups';
+import { buildDraft, countSelected, filterFormulas, groupStates, preselectedIds } from './groups';
 import type { FormulaDeclaration } from './types';
 
 const schema = {
@@ -81,10 +81,5 @@ describe('list helpers', () => {
 		const items = [{ name: 'Turbo, cached' }, { name: 'Small pass' }];
 		expect(filterFormulas(items, 'TURBO')).toEqual([items[0]]);
 		expect(filterFormulas(items, '  ')).toHaveLength(2);
-	});
-
-	it('numbers duplicate copies', () => {
-		expect(nextCopyName('A', [])).toBe('A copy');
-		expect(nextCopyName('A', ['A copy', 'A copy 2'])).toBe('A copy 3');
 	});
 });

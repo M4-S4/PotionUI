@@ -1,6 +1,7 @@
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
 import type { FilterChip } from '$lib/components/library/librarySection';
 import type { CloudCatalogItem, CloudCatalogQuery, CloudPriceLine } from '$lib/services/admin-api';
+import { parseAmount } from '$lib/utils/cloudCost';
 import type { PresetInfo } from '$lib/types/api';
 
 export const CATALOG_PAGE_SIZE = 50;
@@ -178,14 +179,14 @@ function trimmedDecimal(value: number): string {
 }
 
 export function formatUsd(usd: string | number): string | null {
-	const value = typeof usd === 'number' ? usd : Number(usd);
-	if (!Number.isFinite(value) || value < 0) return null;
+	const value = parseAmount(usd);
+	if (value === null || value < 0) return null;
 	return `$${trimmedDecimal(value)}`;
 }
 
 export function formatPriceLine(line: CloudPriceLine): string | null {
-	const value = Number(line.usd);
-	if (!Number.isFinite(value) || value < 0) return null;
+	const value = parseAmount(line.usd);
+	if (value === null || value < 0) return null;
 	const qualifier = line.applies_to ? ` · ${line.applies_to}` : '';
 	if (line.unit === 'token') return `$${trimmedDecimal(value * 1_000_000)} / 1M tokens${qualifier}`;
 	const suffix = UNIT_SUFFIX[line.unit] ?? line.unit;

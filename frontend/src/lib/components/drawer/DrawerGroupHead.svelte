@@ -1,8 +1,8 @@
 <script lang="ts">
-	let { label, count }: { label: string; count?: number } = $props();
+	let { label, count, testid = undefined }: { label: string; count?: number; testid?: string } = $props();
 </script>
 
-<div class="group-head">{label}{#if count !== undefined}<span>{count}</span>{/if}</div>
+<div class="group-head" data-testid={testid}>{label}{#if count !== undefined}<span>{count}</span>{/if}</div>
 
 <style>
 	.group-head {

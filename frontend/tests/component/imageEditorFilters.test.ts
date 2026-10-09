@@ -29,8 +29,7 @@ const renderRecipe = vi.fn((buffer: { width: number; height: number; data: Uint8
 
 vi.mock('$lib/filters/render', async (importOriginal) => ({
 	...(await importOriginal<typeof import('$lib/filters/render')>()),
-	renderRecipe: (buffer: never, recipe: unknown, intensity: number) => renderRecipe(buffer, recipe, intensity),
-	toImageData: (buffer: unknown) => buffer
+	renderRecipe: (buffer: never, recipe: unknown, intensity: number) => renderRecipe(buffer, recipe, intensity)
 }));
 
 const CUBE_2 = ['LUT_3D_SIZE 2', '0 0 0', '1 0 0', '0 1 0', '1 1 0', '0 0 1', '1 0 1', '0 1 1', '1 1 1'].join('\n');

@@ -12,11 +12,6 @@ export function cachedModelName(id: string): string | undefined {
 	return modelNames.get(id);
 }
 
-export function resetModelNames(): void {
-	modelNames.clear();
-	pending.clear();
-}
-
 async function loadOne(id: string): Promise<void> {
 	try {
 		const response = await api.getModelById(id);

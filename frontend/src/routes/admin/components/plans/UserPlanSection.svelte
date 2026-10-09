@@ -33,7 +33,7 @@
 <DetailSection label="Plan">
 	<div class="space-y-4" data-user-plan>
 		<div>
-			<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Effective</p>
+			<p class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Effective</p>
 			{#if detail?.plan}
 				<p class="mt-1 text-sm font-semibold text-fg" data-effective-plan>
 					{detail.plan.name}

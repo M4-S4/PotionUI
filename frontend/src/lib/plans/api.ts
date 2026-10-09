@@ -2,7 +2,6 @@ import { api } from '$lib/services/api/index';
 import type {
 	GroupImpact,
 	GroupPlanRow,
-	LimitKindDescriptor,
 	Plan,
 	PlanBody,
 	PlanDetail,
@@ -32,11 +31,6 @@ export interface DeleteResult {
 
 export function getPlansOverview(): Promise<PlansOverview> {
 	return unwrap(client().get(BASE));
-}
-
-export async function listLimitKinds(): Promise<LimitKindDescriptor[]> {
-	const data = await unwrap<{ kinds: LimitKindDescriptor[] }>(client().get(`${BASE}/kinds`));
-	return data.kinds;
 }
 
 export function getPlanDetail(planId: string): Promise<PlanDetail> {

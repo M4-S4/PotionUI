@@ -214,7 +214,7 @@
 						{#if triggerIcon && selectedOption.icon}<Icon name={selectedOption.icon} className="w-3.5 h-3.5 flex-shrink-0 text-fg-muted" />{/if}
 						<span class="truncate">{selectedOption.label}</span>
 						{#if selectedOption.marker}
-							<span class="-ml-1 flex-shrink-0 font-mono text-2xs text-fg-subtle" aria-hidden="true">{selectedOption.marker}</span>
+							<span class="-ml-1 flex-shrink-0 font-mono text-xs text-fg-subtle" aria-hidden="true">{selectedOption.marker}</span>
 						{/if}
 					</span>
 					{#if selectedOption.description && triggerDescription}
@@ -285,7 +285,7 @@
 								{#if option.icon}<Icon name={option.icon} className="w-3.5 h-3.5 flex-shrink-0" />{/if}
 								<span class="truncate">{option.label}</span>
 								{#if option.marker}
-									<span class="-ml-1 font-mono text-2xs text-fg-subtle" aria-hidden="true">{option.marker}</span>
+									<span class="-ml-1 font-mono text-xs text-fg-subtle" aria-hidden="true">{option.marker}</span>
 								{/if}
 								{#if option.markerLabel}
 									<span class="sr-only">{option.markerLabel}</span>

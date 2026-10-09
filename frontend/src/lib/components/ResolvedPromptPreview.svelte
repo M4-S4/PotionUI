@@ -111,7 +111,7 @@
 				{/if}
 			</div>
 			{#if varyingNotes.length > 0}
-				<ul class="mt-2 space-y-0.5 text-2xs text-fg-subtle" aria-label="Variables that vary">
+				<ul class="mt-2 space-y-0.5 text-xs text-fg-subtle" aria-label="Variables that vary">
 					{#each varyingNotes as note (note.name)}
 						<li><span class="font-mono text-fg-muted">{note.name}</span> {note.phrase}</li>
 					{/each}

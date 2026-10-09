@@ -1260,7 +1260,7 @@
 											{#if axisTags[key]}
 												<span
 													data-testid="axis-tag"
-													class="mr-auto ml-1.5 rounded border border-signal/40 bg-signal/10 px-1 font-mono text-2xs text-signal"
+													class="mr-auto ml-1.5 rounded border border-signal/40 bg-signal/10 px-1 font-mono text-xs text-signal"
 												>
 													{axisTags[key]}
 												</span>

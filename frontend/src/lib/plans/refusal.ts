@@ -1,6 +1,6 @@
 import type { LimitFormat, LimitRefusal, LimitRow } from './meApi';
 import { formatCountdown, msUntil } from './countdown';
-import { formatSize } from './format';
+import { formatBytes } from '$lib/utils/format';
 
 export const UPLOAD_FILE_SIZE_KIND = 'upload_file_size';
 export const UPLOAD_FILE_SIZE_CODE = 'upload_file_size_exceeded';
@@ -15,7 +15,7 @@ export function isPerItemError(error: unknown): boolean {
 }
 
 export function uploadSizeMessage(fileBytes: number, limitBytes: number, contactLine?: string | null): string {
-	const base = `This file is ${formatSize(fileBytes)}; your plan allows files up to ${formatSize(limitBytes)}.`;
+	const base = `This file is ${formatBytes(fileBytes, 1)}; your plan allows files up to ${formatBytes(limitBytes, 1)}.`;
 	return contactLine ? `${base} ${contactLine}` : base;
 }
 

@@ -228,7 +228,7 @@
 									aria-label="Add a limit"
 									data-kind-picker
 								>
-									<p class="px-2.5 pb-1 pt-1.5 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Add a limit</p>
+									<p class="px-2.5 pb-1 pt-1.5 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Add a limit</p>
 									{#each pickable as kind (kind.key)}
 										<button
 											type="button"
@@ -259,7 +259,7 @@
 						<DetailSection label="Assigned to">
 							<div class="space-y-4" data-plan-assigned>
 								<div>
-									<p class="mb-1.5 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Groups</p>
+									<p class="mb-1.5 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Groups</p>
 									{#each detail.assigned_to.groups as group (group.id)}
 										<div class="flex items-center justify-between gap-2 py-1 text-sm">
 											<span class="truncate text-fg">{group.name}</span>
@@ -281,7 +281,7 @@
 									</div>
 								</div>
 								<div>
-									<p class="mb-1.5 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Personal overrides</p>
+									<p class="mb-1.5 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Personal overrides</p>
 									{#each detail.assigned_to.users as user (user.id)}
 										<div class="flex items-center justify-between gap-2 py-1 text-sm">
 											<span class="truncate text-fg">{user.username}</span>

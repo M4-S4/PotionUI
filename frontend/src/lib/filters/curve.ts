@@ -14,10 +14,6 @@ export function parsePoints(raw: unknown): CurvePoint[] | null {
 	return points;
 }
 
-export function sampleCurve(points: CurvePoint[], x: number): number {
-	return pchip(points.map(([px, py]) => [px, py] as [number, number]))(x);
-}
-
 export function curvePath(points: CurvePoint[], width: number, height: number, samples = 48): string {
 	const curve = pchip(points.map(([px, py]) => [px, py] as [number, number]));
 	const parts: string[] = [];

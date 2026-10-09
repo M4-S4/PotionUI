@@ -813,9 +813,11 @@
 											{displayName(model, row.model)}
 										</div>
 										{#if model && originLine(model)}
-											<div class="truncate font-mono text-2xs text-fg-subtle" title={modelIsCloud(model) ? undefined : model.filename}>
-												{originLine(model)}
-											</div>
+											<Tooltip text={modelIsCloud(model) ? '' : model.filename} wrapperClass="flex min-w-0">
+												<div class="truncate font-mono text-xs text-fg-subtle">
+													{originLine(model)}
+												</div>
+											</Tooltip>
 										{/if}
 										{#if model}
 											{@const range = recommendedRange(model)}

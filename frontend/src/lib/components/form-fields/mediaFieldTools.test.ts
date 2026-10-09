@@ -4,7 +4,6 @@ import { buildMediaGroups } from './mediaFieldGroups';
 import {
 	buildFieldToolGroups,
 	fieldToolGroupsFor,
-	fieldToolIds,
 	matchToolShortcut,
 	type FieldToolEnv,
 	type FieldToolOptions
@@ -23,6 +22,10 @@ function options(overrides: Partial<FieldToolOptions> = {}): FieldToolOptions {
 		totalItems: 1,
 		...overrides
 	};
+}
+
+function fieldToolIds(opts: FieldToolOptions) {
+	return buildFieldToolGroups(opts).flatMap((group) => group.tools.map((entry) => entry.tool.id));
 }
 
 function availability(opts: FieldToolOptions, id: string) {

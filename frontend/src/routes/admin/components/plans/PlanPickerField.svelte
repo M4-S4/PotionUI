@@ -44,7 +44,7 @@
 		<Icon name="layers" className="h-4 w-4 flex-shrink-0 text-fg-subtle" />
 		<span class="min-w-0">
 			<span class="block truncate font-medium" data-plan-picker-label>{label}</span>
-			{#if summary}<span class="block truncate font-mono text-2xs text-fg-subtle" data-plan-picker-summary>{summary}</span>{/if}
+			{#if summary}<span class="block truncate font-mono text-xs text-fg-subtle" data-plan-picker-summary>{summary}</span>{/if}
 		</span>
 		<Icon name="chevron-down" className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
 	</button>

@@ -340,7 +340,7 @@
 						aria-label="{autoCount.needsAttention} need attention"
 					></span>
 				{/if}
-				<span class="flex-shrink-0 font-mono text-2xs tabular-nums text-fg-subtle"
+				<span class="flex-shrink-0 font-mono text-xs tabular-nums text-fg-subtle"
 					>{autoCount.active} active</span
 				>
 			{/if}

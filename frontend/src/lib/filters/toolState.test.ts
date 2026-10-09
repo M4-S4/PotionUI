@@ -4,7 +4,6 @@ import {
 	clampIntensity,
 	historyLabel,
 	initialToolState,
-	previewIntensity,
 	selectActive,
 	withCompare,
 	withIntensity
@@ -39,18 +38,15 @@ describe('intensity', () => {
 });
 
 describe('compare', () => {
-	it('shows the original (intensity 0) only while held and only with a filter', () => {
+	it('holds compare only with a filter selected', () => {
 		const idle = initialToolState<typeof EMBER>();
 		expect(withCompare(idle, true).compare).toBe(false);
-		expect(previewIntensity(idle)).toBe(0);
 
 		const state = withIntensity(selectActive(idle, EMBER, 100), 70);
-		expect(previewIntensity(state)).toBe(70);
 		const held = withCompare(state, true);
 		expect(held.compare).toBe(true);
 		expect(held.intensity).toBe(70);
-		expect(previewIntensity(held)).toBe(0);
-		expect(previewIntensity(withCompare(held, false))).toBe(70);
+		expect(withCompare(held, false).compare).toBe(false);
 	});
 });
 

@@ -16,13 +16,6 @@ export interface RenderOptions {
 	extensions?: FilterExtensions;
 }
 
-export function toImageData(buffer: PixelBuffer): ImageData {
-	if (typeof ImageData === 'undefined') {
-		return { data: buffer.data, width: buffer.width, height: buffer.height, colorSpace: 'srgb' } as ImageData;
-	}
-	return new ImageData(buffer.data as Uint8ClampedArray<ArrayBuffer>, buffer.width, buffer.height);
-}
-
 export function renderRecipe(
 	buffer: PixelBuffer,
 	recipe: FilterRecipe,

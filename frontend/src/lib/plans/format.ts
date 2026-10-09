@@ -1,3 +1,4 @@
+import { formatBytes as formatByteCount } from '$lib/utils/format';
 import type { LimitKindDescriptor, LimitValueType } from './types';
 
 const MB = 1024 ** 2;
@@ -25,22 +26,12 @@ export function formatValue(valueType: LimitValueType, value: number): string {
 	return String(Math.round(value));
 }
 
-const SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB'];
-
-export function formatSize(bytes: number): string {
-	let index = 0;
-	while (index < SIZE_UNITS.length - 1 && bytes >= 1024 ** (index + 1)) index += 1;
-	if (index === 0) return `${Math.round(bytes)} B`;
-	const scaled = Math.round((bytes / 1024 ** index) * 10) / 10;
-	return `${scaled.toFixed(1).replace(/\.0$/, '')} ${SIZE_UNITS[index]}`;
-}
-
 export function formatLimitValue(
 	kind: Pick<LimitKindDescriptor, 'value_type'> & { per_item?: boolean },
 	value: number | null
 ): string {
 	if (value === null) return 'no limit';
-	if (kind.per_item && kind.value_type === 'bytes') return formatSize(value);
+	if (kind.per_item && kind.value_type === 'bytes') return formatByteCount(value, 1);
 	return formatValue(kind.value_type, value);
 }
 
@@ -76,15 +67,4 @@ export function percent(used: number, limit: number | null): number | null {
 	if (limit === null) return null;
 	if (limit <= 0) return 100;
 	return Math.min(100, Math.round((used / limit) * 100));
-}
-
-export function formatResetText(resetsAt: string | null | undefined, now: Date = new Date()): string {
-	if (!resetsAt) return '';
-	const ms = new Date(resetsAt).getTime() - now.getTime();
-	if (!Number.isFinite(ms) || ms <= 0) return 'resets now';
-	const minutes = Math.ceil(ms / 60000);
-	if (minutes < 60) return `resets in ${minutes} min`;
-	const hours = Math.floor(minutes / 60);
-	const rest = minutes % 60;
-	return rest ? `resets in ${hours} h ${rest} min` : `resets in ${hours} h`;
 }

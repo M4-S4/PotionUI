@@ -89,7 +89,7 @@
 	{#each draft.conditions as cond, index (cond.uid)}
 		{@const spec = specOf(cond.fact)}
 		<div class="flex flex-wrap items-start gap-2 sm:flex-nowrap" data-testid="condition-row">
-			<span class="w-10 flex-shrink-0 pt-2 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+			<span class="w-10 flex-shrink-0 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">
 				{index === 0 ? 'If' : draft.match === 'all' ? 'And' : 'Or'}
 			</span>
 			<div class="w-44 flex-shrink-0">

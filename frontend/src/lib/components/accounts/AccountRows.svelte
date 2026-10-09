@@ -57,9 +57,9 @@
 			<span class="min-w-0 flex-1">
 				<span class="block truncate text-sm text-fg {account.expired ? 'opacity-70' : ''}">{account.username}</span>
 				{#if account.expired}
-					<span class="block text-2xs text-warning">Session expired</span>
+					<span class="block text-xs text-warning">Session expired</span>
 				{:else}
-					<span class="block truncate text-2xs text-fg-subtle">
+					<span class="block truncate text-xs text-fg-subtle">
 						{roleLabel(account.role)}{isActive ? '' : ` · ${signedInAgo(account.signedInAt, now)}`}
 					</span>
 				{/if}
@@ -69,13 +69,13 @@
 					Sign in again
 				</span>
 			{:else if isActive}
-				<span class="flex shrink-0 items-center gap-1 font-mono text-2xs uppercase tracking-wide text-signal">
+				<span class="flex shrink-0 items-center gap-1 font-mono text-xs uppercase tracking-wide text-signal">
 					<Icon name="check" className="h-3.5 w-3.5" strokeWidth={1.5} />
 					Active
 				</span>
 			{:else}
 				<span
-					class="flex shrink-0 items-center gap-1 font-mono text-2xs uppercase tracking-wide text-fg-subtle group-hover:text-fg"
+					class="flex shrink-0 items-center gap-1 font-mono text-xs uppercase tracking-wide text-fg-subtle group-hover:text-fg"
 				>
 					Switch
 					<Icon name="arrow-right" className="h-3 w-3" strokeWidth={1.5} />

@@ -720,7 +720,7 @@
 
 			{#if compareActive}
 				<div class="border-t border-line pt-4">
-					<span class="mb-1.5 block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Under each cell</span>
+					<span class="mb-1.5 block font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Under each cell</span>
 					<div class="flex flex-wrap items-center gap-1">
 						{#each COMPARE_CAPTIONS as option (option.id)}
 							<button

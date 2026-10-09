@@ -120,7 +120,7 @@
 		{@const spec = specOf(action.action)}
 		<div class="rounded-lg border border-line bg-surface-2 p-3" data-testid="action-row" data-action={action.action}>
 			<div class="flex items-start gap-3">
-				<span class="w-12 flex-shrink-0 pt-2 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+				<span class="w-12 flex-shrink-0 pt-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">
 					{index === 0 ? 'Then' : 'And'}
 				</span>
 				<div class="min-w-0 flex-1 space-y-2">

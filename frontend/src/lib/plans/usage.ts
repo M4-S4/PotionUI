@@ -30,10 +30,6 @@ export function mostUsedPercent(row: UserUsageRow | undefined): number {
 	return row?.max_percent ?? -1;
 }
 
-export function usageRowFor(row: UserUsageRow | undefined, kind: string): UsageRow | undefined {
-	return row?.limits.find((limit) => limit.kind === kind);
-}
-
 export const MOST_USED_SORT = 'most_used';
 export const KIND_SORT_PREFIX = 'kind:';
 

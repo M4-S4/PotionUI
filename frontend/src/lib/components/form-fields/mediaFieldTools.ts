@@ -85,10 +85,6 @@ function mediaAvailability(options: FieldToolOptions, editor: MediaEditorKind): 
 	return { enabled: true };
 }
 
-export function fieldToolIds(options: FieldToolOptions): FieldToolId[] {
-	return buildFieldToolGroups(options).flatMap((group) => group.tools.map((entry) => entry.tool.id as FieldToolId));
-}
-
 export function buildFieldToolGroups(options: FieldToolOptions): MediaToolGroup[] {
 	const { kind } = options;
 	if (!kind) return [];

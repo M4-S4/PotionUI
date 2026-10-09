@@ -56,7 +56,7 @@
 		{/if}
 		<p class="text-sm text-fg-muted mt-2">{descriptor.guidance}</p>
 		<div class="mt-2 flex flex-wrap items-center gap-2">
-			<span class="text-2xs text-fg-subtle">Default: {descriptor.defaultLabel}</span>
+			<span class="text-xs text-fg-subtle">Default: {descriptor.defaultLabel}</span>
 			{#if applies}
 				<Badge variant={descriptor.applies === 'restart' ? 'warning' : 'neutral'} size="sm">{applies}</Badge>
 			{/if}

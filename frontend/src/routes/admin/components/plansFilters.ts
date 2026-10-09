@@ -4,8 +4,6 @@ export interface PlansFilters {
 	q: string;
 }
 
-export const DEFAULT_PLANS_FILTERS: PlansFilters = { q: '' };
-
 const PLAN_Q_PARAM = 'plan_q';
 
 export function plansFiltersFromSearchParams(params: URLSearchParams): PlansFilters {

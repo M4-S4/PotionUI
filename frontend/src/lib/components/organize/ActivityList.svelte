@@ -122,7 +122,7 @@
 								<li>{line}</li>
 							{/each}
 						</ul>
-						<p class="mt-1.5 font-mono text-2xs tabular-nums text-fg-subtle">
+						<p class="mt-1.5 font-mono text-xs tabular-nums text-fg-subtle">
 							{timeAgo(run.started_at)}
 							{#if run.undone > 0 && run.status !== 'undone'} · {run.undone} undone{/if}
 						</p>

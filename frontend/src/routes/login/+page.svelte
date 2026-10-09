@@ -181,7 +181,7 @@
 	{#if continueAccounts.length > 0}
 		<ContinueAsList accounts={continueAccounts} {busyId} onContinue={continueAs} />
 		<div
-			class="mt-6 flex items-center gap-3 font-mono text-2xs uppercase tracking-[0.1em] text-fg-subtle"
+			class="mt-6 flex items-center gap-3 font-mono text-xs uppercase tracking-[0.1em] text-fg-subtle"
 		>
 			<span class="h-px flex-1 bg-line"></span>
 			<span>or sign in</span>

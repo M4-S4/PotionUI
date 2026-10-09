@@ -34,7 +34,7 @@
 	<div
 		class="px-4 sm:px-5 py-3 flex items-center justify-between gap-2 {showBody ? 'border-b border-line' : ''}"
 	>
-		<h3 class="flex min-w-0 items-center gap-2 font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">
+		<h3 class="flex min-w-0 items-center gap-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-muted">
 			{#if icon}<Icon name={icon} className="w-3.5 h-3.5 flex-shrink-0" />{/if}
 			<span class="truncate">{label}</span>
 		</h3>

@@ -127,11 +127,3 @@ export function filterFormulas<T extends { name: string }>(items: T[], query: st
 	const q = query.trim().toLowerCase();
 	return q ? items.filter((item) => item.name.toLowerCase().includes(q)) : items;
 }
-
-export function nextCopyName(name: string, taken: string[]): string {
-	const base = `${name} copy`;
-	if (!taken.includes(base)) return base;
-	let n = 2;
-	while (taken.includes(`${base} ${n}`)) n += 1;
-	return `${base} ${n}`;
-}

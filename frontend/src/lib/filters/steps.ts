@@ -72,7 +72,3 @@ export function serializeSteps(steps: FilterStep[]): FilterStep[] {
 		return enabled === false ? { ...rest, enabled: false } : { ...rest };
 	});
 }
-
-export function stepsEqual(a: FilterStep[], b: FilterStep[]): boolean {
-	return JSON.stringify(serializeSteps(a)) === JSON.stringify(serializeSteps(b));
-}

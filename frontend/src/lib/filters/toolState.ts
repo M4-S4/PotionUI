@@ -33,11 +33,6 @@ export function withCompare<T>(state: FilterToolState<T>, on: boolean): FilterTo
 	return { ...state, compare: on };
 }
 
-export function previewIntensity<T>(state: FilterToolState<T>): number {
-	if (state.active === null || state.compare) return 0;
-	return state.intensity;
-}
-
 export function canApply<T>(state: FilterToolState<T>): boolean {
 	return state.active !== null && state.intensity > 0;
 }

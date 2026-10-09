@@ -11,6 +11,8 @@
 		onClose,
 		onEscape,
 		searchEl = $bindable(undefined),
+		root = $bindable(undefined),
+		keepOpen = $bindable(false),
 		header,
 		children
 	}: {
@@ -19,15 +21,18 @@
 		onClose: () => void;
 		onEscape?: () => boolean;
 		searchEl?: HTMLInputElement;
+		root?: HTMLElement;
+		keepOpen?: boolean;
 		header: Snippet<[{ keepOpen: boolean; setKeepOpen: (next: boolean) => void }]>;
 		children: Snippet<[{ keepOpen: boolean }]>;
 	} = $props();
 
-	let root = $state<HTMLElement>();
 	let keepOpenPref = $state(false);
 	let viewportWidth = $state(typeof window === 'undefined' ? 1440 : window.innerWidth);
 
-	let keepOpen = $derived(effectiveKeepOpen(keepOpenPref, viewportWidth));
+	$effect.pre(() => {
+		keepOpen = effectiveKeepOpen(keepOpenPref, viewportWidth);
+	});
 
 	onMount(() => {
 		keepOpenPref = readKeepOpenPref(keepOpenKey);

@@ -362,7 +362,7 @@
 							{/if}
 
 							<div class="mt-6" data-testid="preset-examples">
-								<h4 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted mb-3">Examples</h4>
+								<h4 class="font-mono text-xs uppercase tracking-[0.07em] text-fg-muted mb-3">Examples</h4>
 								{#if isLoadingGallery}
 									<div class="flex items-center justify-center py-6"><Spinner size="md" /></div>
 								{:else if gallery.length === 0}

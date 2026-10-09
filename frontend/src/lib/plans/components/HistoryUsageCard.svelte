@@ -18,7 +18,7 @@
 	{@const percent = percentOf(row)}
 	<div class="m-2 rounded-lg border bg-surface-1 px-3 py-2.5 {surface[row.state]}" data-history-usage>
 		<div class="flex items-baseline justify-between gap-2">
-			<span class="text-2xs font-medium uppercase tracking-wide text-fg-subtle">{row.label}</span>
+			<span class="text-xs font-medium uppercase tracking-wide text-fg-subtle">{row.label}</span>
 			<span class="font-mono tabular-nums text-xs text-fg">{formatAmount(row)}</span>
 		</div>
 		<LimitBar class="mt-2" {percent} state={row.state} label={row.label} />

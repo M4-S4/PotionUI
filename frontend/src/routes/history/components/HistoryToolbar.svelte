@@ -585,7 +585,7 @@
 								{/if}
 
 								<div class={facets.modes.length > 0 ? '' : 'col-span-2'}>
-									<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Model</span>
+									<span class="block text-xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Model</span>
 									<ModelPickTrigger
 										id="history-filter-model"
 										class="text-xs py-1.5 px-2 bg-surface-3/50"

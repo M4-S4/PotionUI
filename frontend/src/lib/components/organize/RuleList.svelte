@@ -131,7 +131,7 @@
 							{parts.actions.join(' and ')}
 						</span>
 					</span>
-					<span class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-2xs tabular-nums text-fg-subtle">
+					<span class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-xs tabular-nums text-fg-subtle">
 						<span>Filed {rule.filed_count} {rule.filed_count === 1 ? 'item' : 'items'}</span>
 						<span>{rule.last_run_at ? `Last run ${timeAgo(rule.last_run_at)}` : 'Not run yet'}</span>
 					</span>

@@ -6,10 +6,9 @@ import {
 	opLookup,
 	serializeSteps,
 	setStepParam,
-	stepsEqual,
 	toggleStep
 } from './steps';
-import { curvePath, parsePoints, sampleCurve } from './curve';
+import { curvePath, parsePoints } from './curve';
 
 const lookup = opLookup();
 const BASE = [
@@ -46,7 +45,6 @@ describe('serialising', () => {
 		expect(isStepEnabled(steps[0])).toBe(true);
 		expect(serializeSteps(steps)).toEqual(BASE);
 		expect(serializeSteps(toggleStep(BASE, 2))[2]).toEqual({ op: 'vignette', amount: 22, enabled: false });
-		expect(stepsEqual(steps, BASE)).toBe(true);
 	});
 });
 
@@ -56,17 +54,6 @@ describe('curve plot maths', () => {
 		expect(parsePoints([[0, 0]])).toBeNull();
 		expect(parsePoints('x')).toBeNull();
 		expect(parsePoints([[0, 'a'], [1, 1]])).toBeNull();
-	});
-
-	it('passes through its points and stays monotone', () => {
-		const points: Array<[number, number]> = [[0, 0.02], [0.25, 0.22], [0.75, 0.8], [1, 0.98]];
-		for (const [x, y] of points) expect(sampleCurve(points, x)).toBeCloseTo(y, 6);
-		let last = -1;
-		for (let i = 0; i <= 20; i++) {
-			const value = sampleCurve(points, i / 20);
-			expect(value).toBeGreaterThanOrEqual(last);
-			last = value;
-		}
 	});
 
 	it('builds a path that starts left and ends right', () => {

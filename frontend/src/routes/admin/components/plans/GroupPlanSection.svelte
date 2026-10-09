@@ -53,13 +53,13 @@
 			<div class="flex items-center gap-2 text-sm text-fg-muted"><Spinner size="sm" /> Checking what changes for members</div>
 		{:else if impact && impact.members.length > 0 && impactKinds.length > 0}
 			<div>
-				<h4 class="mb-2 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+				<h4 class="mb-2 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">
 					What changes for the {memberCount} {memberCount === 1 ? 'member' : 'members'}
 				</h4>
 				<div class="overflow-x-auto rounded-lg border border-line" data-plan-impact>
 					<table class="w-full text-sm">
 						<thead>
-							<tr class="border-b border-line bg-surface-2 text-left font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+							<tr class="border-b border-line bg-surface-2 text-left font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">
 								<th class="px-3 py-2 font-normal">Member</th>
 								{#each impactKinds as kind (kind.key)}
 									<th class="px-3 py-2 font-normal">{shortLabel(kind)}</th>

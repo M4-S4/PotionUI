@@ -196,7 +196,7 @@
 			}}
 		/>
 		{#if capErrors[user.user_id]}
-			<span class="text-2xs text-danger">{capErrors[user.user_id]}</span>
+			<span class="text-xs text-danger">{capErrors[user.user_id]}</span>
 		{/if}
 	</div>
 {/snippet}

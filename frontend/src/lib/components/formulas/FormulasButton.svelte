@@ -89,7 +89,7 @@
 		>
 			<Icon name="book" className="h-4 w-4" />
 			{#if count > 0}
-				<span class="absolute {grouped ? 'right-0 top-0' : '-right-1 -top-1'} inline-flex h-4 min-w-[16px] items-center justify-center rounded border border-line-strong bg-surface-3 px-1 font-mono text-2xs tabular-nums text-fg">{count}</span>
+				<span class="absolute {grouped ? 'right-0 top-0' : '-right-1 -top-1'} inline-flex h-4 min-w-[16px] items-center justify-center rounded border border-line-strong bg-surface-3 px-1 font-mono text-xs tabular-nums text-fg">{count}</span>
 			{/if}
 		</button>
 	</Tooltip>

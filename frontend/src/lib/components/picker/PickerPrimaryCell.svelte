@@ -32,7 +32,7 @@
 			<span class="truncate text-sm font-medium text-fg">{kind.getName(row)}</span>
 			{#if collision}
 				<span
-					class="flex-shrink-0 whitespace-nowrap rounded border border-dashed border-line-strong px-1 font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle"
+					class="flex-shrink-0 whitespace-nowrap rounded border border-dashed border-line-strong px-1 font-mono text-xs uppercase tracking-[0.06em] text-fg-subtle"
 					data-same-name
 				>
 					{collision.size} same name
