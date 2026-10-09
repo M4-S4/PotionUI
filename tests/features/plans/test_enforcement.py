@@ -246,6 +246,44 @@ async def test_an_upload_that_does_not_fit_is_refused_before_any_byte_is_written
     driver.put_bytes.assert_not_called()
 
 
+def record_threads(guard, monkeypatch, *names):
+    threads = []
+    for name in names:
+        real = getattr(guard, name)
+
+        def spy(*args, _real=real, **kwargs):
+            threads.append(threading.current_thread())
+            return _real(*args, **kwargs)
+
+        monkeypatch.setattr(guard, name, spy)
+    return threads
+
+
+@pytest.mark.asyncio
+async def test_upload_admission_runs_off_the_event_loop_thread(seed, plans, tmp_path, monkeypatch):
+    seed.user("u1")
+    threads = record_threads(plans.guard, monkeypatch, "check_items", "admit")
+    store, driver = media_store(tmp_path, plans.guard)
+
+    await store.upload_media(b"abc", "a.png", "image/png", user_id="u1")
+
+    assert len(threads) == 2
+    assert all(thread is not threading.main_thread() for thread in threads)
+
+
+@pytest.mark.asyncio
+async def test_editor_admission_runs_off_the_event_loop_thread(editor, plans, monkeypatch):
+    manager, upload, driver, size = editor
+    threads = record_threads(plans.guard, monkeypatch, "check", "admit")
+
+    await manager.edit_item(
+        upload.id, "u1", [CropOperation(type="crop", x=0, y=0, width=150, height=90)], mode="new"
+    )
+
+    assert len(threads) == 2
+    assert all(thread is not threading.main_thread() for thread in threads)
+
+
 def test_the_upload_route_answers_403(plans):
     error = LimitExceeded([{
         "kind": "storage_bytes", "code": "storage_quota_exceeded", "label": "Storage space", "format": "bytes",

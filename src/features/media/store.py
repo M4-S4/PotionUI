@@ -5,6 +5,7 @@ This module provides the MediaStore class that orchestrates all media-related
 business logic, including file serving, uploads, and plugin hook execution.
 """
 
+import asyncio
 import hashlib
 import io
 import logging
@@ -479,7 +480,7 @@ class MediaStore:
             ValueError: If upload fails, is blocked, or `purpose` is unknown
         """
         purpose = validate_upload_purpose_policy(purpose)
-        self.check_upload_size(user_id, len(file_data), purpose)
+        await asyncio.to_thread(self.check_upload_size, user_id, len(file_data), purpose)
 
         # Validate content type
         if not self.media_types.is_valid_media_type(content_type):
@@ -508,7 +509,10 @@ class MediaStore:
                 return self._upload_result_from_existing(existing)
 
         if self.limit_guard is not None and user_id and purpose == UPLOAD_PURPOSE_USER:
-            self.limit_guard.admit(AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=len(file_data)))
+            await asyncio.to_thread(
+                self.limit_guard.admit,
+                AdmissionRequest(point="upload", user_id=user_id, incoming_bytes=len(file_data)),
+            )
 
         # Generate unique filename and store it through the configured
         # backend (local disk by default, optionally S3 - see

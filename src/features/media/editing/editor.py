@@ -110,14 +110,14 @@ class MediaEditor:
         }[upload.media_type]
 
         if mode != "replace":
-            self._precheck(user_id)
+            await asyncio.to_thread(self._precheck, user_id)
         dest_key, metadata = await self._transform_and_publish(
             source_key, suffix, transform, list(operations)
         )
         written = self.storage_driver.size(dest_key) or 0
         replaced_bytes = (upload.file_size or 0) if mode == "replace" else 0
         items = () if mode == "replace" else (written,)
-        self._admit(user_id, written - replaced_bytes, cleanup_key=dest_key, items=items)
+        await asyncio.to_thread(self._admit, user_id, written - replaced_bytes, cleanup_key=dest_key, items=items)
 
         if mode == "replace":
             return EditMediaResult(
@@ -153,11 +153,11 @@ class MediaEditor:
                 f"Only a video has frames to extract, not {upload.media_type}"
             )
 
-        self._precheck(user_id)
+        await asyncio.to_thread(self._precheck, user_id)
         dest_key, metadata = await self._transform_and_publish(
             source_key, _FRAME_SUFFIX, extract_video_frame, time_seconds
         )
-        self._admit(user_id, self.storage_driver.size(dest_key) or 0, cleanup_key=dest_key)
+        await asyncio.to_thread(self._admit, user_id, self.storage_driver.size(dest_key) or 0, cleanup_key=dest_key)
 
         stem = Path(upload.original_filename or upload.filename).stem
         return EditMediaResult(
@@ -199,11 +199,11 @@ class MediaEditor:
 
         with local_copy(self.storage_driver, source_key, suffix) as source_path, \
                 self._scratch_dir() as dest_dir:
-            self._precheck(user_id)
+            await asyncio.to_thread(self._precheck, user_id)
             parts = await asyncio.to_thread(split_audio, source_path, dest_dir, suffix, part_seconds)
             total = len(parts)
             sizes = tuple(Path(part_path).stat().st_size for part_path, _ in parts)
-            self._admit(user_id, sum(sizes), items=sizes)
+            await asyncio.to_thread(self._admit, user_id, sum(sizes), items=sizes)
 
             items: List[EditedMediaItem] = []
             published_keys: List[str] = []
