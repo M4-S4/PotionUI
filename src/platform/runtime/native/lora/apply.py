@@ -265,13 +265,10 @@ def _needs_runtime_deltas(linear: nn.Module) -> bool:
 
 
 def _require_cast_mode(linear: nn.Module, param_name: str) -> None:
-    if getattr(linear, "comfy_cast_weights", False):
-        return
     if not hasattr(linear, "forward_comfy_cast_weights"):
         raise ValueError(
             f"LoRA target {param_name!r} cannot take runtime deltas: its layer type has no "
             f"cast-mode forward, so a scoped LoRA would be silently ignored")
-    linear.comfy_cast_weights = True
 
 
 def _runtime_delta_device(linear: nn.Module) -> torch.device:
@@ -607,6 +604,14 @@ def _snapshot_linear_states(module: nn.Module) -> List[Tuple[nn.Module, "int | N
     return states
 
 
+def _own_factors(deltas: List[LoraDelta]) -> None:
+    for d in deltas:
+        for name in ("down", "up"):
+            factor = getattr(d, name)
+            if factor.untyped_storage().nbytes() > factor.numel() * factor.element_size():
+                setattr(d, name, factor.clone())
+
+
 def _restore_linear_states(
     states: List[Tuple[nn.Module, "int | None", "int | None", "int | None"]],
 ) -> None:
@@ -622,7 +627,10 @@ def _restore_linear_states(
     for sub, deltas_len, record_len, masked_len in states:
         deltas = getattr(sub, "lora_deltas", None)
         if deltas is not None:
-            sub.lora_deltas = deltas[:deltas_len] if deltas_len else None
+            kept = deltas[:deltas_len] if deltas_len else []
+            if len(kept) < len(deltas):
+                _own_factors(kept)
+            sub.lora_deltas = kept or None
             invalidate_lora_fused_cache(sub)
         truncate_masked_deltas(sub, masked_len)
 

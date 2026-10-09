@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 import torch
 
 from src.platform.runtime.native.lora.apply import apply_loras, remove_loras, temporarily_applied_loras
+from vendor.gpl.comfyui import ops
 from vendor.gpl.comfyui.ops import pick_operations
 
 from tests.platform.runtime.native.lora.test_lora import _build, _kohya_lora
@@ -85,3 +88,47 @@ def test_runtime_only_leaves_a_preexisting_baked_stack_untouched():
             pass
         _assert_bit_identical(before, m)
     remove_loras(m)
+
+
+def _owns_storage(tensor) -> bool:
+    return tensor.untyped_storage().nbytes() == tensor.numel() * tensor.element_size()
+
+
+def test_scope_exit_frees_the_scoped_rows_fused_into_a_resident_delta(monkeypatch):
+    monkeypatch.setitem(ops.RUNTIME_FLAGS, "native_lora_fused", True)
+    m = _build()
+    qkv = m.double_blocks[0].img_attn.qkv
+    apply_loras(m, [(_kohya_lora(rank=4), 1.0)], runtime_only=True)
+    resident = qkv.lora_deltas[0]
+    x, t, ctx = _inputs()
+    with torch.no_grad():
+        base = m(x, t, ctx)
+
+    with temporarily_applied_loras(m, [(_kohya_lora(rank=64, seed=9), 1.0)], runtime_only=True):
+        with torch.no_grad():
+            m(x, t, ctx)
+        assert not _owns_storage(resident.down)
+        assert not _owns_storage(resident.up)
+
+    assert len(qkv.lora_deltas) == 1 and qkv.lora_deltas[0] is resident
+    assert _owns_storage(resident.down)
+    assert _owns_storage(resident.up)
+    with torch.no_grad():
+        after = m(x, t, ctx)
+    torch.testing.assert_close(after, base)
+
+
+def test_a_standard_layer_returns_to_its_plain_forward_when_the_scope_exits():
+    m = _build()
+    qkv = m.double_blocks[0].img_attn.qkv
+    x, t, ctx = _inputs()
+    with patch.object(qkv, "forward_comfy_cast_weights", wraps=qkv.forward_comfy_cast_weights) as cast:
+        with temporarily_applied_loras(m, [(_kohya_lora(), 1.0)], runtime_only=True):
+            with torch.no_grad():
+                m(x, t, ctx)
+        during = cast.call_count
+        with torch.no_grad():
+            m(x, t, ctx)
+    assert during > 0
+    assert cast.call_count == during
+    assert qkv.comfy_cast_weights is False

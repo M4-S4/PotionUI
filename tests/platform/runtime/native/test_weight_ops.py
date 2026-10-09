@@ -1022,6 +1022,14 @@ def test_quantize_nvfp4_dynamic_matches_weight_quantizer_nibble_convention():
     assert torch.equal(block_sw, ref_block_sw)
 
 
+@pytest.mark.parametrize("quantize", [_quantize_fp8_dynamic, _quantize_nvfp4_dynamic], ids=["fp8", "nvfp4"])
+def test_activation_quantisers_leave_an_fp32_input_untouched(quantize):
+    x = torch.randn(8, 64) * 0.3
+    before = x.clone()
+    quantize(x)
+    assert torch.equal(x, before)
+
+
 def test_quantize_nvfp4_dynamic_output_dtypes_and_scale_shape():
     x = torch.randn(16, 64) * 0.2
     packed, block_sw, tensor_scale = _quantize_nvfp4_dynamic(x)

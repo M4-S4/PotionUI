@@ -24,6 +24,9 @@ from unittest.mock import patch
 import pytest
 import torch
 import torch.nn as nn
+from torch.multiprocessing.reductions import StorageWeakRef
+from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_flatten
 
 import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.settings import runtime_flags
@@ -31,6 +34,8 @@ from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
 
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
+    _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
+    _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _dit_lora_profile,
     _dit_quant_activation_bytes_per_token,
     _ffn_transient_bytes_per_token,
@@ -1721,16 +1726,49 @@ def _fast_paths(monkeypatch, *, nvfp4, fp8):
     monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: fp8)
 
 
-def test_nvfp4_fast_path_charges_seven_fp32_copies_of_the_widest_input(monkeypatch):
+def test_nvfp4_fast_path_charges_the_quantiser_peak_of_the_widest_input(monkeypatch):
     _fast_paths(monkeypatch, nvfp4=True, fp8=False)
     dit = _dit_with(_QuantLinear(4096, nvfp4=True), _QuantLinear(16384, nvfp4=True), _QuantLinear(32768))
-    assert _dit_quant_activation_bytes_per_token(dit) == 7 * 4 * 16384
+    assert _dit_quant_activation_bytes_per_token(dit) == 12 * 16384
 
 
-def test_fp8_fast_path_charges_two_fp32_copies(monkeypatch):
+def test_fp8_fast_path_charges_the_quantiser_peak(monkeypatch):
     _fast_paths(monkeypatch, nvfp4=False, fp8=True)
     dit = _dit_with(_QuantLinear(4096, fp8=True), _QuantLinear(16384, fp8=True))
-    assert _dit_quant_activation_bytes_per_token(dit) == 2 * 4 * 16384
+    assert _dit_quant_activation_bytes_per_token(dit) == 5 * 16384
+
+
+class _LiveBytes(TorchDispatchMode):
+    def __init__(self) -> None:
+        super().__init__()
+        self.live: dict = {}
+        self.peak = 0
+
+    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
+        self.live = {key: entry for key, entry in self.live.items() if not entry[0].expired()}
+        inputs = {t.untyped_storage().data_ptr() for t in tree_flatten((args, kwargs))[0]
+                  if isinstance(t, torch.Tensor)}
+        out = func(*args, **(kwargs or {}))
+        for t in tree_flatten(out)[0]:
+            if isinstance(t, torch.Tensor):
+                storage = t.untyped_storage()
+                key = storage.data_ptr()
+                if key not in inputs and key not in self.live:
+                    self.live[key] = (StorageWeakRef(storage), storage.nbytes())
+        self.peak = max(self.peak, sum(nbytes for _ref, nbytes in self.live.values()))
+        return out
+
+
+@pytest.mark.parametrize("quantize, per_element", [
+    (comfy_ops._quantize_fp8_dynamic, _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT),
+    (comfy_ops._quantize_nvfp4_dynamic, _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT),
+], ids=["fp8", "nvfp4"])
+def test_the_quant_reserve_matches_the_quantisers_measured_peak(quantize, per_element):
+    x = torch.randn(256, 1024).to(torch.bfloat16)
+    with _LiveBytes() as tracker:
+        quantize(x)
+    peak_per_element = tracker.peak / x.numel()
+    assert per_element - 1 < peak_per_element <= per_element + 1e-3
 
 
 def test_no_fast_path_means_no_activation_quant_term(monkeypatch):
@@ -1746,15 +1784,15 @@ def test_a_bare_callable_dit_has_no_activation_quant_term():
 def test_reference_run_reserve_now_covers_the_nvfp4_activation_quant_peak():
     tokens = 31_620
     plain = estimate_activation_reserve_gb(tokens)
-    quant = estimate_activation_reserve_gb(tokens, quant_activation_bytes_per_token=7 * 4 * 16384)
+    quant = estimate_activation_reserve_gb(tokens, quant_activation_bytes_per_token=12 * 16384)
     assert plain == pytest.approx(3.05, abs=0.1)
-    assert quant - plain == pytest.approx(tokens * 7 * 4 * 16384 / 1024 ** 3 * 1.15, rel=1e-6)
-    assert quant > 14.0
+    assert quant - plain == pytest.approx(tokens * 12 * 16384 / 1024 ** 3 * 1.15, rel=1e-6)
+    assert quant == pytest.approx(9.71, abs=0.1)
 
 
 def test_nvfp4_fast_path_forces_partial_residency_where_the_old_estimate_said_resident(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: 29.0)
-    monkeypatch.setattr(f"{_MOD}.effective_free_vram_gb", lambda device: 29.0)
+    monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: 26.0)
+    monkeypatch.setattr(f"{_MOD}.effective_free_vram_gb", lambda device: 26.0)
     monkeypatch.setattr(f"{_MOD}.minimum_inference_memory_gb", lambda: 0.0)
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
     monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
@@ -1772,7 +1810,7 @@ def test_nvfp4_fast_path_forces_partial_residency_where_the_old_estimate_said_re
         _dit_with(_QuantLinear(16384, nvfp4=True), calls=on_calls), "cuda", video_tokens=31_620)
     assert on.mode == "partial"
     assert 0.0 < on.weight_budget_gb < 18.5
-    assert on.activation_reserve_gb > off.activation_reserve_gb + 14.0
+    assert on.activation_reserve_gb == pytest.approx(off.activation_reserve_gb + 6.66, abs=0.05)
 
 
 def test_the_fused_lora_path_drops_the_per_token_output_buffer_term():

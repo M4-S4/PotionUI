@@ -326,9 +326,8 @@ class DitLoraProfile:
 
 _NO_LORA = DitLoraProfile()
 
-_NVFP4_ACTIVATION_QUANT_FP32_COPIES = 7
-_FP8_ACTIVATION_QUANT_FP32_COPIES = 2
-_FP32_BYTES = 4
+_NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT = 12
+_FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT = 5
 
 # Multiplicative safety margin over the raw per-token estimate -- covers
 # allocator fragmentation, cuBLAS/cuDNN workspace, and any minor uncounted
@@ -413,9 +412,9 @@ def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
             continue
         if getattr(m, "_is_nvfp4", False):
             if _nvfp4_matmul_enabled():
-                widest = max(widest, _NVFP4_ACTIVATION_QUANT_FP32_COPIES * _FP32_BYTES * in_features)
+                widest = max(widest, _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT * in_features)
         elif getattr(m, "weight_scale", None) is not None and _fp8_matmul_enabled():
-            widest = max(widest, _FP8_ACTIVATION_QUANT_FP32_COPIES * _FP32_BYTES * in_features)
+            widest = max(widest, _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT * in_features)
     return widest
 
 

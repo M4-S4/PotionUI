@@ -275,8 +275,12 @@ def _quantize_fp8_dynamic(x2d: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor
     fp32 tensor such that ``x_fp8.to(fp32) * scale`` recovers ``x2d`` (approx)."""
     amax = x2d.detach().abs().amax().clamp(min=1e-8).to(torch.float32)
     scale = amax / _E4M3_MAX
-    x_fp8 = (x2d.to(torch.float32) / scale).clamp(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
-    return x_fp8, scale
+    return _quantize_fp8(x2d, scale), scale
+
+
+def _quantize_fp8(x2d: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    x = x2d.to(torch.float32, copy=True)
+    return x.div_(scale).clamp_(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
 
 
 def cast_to(
@@ -758,7 +762,7 @@ class disable_weight_init:
             return linear_with_lora_deltas(input, weight, bias, self.lora_deltas, self.out_features, owner=self)
 
         def forward(self, *args, **kwargs):
-            if self.comfy_cast_weights:
+            if self.comfy_cast_weights or self.lora_deltas:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             return super().forward(*args, **kwargs)
 
@@ -1695,7 +1699,7 @@ class Fp8ScaledLinear(manual_cast.Linear):
             x_scale = self._cached_scaled_mm_scale("input", x_scale_t, device)
             if x_scale is None:
                 return None
-            x_fp8 = (x2d.to(torch.float32) / x_scale).clamp(-_E4M3_MAX, _E4M3_MAX).to(torch.float8_e4m3fn)
+            x_fp8 = _quantize_fp8(x2d, x_scale)
         else:
             x_fp8, x_scale = _quantize_fp8_dynamic(x2d)
         # weight.t() is column-major only if the weight tensor is contiguous row-major.
@@ -2233,20 +2237,24 @@ def _quantize_nvfp4_dynamic(x2d: torch.Tensor) -> tuple[torch.Tensor, torch.Tens
     scale would dequantise to anyway.
     """
     m, k = x2d.shape
-    xb = x2d.reshape(m, -1, _NVFP4_BLOCK).to(torch.float32)
-    amax = xb.abs().amax().clamp(min=1e-12)
+    x = x2d.detach().reshape(m, -1, _NVFP4_BLOCK).to(torch.float32, copy=True)
+    block_amax = x.abs().amax(-1)
+    amax = block_amax.amax().clamp(min=1e-12)
     tensor_scale = amax / (_F4_MAX * _E4M3_MAX)
-    block_amax = xb.abs().amax(-1)
     block = torch.clamp(block_amax / _F4_MAX / tensor_scale, max=_E4M3_MAX).to(torch.float8_e4m3fn)
     safe_block = block.to(torch.float32).clamp(min=torch.finfo(torch.float32).tiny)
-    xn = xb / (tensor_scale * safe_block).unsqueeze(-1)
-    sign = torch.signbit(xn).to(torch.uint8)
-    ax = xn.abs()
-    exp = torch.floor(torch.log2(ax) + 1.1925).clamp(0, 3)
-    mant = torch.where(
-        exp > 0, (ax / (2.0 ** (exp - 1)) - 1.0) * 2.0, ax * 2.0,
-    ).round().clamp(0, 1).to(torch.uint8)
-    codes = ((sign << 3) | (exp.to(torch.uint8) << 1) | mant).reshape(m, k)
+    x.div_((tensor_scale * safe_block).unsqueeze(-1))
+    sign = torch.signbit(x).to(torch.uint8)
+    x.abs_()
+    exp = torch.log2(x).add_(1.1925).floor_().clamp_(0, 3)
+    normal = exp > 0
+    exp_bits = exp.to(torch.uint8)
+    mant = torch.pow(2.0, exp.sub_(1.0), out=exp)
+    torch.div(x, mant, out=mant).sub_(1.0).mul_(2.0)
+    torch.where(normal, mant, x.mul_(2.0), out=mant)
+    del x, normal, exp
+    mant = mant.round_().clamp_(0, 1).to(torch.uint8)
+    codes = ((sign << 3) | (exp_bits << 1) | mant).reshape(m, k)
     packed = (codes[:, 0::2] << 4) | codes[:, 1::2]
     block_sw = _to_blocked(block.to(torch.float32)).to(torch.float8_e4m3fn)
     return packed, block_sw, tensor_scale.reshape(())
