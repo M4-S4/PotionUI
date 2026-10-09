@@ -4,7 +4,7 @@
 	import { Badge, Button, Kbd, Spinner } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
 	import type { GenerationHistoryItem } from '$lib/types/history';
-	import type { ActiveGrid, GridCell } from '../compareStore.svelte';
+	import type { ActiveGrid, GridCell } from '$lib/generation/compare/compareStore.svelte';
 	import GridDetailsCard from './GridDetailsCard.svelte';
 	import GridMiniMap from './GridMiniMap.svelte';
 	import {
@@ -21,7 +21,7 @@
 		retryableCount,
 		stepCell,
 		type MoveDirection
-	} from './gridModel';
+	} from '$lib/generation/compare/view/gridModel';
 
 	let {
 		grid,
@@ -169,18 +169,18 @@
 					{cell.progress ? cellProgressLabel(cell.progress) : 'Running'}
 				</span>
 			{:else if cell.status === 'queued'}
-				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Queued</span>
+				<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Queued</span>
 			{:else if cell.status === 'failed'}
-				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-danger">Failed</span>
+				<span class="font-mono text-xs uppercase tracking-[0.07em] text-danger">Failed</span>
 				{#if cell.error}
 					<p class="max-w-md text-sm text-fg-muted">{cell.error}</p>
 				{/if}
 				<Button variant="secondary" size="sm" icon="refresh" onclick={() => onRetryFailed?.()}>Retry</Button>
 			{:else if cell.status === 'deleted'}
-				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Deleted</span>
+				<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Deleted</span>
 				<Button variant="secondary" size="sm" icon="refresh" onclick={() => onRetryFailed?.()}>Retry</Button>
 			{:else}
-				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+				<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">
 					{cellStatusLabel(cell.status)}
 				</span>
 			{/if}
@@ -214,13 +214,13 @@
 				<div class="divide-y divide-line">
 					{#each Object.entries(cell.axisValues) as [field, value] (field)}
 						<div class="flex items-center justify-between px-3 py-2">
-							<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">{axisFieldLabel(field)}</span>
+							<span class="font-mono text-xs uppercase tracking-wider text-fg-disabled">{axisFieldLabel(field)}</span>
 							<span class="font-mono text-xs text-fg" class:tabular-nums={field === 'seed'}>{value}</span>
 						</div>
 					{/each}
 					{#if cell.seed !== null && !('seed' in cell.axisValues)}
 						<div class="flex items-center justify-between px-3 py-2">
-							<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Seed</span>
+							<span class="font-mono text-xs uppercase tracking-wider text-fg-disabled">Seed</span>
 							<span class="font-mono text-xs tabular-nums text-fg">
 								{cell.seed}
 								<span class="text-fg-subtle">{grid.config.lockSeed ? 'locked' : 'random'}</span>
@@ -229,7 +229,7 @@
 					{/if}
 					{#if shownSeconds !== null}
 						<div class="flex items-center justify-between px-3 py-2">
-							<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Time</span>
+							<span class="font-mono text-xs uppercase tracking-wider text-fg-disabled">Time</span>
 							<span class="font-mono text-xs tabular-nums text-fg">{formatSeconds(shownSeconds)}</span>
 						</div>
 					{/if}
@@ -256,8 +256,8 @@
 
 			<div class="rounded-lg bg-surface-2 p-3">
 				<div class="mb-2 flex items-center justify-between">
-					<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Grid</span>
-					<span class="font-mono text-2xs tabular-nums text-fg-subtle">
+					<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Grid</span>
+					<span class="font-mono text-xs tabular-nums text-fg-subtle">
 						{gridDimensions(grid)} · {statusSummary}{failed > 0 ? ` · ${failed} failed` : ''}
 					</span>
 				</div>

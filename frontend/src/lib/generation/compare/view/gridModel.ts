@@ -5,10 +5,6 @@ import { PROMPT_AXIS_FIELD, PROMPT_AXIS_LABEL } from '../types';
 
 export type MoveDirection = 'left' | 'right' | 'up' | 'down';
 
-export function cellIndex(grid: Pick<ActiveGrid, 'cols'>, x: number, y: number): number {
-	return y * grid.cols + x;
-}
-
 export function moveCell(
 	grid: Pick<ActiveGrid, 'cols' | 'rows'>,
 	index: number,
@@ -271,10 +267,6 @@ export function cellStatusLabel(status: GridCell['status']): string {
 		default:
 			return 'Empty';
 	}
-}
-
-export function cellNumber(index: number): number {
-	return index + 1;
 }
 
 export interface CellTimer {

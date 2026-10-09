@@ -5,7 +5,6 @@ vi.mock('./compareApi', () => ({
 	postGrid: vi.fn(),
 	fetchGrid: vi.fn(),
 	postRetryFailed: vi.fn(),
-	removeGrid: vi.fn(),
 	fetchGridSettings: vi.fn(async () => ({ confirm_above: 24, hard_cap: 100 }))
 }));
 
@@ -21,6 +20,8 @@ import {
 	cancelGrid,
 	cellCount,
 	clearAxes,
+	compareProgressRevision,
+	compareRevision,
 	effectiveLockSeed,
 	getActiveGrid,
 	getCompare,
@@ -277,6 +278,31 @@ describe('live grid and message mapping', () => {
 		const cells = getActiveGrid(tabId)!.cells;
 		expect(cells[3]).toMatchObject({ status: 'failed', error: 'Ran out of memory' });
 		expect(cells[4]).toMatchObject({ status: 'cancelled', error: null });
+	});
+
+	it('keeps step progress off the shared revision and coalesces it per frame', async () => {
+		vi.useFakeTimers();
+		const frames: FrameRequestCallback[] = [];
+		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+		await startGrid();
+		observeGenerationMessage({ type: 'generation_status', generation_id: 'gen-1', status: 'running', current_step_num: 1, total_steps: 28 });
+
+		const structural = get(compareRevision);
+		const progress = get(compareProgressRevision);
+		observeGenerationMessage({ type: 'generation_status', generation_id: 'gen-1', status: 'running', current_step_num: 2, total_steps: 28 });
+		observeGenerationMessage({ type: 'generation_status', generation_id: 'gen-1', status: 'running', current_step_num: 3, total_steps: 28 });
+		observeGenerationMessage({ type: 'workbench_update', generation_id: 'gen-1', image: '/api/media/preview.png' });
+
+		expect(getActiveGrid(tabId)!.cells[1].progress).toEqual({ step: 3, total: 28 });
+		expect(get(compareRevision)).toBe(structural);
+		expect(get(compareProgressRevision)).toBe(progress);
+		expect(frames).toHaveLength(1);
+		frames[0](0);
+		expect(get(compareProgressRevision)).toBe(progress + 1);
+
+		observeGenerationMessage({ type: 'generation_complete', data: { id: 'gen-1', status: 'completed' } });
+		expect(get(compareRevision)).toBeGreaterThan(structural);
+		vi.unstubAllGlobals();
 	});
 
 	it('ignores messages for generations it does not own', async () => {

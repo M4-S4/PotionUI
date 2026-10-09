@@ -8,7 +8,6 @@ vi.mock('$lib/generation/compare/compareApi', () => ({
 	postGrid: vi.fn(),
 	fetchGrid: vi.fn(),
 	postRetryFailed: vi.fn(),
-	removeGrid: vi.fn()
 }));
 
 vi.mock('$lib/plans/meApi', async (original) => ({

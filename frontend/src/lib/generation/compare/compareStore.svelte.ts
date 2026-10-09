@@ -12,7 +12,7 @@ import { shortfallFromError, type DailyShortfall } from './compareLimits';
 import { deriveCompareSummary, type CompareSummary } from './compareSummary';
 import type { LimitRow } from '$lib/plans/meApi';
 import { DEFAULT_CONTACT_LINE } from '$lib/plans/refusal';
-import { fetchGrid, fetchGridSettings, postGrid, postRetryFailed, removeGrid } from './compareApi';
+import { fetchGrid, fetchGridSettings, postGrid, postRetryFailed } from './compareApi';
 import { gridProgress } from './view/gridModel';
 import { cellAxisValues, emptyCell, gridFromServer } from './serverGrid';
 import { quantityFieldsOf } from './compareSchema';
@@ -35,13 +35,12 @@ export type { ActiveGrid, CompareAxis, CompareConfig, GridCell } from './types';
 const EMPTY_CONFIG: CompareConfig = Object.freeze(emptyCompareConfig()) as CompareConfig;
 const CELL_MS_KEY = 'potionui_compare_cell_ms';
 const REFRESH_DELAY_MS = 800;
-const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'deleted']);
+const PROGRESS_MESSAGE_TYPES = new Set(['generation_status', 'workbench_update']);
 
 let configs = $state<Record<string, CompareConfig>>({});
 let liveGrids = $state<Record<string, ActiveGrid | null>>({});
 let blockers = $state<Record<string, string | null>>({});
 let refusals = $state<Record<string, DailyShortfall | null>>({});
-let submitting = $state<Record<string, boolean>>({});
 let drawerTabId = $state<string | null>(null);
 let gridSettings = $state<GridSettings>({ ...DEFAULT_GRID_SETTINGS });
 let schemas = $state.raw<Record<string, { key: string; schema: unknown }>>({});
@@ -53,6 +52,24 @@ export const compareRevision = { subscribe: revision.subscribe };
 
 function touch(): void {
 	revision.update((value) => value + 1);
+}
+
+const progressRevision = writable(0);
+
+export const compareProgressRevision = { subscribe: progressRevision.subscribe };
+
+let progressFrame: number | null = null;
+
+function touchProgress(): void {
+	if (progressFrame !== null) return;
+	if (typeof requestAnimationFrame !== 'function') {
+		progressRevision.update((value) => value + 1);
+		return;
+	}
+	progressFrame = requestAnimationFrame(() => {
+		progressFrame = null;
+		progressRevision.update((value) => value + 1);
+	});
 }
 
 const seenConfig = new Map<string, CompareConfig | undefined>();
@@ -262,10 +279,6 @@ export function armCompare(tabId: string): void {
 	openCompareDrawer(tabId);
 }
 
-export function getGridSettings(): GridSettings {
-	return gridSettings;
-}
-
 export async function ensureGridSettings(): Promise<GridSettings> {
 	if (settingsLoaded) return gridSettings;
 	settingsLoaded = true;
@@ -289,19 +302,6 @@ export function getCompareSummary(
 		contactLine,
 		blockedReason: blockers[tabId] ?? null
 	});
-}
-
-export function getGridRefusal(tabId: string): DailyShortfall | null {
-	return refusals[tabId] ?? null;
-}
-
-export function clearGridRefusal(tabId: string): void {
-	refusals[tabId] = null;
-	touch();
-}
-
-export function isSubmittingGrid(tabId: string): boolean {
-	return submitting[tabId] === true;
 }
 
 export function publishCompareSchema(tabId: string, key: string, schema: unknown): void {
@@ -391,10 +391,6 @@ export function isGridRunning(tabId: string): boolean {
 	return !!grid?.cells.some((cell) => cell.status === 'queued' || cell.status === 'running');
 }
 
-export function failedCellCount(tabId: string): number {
-	return liveGrids[tabId]?.cells.filter((cell) => cell.status === 'failed').length ?? 0;
-}
-
 function reindex(tabId: string): void {
 	for (const [generationId, entry] of generationIndex) {
 		if (entry.tabId === tabId) generationIndex.delete(generationId);
@@ -474,7 +470,6 @@ export async function submitGrid(tabId: string, request: GenerationRequest): Pro
 			message: `A comparison can have at most ${settings.hard_cap} cells. This one has ${count}.`
 		};
 	}
-	submitting[tabId] = true;
 	refusals[tabId] = null;
 	touch();
 	try {
@@ -510,7 +505,6 @@ export async function submitGrid(tabId: string, request: GenerationRequest): Pro
 			message: error instanceof Error && error.message ? error.message : 'Could not start the comparison.'
 		};
 	} finally {
-		submitting[tabId] = false;
 		touch();
 	}
 }
@@ -582,24 +576,6 @@ export async function cancelGrid(tabId: string): Promise<string[]> {
 	return ids;
 }
 
-export async function deleteGrid(gridId: string): Promise<void> {
-	await removeGrid(gridId);
-	for (const tabId of Object.keys(liveGrids)) {
-		if (liveGrids[tabId]?.id !== gridId) continue;
-		liveGrids[tabId] = null;
-		reindex(tabId);
-		touch();
-		if (findTab(tabId)?.compareGridId === gridId) tabsStore.updateTab(tabId, { compareGridId: null });
-	}
-}
-
-export function dismissActiveGrid(tabId: string): void {
-	liveGrids[tabId] = null;
-	reindex(tabId);
-	touch();
-	if (findTab(tabId)?.compareGridId) tabsStore.updateTab(tabId, { compareGridId: null });
-}
-
 function scheduleRefresh(tabId: string): void {
 	const grid = liveGrids[tabId];
 	if (!grid?.id) return;
@@ -661,7 +637,8 @@ export function observeGenerationMessage(message: { type: string; [key: string]:
 		runStarted.set(generationId, Date.now());
 	}
 	grid.cells[entry.index] = next;
-	touch();
+	if (next.status === cell.status && PROGRESS_MESSAGE_TYPES.has(message.type)) touchProgress();
+	else touch();
 	if (COMPARE_TERMINAL_TYPES.has(message.type)) {
 		if (next.status === 'completed') rememberCellDuration(entry.tabId, generationId);
 		else runStarted.delete(generationId);
@@ -675,10 +652,6 @@ export function ownsGeneration(generationId: string | undefined): boolean {
 	return !!generationId && generationIndex.has(generationId);
 }
 
-export function isTerminalStatus(status: string): boolean {
-	return TERMINAL.has(status);
-}
-
 export function resetCompareStoreForTests(): void {
 	for (const timer of refreshTimers.values()) clearTimeout(timer);
 	refreshTimers.clear();
@@ -690,7 +663,6 @@ export function resetCompareStoreForTests(): void {
 	for (const key of Object.keys(liveGrids)) delete liveGrids[key];
 	for (const key of Object.keys(blockers)) delete blockers[key];
 	for (const key of Object.keys(refusals)) delete refusals[key];
-	for (const key of Object.keys(submitting)) delete submitting[key];
 	drawerTabId = null;
 	runHandlers = null;
 	schemas = {};

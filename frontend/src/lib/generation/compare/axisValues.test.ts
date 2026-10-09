@@ -4,10 +4,8 @@ import {
 	cellCount,
 	checkboxAxisValues,
 	chipOptionsFor,
-	chipsAxisValues,
 	countMatches,
 	effectiveAxes,
-	formatCellSummary,
 	isChipSelected,
 	loraAxisValues,
 	parseNumberList,
@@ -116,11 +114,6 @@ describe('chips', () => {
 	it('leaves other types untouched', () => {
 		expect(chipOptionsFor('select', options)).toBe(options);
 	});
-
-	it('chipsAxisValues picks by deep equality', () => {
-		const mapped = chipOptionsFor('checkbox_group', options);
-		expect(chipsAxisValues(mapped, [['a'], ['c']]).map((v) => v.label)).toEqual(['A', 'C']);
-	});
 });
 
 describe('prompt axis', () => {
@@ -163,11 +156,6 @@ describe('grid shape', () => {
 
 	it('is zero without values', () => {
 		expect(cellCount({ x: axis('a', 0), y: null })).toBe(0);
-	});
-
-	it('formats the summary', () => {
-		expect(formatCellSummary({ x: axis('a', 4), y: axis('b', 3) })).toBe('4 × 3 = 12 generations');
-		expect(formatCellSummary({ x: axis('a', 4), y: null })).toBe('4 generations');
 	});
 
 	it('checkbox values are on then off', () => {

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, Spinner } from '$lib/components/ui';
-	import type { GridCell } from '../compareStore.svelte';
-	import type { VideoGroup } from './videoSync';
-	import { cellAxisSummary, cellProgressLabel, cellStatusLabel, formatSeconds } from './gridModel';
+	import type { GridCell } from '$lib/generation/compare/compareStore.svelte';
+	import type { VideoGroup } from '$lib/generation/compare/view/videoSync';
+	import { cellAxisSummary, cellProgressLabel, cellStatusLabel, formatSeconds } from '$lib/generation/compare/view/gridModel';
 
 	let {
 		cell,
@@ -14,6 +14,7 @@
 		aspect = 1,
 		videoUrl = null,
 		group = null,
+		blurPreview = true,
 		onOpen,
 		onRetry,
 		onAspect
@@ -26,6 +27,7 @@
 		aspect?: number;
 		videoUrl?: string | null;
 		group?: VideoGroup | null;
+		blurPreview?: boolean;
 		onOpen?: (index: number) => void;
 		onRetry?: (index: number) => void;
 		onAspect?: (aspect: number) => void;
@@ -147,7 +149,7 @@
 		{#if seconds !== null}
 			<span
 				data-testid="compare-cell-time"
-				class="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 font-mono text-2xs tabular-nums text-fg"
+				class="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 font-mono text-xs tabular-nums text-fg"
 			>
 				{formatSeconds(seconds)}
 			</span>
@@ -157,7 +159,7 @@
 			<img
 				src={cell.previewUrl}
 				alt=""
-				class="absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-md"
+				class="absolute inset-0 h-full w-full object-cover opacity-70 {blurPreview ? 'scale-110 blur-md' : ''}"
 			/>
 		{/if}
 		<div class="relative flex h-full w-full flex-col items-center justify-center gap-1.5">
@@ -167,7 +169,7 @@
 					{cellProgressLabel(cell.progress)}
 				</span>
 			{:else}
-				<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Running</span>
+				<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-muted">Running</span>
 			{/if}
 		</div>
 		<div class="tick-track absolute bottom-0 left-0 right-0" data-testid="compare-cell-tick">
@@ -175,14 +177,14 @@
 		</div>
 	{:else if cell.status === 'queued'}
 		<div class="dotted flex h-full w-full flex-col items-center justify-center gap-1">
-			<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Queued</span>
+			<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Queued</span>
 			{#if ordinal !== null}
 				<span data-testid="compare-cell-ordinal" class="font-mono text-xs tabular-nums text-fg-subtle">#{ordinal}</span>
 			{/if}
 		</div>
 	{:else if cell.status === 'failed'}
 		<div class="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
-			<span class="font-mono text-2xs uppercase tracking-[0.07em] text-danger">Failed</span>
+			<span class="font-mono text-xs uppercase tracking-[0.07em] text-danger">Failed</span>
 			{#if cell.error}
 				<p data-testid="compare-cell-error" class="line-clamp-3 text-xs text-fg-muted">{cell.error}</p>
 			{/if}
@@ -190,12 +192,12 @@
 		</div>
 	{:else if cell.status === 'deleted'}
 		<div class="dotted flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
-			<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Deleted</span>
+			<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Deleted</span>
 			<Button variant="secondary" size="xs" icon="refresh" onclick={retry}>Retry</Button>
 		</div>
 	{:else if cell.status === 'cancelled'}
 		<div class="dotted flex h-full w-full items-center justify-center">
-			<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Cancelled</span>
+			<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Cancelled</span>
 		</div>
 	{:else}
 		<div class="dotted h-full w-full" data-testid="compare-cell-empty"></div>

@@ -76,15 +76,15 @@
 	{#if mode === 'range'}
 		<div class="grid grid-cols-3 gap-2">
 			<label class="block">
-				<span class="mb-1 block font-mono text-2xs uppercase tracking-wide text-fg-subtle">From</span>
+				<span class="mb-1 block font-mono text-xs uppercase tracking-wide text-fg-subtle">From</span>
 				<input class="input font-mono tabular-nums" type="number" inputmode="decimal" aria-label="From" bind:value={from} oninput={recompute} />
 			</label>
 			<label class="block">
-				<span class="mb-1 block font-mono text-2xs uppercase tracking-wide text-fg-subtle">To</span>
+				<span class="mb-1 block font-mono text-xs uppercase tracking-wide text-fg-subtle">To</span>
 				<input class="input font-mono tabular-nums" type="number" inputmode="decimal" aria-label="To" bind:value={to} oninput={recompute} />
 			</label>
 			<label class="block">
-				<span class="mb-1 block font-mono text-2xs uppercase tracking-wide text-fg-subtle">Step</span>
+				<span class="mb-1 block font-mono text-xs uppercase tracking-wide text-fg-subtle">Step</span>
 				<input class="input font-mono tabular-nums" type="number" inputmode="decimal" aria-label="Step" bind:value={stride} oninput={recompute} />
 			</label>
 		</div>

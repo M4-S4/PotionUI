@@ -21,7 +21,7 @@
 	import { formatElapsedClock } from './studioProgressRing';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
-	import GridWorkbench from '$lib/generation/compare/view/GridWorkbench.svelte';
+	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
 
 	export let tab: Tab;

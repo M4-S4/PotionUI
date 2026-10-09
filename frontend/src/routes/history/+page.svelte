@@ -29,7 +29,7 @@
 	import HistorySelectionToolbar from './components/HistorySelectionToolbar.svelte';
 	import HistoryGrid from './components/HistoryGrid.svelte';
 	import HistoryGridView from './components/HistoryGridView.svelte';
-	import GridDetailsCard from '$lib/generation/compare/view/GridDetailsCard.svelte';
+	import GridDetailsCard from '$lib/components/compare/view/GridDetailsCard.svelte';
 	import { fetchGrid, openGridId } from '$lib/generation/compare/view/gridApi';
 	import { axisTag } from '$lib/generation/compare/view/gridModel';
 	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';

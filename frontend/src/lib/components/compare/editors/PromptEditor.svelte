@@ -64,7 +64,7 @@
 <div class="space-y-3">
 	<div class="space-y-1">
 		<div class="flex items-center justify-between">
-			<span class="font-mono text-2xs uppercase tracking-wide text-fg-subtle">Find</span>
+			<span class="font-mono text-xs uppercase tracking-wide text-fg-subtle">Find</span>
 			{#if find}
 				<span class="font-mono text-xs tabular-nums {matches > 0 ? 'text-signal' : 'text-warning'}" data-testid="match-count">
 					{matches} {matches === 1 ? 'match' : 'matches'}
@@ -74,7 +74,7 @@
 		<input class="input font-mono" type="text" aria-label="Find" placeholder="warm light" bind:value={find} oninput={emit} />
 	</div>
 	<div class="space-y-1.5">
-		<span class="block font-mono text-2xs uppercase tracking-wide text-fg-subtle">Replace with</span>
+		<span class="block font-mono text-xs uppercase tracking-wide text-fg-subtle">Replace with</span>
 		{#each replacements as entry, index (index)}
 			<div class="flex items-center gap-2">
 				<span class="w-4 text-right font-mono text-xs tabular-nums text-fg-subtle">{index + 1}</span>

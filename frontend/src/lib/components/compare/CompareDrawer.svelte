@@ -71,7 +71,7 @@
 
 {#snippet sectionLabel(text: string)}
 	<div class="mb-2 mt-4 flex items-center gap-3 first:mt-0">
-		<span class="font-mono text-[10px] font-semibold uppercase tracking-wider text-fg">{text}</span>
+		<span class="font-mono text-xs font-semibold uppercase tracking-wider text-fg">{text}</span>
 		<span class="h-px flex-1 bg-line"></span>
 	</div>
 {/snippet}

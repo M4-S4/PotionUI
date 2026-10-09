@@ -145,7 +145,7 @@
 			<p class="px-2.5 py-4 text-sm text-fg-subtle">No field matches.</p>
 		{:else}
 			{#each groups as group (group.group)}
-				<div class="px-2.5 pb-1 pt-2.5 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+				<div class="px-2.5 pb-1 pt-2.5 font-mono text-xs uppercase tracking-wider text-fg-subtle">
 					{group.group}
 				</div>
 				{#each group.items as candidate (candidate.field)}

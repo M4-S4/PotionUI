@@ -54,7 +54,7 @@
 	{#each groups as entry (entry.group)}
 		<div class="space-y-1">
 			{#if entry.group}
-				<p class="font-mono text-2xs uppercase tracking-wide text-fg-subtle">{entry.group}</p>
+				<p class="font-mono text-xs uppercase tracking-wide text-fg-subtle">{entry.group}</p>
 			{/if}
 			<div class="flex flex-wrap gap-1.5">
 				{#each entry.items as option (option.value)}

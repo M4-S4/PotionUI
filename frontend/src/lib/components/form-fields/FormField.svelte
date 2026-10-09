@@ -93,7 +93,7 @@
 			>
 				<span class="mb-1.5 flex items-center justify-between gap-2">
 					<span class="label !mb-0 truncate">{axisTitle}</span>
-					<span class="shrink-0 rounded border border-signal/40 bg-signal/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-signal">
+					<span class="shrink-0 rounded border border-signal/40 bg-signal/10 px-1.5 py-0.5 font-mono text-xs font-semibold uppercase tracking-wide text-signal">
 						{axisRole.role} axis
 					</span>
 				</span>

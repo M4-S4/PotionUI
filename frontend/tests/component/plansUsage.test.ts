@@ -17,6 +17,7 @@ import { getMyLimits } from '$lib/plans/meApi';
 import { postUpload } from '$lib/components/form-fields/mediaLoaderUpload';
 import {
 	generateGate,
+	submitGate,
 	limits,
 	reportLimitRefusal,
 	resetLimitsState
@@ -167,6 +168,17 @@ describe('generate refusal', () => {
 
 		await vi.advanceTimersByTimeAsync(60_000);
 		expect(get(generateGate)?.reason).toBe('Daily limit reached, resets in 4 h 11 min. Ask your admin for more.');
+
+		unsubscribe();
+	});
+
+	it('gates submitting without starting the one second clock', () => {
+		reportLimitRefusal(refusal);
+		const timersBefore = vi.getTimerCount();
+		const unsubscribe = submitGate.subscribe(() => {});
+
+		expect(get(submitGate)?.title).toBe('Daily limit reached');
+		expect(vi.getTimerCount()).toBe(timersBefore);
 
 		unsubscribe();
 	});

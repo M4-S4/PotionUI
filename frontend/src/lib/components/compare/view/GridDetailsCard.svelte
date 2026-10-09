@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button } from '$lib/components/ui';
-	import type { ActiveGrid } from '../compareStore.svelte';
+	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';
 	import GridMiniMap from './GridMiniMap.svelte';
-	import { cellAxisSummary } from './gridModel';
+	import { cellAxisSummary } from '$lib/generation/compare/view/gridModel';
 
 	let {
 		grid,
@@ -29,7 +29,7 @@
 			<Icon name="grid" className="h-4 w-4 text-signal" />
 			<h3 class="text-sm font-semibold text-fg">Compare grid</h3>
 		</div>
-		<span class="font-mono text-2xs tabular-nums text-fg-subtle">cell {index + 1} of {grid.cells.length}</span>
+		<span class="font-mono text-xs tabular-nums text-fg-subtle">cell {index + 1} of {grid.cells.length}</span>
 	</div>
 	<div class="space-y-3 p-3">
 		<p class="text-sm text-fg" data-testid="grid-details-summary">

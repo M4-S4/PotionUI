@@ -1,6 +1,5 @@
 import {
 	MAX_AXIS_VALUES,
-	PROMPT_AXIS_FIELD,
 	type AxisOption,
 	type CompareAxis,
 	type CompareAxisValue,
@@ -25,13 +24,6 @@ export function cellCount(config: Pick<CompareConfig, 'x' | 'y'>): number {
 
 export function compareHasContent(config: Pick<CompareConfig, 'armed' | 'x' | 'y'>): boolean {
 	return config.armed || (config.x?.values.length ?? 0) > 0 || (config.y?.values.length ?? 0) > 0;
-}
-
-export function formatCellSummary(config: Pick<CompareConfig, 'x' | 'y'>): string {
-	const { cols, rows } = effectiveAxes(config);
-	if (!cols) return '';
-	if (!rows) return `${cols.values.length} generations`;
-	return `${cols.values.length} × ${rows.values.length} = ${cols.values.length * rows.values.length} generations`;
 }
 
 function decimalsOf(n: number): number {
@@ -125,12 +117,6 @@ export function isChipSelected(current: CompareAxisValue[], value: unknown): boo
 	return current.some((entry) => sameValue(entry.value, value));
 }
 
-export function chipsAxisValues(options: AxisOption[], selected: unknown[]): CompareAxisValue[] {
-	return options
-		.filter((option) => selected.some((value) => sameValue(value, option.value)))
-		.map((o) => ({ value: o.value, label: o.label }));
-}
-
 export function toggleChip(current: CompareAxisValue[], options: AxisOption[], value: unknown): CompareAxisValue[] {
 	const next = isChipSelected(current, value)
 		? current.filter((entry) => !sameValue(entry.value, value))
@@ -195,16 +181,3 @@ export function loraAxisValues(
 	}));
 }
 
-export function isPromptAxis(axis: Pick<CompareAxis, 'field'> | null | undefined): boolean {
-	return axis?.field === PROMPT_AXIS_FIELD;
-}
-
-export function valueLabelFor(axis: CompareAxis | null, value: unknown): string {
-	const hit = axis?.values.find((entry) => JSON.stringify(entry.value) === JSON.stringify(value));
-	return hit?.label ?? String(value);
-}
-
-export function axisFormValue(axis: CompareAxis | null): string {
-	if (!axis || axis.values.length === 0) return '';
-	return axis.values[0].label;
-}

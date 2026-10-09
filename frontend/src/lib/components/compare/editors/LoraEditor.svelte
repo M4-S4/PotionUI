@@ -74,7 +74,7 @@
 
 <div class="space-y-3">
 	<div class="space-y-1.5">
-		<span class="block font-mono text-2xs uppercase tracking-wide text-fg-subtle">LoRA</span>
+		<span class="block font-mono text-xs uppercase tracking-wide text-fg-subtle">LoRA</span>
 		{#if choices.length > 0}
 			<select class="input" aria-label="LoRA" value={activeRef} onchange={(event) => choose(event.currentTarget.value)}>
 				{#each choices as choice (choice.ref)}

@@ -18,6 +18,7 @@
 	import {
 		armCompare,
 		compareRevision,
+		compareProgressRevision,
 		readCompareState,
 		readCompareSummary,
 		toggleCompareDrawer
@@ -407,7 +408,7 @@
 	// yet (e.g. a cold model load) and the bar renders indeterminate instead.
 	$: hasProgressFraction = compareGridActive || generation.currentProgress?.progress != null;
 	$: progressPercent = compareGridActive
-		? Math.round(gridFraction({ cells: compareState.cells }) * 100)
+		? ($compareProgressRevision, Math.round(gridFraction({ cells: compareState.cells }) * 100))
 		: Math.round((generation.currentProgress?.progress ?? 0) * 100);
 	$: stepParsed = parseTemplateMarkers(generation.currentProgress?.current_step || '');
 	$: messageParsed = parseTemplateMarkers(generation.currentProgress?.message || '');

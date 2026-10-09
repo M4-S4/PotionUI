@@ -12,9 +12,9 @@
 	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';
-	import CompareGrid from '$lib/generation/compare/view/CompareGrid.svelte';
-	import GridCellViewer from '$lib/generation/compare/view/GridCellViewer.svelte';
-	import GridExport from '$lib/generation/compare/view/GridExport.svelte';
+	import CompareGrid from '$lib/components/compare/view/CompareGrid.svelte';
+	import GridCellViewer from '$lib/components/compare/view/GridCellViewer.svelte';
+	import GridExport from '$lib/components/compare/view/GridExport.svelte';
 	import { fetchGrid, openGridId, retryGridFailed } from '$lib/generation/compare/view/gridApi';
 	import { gridDimensions, gridProgress, gridTitle } from '$lib/generation/compare/view/gridModel';
 
@@ -105,7 +105,7 @@
 	</svelte:fragment>
 	<svelte:fragment slot="header">
 		{#if grid}
-			<span class="font-mono text-2xs tabular-nums text-fg-subtle" data-testid="history-grid-dims">
+			<span class="font-mono text-xs tabular-nums text-fg-subtle" data-testid="history-grid-dims">
 				{gridTitle(grid.config)} · {gridDimensions(grid)}
 			</span>
 		{/if}

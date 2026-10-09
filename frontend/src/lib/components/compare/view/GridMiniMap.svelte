@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { ActiveGrid } from '../compareStore.svelte';
-	import { cellAxisSummary, cellStatusLabel } from './gridModel';
+	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';
+	import { cellAxisSummary, cellStatusLabel } from '$lib/generation/compare/view/gridModel';
 
 	let {
 		grid,

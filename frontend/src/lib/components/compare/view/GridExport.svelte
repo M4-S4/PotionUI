@@ -2,9 +2,9 @@
 	import { onMount } from 'svelte';
 	import { toasts } from '$lib/stores/toast';
 	import HistoryStitchModal from '../../../../routes/history/components/HistoryStitchModal.svelte';
-	import type { ActiveGrid } from '../compareStore.svelte';
-	import { resolveCellFiles } from './cellFiles';
-	import { buildCompareStitch, type CompareStitchRequest } from './stitchCompareSource';
+	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';
+	import { resolveCellFiles } from '$lib/generation/compare/view/cellFiles';
+	import { buildCompareStitch, type CompareStitchRequest } from '$lib/generation/compare/view/stitchCompareSource';
 
 	let {
 		grid,

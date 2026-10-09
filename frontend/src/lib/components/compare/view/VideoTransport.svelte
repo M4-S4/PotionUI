@@ -2,7 +2,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton, Switch } from '$lib/components/ui';
-	import { formatClock, type VideoGroup, type VideoGroupState } from './videoSync';
+	import { formatClock, type VideoGroup, type VideoGroupState } from '$lib/generation/compare/view/videoSync';
 
 	let { group }: { group: VideoGroup } = $props();
 

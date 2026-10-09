@@ -5,7 +5,7 @@
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
 	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
-	import { generateGate, limits, limitsMeta } from '$lib/plans/store';
+	import { submitGate, limits, limitsMeta } from '$lib/plans/store';
 	import { get } from 'svelte/store';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import {
@@ -1772,7 +1772,7 @@
 						);
 		}
 
-		const limitGate = $generateGate;
+		const limitGate = $submitGate;
 		const missingModelField = currentTab.selectedPreset && !videoDirectorActive && !musicDirectorActive && !promptRelayActive
 			? missingModelFor(
 					$missingModelByTab,

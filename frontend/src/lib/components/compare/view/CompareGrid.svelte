@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/ui';
-	import type { ActiveGrid } from '../compareStore.svelte';
+	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';
 	import CompareCell from './CompareCell.svelte';
 	import VideoTransport from './VideoTransport.svelte';
-	import { resolveCellFiles } from './cellFiles';
+	import { resolveCellFiles } from '$lib/generation/compare/view/cellFiles';
 	import {
 		axisValueLabel,
 		computeCellSize,
@@ -16,8 +16,8 @@
 		retryableCount,
 		CELL_GAP,
 		SCROLLER_PADDING
-	} from './gridModel';
-	import { createVideoGroup } from './videoSync';
+	} from '$lib/generation/compare/view/gridModel';
+	import { createVideoGroup } from '$lib/generation/compare/view/videoSync';
 
 	let {
 		grid,
@@ -37,6 +37,7 @@
 		onRetryFailed?: () => void;
 	} = $props();
 
+	const BLUR_PREVIEW_MAX_CELLS = 16;
 	const timer = createCellTimer();
 	const group = createVideoGroup();
 
@@ -106,7 +107,7 @@
 	data-grid-rows={grid.rows}
 >
 	<header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3" data-testid="compare-header">
-		<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Compare</span>
+		<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Compare</span>
 		<span class="text-sm font-medium text-fg">{gridTitle(grid.config)}</span>
 		{#if overview}
 			<Badge variant="neutral" size="sm" class="font-mono tabular-nums">{gridDimensions(grid)}</Badge>
@@ -169,7 +170,7 @@
 		>
 			<div
 				bind:clientHeight={cornerHeight}
-				class="sticky left-0 -top-3 z-20 -mt-3 flex flex-col justify-end bg-canvas pb-1 pt-3 font-mono text-2xs uppercase leading-5 tracking-[0.07em] text-fg-subtle"
+				class="sticky left-0 -top-3 z-20 -mt-3 flex flex-col justify-end bg-canvas pb-1 pt-3 font-mono text-xs uppercase leading-5 tracking-[0.07em] text-fg-subtle"
 			>
 				<span><span class="text-signal">X</span> {grid.config.x?.label ?? ''}</span>
 				{#if grid.config.y}
@@ -178,7 +179,7 @@
 			</div>
 			{#each { length: grid.cols } as _, x (x)}
 				<div
-					class="sticky -top-3 z-10 -mt-3 flex items-end justify-center truncate bg-canvas pb-1 pt-3 text-center font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted"
+					class="sticky -top-3 z-10 -mt-3 flex items-end justify-center truncate bg-canvas pb-1 pt-3 text-center font-mono text-xs uppercase tracking-[0.07em] text-fg-muted"
 					data-testid="compare-x-label"
 				>
 					{axisValueLabel(grid.config.x, x)}
@@ -187,7 +188,7 @@
 
 			{#each { length: grid.rows } as _, y (y)}
 				<div
-					class="sticky left-0 z-10 flex items-center justify-end bg-canvas pr-2 text-right font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted"
+					class="sticky left-0 z-10 flex items-center justify-end bg-canvas pr-2 text-right font-mono text-xs uppercase tracking-[0.07em] text-fg-muted"
 					data-testid="compare-y-label"
 				>
 					{grid.config.y ? axisValueLabel(grid.config.y, y) : ''}
@@ -200,6 +201,7 @@
 						{index}
 						{aspect}
 						{group}
+						blurPreview={grid.cells.length <= BLUR_PREVIEW_MAX_CELLS}
 						ordinal={ordinals.get(index) ?? null}
 						seconds={cell.elapsedSeconds ?? (cell.generationId ? (durations.get(cell.generationId) ?? null) : null)}
 						selected={selectedIndex === index}

@@ -32,7 +32,6 @@
 	import FrameEditor from './FrameEditor.svelte';
 	import MaskEditor from './MaskEditor.svelte';
 	import SplitEditor from './SplitEditor.svelte';
-	import PaintEditor from '$lib/components/imageEditor/PaintEditor.svelte';
 	import { decideMaskFate } from '$lib/components/imageEditor/maskPolicy';
 	import {
 		materializeGeneratedFile,
@@ -320,15 +319,17 @@
 			{commit}
 		/>
 	{:else if kind === 'paint'}
-		<PaintEditor
-			source={request.source}
-			draw={request.draw ?? null}
-			hasMask={existingMaskUrl !== null}
-			{busy}
-			failureMessage={failure}
-			{onClose}
-			{commit}
-		/>
+		{#await import('$lib/components/imageEditor/PaintEditor.svelte') then paint}
+			<paint.default
+				source={request.source}
+				draw={request.draw ?? null}
+				hasMask={existingMaskUrl !== null}
+				{busy}
+				failureMessage={failure}
+				{onClose}
+				{commit}
+			/>
+		{/await}
 	{:else}
 		<MaskEditor
 			source={request.source}

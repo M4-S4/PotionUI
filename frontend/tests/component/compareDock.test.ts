@@ -7,7 +7,6 @@ vi.mock('$lib/generation/compare/compareApi', () => ({
 	postGrid: vi.fn(),
 	fetchGrid: vi.fn(),
 	postRetryFailed: vi.fn(),
-	removeGrid: vi.fn(),
 	fetchGridSettings: vi.fn(async () => ({ confirm_above: 24, hard_cap: 100 }))
 }));
 

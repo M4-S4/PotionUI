@@ -10,7 +10,7 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { default: CompareGrid } = await import('$lib/generation/compare/view/CompareGrid.svelte');
+const { default: CompareGrid } = await import('$lib/components/compare/view/CompareGrid.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { emptyCell } = await import('$lib/generation/compare/serverGrid');
 

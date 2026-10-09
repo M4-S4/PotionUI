@@ -2,11 +2,11 @@
 	import { get } from 'svelte/store';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
-	import { cancelGrid, getActiveGrid, retryFailed, turnOffCompare } from '../compareStore.svelte';
+	import { cancelGrid, getActiveGrid, retryFailed, turnOffCompare } from '$lib/generation/compare/compareStore.svelte';
 	import CompareGrid from './CompareGrid.svelte';
 	import GridCellViewer from './GridCellViewer.svelte';
 	import GridExport from './GridExport.svelte';
-	import { cellFormPatch, cellTabUpdates } from './gridModel';
+	import { cellFormPatch, cellTabUpdates } from '$lib/generation/compare/view/gridModel';
 
 	let { tabId }: { tabId: string } = $props();
 

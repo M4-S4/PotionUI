@@ -3,7 +3,7 @@
 	import PluginOutputs from '$lib/components/generation/PluginOutputs.svelte';
 	import CancelNotice from '$lib/components/generation/CancelNotice.svelte';
 	import LiveTextArtifacts from '$lib/components/generation/LiveTextArtifacts.svelte';
-	import GridWorkbench from '$lib/generation/compare/view/GridWorkbench.svelte';
+	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
 	import type { Tab } from '$lib/types/tabs';
 

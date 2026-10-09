@@ -13,7 +13,6 @@ vi.mock('$lib/generation/compare/compareApi', () => ({
 	postGrid: vi.fn(),
 	fetchGrid: vi.fn(),
 	postRetryFailed: vi.fn(),
-	removeGrid: vi.fn()
 }));
 
 const { api } = await import('$lib/services/api/index');

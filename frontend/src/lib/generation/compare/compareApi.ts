@@ -35,10 +35,6 @@ export async function postRetryFailed(gridId: string): Promise<ServerGrid> {
 	return unwrap(response.data, 'Could not retry the failed cells.');
 }
 
-export async function removeGrid(gridId: string): Promise<void> {
-	await api.getClient().delete(`${BASE}/${encodeURIComponent(gridId)}`);
-}
-
 export async function fetchGridSettings(): Promise<GridSettings> {
 	try {
 		const response = await api.getClient().get<Envelope<Partial<GridSettings>>>(`${BASE}/settings`);

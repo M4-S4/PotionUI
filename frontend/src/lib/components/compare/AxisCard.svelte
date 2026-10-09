@@ -82,7 +82,7 @@
 {:else}
 	<div class="rounded-lg border border-line bg-surface-2 p-3" data-testid="axis-card-{slot}">
 		<div class="mb-2 flex items-center justify-between gap-2">
-			<span class="font-mono text-[10px] uppercase tracking-wider text-fg-subtle">Field</span>
+			<span class="font-mono text-xs uppercase tracking-wider text-fg-subtle">Field</span>
 			<span class="flex items-center gap-1">
 				{#if axis}
 					<span class="font-mono text-xs tabular-nums text-fg-subtle" data-testid="axis-count-{slot}">{countText}</span>
@@ -100,7 +100,7 @@
 			onclick={() => (open = !open)}
 		>
 			<span
-				class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border border-signal/40 bg-signal/10 font-mono text-[10px] text-signal"
+				class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border border-signal/40 bg-signal/10 font-mono text-xs text-signal"
 			>
 				{slot.toUpperCase()}
 			</span>

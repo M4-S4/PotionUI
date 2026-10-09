@@ -8,8 +8,8 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { default: CompareGrid } = await import('$lib/generation/compare/view/CompareGrid.svelte');
-const { default: CompareCell } = await import('$lib/generation/compare/view/CompareCell.svelte');
+const { default: CompareGrid } = await import('$lib/components/compare/view/CompareGrid.svelte');
+const { default: CompareCell } = await import('$lib/components/compare/view/CompareCell.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { emptyCell } = await import('$lib/generation/compare/serverGrid');
 
@@ -94,6 +94,21 @@ describe('compare cell states', () => {
 		expect(preview.className).toContain('blur');
 		const tick = q(target, '[data-testid="compare-cell-tick"] > div') as HTMLElement;
 		expect(tick.style.width).toBe('50%');
+	});
+
+	it('drops the preview blur once a grid has more than sixteen cells', () => {
+		const previews = (count: number) => {
+			const cells = Array.from({ length: count }, (_, i) => cell(i % 6, 'running', { previewUrl: `/live-${i}.png`, generationId: `gen-${i}` }));
+			const grid = { ...makeGrid(['running']), cols: 6, rows: Math.ceil(count / 6), cells };
+			const { target } = mount(CompareGrid, { grid });
+			return qa(target, 'img').filter((img) => img.getAttribute('src')?.startsWith('/live-'));
+		};
+		const small = previews(6);
+		expect(small).toHaveLength(6);
+		expect(small.every((img) => img.className.includes('blur-md'))).toBe(true);
+		const large = previews(18);
+		expect(large).toHaveLength(18);
+		expect(large.some((img) => img.className.includes('blur'))).toBe(false);
 	});
 
 	it('shows a running cell without progress as plain Running', () => {

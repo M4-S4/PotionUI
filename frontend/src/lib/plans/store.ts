@@ -27,20 +27,32 @@ export const nowTick = readable(Date.now(), (set) => {
 
 export const closest = derived(limits, ($limits) => closestLimit($limits));
 
+function computeGate(
+	$limits: LimitRow[],
+	$refusal: LimitRefusal | null,
+	$now: number,
+	$meta: MyPlanMeta | null
+): LimitGate | null {
+	if ($refusal) {
+		const gate = gateFromRefusal($refusal, $now);
+		if (gate) return gate;
+	}
+	for (const row of $limits) {
+		if (!blocksSubmit(row)) continue;
+		const gate = gateFromRow(row, $now, $meta?.contactLine ?? undefined);
+		if (gate) return gate;
+	}
+	return null;
+}
+
 export const generateGate = derived(
 	[limits, serverRefusal, nowTick, limitsMeta],
-	([$limits, $refusal, $now, $meta]): LimitGate | null => {
-		if ($refusal) {
-			const gate = gateFromRefusal($refusal, $now);
-			if (gate) return gate;
-		}
-		for (const row of $limits) {
-			if (!blocksSubmit(row)) continue;
-			const gate = gateFromRow(row, $now, $meta?.contactLine ?? undefined);
-			if (gate) return gate;
-		}
-		return null;
-	}
+	([$limits, $refusal, $now, $meta]): LimitGate | null => computeGate($limits, $refusal, $now, $meta)
+);
+
+export const submitGate = derived(
+	[limits, serverRefusal, limitsMeta],
+	([$limits, $refusal, $meta]): LimitGate | null => computeGate($limits, $refusal, Date.now(), $meta)
 );
 
 let resetTimer: ReturnType<typeof setTimeout> | null = null;
