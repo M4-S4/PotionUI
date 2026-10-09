@@ -1,4 +1,3 @@
-import base64
 import re
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -6,7 +5,7 @@ from typing import Any, Dict, List, Optional
 from src.plugin_api.cloud import CloudArtifact, CloudCost, CloudError, CloudModelSpec, CloudResult, CloudStatus
 
 from .catalog import second_price
-from .mapping import REFUSED_MESSAGE, UNREADABLE_MESSAGE
+from .mapping import REFUSED_MESSAGE, UNREADABLE_MESSAGE, inline_part
 
 FIRST_POLL_SECONDS = 10.0
 POLL_SECONDS = 15.0
@@ -19,10 +18,6 @@ OPERATION_NAME = re.compile(r"^(models/[A-Za-z0-9._-]+/)?operations/[A-Za-z0-9._
 
 def is_video_spec(spec: CloudModelSpec) -> bool:
     return "video" in spec.outputs
-
-
-def _image(media: Any) -> Dict[str, Any]:
-    return {"inlineData": {"mimeType": media.media_type, "data": base64.b64encode(media.path.read_bytes()).decode("ascii")}}
 
 
 def _duration(request: Any) -> int:
@@ -45,9 +40,9 @@ def build_video_body(request: Any) -> Dict[str, Any]:
             detail="lastFrame without image", request_sent=False,
         )
     if first:
-        instance["image"] = _image(first[0])
+        instance["image"] = inline_part(first[0].path, first[0].media_type)
     if last:
-        instance["lastFrame"] = _image(last[0])
+        instance["lastFrame"] = inline_part(last[0].path, last[0].media_type)
     duration = _duration(request)
     resolution = request.params.get("resolution")
     if resolution and str(resolution).lower() in LONG_ONLY_RESOLUTIONS and duration != LONG_DURATION:

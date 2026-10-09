@@ -8,7 +8,6 @@ from src.plugin_api.cloud_testing import (
     SCENARIO_ASYNC_FAILED,
     SCENARIO_CANCEL,
     ContractCase,
-    FakeClock,
     run_contract,
 )
 
@@ -22,29 +21,20 @@ async def submitted(provider, model_id="flux-2-pro", **fields):
     return await provider.submit(await request_for(provider, model_id, **fields))
 
 
-async def test_polling_goes_from_pending_to_generating_to_ready_with_growing_waits(provider, bfl):
+async def test_polling_goes_from_pending_to_generating_to_ready(provider, bfl):
     job = await submitted(provider, params={"output_format": "png"})
 
     first = await provider.poll(job)
     second = await provider.poll(job)
     third = await provider.poll(job)
 
-    assert (first.state, first.poll_after_s) == ("queued", 1.5)
-    assert (second.state, second.progress, second.poll_after_s) == ("running", 0.5, 2.25)
+    assert first.state == "queued"
+    assert (second.state, second.progress) == ("running", 0.5)
     assert third.state == "succeeded" and third.progress == 1.0
     (artifact,) = third.result.artifacts
     assert artifact.url == bfl.sample() and artifact.media_type == "image/png"
     assert third.result.seed_used == 1234 and third.result.provider_job_id == "task-1"
     assert [call["query"] for call in polls(bfl)] == [{"id": "task-1"}] * 3
-
-
-async def test_the_wait_between_polls_is_capped(provider, bfl):
-    bfl.poll_mode = "forever"
-    job = await submitted(provider)
-
-    waits = [(await provider.poll(job)).poll_after_s for _ in range(10)]
-
-    assert waits == sorted(waits) and waits[-1] == 8.0
 
 
 async def test_a_ready_picture_is_downloaded_from_the_signed_address_without_the_key(provider, bfl, tmp_path):
@@ -166,23 +156,10 @@ async def test_pending_after_generating_does_not_move_the_state_backwards(provid
     assert states == ["running", "running", "running"]
 
 
-async def test_polling_stops_with_a_timeout_once_the_backend_limit_has_passed(bfl):
-    clock = FakeClock()
-    made, http = build(bfl, clock=clock, timeout_seconds=60)
-    bfl.poll_mode = "forever"
-    try:
-        job = await submitted(made)
-        await made.poll(job)
-        clock.advance(61)
-        before = len(polls(bfl))
+def test_a_timeout_warns_that_bfl_may_still_bill_the_job():
+    from backend.provider import BflProvider
 
-        with pytest.raises(CloudError) as raised:
-            await made.poll(job)
-    finally:
-        await http.close()
-
-    assert raised.value.kind == "timeout" and "bill" in raised.value.user_message
-    assert len(polls(bfl)) == before
+    assert "bill" in BflProvider.timeout_message
 
 
 async def test_cancel_cannot_reach_bfl_and_stops_polling_locally(provider, bfl):
@@ -258,6 +235,7 @@ async def test_a_regional_poll_carries_the_key_only_to_that_bfl_host(provider, b
     assert status.state == "succeeded"
     assert len(bfl.regional_requests) == 3 and all(call["headers"]["x-key"] == KEY for call in bfl.regional_requests)
     assert polls(bfl) == []
+    assert list(provider._regional) == [regional_origin]
 
 
 async def test_the_contract_kit_async_scenarios_pass(provider, bfl, tmp_path):

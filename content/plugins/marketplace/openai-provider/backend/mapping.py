@@ -1,4 +1,3 @@
-import base64
 import io
 import math
 from decimal import Decimal, InvalidOperation
@@ -8,7 +7,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 import aiohttp
 from PIL import Image
 
-from src.plugin_api.cloud import CloudArtifact, CloudCost, CloudError, CloudResult
+from src.plugin_api.cloud import CloudArtifact, CloudCost, CloudError, CloudResult, decode_inline
 
 from .catalog import MAX_IMAGES, MILLION
 
@@ -201,11 +200,7 @@ def parse_result(payload: Any, request: Any, request_id: Optional[str]) -> Cloud
     for index, entry in enumerate(payload.get("data") or []):
         if not isinstance(entry, dict) or not isinstance(entry.get("b64_json"), str):
             continue
-        try:
-            data = base64.b64decode(entry["b64_json"], validate=False)
-        except ValueError:
-            continue
-        if data:
+        if data := decode_inline(entry["b64_json"]):
             artifacts.append(CloudArtifact(modality="image", index=index, data=data, media_type=media_type))
     if not artifacts:
         raise CloudError("failed", "OpenAI returned no images.", detail="no b64_json entries in data")

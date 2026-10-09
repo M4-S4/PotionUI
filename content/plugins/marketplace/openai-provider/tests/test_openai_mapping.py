@@ -2,7 +2,9 @@ from decimal import Decimal
 
 import pytest
 
-from backend.catalog import FLEXIBLE_ASPECTS, RESOLUTIONS, catalog_specs, load_catalog
+from src.plugin_api.cloud import load_catalog_file
+
+from backend.catalog import CATALOG_FILE, FLEXIBLE_ASPECTS, RESOLUTIONS, catalog_specs
 from backend.errors import map_error, reset_seconds
 from backend.mapping import flexible_size, usage_cost
 
@@ -10,7 +12,7 @@ RATES = {"text_input": "5.00", "image_input": "8.00", "image_output": "30.00"}
 
 
 def specs():
-    return {spec.provider_model_id: spec for spec in catalog_specs(load_catalog())}
+    return {spec.provider_model_id: spec for spec in catalog_specs(load_catalog_file(CATALOG_FILE))}
 
 
 @pytest.mark.parametrize("aspect", [aspect for aspect in FLEXIBLE_ASPECTS if aspect != "auto"])

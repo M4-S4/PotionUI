@@ -1,9 +1,8 @@
-import base64
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from src.plugin_api.cloud import CloudArtifact, CloudCost, CloudError, CloudResult
+from src.plugin_api.cloud import CloudArtifact, CloudCost, CloudError, CloudResult, decode_inline, encode_media
 
 from .catalog import MILLION, image_price, token_prices
 
@@ -25,7 +24,7 @@ TEXT_DETAIL_LIMIT = 200
 
 
 def inline_part(path: Path, media_type: str) -> Dict[str, Any]:
-    return {"inlineData": {"mimeType": media_type, "data": base64.b64encode(path.read_bytes()).decode("ascii")}}
+    return {"inlineData": {"mimeType": media_type, "data": encode_media(path)}}
 
 
 def build_image_body(request: Any) -> Dict[str, Any]:
@@ -116,11 +115,7 @@ def _image_parts(candidate: Mapping[str, Any]) -> Tuple[List[Tuple[bytes, str]],
             media_type = str(inline.get("mimeType") or inline.get("mime_type") or "image/png")
             if not media_type.startswith("image/"):
                 continue
-            try:
-                data = base64.b64decode(inline["data"], validate=False)
-            except (ValueError, TypeError):
-                continue
-            if data:
+            if data := decode_inline(inline["data"]):
                 images.append((data, media_type))
         elif isinstance(part.get("text"), str) and part["text"].strip():
             texts.append(part["text"].strip())

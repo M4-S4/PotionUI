@@ -1,12 +1,15 @@
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from src.platform.filesystem.model_types import CLOUD_MODEL_TYPE
+
+if TYPE_CHECKING:
+    from src.features.backends.backend_registry import BackendRegistry
 
 CLOUD_DRIVER_PREFIX = "cloud."
 
 
 class CloudModelPresentation:
-    def __init__(self, backend_registry: Any):
+    def __init__(self, backend_registry: "BackendRegistry"):
         self.backend_registry = backend_registry
 
     def fields(self, model: Any) -> Dict[str, Any]:

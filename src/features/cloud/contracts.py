@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Mapping, Optional, get_args
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Literal, Mapping, Optional, get_args
+from urllib.parse import urlsplit
 
-from pydantic import Field
+import yaml
+from pydantic import Field, field_validator, model_validator
 
 from src.features.backends.backend_config import BaseBackendConfig
 from src.pipelines.cloud import CLOUD_ERROR_KINDS, CloudErrorKind, CloudRunError
 
 if TYPE_CHECKING:
     from src.features.cloud.http import CloudHttp
+
+logger = logging.getLogger(__name__)
 
 CLOUD_ENGINE = "cloud"
 
@@ -252,8 +257,44 @@ class CloudBackendConfig(BaseBackendConfig):
     engine: str = Field(default=CLOUD_ENGINE)
     timeout_seconds: int = Field(default=1800, description="Longest a single generation may run before it is abandoned")
     max_parallel: int = Field(default=4, ge=1, le=32, title="Parallel jobs", description="How many generations this backend runs at the same time")
+    api_key: str = Field(title="API key", description="Stored encrypted and never shown again.", json_schema_extra={"secret": True})
+    base_url: str = Field(
+        default="",
+        title="API address",
+        description="Leave empty to use the standard address. Set it only to reach the provider through a proxy, for example https://proxy.example/v1.",
+    )
 
     engine_label: ClassVar[Optional[str]] = "Cloud"
+    api_key_source: ClassVar[str] = ""
+
+    @field_validator("base_url")
+    @classmethod
+    def _base_url_is_a_web_address(cls, value: str) -> str:
+        text = (value or "").strip().rstrip("/")
+        if not text:
+            return ""
+        parts = urlsplit(text)
+        if not text.isascii() or not text.isprintable() or " " in text or parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError("Enter the API address as a web address such as https://proxy.example/v1, or leave it empty.")
+        return text
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_api_key(cls, data):
+        if isinstance(data, dict) and cls.model_fields["api_key"].is_required():
+            key = data.get("api_key")
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"Add your {cls.engine_label} API key.")
+            data = {**data, "api_key": key.strip()}
+        return data
+
+    @classmethod
+    def engine_fields(cls) -> list[dict[str, Any]]:
+        fields = super().engine_fields()
+        for spec in fields:
+            if spec["name"] == "api_key" and cls.api_key_source:
+                spec["description"] = f"{cls.api_key_source} {spec['description']}"
+        return fields
 
 
 class CloudProvider(ABC):
@@ -263,6 +304,11 @@ class CloudProvider(ABC):
     data_notice: ClassVar[str] = ""
     supports_cancel: ClassVar[bool] = False
     idempotent_submit: ClassVar[bool] = False
+    default_base_url: ClassVar[str] = ""
+    auth_header: ClassVar[tuple[str, str]] = ("Authorization", "Bearer ")
+    catalog_file: ClassVar[Optional[Path]] = None
+    max_poll_s: ClassVar[float] = 30.0
+    timeout_message: ClassVar[str] = "The provider did not finish in time."
 
     def __init__(self, config: CloudBackendConfig, http: CloudHttp) -> None:
         self.config = config
@@ -270,15 +316,21 @@ class CloudProvider(ABC):
         http.set_error_mapper(self.map_error)
 
     def suggested_model_ids(self) -> tuple[str, ...]:
-        return ()
+        if self.catalog_file is None:
+            return ()
+        return tuple(item for item in load_catalog_file(self.catalog_file).get("suggested") or [] if isinstance(item, str))
 
     @classmethod
     def api_base_url(cls, config: CloudBackendConfig) -> str:
-        return str(getattr(config, "base_url", "") or "")
+        return (config.base_url or cls.default_base_url).rstrip("/")
 
     @classmethod
     def auth_headers(cls, config: CloudBackendConfig) -> Mapping[str, str]:
-        return {}
+        name, prefix = cls.auth_header
+        return {name: f"{prefix}{config.api_key}"} if config.api_key else {}
+
+    async def close(self) -> None:
+        return None
 
     def map_error(self, status: int, headers: Mapping[str, str], body: Any) -> Optional[CloudError]:
         return None
@@ -308,6 +360,27 @@ class CloudProvider(ABC):
 
     async def check(self) -> CloudHealth:
         return CloudHealth(ok=True)
+
+
+def load_catalog_file(path: Path) -> dict[str, Any]:
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def valid_specs(candidates: Iterable[Optional[CloudModelSpec]], tag: str) -> list[CloudModelSpec]:
+    kept: list[CloudModelSpec] = []
+    for spec in candidates:
+        if spec is None:
+            continue
+        problems = spec_problems(spec)
+        if problems:
+            logger.warning(f"[{tag}] skipped {spec.provider_model_id}: {problems}")
+            continue
+        kept.append(spec)
+    return kept
 
 
 def spec_problems(spec: CloudModelSpec) -> list[str]:

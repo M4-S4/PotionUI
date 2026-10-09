@@ -5,8 +5,6 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Mapping, Optional, Tuple
 from urllib.parse import quote
 
-import yaml
-
 from src.plugin_api.cloud import (
     CloudBackendConfig,
     CloudError,
@@ -17,7 +15,7 @@ from src.plugin_api.cloud import (
     CloudRequest,
     CloudStatus,
     parse_retry_after,
-    spec_problems,
+    valid_specs,
 )
 
 from .catalog import live_specs, static_specs
@@ -71,23 +69,9 @@ class GoogleProvider(CloudProvider):
     data_notice: ClassVar[str] = DATA_NOTICE
     supports_cancel: ClassVar[bool] = False
     idempotent_submit: ClassVar[bool] = False
-
-    @classmethod
-    def api_base_url(cls, config: CloudBackendConfig) -> str:
-        return (getattr(config, "base_url", "") or DEFAULT_BASE_URL).rstrip("/")
-
-    @classmethod
-    def auth_headers(cls, config: CloudBackendConfig) -> Mapping[str, str]:
-        key = getattr(config, "api_key", "")
-        return {"x-goog-api-key": key} if key else {}
-
-    def suggested_model_ids(self) -> Tuple[str, ...]:
-        try:
-            data = yaml.safe_load(SUGGESTIONS_FILE.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError):
-            return ()
-        listed = data.get("suggested", []) if isinstance(data, dict) else []
-        return tuple(item for item in listed or [] if isinstance(item, str))
+    default_base_url: ClassVar[str] = DEFAULT_BASE_URL
+    auth_header: ClassVar[Tuple[str, str]] = ("x-goog-api-key", "")
+    catalog_file: ClassVar[Path] = SUGGESTIONS_FILE
 
     def map_error(self, status: int, headers: Mapping[str, str], body: Any) -> Optional[CloudError]:
         error = body.get("error") if isinstance(body, dict) else None
@@ -151,17 +135,6 @@ class GoogleProvider(CloudProvider):
                 break
         return items
 
-    @staticmethod
-    def _valid(specs: List[CloudModelSpec]) -> List[CloudModelSpec]:
-        kept = []
-        for spec in specs:
-            problems = spec_problems(spec)
-            if problems:
-                logger.warning(f"[GOOGLE] skipped {spec.provider_model_id}: {problems}")
-                continue
-            kept.append(spec)
-        return kept
-
     async def discover(self) -> List[CloudModelSpec]:
         try:
             items = await self._list_models()
@@ -169,12 +142,12 @@ class GoogleProvider(CloudProvider):
             if error.kind in FATAL_LISTING_KINDS:
                 raise
             logger.warning(f"[GOOGLE] model listing failed ({error.kind}); using the built-in model list")
-            return self._valid(static_specs())
+            return valid_specs(static_specs(), "GOOGLE")
         specs = live_specs(items)
         if not specs:
             logger.warning("[GOOGLE] the model listing named no image or video models; using the built-in model list")
-            return self._valid(static_specs())
-        return self._valid(specs)
+            return valid_specs(static_specs(), "GOOGLE")
+        return valid_specs(specs, "GOOGLE")
 
     async def submit(self, request: CloudRequest) -> CloudJob:
         if is_video_spec(request.model):

@@ -2,8 +2,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-import yaml
-
 from src.plugin_api.cloud import CloudModelSpec, MediaInputSpec, ParamSpec, PriceLine
 
 CATALOG_FILE = Path(__file__).resolve().parents[1] / "cloud_models.yml"
@@ -20,14 +18,6 @@ RATE_NAMES = ("text_input", "image_input", "image_output")
 RATE_LABELS = {"text_input": "text input", "image_input": "image input", "image_output": "image output"}
 MILLION = Decimal(1_000_000)
 EDIT = frozenset({"img_edit"})
-
-
-def load_catalog(path: Path = CATALOG_FILE) -> Dict[str, Any]:
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def _rates(entry: Mapping[str, Any]) -> Dict[str, str]:

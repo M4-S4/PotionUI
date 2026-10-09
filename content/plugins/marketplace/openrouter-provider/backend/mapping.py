@@ -1,4 +1,3 @@
-import base64
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
@@ -13,6 +12,8 @@ from src.plugin_api.cloud import (
     MediaInputSpec,
     ParamSpec,
     PriceLine,
+    decode_inline,
+    encode_media,
     is_canonical_param,
 )
 
@@ -265,7 +266,7 @@ def model_spec(item: Any, endpoints: List[Any]) -> Optional[CloudModelSpec]:
 
 
 def data_url(path: Path, media_type: str) -> str:
-    return f"data:{media_type};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+    return f"data:{media_type};base64,{encode_media(path)}"
 
 
 def build_body(request: Any, provider_only: List[str], user_hash: Optional[str]) -> Dict[str, Any]:
@@ -310,11 +311,7 @@ def parse_result(payload: Any, request: Any) -> CloudResult:
             continue
         media_type = entry.get("media_type") or default_type or DEFAULT_MEDIA_TYPES.get(str(entry.get("output_format") or "png"), "image/png")
         if entry.get("b64_json"):
-            try:
-                data = base64.b64decode(entry["b64_json"], validate=False)
-            except ValueError:
-                continue
-            if data:
+            if data := decode_inline(entry["b64_json"]):
                 artifacts.append(CloudArtifact(modality="image", index=index, data=data, media_type=media_type))
         elif isinstance(entry.get("url"), str) and entry["url"]:
             artifacts.append(CloudArtifact(modality="image", index=index, url=entry["url"], media_type=media_type))

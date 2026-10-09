@@ -12,7 +12,7 @@ from .fixtures import KEY
 
 PLUGIN = Path(__file__).resolve().parents[1]
 PRESET = PLUGIN / "presets" / "ImageGeneration" / "standard"
-MESSAGE = "Add your BFL API key."
+MESSAGE = "Add your Black Forest Labs API key."
 
 
 def settings(**overrides):

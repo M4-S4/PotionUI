@@ -51,9 +51,12 @@ from src.features.cloud.contracts import (
     PriceLine,
     TaskKind,
     is_canonical_param,
+    load_catalog_file,
     spec_problems,
+    valid_specs,
 )
 from src.features.cloud.http import CloudHttp, HttpResponse, default_error_mapper, parse_retry_after
+from src.features.cloud.inline import decode_inline, encode_media
 from src.features.cloud.rate_limit import TokenBucket
 from src.features.cloud.redaction import redact_headers, redact_url, scrub_text
 from src.features.cloud.registration import register_cloud_provider
@@ -115,14 +118,18 @@ __all__ = [
     "TERMINAL_STATES",
     "TaskKind",
     "TokenBucket",
+    "decode_inline",
     "default_error_mapper",
+    "encode_media",
     "is_canonical_param",
+    "load_catalog_file",
     "parse_retry_after",
     "redact_headers",
     "redact_url",
     "register_cloud_provider",
     "scrub_text",
     "spec_problems",
+    "valid_specs",
 ]
 
 CLOUD_BLOCKS = (

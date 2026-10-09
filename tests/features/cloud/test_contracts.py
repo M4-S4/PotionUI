@@ -31,12 +31,12 @@ def test_cloud_error_rejects_unknown_kinds():
 
 
 def test_config_defaults_and_bounds():
-    config = CloudBackendConfig(id="a", name="b")
+    config = CloudBackendConfig(id="a", name="b", api_key="k")
     assert (config.engine, config.driver, config.timeout_seconds, config.max_parallel) == ("cloud", "cloud", 1800, 4)
     for bad in (0, 33):
         with pytest.raises(ValidationError):
-            CloudBackendConfig(id="a", name="b", max_parallel=bad)
-    assert CloudBackendConfig(id="a", name="b", max_parallel=32).max_parallel == 32
+            CloudBackendConfig(id="a", name="b", api_key="k", max_parallel=bad)
+    assert CloudBackendConfig(id="a", name="b", api_key="k", max_parallel=32).max_parallel == 32
 
 
 def test_admin_form_lists_max_parallel_and_hides_base_fields():

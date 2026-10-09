@@ -101,6 +101,35 @@ async def test_the_deadline_cancels_the_job_and_reports_a_timeout(harness):
     assert 60 <= h.clock.now() - start <= 65
 
 
+async def test_the_wait_between_polls_grows_up_to_the_providers_cap(harness):
+    h = harness(behaviour=FakeBehaviour(mode="async", duration_s=10_000, poll_after_s=0), timeout_seconds=300)
+    h.provider.max_poll_s = 8.0
+    times = []
+    poll = h.provider.poll
+
+    async def recorded(job):
+        times.append(h.clock.now())
+        return await poll(job)
+
+    h.provider.poll = recorded
+
+    with pytest.raises(CloudRunError):
+        await h.run()
+
+    gaps = [round(later - earlier, 2) for earlier, later in zip(times, times[1:])]
+    assert gaps[:3] == sorted(gaps[:3]) and max(gaps) == 8.0
+
+
+async def test_a_timeout_uses_the_providers_own_message(harness):
+    h = harness(behaviour=FakeBehaviour(mode="async", duration_s=10_000, poll_after_s=5), timeout_seconds=60)
+    h.provider.timeout_message = "Acme is slow. It may still bill this job."
+
+    with pytest.raises(CloudRunError) as raised:
+        await h.run()
+
+    assert raised.value.kind == "timeout" and raised.value.user_message == "Acme is slow. It may still bill this job."
+
+
 async def test_the_model_deadline_wins_when_it_is_shorter(harness):
     h = harness(behaviour=FakeBehaviour(mode="async", duration_s=10_000, poll_after_s=5), timeout_seconds=3600)
 

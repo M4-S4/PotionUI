@@ -1,8 +1,7 @@
 from typing import ClassVar, List, Optional
-
 from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from src.plugin_api.cloud import CloudBackendConfig
 
@@ -11,11 +10,6 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 
 class OpenRouterConfig(CloudBackendConfig):
     driver: str = Field(default="cloud.openrouter")
-    api_key: str = Field(
-        title="API key",
-        description="Created at openrouter.ai under Keys. Stored encrypted and never shown again.",
-        json_schema_extra={"secret": True},
-    )
     base_url: str = Field(
         default=DEFAULT_BASE_URL,
         title="API address",
@@ -53,17 +47,8 @@ class OpenRouterConfig(CloudBackendConfig):
             raise ValueError("Enter the app address as a web address such as https://example.com, or leave it empty.")
         return text
 
-    @model_validator(mode="before")
-    @classmethod
-    def _require_api_key(cls, data):
-        if isinstance(data, dict):
-            key = data.get("api_key")
-            if not isinstance(key, str) or not key.strip():
-                raise ValueError("Add your OpenRouter API key.")
-            data = {**data, "api_key": key.strip()}
-        return data
-
     engine_label: ClassVar[Optional[str]] = "OpenRouter"
+    api_key_source: ClassVar[str] = "Created at openrouter.ai under Keys."
 
     def upstream_list(self) -> List[str]:
         return [name.strip() for name in self.upstream_providers.split(",") if name.strip()]

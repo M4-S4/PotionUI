@@ -237,6 +237,7 @@ class CloudBackend(BaseBackend):
 
     async def close(self) -> None:
         await self._sweep_scratch_off_loop()
+        await self.provider.close()
         await self.http.close()
 
 

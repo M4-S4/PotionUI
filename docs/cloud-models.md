@@ -424,14 +424,15 @@ from src.plugin_api.cloud import CloudBackendConfig
 
 class AcmeConfig(CloudBackendConfig):
     driver: str = Field(default="cloud.acme")
-    base_url: str = Field(default="https://api.acme.example/v1", title="API URL")
-    api_key: str = Field(default="", title="API key", json_schema_extra={"secret": True})
 
     engine_label: ClassVar[Optional[str]] = "Acme"
+    api_key_source: ClassVar[str] = "Created at acme.example under API keys."
 ```
 
-`CloudBackendConfig` already provides the `cloud` engine, `timeout_seconds` and `max_parallel`. A field
-marked `secret` is stored encrypted and is never returned by the API.
+`CloudBackendConfig` already provides the `cloud` engine, `timeout_seconds`, `max_parallel`, a required
+secret `api_key` (the error for a missing key names `engine_label`) and an optional `base_url` that is
+validated as a web address. `api_key_source` is prepended to the key field's help text. A field marked
+`secret` is stored encrypted and is never returned by the API.
 
 ### 3. The provider
 
@@ -456,14 +457,7 @@ class AcmeProvider(CloudProvider):
     )
     supports_cancel: ClassVar[bool] = True
     idempotent_submit: ClassVar[bool] = False
-
-    @classmethod
-    def api_base_url(cls, config: AcmeConfig) -> str:
-        return config.base_url
-
-    @classmethod
-    def auth_headers(cls, config: AcmeConfig) -> Mapping[str, str]:
-        return {"Authorization": f"Bearer {config.api_key}"}
+    default_base_url: ClassVar[str] = "https://api.acme.example/v1"
 
     async def check(self) -> CloudHealth:
         await self.http.request_json("GET", "/account")
@@ -512,7 +506,10 @@ What each method owes the platform:
 | `cancel(job)` | Try to stop the job and return whether the provider confirmed it. Leave `supports_cancel = False` when the API cannot cancel. |
 | `check()` | A cheap call for the backend's health; a `CloudHealth`. |
 | `map_error(status, headers, body)` | Optional: turn a provider error body into a `CloudError`. Return `None` to fall back to the default mapping. |
-| `api_base_url(config)`, `auth_headers(config)` | Class methods: where the API lives and the headers that authenticate it. |
+| `default_base_url`, `auth_header` | Where the API lives when the config's `base_url` is empty, and the `(name, prefix)` of the header that carries the key (default `("Authorization", "Bearer ")`). Override the `api_base_url(config)` and `auth_headers(config)` class methods only when that is not enough. |
+| `catalog_file` | Optional path to a YAML file with a `suggested` list of model ids. Read it with `load_catalog_file(path)`; `valid_specs(specs, "TAG")` drops and logs the specs that fail `spec_problems`. |
+| `max_poll_s`, `timeout_message` | Longest wait between polls (default 30 seconds) and the text shown when the job's deadline passes. |
+| `close()` | Release anything the provider opened besides `self.http`. |
 
 #### Model specs
 
@@ -574,7 +571,7 @@ failure after the request was sent is never resubmitted, because the job may exi
 Set `idempotent_submit` only if your API really deduplicates.
 
 **Polling and time.** The first poll comes after `poll_after_s` (or two seconds); after that the wait
-grows by half each time up to 30 seconds unless a status gives its own `poll_after_s`. Polling and
+grows by half each time up to `max_poll_s` (30 seconds by default) unless a status gives its own `poll_after_s`. Polling and
 download errors worth retrying (rate limited, unavailable, timeout) are retried with a growing pause; five in a row fail the job, and any other error fails it at once. The job's deadline is the backend's `timeout_seconds`, or the
 model's `max_seconds` if that is shorter; when it passes the job is cancelled at the provider (if
 supported) and fails as `cloud_timeout`. Results are size-capped (64 MB per image, 256 MB per audio

@@ -2,8 +2,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import yaml
-
 from src.plugin_api.cloud import CloudModelSpec, MediaInputSpec, ParamSpec, PriceLine
 
 CATALOG_FILE = Path(__file__).resolve().parents[1] / "cloud_models.yml"
@@ -15,14 +13,6 @@ OUTPUT_FORMATS = ("jpeg", "png", "webp")
 REFERENCE_FORMATS = ("png", "jpeg", "webp")
 SHAPES = ("dimensions", "aspect_ratio", "flux3")
 RAW_KEYS = ("shape", "step", "min_side", "max_side", "references", "upsampling")
-
-
-def load_catalog(path: Path = CATALOG_FILE) -> Dict[str, Any]:
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def _range(name: str, entry: Any, label: str, description: str, integer: bool) -> Optional[ParamSpec]:
@@ -136,6 +126,3 @@ def model_spec(item: Any) -> Optional[CloudModelSpec]:
 def catalog_specs(data: Dict[str, Any]) -> List[CloudModelSpec]:
     return [spec for spec in (model_spec(item) for item in data.get("models") or []) if spec is not None]
 
-
-def suggested_ids(data: Dict[str, Any]) -> Tuple[str, ...]:
-    return tuple(item for item in data.get("suggested") or [] if isinstance(item, str))

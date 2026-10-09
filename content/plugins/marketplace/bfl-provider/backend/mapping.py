@@ -1,4 +1,3 @@
-import base64
 import math
 import re
 from decimal import Decimal, InvalidOperation
@@ -6,7 +5,7 @@ from pathlib import PurePosixPath
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 from urllib.parse import urlsplit
 
-from src.plugin_api.cloud import EXTRA_PARAM_PREFIX, CloudCost, CloudError
+from src.plugin_api.cloud import EXTRA_PARAM_PREFIX, CloudCost, CloudError, encode_media
 
 PIXELS = {"1K": 1024 * 1024, "2K": 2048 * 2048}
 CREDIT_USD = Decimal("0.01")
@@ -56,10 +55,6 @@ def dimensions(aspect_ratio: Any, resolution: Any, raw: Mapping[str, Any]) -> Op
     return width, height
 
 
-def _encoded(path: Any) -> str:
-    return base64.b64encode(path.read_bytes()).decode("ascii")
-
-
 def build_body(request: Any, user_ref: Optional[str]) -> Dict[str, Any]:
     raw = request.model.raw or {}
     shape = raw.get("shape")
@@ -106,7 +101,7 @@ def build_body(request: Any, user_ref: Optional[str]) -> Dict[str, Any]:
                 "invalid_request", f"This model takes at most {limit} pictures.",
                 detail=f"{len(references)} references for {request.model.provider_model_id}", request_sent=False,
             )
-        encoded = [_encoded(media.path) for media in references]
+        encoded = [encode_media(media.path) for media in references]
         if shape == "flux3":
             body["images"] = encoded
         else:

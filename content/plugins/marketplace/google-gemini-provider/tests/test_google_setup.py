@@ -12,7 +12,7 @@ from .fixtures import KEY
 ROOT = Path(__file__).resolve().parents[1]
 PRESETS = ROOT / "presets"
 FORMS = sorted(PRESETS.glob("*/standard/modes/*/form.yml"))
-MESSAGE = "Add your Google AI Studio API key."
+MESSAGE = "Add your Google Gemini API key."
 
 
 def _manifest():

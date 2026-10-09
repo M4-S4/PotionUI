@@ -43,7 +43,6 @@ PROVIDER_CANCEL_WAIT_SECONDS = 1.0
 PROVIDER_CANCEL_CAP_SECONDS = 5.0
 CANCEL_SETTLE_SECONDS = 3.0
 FIRST_POLL_SECONDS = 2.0
-MAX_POLL_SECONDS = 30.0
 POLL_GROWTH = 1.5
 SUBMIT_ATTEMPTS = 3
 CONSECUTIVE_ERROR_LIMIT = 5
@@ -317,7 +316,7 @@ class CloudRunSession:
             raise CloudRunCancelled(cancel_confirmed=self._cancel_confirmed)
         if self._clock.now() >= self._deadline:
             await self._abort_job()
-            raise CloudRunError("timeout", "The provider did not finish in time.")
+            raise CloudRunError("timeout", self._provider.timeout_message)
 
     async def _abort_job(self) -> None:
         job, self._job = self._job, None
@@ -444,7 +443,7 @@ class CloudRunSession:
                 queue_position=status.queue_position,
                 message=status.message,
             )
-            delay = status.poll_after_s or min(max(delay, FIRST_POLL_SECONDS) * POLL_GROWTH, MAX_POLL_SECONDS)
+            delay = status.poll_after_s or min(max(delay, FIRST_POLL_SECONDS) * POLL_GROWTH, self._provider.max_poll_s)
 
     @staticmethod
     def _terminal(status: CloudStatus) -> CloudResult:

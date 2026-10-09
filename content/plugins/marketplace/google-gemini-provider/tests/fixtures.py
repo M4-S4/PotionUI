@@ -1,26 +1,16 @@
 import base64
 import copy
-import struct
-import zlib
 from typing import Any, Dict, List
 
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
+from src.plugin_api.cloud_testing import TINY_PNG as PNG
+
 KEY = "fake-gemini-key-TOPSECRET-0123456789"
 
 
-def _png() -> bytes:
-    def chunk(kind: bytes, payload: bytes) -> bytes:
-        body = kind + payload
-        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
-
-    header = struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
-    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(b"\x00\xff\xff\xff\xff")) + chunk(b"IEND", b"")
-
-
-PNG = _png()
 VIDEO_BYTES = b"\x00\x00\x00\x18ftypmp42" + b"v" * 2000
 
 LISTING_PAGES = [

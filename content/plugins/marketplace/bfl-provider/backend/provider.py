@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Mapping, Optional, Set, Tuple
 
 from src.plugin_api.cloud import (
-    Clock,
     CloudArtifact,
     CloudBackendConfig,
     CloudError,
@@ -17,12 +16,12 @@ from src.plugin_api.cloud import (
     CloudRequest,
     CloudResult,
     CloudStatus,
-    MonotonicClock,
+    load_catalog_file,
     parse_retry_after,
-    spec_problems,
+    valid_specs,
 )
 
-from .catalog import catalog_specs, load_catalog, suggested_ids
+from .catalog import CATALOG_FILE, catalog_specs
 from .config import BflConfig
 from .mapping import (
     CONTENT_MODERATED,
@@ -44,13 +43,11 @@ from .mapping import (
 logger = logging.getLogger(__name__)
 
 FIRST_POLL_SECONDS = 1.0
-POLL_GROWTH = 1.5
-MAX_POLL_SECONDS = 8.0
 REGIONAL_TIMEOUT_SECONDS = 30.0
 EXPIRED_STATUSES = ("HTTP 401", "HTTP 403", "HTTP 404", "HTTP 410")
 EXPIRED_MESSAGE = "The finished picture expired at BFL before it could be downloaded. Generate it again."
-STOPPED_MESSAGE = "Stopped waiting. BFL may still finish this job and bill it."
 TIMEOUT_MESSAGE = "BFL did not finish in time. It may still finish this job and bill it."
+STOPPED_MESSAGE = "Stopped waiting. BFL may still finish this job and bill it."
 
 DATA_NOTICE = (
     "Your prompts, any pictures you add and the settings you choose are sent to Black Forest Labs (bfl.ai), "
@@ -70,23 +67,19 @@ class BflProvider(CloudProvider):
     data_notice: ClassVar[str] = DATA_NOTICE
     supports_cancel: ClassVar[bool] = False
     idempotent_submit: ClassVar[bool] = False
+    auth_header: ClassVar[Tuple[str, str]] = ("x-key", "")
+    catalog_file: ClassVar[Path] = CATALOG_FILE
+    max_poll_s: ClassVar[float] = 8.0
+    timeout_message: ClassVar[str] = TIMEOUT_MESSAGE
 
-    def __init__(self, config: CloudBackendConfig, http: CloudHttp, clock: Optional[Clock] = None) -> None:
+    def __init__(self, config: CloudBackendConfig, http: CloudHttp) -> None:
         super().__init__(config, http)
-        self.clock = clock or MonotonicClock()
         self._abandoned: Set[str] = set()
+        self._regional: Dict[str, CloudHttp] = {}
 
     @classmethod
     def api_base_url(cls, config: CloudBackendConfig) -> str:
-        return config.api_address() if isinstance(config, BflConfig) else str(getattr(config, "base_url", "") or "")
-
-    @classmethod
-    def auth_headers(cls, config: CloudBackendConfig) -> Mapping[str, str]:
-        key = getattr(config, "api_key", "")
-        return {"x-key": key} if key else {}
-
-    def suggested_model_ids(self) -> Tuple[str, ...]:
-        return suggested_ids(load_catalog())
+        return config.api_address()
 
     def map_error(self, status: int, headers: Mapping[str, str], body: Any) -> Optional[CloudError]:
         message = body_message(body)[:300]
@@ -115,14 +108,7 @@ class BflProvider(CloudProvider):
         return None
 
     async def discover(self) -> List[CloudModelSpec]:
-        specs: List[CloudModelSpec] = []
-        for spec in catalog_specs(load_catalog()):
-            problems = spec_problems(spec)
-            if problems:
-                logger.warning(f"[BFL] skipped {spec.provider_model_id}: {problems}")
-                continue
-            specs.append(spec)
-        return specs
+        return valid_specs(catalog_specs(load_catalog_file(self.catalog_file)), "BFL")
 
     async def submit(self, request: CloudRequest) -> CloudJob:
         user_ref = request.user_ref if self.config.send_user_hash else None
@@ -136,45 +122,37 @@ class BflProvider(CloudProvider):
         submit_cost = credits_cost(payload.get("cost"), payload, "submit")
         handle: Dict[str, Any] = {
             **polling_target(self.http, payload, job_id),
-            "submitted_at": self.clock.now(),
             "output_format": body.get("output_format"),
             "submit_cost": submit_cost,
-            "polls": 0,
             "running": False,
         }
         return CloudJob(job_id=job_id, handle=handle, poll_after_s=FIRST_POLL_SECONDS)
 
     def regional_http(self, origin: str) -> CloudHttp:
-        return CloudHttp(
-            origin, auth_headers=type(self).auth_headers(self.config),
-            timeout_s=REGIONAL_TIMEOUT_SECONDS, error_mapper=self.map_error,
-        )
+        if origin not in self._regional:
+            self._regional[origin] = CloudHttp(
+                origin, auth_headers=type(self).auth_headers(self.config),
+                timeout_s=REGIONAL_TIMEOUT_SECONDS, error_mapper=self.map_error,
+            )
+        return self._regional[origin]
+
+    async def close(self) -> None:
+        regional, self._regional = self._regional, {}
+        for http in regional.values():
+            await http.close()
 
     async def _poll_payload(self, job: CloudJob) -> Any:
         handle = job.handle
-        if handle.get("origin"):
-            async with self.regional_http(handle["origin"]) as regional:
-                return await regional.request_json("GET", handle["target"], params=handle.get("params"))
-        return await self.http.request_json("GET", handle["target"], params=handle.get("params"))
+        http = self.regional_http(handle["origin"]) if handle.get("origin") else self.http
+        return await http.request_json("GET", handle["target"], params=handle.get("params"))
 
     def _forget(self, job_id: str) -> None:
         self._abandoned.discard(job_id)
-
-    @staticmethod
-    def _next_delay(handle: Any) -> float:
-        count = int(handle.get("polls", 0)) + 1
-        if isinstance(handle, dict):
-            handle["polls"] = count
-        return min(FIRST_POLL_SECONDS * POLL_GROWTH ** count, MAX_POLL_SECONDS)
 
     async def poll(self, job: CloudJob) -> CloudStatus:
         if job.job_id in self._abandoned:
             self._forget(job.job_id)
             return CloudStatus(state="cancelled", message=STOPPED_MESSAGE)
-        elapsed = self.clock.now() - float(job.handle.get("submitted_at", self.clock.now()))
-        if elapsed > float(self.config.timeout_seconds):
-            self._forget(job.job_id)
-            raise CloudError("timeout", TIMEOUT_MESSAGE, detail=f"task {job.job_id} still unfinished after {int(elapsed)} seconds")
         payload = await self._poll_payload(job)
         if not isinstance(payload, dict):
             raise CloudError("failed", "BFL sent an answer that could not be read.", detail="poll response is not an object")
@@ -197,7 +175,7 @@ class BflProvider(CloudProvider):
             state = "running"
             if isinstance(job.handle, dict):
                 job.handle["running"] = True
-        return CloudStatus(state=state, progress=progress_of(payload.get("progress")), poll_after_s=self._next_delay(job.handle))
+        return CloudStatus(state=state, progress=progress_of(payload.get("progress")))
 
     def _result(self, job: CloudJob, payload: Dict[str, Any]) -> CloudResult:
         result = payload.get("result") if isinstance(payload.get("result"), dict) else {}

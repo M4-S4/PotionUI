@@ -20,6 +20,7 @@ from src.features.cloud.testing.fake import (
     fake_specs,
     fake_video_bytes,
 )
+from src.features.cloud.testing.support import TINY_PNG, bind_plugin_backend
 
 __all__ = [
     "CONTRACT_CHECKS",
@@ -33,7 +34,9 @@ __all__ = [
     "SCENARIO_ASYNC_FAILED",
     "SCENARIO_CANCEL",
     "SCENARIO_SYNC",
+    "TINY_PNG",
     "applicable_checks",
+    "bind_plugin_backend",
     "build_fake_provider",
     "default_request",
     "fake_director_specs",

@@ -1,7 +1,7 @@
 import re
 from typing import ClassVar, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from src.plugin_api.cloud import CloudBackendConfig
 
@@ -12,11 +12,6 @@ _HEADER_ID = re.compile(r"^[A-Za-z0-9_-]*$")
 
 class OpenAIConfig(CloudBackendConfig):
     driver: str = Field(default="cloud.openai")
-    api_key: str = Field(
-        title="API key",
-        description="Created at platform.openai.com under API keys. Stored encrypted and never shown again.",
-        json_schema_extra={"secret": True},
-    )
     base_url: str = Field(
         default=DEFAULT_BASE_URL,
         title="API address",
@@ -45,6 +40,7 @@ class OpenAIConfig(CloudBackendConfig):
     )
 
     engine_label: ClassVar[Optional[str]] = "OpenAI"
+    api_key_source: ClassVar[str] = "Created at platform.openai.com under API keys."
 
     @field_validator("organization", "project")
     @classmethod
@@ -61,13 +57,3 @@ class OpenAIConfig(CloudBackendConfig):
         if text not in MODERATION_LEVELS:
             raise ValueError("Choose auto or low.")
         return text
-
-    @model_validator(mode="before")
-    @classmethod
-    def _require_api_key(cls, data):
-        if isinstance(data, dict):
-            key = data.get("api_key")
-            if not isinstance(key, str) or not key.strip():
-                raise ValueError("Add your OpenAI API key.")
-            data = {**data, "api_key": key.strip()}
-        return data

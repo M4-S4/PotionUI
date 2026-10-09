@@ -1,7 +1,6 @@
 from typing import ClassVar, Optional
-from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from src.plugin_api.cloud import CloudBackendConfig
 
@@ -15,11 +14,6 @@ DEFAULT_REGION = "global"
 
 class BflConfig(CloudBackendConfig):
     driver: str = Field(default="cloud.bfl")
-    api_key: str = Field(
-        title="API key",
-        description="Created at api.bfl.ai under API Keys. Stored encrypted and never shown again.",
-        json_schema_extra={"secret": True},
-    )
     region: str = Field(
         default=DEFAULT_REGION,
         title="Region",
@@ -45,6 +39,7 @@ class BflConfig(CloudBackendConfig):
     )
 
     engine_label: ClassVar[Optional[str]] = "Black Forest Labs"
+    api_key_source: ClassVar[str] = "Created at api.bfl.ai under API Keys."
 
     @field_validator("region")
     @classmethod
@@ -53,27 +48,6 @@ class BflConfig(CloudBackendConfig):
         if text not in REGIONS:
             raise ValueError(f"Choose one of the regions: {', '.join(REGIONS)}.")
         return text
-
-    @field_validator("base_url")
-    @classmethod
-    def _base_url_is_a_web_address(cls, value: str) -> str:
-        text = (value or "").strip().rstrip("/")
-        if not text:
-            return ""
-        parts = urlsplit(text)
-        if not text.isascii() or not text.isprintable() or " " in text or parts.scheme not in ("http", "https") or not parts.hostname:
-            raise ValueError("Enter the API address as a web address such as https://proxy.example/v1, or leave it empty.")
-        return text
-
-    @model_validator(mode="before")
-    @classmethod
-    def _require_api_key(cls, data):
-        if isinstance(data, dict):
-            key = data.get("api_key")
-            if not isinstance(key, str) or not key.strip():
-                raise ValueError("Add your BFL API key.")
-            data = {**data, "api_key": key.strip()}
-        return data
 
     def api_address(self) -> str:
         return self.base_url or REGIONS[self.region]

@@ -7,7 +7,7 @@ from backend.provider import BflProvider
 from .fixtures import KEY, PNG
 
 
-def build(fixture, clock=None, **config):
+def build(fixture, **config):
     settings = {"id": "bfl-1", "name": "BFL", "api_key": KEY, "base_url": f"{fixture.api_url}/v1", **config}
     cfg = BflConfig(**settings)
     http = CloudHttp(
@@ -17,7 +17,7 @@ def build(fixture, clock=None, **config):
         clock=FakeClock(),
         allow_private_targets=True,
     )
-    return BflProvider(cfg, http, clock=clock or FakeClock()), http
+    return BflProvider(cfg, http), http
 
 
 async def spec_of(provider, model_id):

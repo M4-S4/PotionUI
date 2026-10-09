@@ -3,9 +3,9 @@ from decimal import Decimal
 
 import pytest
 
-from src.plugin_api.cloud import spec_problems
+from src.plugin_api.cloud import load_catalog_file, spec_problems
 
-from backend.catalog import load_catalog, model_spec
+from backend.catalog import CATALOG_FILE, model_spec
 from backend.provider import BflProvider
 
 ALL_MODELS = {
@@ -123,7 +123,7 @@ def test_a_malformed_entry_is_skipped():
 
 
 def test_suggested_models_are_in_the_catalog():
-    data = load_catalog()
+    data = load_catalog_file(CATALOG_FILE)
 
     assert set(data["suggested"]) <= {item["id"] for item in data["models"]}
     assert data["checked"] == "2026-10-06"

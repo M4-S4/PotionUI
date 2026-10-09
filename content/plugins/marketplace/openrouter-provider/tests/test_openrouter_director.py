@@ -42,7 +42,7 @@ async def test_without_a_single_known_frame_rate_nothing_is_declared(provider, o
 
 
 async def test_the_plugin_file_can_tune_one_models_director_capabilities(provider, monkeypatch, tmp_path):
-    from backend import provider as provider_module
+    from backend.provider import OpenRouterProvider
 
     catalog = tmp_path / "cloud_models.yml"
     catalog.write_text(
@@ -54,7 +54,7 @@ async def test_the_plugin_file_can_tune_one_models_director_capabilities(provide
         "  vendor-v/unknown: {limits: {default_fps: 12}}\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(provider_module, "SUGGESTIONS_FILE", catalog)
+    monkeypatch.setattr(OpenRouterProvider, "catalog_file", catalog)
 
     specs = await specs_by_id(provider)
 

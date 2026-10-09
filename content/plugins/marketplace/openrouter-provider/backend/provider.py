@@ -2,9 +2,7 @@ import asyncio
 import logging
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Iterable, List, Mapping, Optional, Tuple
-
-import yaml
+from typing import Any, ClassVar, Dict, List, Mapping, Optional
 
 from src.plugin_api.cloud import (
     CloudBackendConfig,
@@ -16,8 +14,9 @@ from src.plugin_api.cloud import (
     CloudProvider,
     CloudRequest,
     CloudStatus,
+    load_catalog_file,
     parse_retry_after,
-    spec_problems,
+    valid_specs,
 )
 
 from .config import DEFAULT_BASE_URL, OpenRouterConfig
@@ -55,15 +54,8 @@ class OpenRouterProvider(CloudProvider):
     data_notice: ClassVar[str] = DATA_NOTICE
     supports_cancel: ClassVar[bool] = False
     idempotent_submit: ClassVar[bool] = False
-
-    @classmethod
-    def api_base_url(cls, config: CloudBackendConfig) -> str:
-        return (getattr(config, "base_url", "") or DEFAULT_BASE_URL).rstrip("/")
-
-    @classmethod
-    def auth_headers(cls, config: CloudBackendConfig) -> Mapping[str, str]:
-        key = getattr(config, "api_key", "")
-        return {"Authorization": f"Bearer {key}"} if key else {}
+    default_base_url: ClassVar[str] = DEFAULT_BASE_URL
+    catalog_file: ClassVar[Path] = SUGGESTIONS_FILE
 
     def attribution_headers(self) -> Dict[str, str]:
         headers: Dict[str, str] = {}
@@ -73,19 +65,8 @@ class OpenRouterProvider(CloudProvider):
             headers["X-OpenRouter-Title"] = self.config.app_title
         return headers
 
-    @staticmethod
-    def _catalog_file() -> Dict[str, Any]:
-        try:
-            data = yaml.safe_load(SUGGESTIONS_FILE.read_text(encoding="utf-8")) or {}
-        except (OSError, yaml.YAMLError):
-            return {}
-        return data if isinstance(data, dict) else {}
-
-    def suggested_model_ids(self) -> Tuple[str, ...]:
-        return tuple(item for item in self._catalog_file().get("suggested", []) or [] if isinstance(item, str))
-
     def director_overrides(self) -> Dict[str, Dict[str, Any]]:
-        entries = self._catalog_file().get("director") or {}
+        entries = load_catalog_file(self.catalog_file).get("director") or {}
         if not isinstance(entries, dict):
             return {}
         return {str(model_id): value for model_id, value in entries.items() if isinstance(value, dict)}
@@ -163,25 +144,12 @@ class OpenRouterProvider(CloudProvider):
             return []
         items = payload.get("data", []) if isinstance(payload, dict) else payload
         overrides = self.director_overrides()
-        specs = self._valid_specs(video_spec(item) for item in items if isinstance(items, list))
+        specs = valid_specs((video_spec(item) for item in items if isinstance(items, list)), "OPENROUTER")
         return [
             replace(spec, director=merge_director(spec.director, overrides[spec.provider_model_id]))
             if spec.provider_model_id in overrides else spec
             for spec in specs
         ]
-
-    @staticmethod
-    def _valid_specs(candidates: Iterable[Optional[CloudModelSpec]]) -> List[CloudModelSpec]:
-        specs: List[CloudModelSpec] = []
-        for spec in candidates:
-            if spec is None:
-                continue
-            problems = spec_problems(spec)
-            if problems:
-                logger.warning(f"[OPENROUTER] skipped {spec.provider_model_id}: {problems}")
-                continue
-            specs.append(spec)
-        return specs
 
     async def _discover_images(self) -> List[CloudModelSpec]:
         payload = await self._get("/images/models")
@@ -189,7 +157,7 @@ class OpenRouterProvider(CloudProvider):
         items = [item for item in items if isinstance(item, dict) and isinstance(item.get("id"), str)] if isinstance(items, list) else []
         gate = asyncio.Semaphore(ENDPOINT_LOOKUPS_AT_ONCE)
         endpoints = await asyncio.gather(*(self._endpoints(item["id"], gate) for item in items))
-        return self._valid_specs(model_spec(item, details) for item, details in zip(items, endpoints))
+        return valid_specs((model_spec(item, details) for item, details in zip(items, endpoints)), "OPENROUTER")
 
     async def submit_video(self, request: CloudRequest) -> CloudJob:
         body = await asyncio.to_thread(

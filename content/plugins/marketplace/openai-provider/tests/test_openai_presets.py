@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.plugin_api.cloud import CLOUD_BLOCKS
+from src.plugin_api.cloud import CLOUD_BLOCKS, load_catalog_file
 
-from backend.catalog import catalog_specs, load_catalog
+from backend.catalog import CATALOG_FILE, catalog_specs
 from backend.config import OpenAIConfig
 
 PLUGIN = Path(__file__).resolve().parents[1]
@@ -63,7 +63,7 @@ def test_the_painted_mask_reaches_the_provider_as_the_mask_role():
 
 def test_the_picture_to_edit_takes_a_mask_and_the_references_leave_room_for_it():
     fields = {field["name"]: field for field in load(PRESET / "blocks" / "references_edit.yml")["fields"]}
-    limit = next(media.max_items for media in catalog_specs(load_catalog())[0].inputs if media.role == "reference")
+    limit = next(media.max_items for media in catalog_specs(load_catalog_file(CATALOG_FILE))[0].inputs if media.role == "reference")
 
     assert fields["image"]["required"] is True and fields["image"]["configuration"]["allow_inpaint"] is True
     assert fields["references"]["configuration"]["max_items"] == limit - 1
