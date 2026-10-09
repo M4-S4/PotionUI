@@ -304,7 +304,7 @@ test.describe('Video Director for a cloud video preset', () => {
 		expect(doc.media.some((entry: { role: string }) => entry.role === 'first')).toBe(true);
 		expect(doc.segments).toHaveLength(1);
 
-		await expect.poll(async () => (await latestGeneration(page, token)).status, { timeout: 90000 }).toBe('completed');
+		await expect.poll(async () => (await latestGeneration(page, token))?.status, { timeout: 90000 }).toBe('completed');
 		await expect(generateButton(page)).toBeVisible({ timeout: 30000 });
 		await expect.poll(() => playableVideos(page), { timeout: 20000 }).toBeGreaterThan(0);
 		await screenshot(page, JOURNEY, 'single-shot-result-1440');
@@ -329,7 +329,7 @@ test.describe('Video Director for a cloud video preset', () => {
 		await expect.poll(async () => (await runStates(page)).includes('generating'), { timeout: 60000 }).toBe(true);
 		await screenshot(page, JOURNEY, 'three-shots-progress-1440');
 		await expect.poll(async () => (await runStates(page)).join(','), { timeout: 180000 }).toBe('done,done,done');
-		await expect.poll(async () => (await latestGeneration(page, token)).status, { timeout: 60000 }).toBe('completed');
+		await expect.poll(async () => (await latestGeneration(page, token))?.status, { timeout: 60000 }).toBe('completed');
 		await expect(generateButton(page)).toBeVisible({ timeout: 30000 });
 		await expect.poll(() => playableVideos(page), { timeout: 20000 }).toBeGreaterThan(0);
 		await expect(director(page).locator('[data-run-message]')).toHaveCount(0);
@@ -367,7 +367,7 @@ test.describe('Video Director for a cloud video preset', () => {
 			expect(retried.render).toMatchObject({ scope: 'shots', shot_ids: shotIds.slice(1) });
 			await expect.poll(async () => (await runStates(page)).join(','), { timeout: 180000 }).toBe('done,done,done');
 			await expect(director(page).locator('[data-run-message]')).toHaveCount(0);
-			await expect.poll(async () => (await latestGeneration(page, token)).status, { timeout: 60000 }).toBe('completed');
+			await expect.poll(async () => (await latestGeneration(page, token))?.status, { timeout: 60000 }).toBe('completed');
 			const retryRun = await latestGeneration(page, token);
 			const detail = await apiGet(page, `/api/admin/generations/${retryRun.id}`, token);
 			expect(detail.data.cost.items, 'only the retried shots were paid for').toHaveLength(2);
@@ -395,7 +395,7 @@ test.describe('Video Director for a cloud video preset', () => {
 			await expect(generateButton(page)).toBeVisible({ timeout: 30000 });
 			await expect.poll(async () => (await runStates(page)).join(','), { timeout: 30000 }).toBe('failed,failed');
 			await expect(director(page).locator('[data-run-message]').first()).toContainText(/stopped|cancel/i);
-			await expect.poll(async () => (await latestGeneration(page, token)).status, { timeout: 30000 }).toBe('cancelled');
+			await expect.poll(async () => (await latestGeneration(page, token))?.status, { timeout: 30000 }).toBe('cancelled');
 			await screenshot(page, JOURNEY, 'cancelled-1440');
 		} finally {
 			await setKnob(page, token, id, { duration_seconds: 2 });

@@ -201,7 +201,7 @@ test.describe('cloud generation against the fake provider', () => {
 			await cancel.click();
 			await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible({ timeout: 15000 });
 			await screenshot(page, JOURNEY, 'cancelled-1440');
-			await expect.poll(async () => (await latestGeneration(page, token)).status, { timeout: 15000 }).toBe('cancelled');
+			await expect.poll(async () => (await latestGeneration(page, token))?.status, { timeout: 15000 }).toBe('cancelled');
 		} finally {
 			await setKnob(page, token, id, { duration_seconds: 2 });
 		}
