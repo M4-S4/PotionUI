@@ -271,7 +271,13 @@ describe('UserMenu account switcher', () => {
 
 		const add = menu.target.querySelector<HTMLButtonElement>('[data-testid="user-menu-add-account"]')!;
 		expect(add.disabled).toBe(true);
-		expect(add.title).toBe('Remove an account first');
+		expect(add.hasAttribute('title')).toBe(false);
+		add.parentElement!.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const tooltip = Array.from(document.body.querySelectorAll('div')).find(
+			(el) => el.textContent?.trim() === 'Remove an account first' && el.className.includes('fixed')
+		);
+		expect(tooltip).toBeTruthy();
 		menu.destroy();
 	});
 });
