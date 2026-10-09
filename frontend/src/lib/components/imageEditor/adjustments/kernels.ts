@@ -5,19 +5,6 @@ export interface ToneParams {
 	hue: number;
 }
 
-export const NEUTRAL_TONE: ToneParams = {
-	brightness: 0,
-	contrast: 0,
-	saturation: 0,
-	hue: 0
-};
-
-export function isNeutralTone(params: ToneParams): boolean {
-	return (
-		params.brightness === 0 && params.contrast === 0 && params.saturation === 0 && params.hue === 0
-	);
-}
-
 function blend(original: number, next: number, coverage: number): number {
 	if (coverage >= 255) return next;
 	if (coverage <= 0) return original;

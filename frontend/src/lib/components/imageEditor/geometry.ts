@@ -50,13 +50,6 @@ export function screenToDoc(view: View, point: Point): Point {
 	};
 }
 
-export function docToScreen(view: View, point: Point): Point {
-	return {
-		x: point.x * view.zoom + view.panX,
-		y: point.y * view.zoom + view.panY
-	};
-}
-
 export function zoomAbout(
 	view: View,
 	factor: number,

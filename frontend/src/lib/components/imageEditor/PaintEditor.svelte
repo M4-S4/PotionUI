@@ -35,6 +35,7 @@
 
 	let stageHost: HTMLDivElement;
 	let stageCanvas: HTMLCanvasElement;
+	let overlayCanvas: HTMLCanvasElement;
 	let state: SessionSnapshot = session.snapshot();
 	let loadError: string | null = null;
 	let panelHidden = false;
@@ -88,7 +89,7 @@
 			syncPhone();
 			phoneQuery.addEventListener?.('change', syncPhone);
 		}
-		session.attach(stageCanvas);
+		session.attach(stageCanvas, overlayCanvas);
 		stopSession = session.subscribe(() => {
 			state = session.snapshot();
 		});
@@ -474,6 +475,11 @@
 					on:pointercancel={(event) => session.onPointerCancel(event)}
 					on:pointerleave={() => session.onPointerLeave()}
 					on:wheel|nonpassive={(event) => session.onWheel(event)}
+				></canvas>
+				<canvas
+					bind:this={overlayCanvas}
+					aria-hidden="true"
+					class="absolute inset-0 block w-full h-full pointer-events-none"
 				></canvas>
 				{#if loadError}
 					<p class="absolute inset-0 flex items-center justify-center p-6 text-sm text-danger">{loadError}</p>

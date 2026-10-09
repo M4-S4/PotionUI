@@ -9,7 +9,6 @@ import {
 	scaleFromCorner,
 	MIN_SIDE,
 	clampSide,
-	docToScreen,
 	fitView,
 	fitWithin,
 	panBy,
@@ -71,7 +70,10 @@ describe('view transforms', () => {
 
 	it('round-trips screen and document points', () => {
 		const point = { x: 123, y: 45 };
-		const back = screenToDoc(view, docToScreen(view, point));
+		const back = screenToDoc(view, {
+			x: point.x * view.zoom + view.panX,
+			y: point.y * view.zoom + view.panY
+		});
 		expect(back.x).toBeCloseTo(point.x);
 		expect(back.y).toBeCloseTo(point.y);
 	});

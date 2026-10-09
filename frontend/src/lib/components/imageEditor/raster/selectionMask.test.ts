@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import {
-	combineMasks,
-	invertMask,
-	maskBounds,
-	maskCoverage,
-	rasterizePolygon,
-	rectMask
-} from './selectionMask';
+import { invertMask, maskBounds, rasterizePolygon } from './selectionMask';
 
 function row(mask: Uint8ClampedArray, width: number, y: number) {
 	return Array.from(mask.slice(y * width, (y + 1) * width));
+}
+
+function coverage(mask: Uint8ClampedArray): number {
+	return mask.reduce((count, value) => count + (value >= 128 ? 1 : 0), 0);
+}
+
+function rectMask(x: number, y: number, w: number, h: number, width: number, height: number) {
+	const mask = new Uint8ClampedArray(width * height);
+	for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) mask[j * width + i] = 255;
+	return mask;
 }
 
 describe('rasterizePolygon', () => {
@@ -73,7 +76,7 @@ describe('rasterizePolygon', () => {
 			6,
 			6
 		);
-		expect(maskCoverage(mask)).toBe(0);
+		expect(coverage(mask)).toBe(0);
 	});
 
 	it('clips to the mask size', () => {
@@ -87,20 +90,13 @@ describe('rasterizePolygon', () => {
 			4,
 			4
 		);
-		expect(maskCoverage(mask)).toBe(16);
+		expect(coverage(mask)).toBe(16);
 	});
 });
 
 describe('mask helpers', () => {
-	it('builds a rect mask clipped to the canvas', () => {
-		const mask = rectMask({ x: -2, y: 1, width: 5, height: 2 }, 4, 4);
-		expect(row(mask, 4, 1)).toEqual([255, 255, 255, 0]);
-		expect(row(mask, 4, 2)).toEqual([255, 255, 255, 0]);
-		expect(row(mask, 4, 0)).toEqual([0, 0, 0, 0]);
-	});
-
 	it('finds the bounds of the selected area', () => {
-		const mask = rectMask({ x: 2, y: 3, width: 4, height: 2 }, 10, 10);
+		const mask = rectMask(2, 3, 4, 2, 10, 10);
 		expect(maskBounds(mask, 10, 10)).toEqual({
 			x: 2,
 			y: 3,
@@ -111,18 +107,10 @@ describe('mask helpers', () => {
 	});
 
 	it('inverts a mask', () => {
-		const mask = rectMask({ x: 0, y: 0, width: 2, height: 4 }, 4, 4);
+		const mask = rectMask(0, 0, 2, 4, 4, 4);
 		const inverted = invertMask(mask);
-		expect(maskCoverage(inverted)).toBe(8);
+		expect(coverage(inverted)).toBe(8);
 		expect(inverted[0]).toBe(0);
 		expect(inverted[3]).toBe(255);
-	});
-
-	it('combines masks by union, subtract and intersect', () => {
-		const a = rectMask({ x: 0, y: 0, width: 3, height: 1 }, 4, 1);
-		const b = rectMask({ x: 2, y: 0, width: 2, height: 1 }, 4, 1);
-		expect(Array.from(combineMasks(a, b, 'union'))).toEqual([255, 255, 255, 255]);
-		expect(Array.from(combineMasks(a, b, 'subtract'))).toEqual([255, 255, 0, 0]);
-		expect(Array.from(combineMasks(a, b, 'intersect'))).toEqual([0, 0, 255, 0]);
 	});
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button } from '$lib/components/ui';
 	import { errorText, filterCatalog, updateMineFilter } from '$lib/filters/catalog';
 	import { selectFilterItem } from '$lib/filters/actions';
@@ -170,9 +171,11 @@
 					<span aria-label="Save as new filter">Save as new</span>
 				</Button>
 			{:else}
-				<Button variant="secondary" size="sm" icon="save" disabled={lutBlocked} title={lutBlocked ? "LUT filters can't be copied yet" : undefined} onclick={onSaveFilter}>
-					Save as filter
-				</Button>
+				<Tooltip text={lutBlocked ? "LUT filters can't be copied yet" : ''} position="top">
+					<Button variant="secondary" size="sm" icon="save" disabled={lutBlocked} onclick={onSaveFilter}>
+						Save as filter
+					</Button>
+				</Tooltip>
 			{/if}
 		</div>
 		{#if lutBlocked}

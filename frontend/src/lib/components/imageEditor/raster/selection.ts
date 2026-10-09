@@ -37,10 +37,3 @@ export function pointInBounds(selection: Selection, point: Point): boolean {
 	const b = selection.bounds;
 	return point.x >= b.x && point.x <= b.x + b.width && point.y >= b.y && point.y <= b.y + b.height;
 }
-
-export function pointSelected(selection: Selection, point: Point, width: number): boolean {
-	const x = Math.floor(point.x);
-	const y = Math.floor(point.y);
-	if (x < 0 || y < 0) return false;
-	return selection.mask[y * width + x] >= 128;
-}

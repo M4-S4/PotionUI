@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { NEUTRAL_TONE, applyGrayscale, applyInvert, applyTone, isNeutralTone } from './kernels';
+import { applyGrayscale, applyInvert, applyTone } from './kernels';
+
+const NEUTRAL_TONE = { brightness: 0, contrast: 0, saturation: 0, hue: 0 };
 
 function pixels(...values: number[][]): Uint8ClampedArray {
 	return new Uint8ClampedArray(values.flat());
@@ -60,13 +62,6 @@ describe('applyTone', () => {
 		expect(masked[4]).toBe(100);
 		expect(masked[8]).toBeGreaterThan(100);
 		expect(masked[8]).toBeLessThan(full[0]);
-	});
-});
-
-describe('isNeutralTone', () => {
-	it('detects the untouched state', () => {
-		expect(isNeutralTone(NEUTRAL_TONE)).toBe(true);
-		expect(isNeutralTone({ ...NEUTRAL_TONE, hue: 1 })).toBe(false);
 	});
 });
 

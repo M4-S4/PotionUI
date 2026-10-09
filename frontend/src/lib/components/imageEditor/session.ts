@@ -181,6 +181,9 @@ export class PaintSession implements ToolHost, EditorApi {
 	private theme: EditorTheme | null = null;
 	private nextLayerId = 1;
 	private frame = 0;
+	private overlayFrame = 0;
+	private overlay: HTMLCanvasElement | null = null;
+	private overlayContext: CanvasRenderingContext2D | null = null;
 	private spaceHeld = false;
 	private pointers = new Map<number, Point>();
 	private activePointerId: number | null = null;
@@ -283,9 +286,11 @@ export class PaintSession implements ToolHost, EditorApi {
 		return this.theme?.fg ?? 'rgb(255 255 255)';
 	}
 
-	attach(stage: HTMLCanvasElement): void {
+	attach(stage: HTMLCanvasElement, overlay: HTMLCanvasElement): void {
 		this.stage = stage;
 		this.context = stage.getContext('2d');
+		this.overlay = overlay;
+		this.overlayContext = overlay.getContext('2d');
 		this.theme = readTheme();
 		this.pattern = null;
 		this.invalidate();
@@ -294,9 +299,13 @@ export class PaintSession implements ToolHost, EditorApi {
 	detach(): void {
 		if (this.frame) cancelAnimationFrame(this.frame);
 		this.frame = 0;
+		if (this.overlayFrame) cancelAnimationFrame(this.overlayFrame);
+		this.overlayFrame = 0;
 		this.stopAnts();
 		this.stage = null;
 		this.context = null;
+		this.overlay = null;
+		this.overlayContext = null;
 		this.listeners.clear();
 		for (const off of this.unsubscribers) off();
 		this.unsubscribers = [];
@@ -316,6 +325,10 @@ export class PaintSession implements ToolHost, EditorApi {
 		if (this.stage) {
 			this.stage.width = Math.max(1, Math.round(width * dpr));
 			this.stage.height = Math.max(1, Math.round(height * dpr));
+		}
+		if (this.overlay) {
+			this.overlay.width = Math.max(1, Math.round(width * dpr));
+			this.overlay.height = Math.max(1, Math.round(height * dpr));
 		}
 		if (this.autoFit && this.ready) this.fit();
 		else this.invalidate();
@@ -557,6 +570,15 @@ export class PaintSession implements ToolHost, EditorApi {
 		this.frame = requestAnimationFrame(() => {
 			this.frame = 0;
 			this.render();
+			this.renderOverlay();
+		});
+	}
+
+	private invalidateOverlay(): void {
+		if (this.frame || this.overlayFrame || !this.overlay) return;
+		this.overlayFrame = requestAnimationFrame(() => {
+			this.overlayFrame = 0;
+			this.renderOverlay();
 		});
 	}
 
@@ -1494,8 +1516,9 @@ export class PaintSession implements ToolHost, EditorApi {
 			return;
 		}
 		this.antsTimer = setInterval(() => {
+			if (typeof document !== 'undefined' && document.hidden) return;
 			this.ants = (this.ants + 1) % 10;
-			this.invalidate();
+			this.invalidateOverlay();
 		}, 120);
 	}
 
@@ -1689,6 +1712,17 @@ export class PaintSession implements ToolHost, EditorApi {
 		context.strokeStyle = theme.line;
 		context.strokeRect(0, 0, this.doc.width, this.doc.height);
 
+	}
+
+	private renderOverlay(): void {
+		const context = this.overlayContext;
+		const theme = this.theme;
+		if (!context || !theme || !this.overlay) return;
+		const { zoom, panX, panY } = this.view;
+		context.setTransform(1, 0, 0, 1, 0, 0);
+		context.clearRect(0, 0, this.overlay.width, this.overlay.height);
+		if (!this.ready) return;
+		context.setTransform(this.dpr * zoom, 0, 0, this.dpr * zoom, this.dpr * panX, this.dpr * panY);
 		this.drawSelection(context, theme);
 		if (!this.spaceHeld && !this.panning) this.tool?.overlay?.(this, context);
 	}

@@ -112,16 +112,11 @@
 			<Button variant="secondary" size="sm" icon="sliders" disabled={!active} onclick={() => session.openFineTune()}>
 				Fine-tune
 			</Button>
-			<Button
-				variant="secondary"
-				size="sm"
-				icon="save"
-				disabled={!active || lutBlocked}
-				title={lutBlocked ? "LUT filters can't be copied yet" : undefined}
-				onclick={onSaveFilter}
-			>
-				Save as filter
-			</Button>
+			<Tooltip text={lutBlocked ? "LUT filters can't be copied yet" : ''} position="top">
+				<Button variant="secondary" size="sm" icon="save" disabled={!active || lutBlocked} onclick={onSaveFilter}>
+					Save as filter
+				</Button>
+			</Tooltip>
 		</div>
 
 		{#if lutBlocked}

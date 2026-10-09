@@ -28,18 +28,6 @@ export function rasterizePolygon(
 	return mask;
 }
 
-export function rectMask(rect: Rect, width: number, height: number): Uint8ClampedArray {
-	const mask = new Uint8ClampedArray(width * height);
-	const x0 = Math.max(0, Math.round(rect.x));
-	const y0 = Math.max(0, Math.round(rect.y));
-	const x1 = Math.min(width, Math.round(rect.x + rect.width));
-	const y1 = Math.min(height, Math.round(rect.y + rect.height));
-	for (let y = y0; y < y1; y++) {
-		mask.fill(255, y * width + x0, y * width + Math.max(x0, x1));
-	}
-	return mask;
-}
-
 export function maskBounds(mask: Uint8ClampedArray, width: number, height: number): Rect | null {
 	let minX = width;
 	let minY = height;
@@ -63,24 +51,4 @@ export function invertMask(mask: Uint8ClampedArray): Uint8ClampedArray {
 	const out = new Uint8ClampedArray(mask.length);
 	for (let i = 0; i < mask.length; i++) out[i] = 255 - mask[i];
 	return out;
-}
-
-export function combineMasks(
-	a: Uint8ClampedArray,
-	b: Uint8ClampedArray,
-	op: 'union' | 'subtract' | 'intersect'
-): Uint8ClampedArray {
-	const out = new Uint8ClampedArray(a.length);
-	for (let i = 0; i < a.length; i++) {
-		if (op === 'union') out[i] = Math.max(a[i], b[i]);
-		else if (op === 'subtract') out[i] = Math.min(a[i], 255 - b[i]);
-		else out[i] = Math.min(a[i], b[i]);
-	}
-	return out;
-}
-
-export function maskCoverage(mask: Uint8ClampedArray): number {
-	let count = 0;
-	for (let i = 0; i < mask.length; i++) if (mask[i] >= 128) count++;
-	return count;
 }

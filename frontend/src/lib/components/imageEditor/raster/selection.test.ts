@@ -3,7 +3,6 @@ import {
 	buildSelection,
 	clampPath,
 	pointInBounds,
-	pointSelected,
 	rectPath,
 	translatePath
 } from './selection';
@@ -12,8 +11,8 @@ describe('buildSelection', () => {
 	it('rasterizes the path and measures its bounds', () => {
 		const selection = buildSelection(rectPath({ x: 2, y: 3 }, { x: 6, y: 5 }), 10, 10);
 		expect(selection?.bounds).toEqual({ x: 2, y: 3, width: 4, height: 2 });
-		expect(pointSelected(selection!, { x: 3.5, y: 3.5 }, 10)).toBe(true);
-		expect(pointSelected(selection!, { x: 7.5, y: 3.5 }, 10)).toBe(false);
+		expect(selection!.mask[3 * 10 + 3]).toBe(255);
+		expect(selection!.mask[3 * 10 + 7]).toBe(0);
 	});
 
 	it('refuses degenerate paths', () => {

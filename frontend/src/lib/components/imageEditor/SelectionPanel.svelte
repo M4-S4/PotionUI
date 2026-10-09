@@ -1,13 +1,11 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui';
 	import type { PaintSession, SessionSnapshot } from './session';
 	import type { PaintTool } from './types';
 
 	export let session: PaintSession;
 	export let state: SessionSnapshot;
 	export let tool: PaintTool | undefined;
-
-	const button =
-		'h-8 px-3 rounded border border-line-strong bg-surface-2 text-xs text-fg-muted transition-colors hover:border-line-hover hover:text-fg disabled:opacity-40 disabled:pointer-events-none';
 </script>
 
 <div class="flex flex-col gap-3 p-3">
@@ -24,21 +22,11 @@
 	</div>
 
 	<div class="flex flex-wrap gap-1.5">
-		<button type="button" class={button} disabled={!state.hasSelection} on:click={() => session.cutSelection()}>
-			Cut
-		</button>
-		<button type="button" class={button} disabled={!state.hasSelection} on:click={() => session.copySelection()}>
-			Copy
-		</button>
-		<button type="button" class={button} disabled={!state.hasClipboard} on:click={() => session.pasteClipboard()}>
-			Paste
-		</button>
-		<button type="button" class={button} disabled={!state.hasSelection} on:click={() => session.deleteSelection()}>
-			Delete
-		</button>
-		<button type="button" class={button} on:click={() => session.selectAll()}>Select all</button>
-		<button type="button" class={button} disabled={!state.hasSelection} on:click={() => session.deselect()}>
-			Deselect
-		</button>
+		<Button variant="secondary" size="sm" disabled={!state.hasSelection} onclick={() => session.cutSelection()}>Cut</Button>
+		<Button variant="secondary" size="sm" disabled={!state.hasSelection} onclick={() => session.copySelection()}>Copy</Button>
+		<Button variant="secondary" size="sm" disabled={!state.hasClipboard} onclick={() => session.pasteClipboard()}>Paste</Button>
+		<Button variant="secondary" size="sm" disabled={!state.hasSelection} onclick={() => session.deleteSelection()}>Delete</Button>
+		<Button variant="secondary" size="sm" onclick={() => session.selectAll()}>Select all</Button>
+		<Button variant="secondary" size="sm" disabled={!state.hasSelection} onclick={() => session.deselect()}>Deselect</Button>
 	</div>
 </div>
