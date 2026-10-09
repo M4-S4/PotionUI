@@ -59,8 +59,10 @@ class AutomationConnectionHub(LoopDispatchMixin):
     async def broadcast(self, message: dict) -> None:
         """Send a message to every connected client."""
         try:
-            admin_message = json.dumps(self._for_audience(message, True))
-            public_message = json.dumps(self._for_audience(message, False))
+            admin_payload = self._for_audience(message, True)
+            public_payload = self._for_audience(message, False)
+            admin_message = json.dumps(admin_payload)
+            public_message = admin_message if public_payload is admin_payload else json.dumps(public_payload)
         except (TypeError, ValueError) as e:
             logger.error(f"Failed to serialize automation message: {e}")
             return

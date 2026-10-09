@@ -1204,7 +1204,7 @@ class GenerationOrchestrator:
             )
 
             if getattr(self, "limit_guard", None) is not None:
-                self.limit_guard.admit(AdmissionRequest(
+                await asyncio.to_thread(self.limit_guard.admit, AdmissionRequest(
                     point="submit",
                     user_id=user_id,
                     engine=engine,

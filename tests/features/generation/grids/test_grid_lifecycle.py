@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 
 from src.features.generation.grids.dto import CreateGridRequest
@@ -148,3 +150,21 @@ async def test_an_admin_can_delete_someone_elses_grid(harness):
 
     assert harness.rows("generation_grids") == []
     assert harness.rows("generations") == []
+
+
+@pytest.mark.asyncio
+async def test_serializing_a_grid_runs_off_the_event_loop_thread(harness, monkeypatch):
+    grid = await make_grid(harness)
+    seen = []
+    original = harness.service.history.query.serialize_generations
+
+    def spy(*args, **kwargs):
+        seen.append(threading.current_thread())
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(harness.service.history.query, "serialize_generations", spy)
+
+    await harness.service.get(grid["id"], harness.users["u1"])
+
+    assert seen
+    assert all(thread is not threading.main_thread() for thread in seen)

@@ -69,3 +69,19 @@ async def test_disconnect_forgets_the_admin_flag(hub):
     await hub.broadcast(RUN_FAILED)
 
     assert "No such file" not in json.loads(reconnected.send_text.call_args.args[0])["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_message_without_an_error_is_encoded_once(hub, monkeypatch):
+    await _connect(hub, "u", False)
+    await _connect(hub, "a", True)
+    calls = []
+    real = json.dumps
+    monkeypatch.setattr(
+        "src.platform.websocket.automation_connection_hub.json.dumps",
+        lambda payload: calls.append(payload) or real(payload),
+    )
+
+    await hub.broadcast({"type": "automation_run_update", "run_id": "r1", "status": "running"})
+
+    assert len(calls) == 1

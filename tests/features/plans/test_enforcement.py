@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -129,6 +130,25 @@ async def test_submit_is_refused_before_anything_is_persisted(seed, plans, repo,
     repo.create.assert_not_called()
     backend.start_generation.assert_not_awaited()
     assert ledger(seed) == []
+
+
+@pytest.mark.asyncio
+async def test_submit_admission_runs_off_the_event_loop_thread(seed, plans, repo, backend):
+    seed.user("u1")
+    threads = []
+    real = plans.guard.admit
+
+    def spy(request):
+        threads.append(threading.current_thread())
+        return real(request)
+
+    plans.guard.admit = spy
+    orchestrator = orchestrator_for(backend, plans.guard)
+
+    await orchestrator.start_generation(make_request(), "u1")
+
+    assert threads
+    assert all(thread is not threading.main_thread() for thread in threads)
 
 
 @pytest.mark.asyncio

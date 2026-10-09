@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import random
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -282,6 +283,9 @@ class GridService:
         return f"/api/media/files/{chosen['id']}?size=medium", media
 
     async def serialize(self, grid: GridRecord, user) -> Dict[str, Any]:
+        return await asyncio.to_thread(self._serialize, grid, user)
+
+    def _serialize(self, grid: GridRecord, user) -> Dict[str, Any]:
         rows = self.grids.cells(grid.id)
         latest = self._latest_by_position(rows)
         admin = self.is_admin(user)
