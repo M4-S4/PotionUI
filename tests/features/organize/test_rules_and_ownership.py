@@ -130,7 +130,7 @@ def test_validation_problems(seed, manager, body, expected):
     assert seed.rows("SELECT * FROM collections") == []
 
 
-def test_rules_of_another_user_answer_not_found(seed, manager):
+def test_rules_of_another_user_answer_not_found(seed, manager, backfill):
     one = seed.user("u1")
     two = seed.user("u2")
     rule = manager.create_rule(one, rule_body(actions=[collection_action(name="Mine")]))
@@ -140,7 +140,7 @@ def test_rules_of_another_user_answer_not_found(seed, manager):
         lambda: manager.update_rule(two, rule["id"], rule_body(actions=[collection_action(name="X")])),
         lambda: manager.patch_rule(two, rule["id"], {"enabled": False}),
         lambda: manager.delete_rule(two, rule["id"]),
-        lambda: manager.start_backfill(two, rule["id"]),
+        lambda: backfill.start(two, rule["id"]),
         lambda: manager.duplicate(two, rule["id"]),
     ):
         with pytest.raises(OrganizeError) as excinfo:
@@ -180,9 +180,9 @@ def test_live_events_only_touch_the_owners_rules(seed, manager):
     assert seed.members(mine) == set()
 
 
-def test_rule_cap_blocks_new_rules(seed, manager):
+def test_rule_cap_blocks_new_rules(seed, manager, admin):
     user = seed.user("u1")
-    manager.admin_user("u1", {"rule_cap": 1})
+    admin.user_controls("u1", {"rule_cap": 1})
     manager.create_rule(user, rule_body(actions=[collection_action(name="A")]))
 
     with pytest.raises(OrganizeError) as excinfo:
@@ -190,6 +190,13 @@ def test_rule_cap_blocks_new_rules(seed, manager):
 
     assert excinfo.value.code == "rule_cap_reached"
     assert excinfo.value.status_code == 409
+
+
+def test_admin_controls_refuse_an_unknown_user(admin):
+    with pytest.raises(OrganizeError) as excinfo:
+        admin.user_controls("ghost", {"paused": True})
+
+    assert excinfo.value.code == "user_not_found"
 
 
 def test_update_keeps_the_subject_and_clears_a_pause(seed, manager):
@@ -207,7 +214,7 @@ def test_update_keeps_the_subject_and_clears_a_pause(seed, manager):
     assert updated["actions"] == rule["actions"]
 
 
-def test_changing_the_actions_lets_apply_existing_file_items_again(seed, manager):
+def test_changing_the_actions_lets_apply_existing_file_items_again(seed, manager, backfill):
     user = seed.user("u1")
     first = seed.collection("u1", "First")
     second = seed.collection("u1", "Second")
@@ -219,7 +226,7 @@ def test_changing_the_actions_lets_apply_existing_file_items_again(seed, manager
     assert manager.preview(user, {**rule_body(actions=[collection_action(second)]), "rule_id": rule["id"]})["already_handled"] == 1
 
     manager.update_rule(user, rule["id"], {"actions": [collection_action(second)]})
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
 
     assert seed.members(second) == {generation}
 

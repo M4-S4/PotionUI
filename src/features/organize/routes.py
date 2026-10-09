@@ -13,6 +13,8 @@ from src.features.organize.dto import (
     RulePatch,
     body_dict,
 )
+from src.features.organize.admin import OrganizeAdmin
+from src.features.organize.backfill import BackfillManager
 from src.features.organize.errors import OrganizeError
 from src.features.organize.manager import OrganizeManager
 from src.platform.http.base_controller import APIResponse, BaseController
@@ -24,9 +26,11 @@ if TYPE_CHECKING:
 
 class OrganizeController(BaseController):
 
-    def __init__(self, manager: OrganizeManager):
+    def __init__(self, manager: OrganizeManager, backfill: BackfillManager, admin: OrganizeAdmin):
         super().__init__()
         self.manager = manager
+        self.backfill = backfill
+        self.admin = admin
 
     async def run(self, error: str, func: Callable[..., Any], *args: Any) -> APIResponse:
         try:
@@ -44,6 +48,7 @@ class OrganizeController(BaseController):
 def build_router(container: "AppContainer") -> APIRouter:
     controller: OrganizeController = container.organize_controller
     manager = controller.manager
+    backfill = controller.backfill
     router = APIRouter(prefix="/api/organize", tags=["Auto-organize"])
 
     @router.get("/catalog", response_model=APIResponse, summary="Facts and actions a rule can use")
@@ -97,7 +102,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.post("/rules/{rule_id}/apply-existing", response_model=APIResponse, summary="Apply a rule to existing items")
     async def apply_existing(rule_id: str, body: Optional[ApplyExistingBody] = None, user=Depends(get_current_active_user)):
-        return await controller.run("organize_apply_failed", manager.start_backfill, user, rule_id)
+        return await controller.run("organize_apply_failed", backfill.start, user, rule_id)
 
     @router.post("/preview", response_model=APIResponse, summary="Count what a rule would match")
     async def preview(body: PreviewBody, user=Depends(get_current_active_user)):
@@ -105,15 +110,15 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.get("/jobs", response_model=APIResponse, summary="My apply-to-existing jobs")
     async def list_jobs(active: bool = False, user=Depends(get_current_active_user)):
-        return await controller.run("organize_jobs_failed", manager.list_jobs, user, active)
+        return await controller.run("organize_jobs_failed", backfill.list_jobs, user, active)
 
     @router.get("/jobs/{job_id}", response_model=APIResponse, summary="One job")
     async def get_job(job_id: str, user=Depends(get_current_active_user)):
-        return await controller.run("organize_job_failed", manager.get_job, user, job_id)
+        return await controller.run("organize_job_failed", backfill.get_job, user, job_id)
 
     @router.post("/jobs/{job_id}/cancel", response_model=APIResponse, summary="Cancel a job")
     async def cancel_job(job_id: str, user=Depends(get_current_active_user)):
-        return await controller.run("organize_cancel_failed", manager.cancel_job, user, job_id)
+        return await controller.run("organize_cancel_failed", backfill.cancel_job, user, job_id)
 
     @router.get("/activity", response_model=APIResponse, summary="What my rules did")
     async def activity(subject: Optional[str] = None, rule_id: Optional[str] = None, before: Optional[str] = None,
@@ -139,19 +144,19 @@ def build_router(container: "AppContainer") -> APIRouter:
 
 def build_admin_router(container: "AppContainer") -> APIRouter:
     controller: OrganizeController = container.organize_controller
-    manager = controller.manager
+    ops = controller.admin
     router = APIRouter(prefix="/api/admin/organize", tags=["Auto-organize admin"])
 
     @router.get("/overview", response_model=APIResponse, summary="Auto-organize counts across users")
     async def overview(admin=Depends(get_current_admin_user)):
-        return await controller.run("organize_overview_failed", manager.admin_overview)
+        return await controller.run("organize_overview_failed", ops.overview)
 
     @router.put("/controls", response_model=APIResponse, summary="Kill switch, default cap and hourly limit")
     async def controls(body: AdminControlsBody, admin=Depends(get_current_admin_user)):
-        return await controller.run("organize_controls_failed", manager.admin_controls, body_dict(body))
+        return await controller.run("organize_controls_failed", ops.controls, body_dict(body))
 
     @router.put("/users/{user_id}", response_model=APIResponse, summary="Pause or cap one user")
     async def user_controls(user_id: str, body: AdminUserBody, admin=Depends(get_current_admin_user)):
-        return await controller.run("organize_user_controls_failed", manager.admin_user, user_id, body_dict(body))
+        return await controller.run("organize_user_controls_failed", ops.user_controls, user_id, body_dict(body))
 
     return router

@@ -6,11 +6,12 @@ from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from src.features.generation.policy import GenerationPolicy
 from src.features.organize import errors
-from src.features.organize.core_actions import ADD_TAGS, ADD_TO_COLLECTION, collection_target_type, resolve_collection
+from src.features.organize.core_actions import ADD_TAGS, ADD_TO_COLLECTION, resolve_collection
 from src.features.organize.evaluator import as_list, canonical_conditions, evaluate, sql_filter
 from src.features.organize.item_repository import OrganizeItemRepository
-from src.features.organize.jobs import BackfillJob, JobBook
+from src.features.organize.jobs import JobBook
 from src.features.organize.records import COLLECTION_SCOPES, SUBJECT_TRIGGERS, Controls, Rule, Run
 from src.features.organize.rule_repository import GLOBAL_SCOPE, OrganizeRuleRepository, RuleCapReached
 from src.features.organize.run_repository import OrganizeRunRepository
@@ -18,6 +19,7 @@ from src.features.organize.templates import list_templates
 from src.features.organize.validation import problem, validate_name, validate_rule_shape
 from src.features.organize.visibility import OrganizeVisibility
 from src.features.organize.write_repository import OrganizeWriteRepository
+from src.features.users.repository import UserRepository
 from src.platform.database.rows import dt_column, dt_iso
 from src.platform.plugins.organize import (
     FACT_KINDS,
@@ -62,6 +64,7 @@ class OrganizeCollaborators:
     runs: OrganizeRunRepository
     items: OrganizeItemRepository
     writer: OrganizeWriteRepository
+    users: UserRepository
     registry: OrganizeRegistry
     visibility: OrganizeVisibility
     notify: Optional[Callable[..., Any]] = None
@@ -84,12 +87,12 @@ class OrganizeManager:
     def __init__(self, collaborators: OrganizeCollaborators, executor: Optional[Any] = None):
         self.c = collaborators
         self.jobs = JobBook()
-        self._executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="organize-backfill")
+        self.executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="organize-backfill")
         self._options_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="organize-options")
 
     def shutdown(self) -> None:
         self.jobs.cancel_all()
-        shutdown = getattr(self._executor, "shutdown", None)
+        shutdown = getattr(self.executor, "shutdown", None)
         if shutdown:
             shutdown(wait=False)
         self._options_pool.shutdown(wait=False)
@@ -246,9 +249,9 @@ class OrganizeManager:
 
     def get_rule(self, user: Any, rule_id: str) -> Dict[str, Any]:
         viewer = viewer_of(user)
-        return self.describe(viewer, [self._require_rule(viewer.id, rule_id)])[0]
+        return self.describe(viewer, [self.require_rule(viewer.id, rule_id)])[0]
 
-    def _require_rule(self, user_id: str, rule_id: str) -> Rule:
+    def require_rule(self, user_id: str, rule_id: str) -> Rule:
         rule = self.c.rules.get(user_id, rule_id)
         if rule is None:
             raise errors.rule_not_found()
@@ -276,7 +279,7 @@ class OrganizeManager:
 
     def update_rule(self, user: Any, rule_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         viewer = viewer_of(user)
-        rule = self._require_rule(viewer.id, rule_id)
+        rule = self.require_rule(viewer.id, rule_id)
         if payload.get("subject") not in (None, rule.subject):
             raise errors.invalid_rule([problem("subject", "subject_locked", "A rule's subject cannot change")])
         merged = {
@@ -303,7 +306,7 @@ class OrganizeManager:
 
     def patch_rule(self, user: Any, rule_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         viewer = viewer_of(user)
-        rule = self._require_rule(viewer.id, rule_id)
+        rule = self.require_rule(viewer.id, rule_id)
         if payload.get("name") is not None:
             name, problems = validate_name(payload["name"])
             if problems:
@@ -337,7 +340,7 @@ class OrganizeManager:
 
     def duplicate(self, user: Any, rule_id: str) -> Dict[str, Any]:
         viewer = viewer_of(user)
-        rule = self._require_rule(viewer.id, rule_id)
+        rule = self.require_rule(viewer.id, rule_id)
         cap = self.effective_cap(viewer.id)
         copy_rule = Rule(
             id="", user_id=viewer.id, name=f"{rule.name} (copy)"[:120], subject=rule.subject, trigger=rule.trigger,
@@ -542,7 +545,7 @@ class OrganizeManager:
                                        "blocking": True, "path": path})
         return issues
 
-    def _blocking_reason(self, rule: Rule, user_id: str, is_admin: bool, restricted: bool) -> Optional[str]:
+    def blocking_reason(self, rule: Rule, user_id: str, is_admin: bool, restricted: bool) -> Optional[str]:
         for condition in rule.conditions:
             if self.c.registry.fact(condition.get("fact", "")) is None:
                 return "fact_unavailable"
@@ -561,12 +564,12 @@ class OrganizeManager:
             return
         rule.paused_reason = reason
         message = PAUSE_MESSAGES.get(reason, "\"{name}\" was paused.").format(name=rule.name, limit=self.hourly_limit())
-        self._notify(
+        self.notify(
             user_id=rule.user_id, level="warning", title="Auto-organize paused a rule", message=message,
             type=NOTICE_RULE_PAUSED, metadata={"rule_id": rule.id, "reason": reason},
         )
 
-    def _notify(self, **kwargs: Any) -> None:
+    def notify(self, **kwargs: Any) -> None:
         if self.c.notify is None:
             return
         try:
@@ -618,7 +621,7 @@ class OrganizeManager:
             rule.actions = stored_actions
         return applied, blocked
 
-    def _apply(self, rule: Rule, item: OrganizeItem, run_for: Callable[[], Run], bump: bool) -> Optional[int]:
+    def apply(self, rule: Rule, item: OrganizeItem, run_for: Callable[[], Run], bump: bool) -> Optional[int]:
         applied, blocked = self._run_actions(rule, item, bump)
         if applied:
             run = run_for()
@@ -643,7 +646,7 @@ class OrganizeManager:
         rules = [r for r in self.c.rules.live_rules(user_id, subject) if not r.paused_reason]
         if not rules or (trigger != "item_created" and not any(self._listens_to(r, trigger) for r in rules)):
             return 0
-        is_admin = self.c.rules.is_admin(user_id)
+        is_admin = GenerationPolicy.is_admin(self.c.users.get_by_id(user_id))
         restricted = self.c.visibility.is_restricted(user_id)
         items = self.load_items(subject, user_id, [item_id], is_admin, restricted)
         if not items:
@@ -660,7 +663,7 @@ class OrganizeManager:
                 continue
             if trigger != "item_created" and not self._listens_to(rule, trigger):
                 continue
-            reason = self._blocking_reason(rule, user_id, is_admin, restricted)
+            reason = self.blocking_reason(rule, user_id, is_admin, restricted)
             if reason:
                 if reason == "model_restricted":
                     self._pause(rule, reason)
@@ -670,7 +673,7 @@ class OrganizeManager:
             if self.c.runs.live_items_last_hour(user_id, rule.id) >= self.hourly_limit():
                 self._pause(rule, "rate_limited")
                 continue
-            result = self._apply(rule, item, self._live_run_factory(rule), bump=True)
+            result = self.apply(rule, item, self._live_run_factory(rule), bump=True)
             if result is None:
                 continue
             filed += 1 if result else 0
@@ -724,7 +727,7 @@ class OrganizeManager:
                 stamps = [r.created_at for r in rules if r.created_at]
                 if not stamps:
                     continue
-                for model_id in self.c.items.models_created_since(min(stamps).isoformat()):
+                for model_id in self.c.items.models_created_since(dt_iso(min(stamps))):
                     self.process_item("model", user_id, model_id, only_rules_older_than_item=True)
         elif kind == "model_tags_changed":
             model_id = payload.get("model_id")
@@ -740,7 +743,7 @@ class OrganizeManager:
             for user_id in users:
                 self.process_item("model", user_id, model_id, "metadata_changed")
 
-    def _matching_ids(self, viewer: Viewer, subject: str, match: str, conditions: List[Dict[str, Any]],
+    def matching_ids(self, viewer: Viewer, subject: str, match: str, conditions: List[Dict[str, Any]],
                       cap: Optional[int]) -> Tuple[List[str], bool]:
         restricted = self.c.visibility.is_restricted(viewer.id)
         where, params, complete = sql_filter(self.c.registry, subject, match, conditions)
@@ -775,8 +778,8 @@ class OrganizeManager:
             raise errors.invalid_rule(problems)
         rule_id = payload.get("rule_id")
         if rule_id:
-            self._require_rule(viewer.id, rule_id)
-        ids, approximate = self._matching_ids(viewer, subject, shape["match"], shape["conditions"], PREVIEW_SCAN_CAP)
+            self.require_rule(viewer.id, rule_id)
+        ids, approximate = self.matching_ids(viewer, subject, shape["match"], shape["conditions"], PREVIEW_SCAN_CAP)
         handled = self.c.rules.handled_ids(rule_id, subject, ids) if rule_id else set()
         remaining = [i for i in ids if i not in handled]
         changing = self._would_change(viewer, subject, shape["actions"], remaining)
@@ -813,105 +816,6 @@ class OrganizeManager:
             else:
                 return remaining
         return changing
-
-    def start_backfill(self, user: Any, rule_id: str) -> Dict[str, Any]:
-        viewer = viewer_of(user)
-        rule = self._require_rule(viewer.id, rule_id)
-        if self.is_paused_for(viewer.id):
-            raise errors.organize_paused()
-        running = self.jobs.active_for_rule(viewer.id, rule_id)
-        if running is not None:
-            raise errors.OrganizeError("job_running", "This rule is already being applied", 409, {"job_id": running.id})
-        restricted = self.c.visibility.is_restricted(viewer.id)
-        reason = self._blocking_reason(rule, viewer.id, viewer.is_admin, restricted)
-        if reason:
-            raise errors.OrganizeError("rule_not_runnable", "Fix what this rule needs before applying it", 422,
-                                       {"reason": reason})
-        job = self.jobs.create(viewer.id, rule.id, rule.name)
-        self._executor.submit(self._run_backfill, job, viewer)
-        return job.to_dict()
-
-    def _run_backfill(self, job: BackfillJob, viewer: Viewer) -> None:
-        try:
-            self._backfill(job, viewer)
-        except Exception:
-            logger.exception("Auto-organize backfill %s failed", job.id)
-            job.fail("Applying the rule stopped because of an error")
-            if job.run_id:
-                self.c.runs.finish_run(viewer.id, job.run_id, "failed")
-
-    def _backfill(self, job: BackfillJob, viewer: Viewer) -> None:
-        if job.status == "cancelled":
-            return
-        rule = self.c.rules.get(viewer.id, job.rule_id)
-        if rule is None:
-            job.fail("The rule was deleted")
-            return
-        job.start()
-        restricted = self.c.visibility.is_restricted(viewer.id)
-        ids, _approximate = self._matching_ids(viewer, rule.subject, rule.match, rule.conditions, None)
-        handled = self.c.rules.handled_ids(rule.id, rule.subject, ids)
-        ids = [i for i in ids if i not in handled]
-        job.total = len(ids)
-        run = self.c.runs.create_run(rule.id, rule.name, viewer.id, rule.subject, "backfill")
-        job.run_id = run.id
-        status = "completed"
-        for start in range(0, len(ids), BACKFILL_CHUNK):
-            if job.cancel_requested or self.is_paused_for(viewer.id):
-                status = "cancelled"
-                break
-            chunk = ids[start:start + BACKFILL_CHUNK]
-            blocked = False
-            for item in self.load_items(rule.subject, viewer.id, chunk, viewer.is_admin, restricted):
-                if not evaluate(self.c.registry, rule.match, rule.conditions, item):
-                    continue
-                result = self._apply(rule, item, lambda: run, bump=False)
-                if result is None:
-                    blocked = True
-                    break
-                if result:
-                    job.applied += 1
-            if rule.subject == "generation":
-                self.c.writer.bump_history(viewer.id)
-            job.processed = min(job.total, start + len(chunk))
-            self._notify(user_id=viewer.id, level="info", title="Auto-organize", message=f"Applying \"{rule.name}\"",
-                         type=NOTICE_JOB_PROGRESS, metadata=job.to_dict(), transient=True, show_toast=False)
-            if blocked:
-                status = "failed"
-                job.error = "The collection this rule adds to no longer exists"
-                break
-        self.c.runs.finish_run(viewer.id, run.id, status)
-        job.finish(status)
-        if status != "failed":
-            self._notify(user_id=viewer.id, level="success", title="Auto-organize",
-                         message=self._finished_message(viewer.id, run.id, job.applied),
-                         type=NOTICE_JOB_FINISHED, metadata=job.to_dict())
-
-    def _finished_message(self, user_id: str, run_id: str, applied: int) -> str:
-        if not applied:
-            return "Nothing new to add"
-        summary = self.c.runs.run_change_summary(user_id, [run_id]).get(run_id, [])
-        targets = [row["target_name"] for row in summary if row["target_type"] in ("collection", "model_collection")]
-        noun = "item" if applied == 1 else "items"
-        if targets:
-            return f"Added {applied} {noun} to {', '.join(dict.fromkeys(targets))}"
-        return f"Organized {applied} {noun}"
-
-    def list_jobs(self, user: Any, active: bool) -> List[Dict[str, Any]]:
-        return [job.to_dict() for job in self.jobs.for_user(viewer_of(user).id, active)]
-
-    def get_job(self, user: Any, job_id: str) -> Dict[str, Any]:
-        job = self.jobs.get(viewer_of(user).id, job_id)
-        if job is None:
-            raise errors.OrganizeError("job_not_found", "Job not found", 404)
-        return job.to_dict()
-
-    def cancel_job(self, user: Any, job_id: str) -> Dict[str, Any]:
-        job = self.jobs.get(viewer_of(user).id, job_id)
-        if job is None:
-            raise errors.OrganizeError("job_not_found", "Job not found", 404)
-        job.request_cancel()
-        return job.to_dict()
 
     def activity(self, user: Any, subject: Optional[str], rule_id: Optional[str], before: Optional[str],
                  limit: int) -> Dict[str, Any]:
@@ -1020,79 +924,3 @@ class OrganizeManager:
 
     def prune(self) -> int:
         return self.c.runs.prune()
-
-    def admin_overview(self) -> Dict[str, Any]:
-        controls = self.global_controls()
-        counts = self.c.rules.rule_counts_by_user()
-        user_controls = self.c.rules.all_user_controls()
-        filed = self.c.runs.filed_totals_by_user()
-        user_ids = list(dict.fromkeys(list(counts) + list(user_controls)))
-        usernames = self.c.rules.usernames(user_ids)
-        default_cap = self.default_cap()
-        users = []
-        for user_id in user_ids:
-            if user_id not in usernames:
-                continue
-            users.append(self._admin_row(user_id, usernames[user_id], counts.get(user_id), user_controls.get(user_id),
-                                         filed.get(user_id), default_cap))
-        totals = {
-            "users_with_rules": sum(1 for row in users if row["rules"]),
-            "rules": sum(row["rules"] for row in users),
-            "enabled_rules": sum(row["enabled_rules"] for row in users),
-            "paused_rules": sum(row["paused_rules"] for row in users),
-            "items_filed_24h": sum(row["items_filed_24h"] for row in users),
-            "items_filed_total": sum(row["items_filed_total"] for row in users),
-            "running_jobs": self.jobs.running_count(),
-        }
-        return {
-            "paused_all": controls.paused,
-            "default_rule_cap": default_cap,
-            "hourly_limit": controls.hourly_limit or DEFAULT_HOURLY_LIMIT,
-            "totals": totals,
-            "users": users,
-        }
-
-    def _admin_row(self, user_id: str, username: str, counts: Optional[tuple], controls: Optional[Controls],
-                   filed: Optional[Dict[str, int]], default_cap: int) -> Dict[str, Any]:
-        total, enabled, paused, last_run_at = counts or (0, 0, 0, None)
-        controls = controls or Controls()
-        return {
-            "user_id": user_id,
-            "username": username,
-            "rules": total,
-            "enabled_rules": enabled,
-            "paused_rules": paused,
-            "items_filed_24h": (filed or {}).get("day", 0),
-            "items_filed_total": (filed or {}).get("total", 0),
-            "paused": controls.paused,
-            "rule_cap": controls.rule_cap,
-            "effective_rule_cap": default_cap if controls.rule_cap is None else controls.rule_cap,
-            "last_run_at": dt_iso(last_run_at),
-        }
-
-    def admin_controls(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        controls = self.global_controls()
-        if payload.get("paused_all") is not None:
-            controls.paused = bool(payload["paused_all"])
-        if payload.get("default_rule_cap") is not None:
-            controls.rule_cap = int(payload["default_rule_cap"])
-        if payload.get("hourly_limit") is not None:
-            controls.hourly_limit = int(payload["hourly_limit"])
-        self.c.rules.save_controls(GLOBAL_SCOPE, controls)
-        if controls.paused:
-            self.jobs.cancel_all()
-        return self.admin_overview()
-
-    def admin_user(self, user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        if user_id == GLOBAL_SCOPE or not self.c.rules.user_exists(user_id):
-            raise errors.OrganizeError("user_not_found", "User not found", 404)
-        controls = self.c.rules.controls(user_id)
-        if payload.get("paused") is not None:
-            controls.paused = bool(payload["paused"])
-        if "rule_cap" in payload:
-            controls.rule_cap = None if payload["rule_cap"] is None else int(payload["rule_cap"])
-        self.c.rules.save_controls(user_id, controls)
-        if controls.paused:
-            self.jobs.cancel_for_user(user_id)
-        row = next((u for u in self.admin_overview()["users"] if u["user_id"] == user_id), None)
-        return row

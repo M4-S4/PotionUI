@@ -289,12 +289,6 @@ class OrganizeItemRepository:
             )
             return [row["provider"] for row in cursor.fetchall()]
 
-    def is_admin(self, user_id: str) -> bool:
-        with _db().get_cursor() as cursor:
-            cursor.execute("SELECT account_type FROM users WHERE id = ?", (user_id,))
-            row = cursor.fetchone()
-        return bool(row) and str(row["account_type"] or "").upper() == "ADMIN"
-
     def generation_owner(self, generation_id: str) -> Optional[str]:
         with _db().get_cursor() as cursor:
             cursor.execute("SELECT user_id FROM generations WHERE id = ?", (generation_id,))
@@ -306,12 +300,6 @@ class OrganizeItemRepository:
             cursor.execute("SELECT user_id FROM uploads WHERE id = ?", (upload_id,))
             row = cursor.fetchone()
         return row["user_id"] if row else None
-
-    def model_created_at(self, model_id: str) -> Optional[str]:
-        with _db().get_cursor() as cursor:
-            cursor.execute("SELECT created_at FROM models WHERE id = ?", (model_id,))
-            row = cursor.fetchone()
-        return dt_iso(row["created_at"]) if row else None
 
     def models_created_since(self, since_iso: str) -> List[str]:
         with _db().get_cursor() as cursor:

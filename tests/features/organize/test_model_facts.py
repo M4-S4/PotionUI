@@ -255,7 +255,7 @@ def test_saved_attribute_conditions_take_type_and_label_from_the_definition(lib,
     assert admin_rule["conditions"][0]["value"]["type"] == "text"
 
 
-def test_preview_counts_and_backfill_use_model_facts(lib, manager, seed):
+def test_preview_counts_and_backfill_use_model_facts(lib, manager, seed, backfill):
     conditions = [{"fact": "model_type", "operator": "is", "value": "lora"}] + attr("strength", "number", "at_least", 0.8)
     preview = manager.preview(lib.user, {"subject": "model", "conditions": conditions})
     assert (preview["matched"], preview["approximate"]) == (1, False)
@@ -265,8 +265,8 @@ def test_preview_counts_and_backfill_use_model_facts(lib, manager, seed):
         subject="model", conditions=conditions + text("trigger_words", "contains", "anime"),
         actions=[collection_action(strong)],
     ))
-    job = manager.start_backfill(lib.user, rule["id"])
-    assert manager.get_job(lib.user, job["id"])["status"] == "completed"
+    job = backfill.start(lib.user, rule["id"])
+    assert backfill.get_job(lib.user, job["id"])["status"] == "completed"
     members = {r["model_id"] for r in seed.rows(
         "SELECT model_id FROM model_collection_members WHERE collection_id = ?", (strong,)
     )}

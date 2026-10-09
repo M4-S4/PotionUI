@@ -7,14 +7,6 @@ class OrganizeVisibility(Protocol):
     def viewable_generation_ids(self, user_id: str, generation_ids: Iterable[str]) -> Set[str]: ...
 
 
-class OpenVisibility:
-    def is_restricted(self, user_id: str) -> bool:
-        return False
-
-    def viewable_generation_ids(self, user_id: str, generation_ids: Iterable[str]) -> Set[str]:
-        return set(generation_ids)
-
-
 class ContentSafetyVisibility:
     def __init__(self, content_safety: Optional[Any]):
         self.content_safety = content_safety

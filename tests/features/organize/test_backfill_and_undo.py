@@ -1,6 +1,6 @@
 import pytest
 
-from src.features.organize import manager as manager_module
+from src.features.organize import backfill as backfill_module
 from src.features.organize.errors import OrganizeError
 from src.features.organize.manager import NOTICE_JOB_FINISHED, NOTICE_JOB_PROGRESS
 from tests.features.organize.conftest import collection_action, rule_body
@@ -56,15 +56,15 @@ def test_preview_with_tags_counts_items_missing_a_tag(seed, manager, history):
     assert preview["would_change"] == 2
 
 
-def test_apply_existing_files_matches_and_records_one_backfill_run(seed, manager, notices, history):
+def test_apply_existing_files_matches_and_records_one_backfill_run(seed, manager, notices, history, backfill):
     user, wide, square = history
     rule = manager.create_rule(user, rule_body(conditions=LANDSCAPE, actions=[collection_action(name="Landscapes")]))
 
-    job = manager.start_backfill(user, rule["id"])
+    job = backfill.start(user, rule["id"])
 
     collection_id = manager.get_rule(user, rule["id"])["actions"][0]["config"]["collection_id"]
     assert seed.members(collection_id) == set(wide)
-    finished = manager.get_job(user, job["id"])
+    finished = backfill.get_job(user, job["id"])
     assert finished["status"] == "completed"
     assert (finished["total"], finished["processed"], finished["applied"]) == (3, 3, 3)
     activity = manager.activity(user, "generation", None, None, 50)["runs"]
@@ -77,84 +77,84 @@ def test_apply_existing_files_matches_and_records_one_backfill_run(seed, manager
     assert manager.get_rule(user, rule["id"])["filed_count"] == 3
 
 
-def test_apply_existing_runs_in_chunks_and_bumps_history_once_per_chunk(seed, manager, history, monkeypatch):
+def test_apply_existing_runs_in_chunks_and_bumps_history_once_per_chunk(seed, manager, history, monkeypatch, backfill):
     user, wide, _ = history
-    monkeypatch.setattr(manager_module, "BACKFILL_CHUNK", 2)
+    monkeypatch.setattr(backfill_module, "BACKFILL_CHUNK", 2)
     rule = manager.create_rule(user, rule_body(conditions=LANDSCAPE, actions=[collection_action(name="L")]))
     bumps = []
     original = manager.c.writer.bump_history
     monkeypatch.setattr(manager.c.writer, "bump_history", lambda user_id: (bumps.append(user_id), original(user_id)))
 
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
 
     assert bumps == ["u1", "u1"]
 
 
-def test_apply_existing_skips_items_the_rule_already_handled(seed, manager, history):
+def test_apply_existing_skips_items_the_rule_already_handled(seed, manager, history, backfill):
     user, wide, _ = history
     landscapes = seed.collection("u1")
     rule = manager.create_rule(user, rule_body(conditions=LANDSCAPE, actions=[collection_action(landscapes)]))
     manager.process_item("generation", "u1", wide[0])
     seed._exec("DELETE FROM collection_generations WHERE generation_id = ?", (wide[0],))
 
-    job = manager.start_backfill(user, rule["id"])
+    job = backfill.start(user, rule["id"])
 
-    assert manager.get_job(user, job["id"])["total"] == 2
+    assert backfill.get_job(user, job["id"])["total"] == 2
     assert seed.members(landscapes) == set(wide[1:])
 
 
-def test_a_second_job_for_the_same_rule_is_refused_while_one_is_queued(seed, manager, executor, history):
+def test_a_second_job_for_the_same_rule_is_refused_while_one_is_queued(seed, manager, executor, history, backfill):
     user, _, _ = history
     rule = manager.create_rule(user, rule_body(actions=[collection_action(name="L")]))
     executor.defer = True
-    job = manager.start_backfill(user, rule["id"])
+    job = backfill.start(user, rule["id"])
 
     with pytest.raises(OrganizeError) as excinfo:
-        manager.start_backfill(user, rule["id"])
+        backfill.start(user, rule["id"])
 
     assert excinfo.value.code == "job_running"
     assert excinfo.value.extra["job_id"] == job["id"]
-    assert [j["id"] for j in manager.list_jobs(user, True)] == [job["id"]]
+    assert [j["id"] for j in backfill.list_jobs(user, True)] == [job["id"]]
 
 
-def test_cancelling_a_queued_job_files_nothing(seed, manager, executor, history):
+def test_cancelling_a_queued_job_files_nothing(seed, manager, executor, history, backfill):
     user, wide, _ = history
     landscapes = seed.collection("u1")
     rule = manager.create_rule(user, rule_body(actions=[collection_action(landscapes)]))
     executor.defer = True
-    job = manager.start_backfill(user, rule["id"])
+    job = backfill.start(user, rule["id"])
 
-    assert manager.cancel_job(user, job["id"])["status"] == "cancelled"
+    assert backfill.cancel_job(user, job["id"])["status"] == "cancelled"
     executor.run_deferred()
 
     assert seed.members(landscapes) == set()
 
 
-def test_apply_existing_is_refused_while_paused_by_an_admin(seed, manager, history):
+def test_apply_existing_is_refused_while_paused_by_an_admin(seed, manager, history, admin, backfill):
     user, _, _ = history
     rule = manager.create_rule(user, rule_body(actions=[collection_action(name="L")]))
-    manager.admin_controls({"paused_all": True})
+    admin.controls({"paused_all": True})
 
     with pytest.raises(OrganizeError) as excinfo:
-        manager.start_backfill(user, rule["id"])
+        backfill.start(user, rule["id"])
 
     assert (excinfo.value.code, excinfo.value.status_code) == ("organize_paused", 423)
 
 
-def test_jobs_belong_to_their_owner(seed, manager, history):
+def test_jobs_belong_to_their_owner(seed, manager, history, backfill):
     user, _, _ = history
     other = seed.user("u2")
     rule = manager.create_rule(user, rule_body(actions=[collection_action(name="L")]))
-    job = manager.start_backfill(user, rule["id"])
+    job = backfill.start(user, rule["id"])
 
     with pytest.raises(OrganizeError):
-        manager.get_job(other, job["id"])
+        backfill.get_job(other, job["id"])
     with pytest.raises(OrganizeError):
-        manager.cancel_job(other, job["id"])
-    assert manager.list_jobs(other, False) == []
+        backfill.cancel_job(other, job["id"])
+    assert backfill.list_jobs(other, False) == []
 
 
-def test_undo_removes_exactly_what_the_run_added(seed, manager, history):
+def test_undo_removes_exactly_what_the_run_added(seed, manager, history, backfill):
     user, wide, square = history
     landscapes = seed.collection("u1")
     seed._exec("INSERT INTO collection_generations (collection_id, generation_id) VALUES (?, ?)", (landscapes, wide[0]))
@@ -162,7 +162,7 @@ def test_undo_removes_exactly_what_the_run_added(seed, manager, history):
     rule = manager.create_rule(user, rule_body(conditions=LANDSCAPE, actions=[
         collection_action(landscapes), {"action": "add_tags", "config": {"tags": ["landscape"]}},
     ]))
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
     assert seed.members(landscapes) == set(wide)
     run = manager.activity(user, None, None, None, 50)["runs"][0]
     applied_counts = [c["count"] for c in run["changes"]["collections"]] + [t["count"] for t in run["changes"]["tags"]]
@@ -184,14 +184,14 @@ def test_undo_removes_exactly_what_the_run_added(seed, manager, history):
     assert manager.get_rule(user, rule["id"])["filed_count"] == 0
 
 
-def test_undo_leaves_other_runs_alone(seed, manager, history):
+def test_undo_leaves_other_runs_alone(seed, manager, history, backfill):
     user, wide, _ = history
     first = seed.collection("u1", "First")
     second = seed.collection("u1", "Second")
     a = manager.create_rule(user, rule_body(name="a", conditions=LANDSCAPE, actions=[collection_action(first)]))
     b = manager.create_rule(user, rule_body(name="b", conditions=LANDSCAPE, actions=[collection_action(second)]))
-    manager.start_backfill(user, a["id"])
-    manager.start_backfill(user, b["id"])
+    backfill.start(user, a["id"])
+    backfill.start(user, b["id"])
     run_a = next(r for r in manager.activity(user, None, None, None, 50)["runs"] if r["rule_id"] == a["id"])
 
     manager.undo_run(user, run_a["id"])
@@ -200,27 +200,27 @@ def test_undo_leaves_other_runs_alone(seed, manager, history):
     assert seed.members(second) == set(wide)
 
 
-def test_undo_skips_what_the_user_already_removed_and_does_not_refile(seed, manager, history):
+def test_undo_skips_what_the_user_already_removed_and_does_not_refile(seed, manager, history, backfill):
     user, wide, _ = history
     landscapes = seed.collection("u1")
     rule = manager.create_rule(user, rule_body(conditions=LANDSCAPE, actions=[collection_action(landscapes)]))
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
     seed._exec("DELETE FROM collection_generations WHERE generation_id = ?", (wide[0],))
     run = manager.activity(user, None, None, None, 50)["runs"][0]
 
     manager.undo_run(user, run["id"])
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
     for generation in wide:
         manager.process_item("generation", "u1", generation)
 
     assert seed.members(landscapes) == set()
 
 
-def test_undo_never_deletes_a_collection_the_run_created(seed, manager, history):
+def test_undo_never_deletes_a_collection_the_run_created(seed, manager, history, backfill):
     user, wide, _ = history
     rule = manager.create_rule(user, rule_body(conditions=LANDSCAPE, actions=[collection_action(name="Fresh")]))
     seed._exec("DELETE FROM collections")
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
     run = manager.activity(user, None, None, None, 50)["runs"][0]
     assert run["changes"]["collections"][0]["created"] is True
 
@@ -229,11 +229,11 @@ def test_undo_never_deletes_a_collection_the_run_created(seed, manager, history)
     assert [r["name"] for r in seed.rows("SELECT name FROM collections")] == ["Fresh"]
 
 
-def test_undo_of_another_users_run_is_not_found(seed, manager, history):
+def test_undo_of_another_users_run_is_not_found(seed, manager, history, backfill):
     user, _, _ = history
     other = seed.user("u2")
     rule = manager.create_rule(user, rule_body(actions=[collection_action(name="L")]))
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
     run = manager.activity(user, None, None, None, 50)["runs"][0]
 
     with pytest.raises(OrganizeError) as excinfo:
@@ -272,11 +272,11 @@ def test_provenance_lists_the_rule_and_says_when_it_was_deleted(seed, manager, h
     assert manager.provenance(seed.user("u2"), "generation", wide[0]) == []
 
 
-def test_activity_pages_by_run_id(seed, manager, history):
+def test_activity_pages_by_run_id(seed, manager, history, backfill):
     user, _, _ = history
     for name in ("a", "b", "c"):
         rule = manager.create_rule(user, rule_body(name=name, actions=[collection_action(name=name)]))
-        manager.start_backfill(user, rule["id"])
+        backfill.start(user, rule["id"])
 
     first = manager.activity(user, None, None, None, 2)
     second = manager.activity(user, None, None, first["next_before"], 2)
@@ -286,10 +286,10 @@ def test_activity_pages_by_run_id(seed, manager, history):
     assert second["next_before"] is None
 
 
-def test_prune_drops_runs_older_than_the_retention_window(seed, manager, history):
+def test_prune_drops_runs_older_than_the_retention_window(seed, manager, history, backfill):
     user, wide, _ = history
     rule = manager.create_rule(user, rule_body(actions=[collection_action(name="L")]))
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
     seed._exec("UPDATE organize_runs SET started_at = '2020-01-01T00:00:00+00:00'")
 
     assert manager.prune() == 1

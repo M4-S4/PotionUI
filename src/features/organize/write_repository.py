@@ -195,13 +195,3 @@ class OrganizeWriteRepository:
     def _bump(self, cursor, user_id: str) -> None:
         from src.features.generation.history_revision_repository import bump_history_revision
         bump_history_revision(cursor, user_id)
-
-    def existing_collections(self, scope: str, user_id: str) -> List[CollectionRef]:
-        with _db().get_cursor() as cursor:
-            if scope == "models":
-                cursor.execute("SELECT id, name, parent_id FROM model_collections WHERE user_id = ?", (user_id,))
-            else:
-                cursor.execute(
-                    "SELECT id, name, parent_id FROM collections WHERE user_id = ? AND scope = ?", (user_id, scope)
-                )
-            return [CollectionRef(row["id"], row["name"], row["parent_id"]) for row in cursor.fetchall()]

@@ -96,7 +96,7 @@ def test_plugin_actions_record_changes_and_undo_through_the_plugin(seed, manager
     assert manager.get_rule(admin, rule["id"])["filed_count"] == 0
 
 
-def test_disabling_the_plugin_flags_rules_and_stops_them(seed, manager, plugin):
+def test_disabling_the_plugin_flags_rules_and_stops_them(seed, manager, plugin, backfill):
     plugins, _ = plugin
     user = seed.user("u1")
     pets = seed.collection("u1", "Pets")
@@ -110,5 +110,5 @@ def test_disabling_the_plugin_flags_rules_and_stops_them(seed, manager, plugin):
     assert described["issues"][0]["code"] == "fact_unavailable"
     assert seed.members(pets) == set()
     with pytest.raises(OrganizeError) as excinfo:
-        manager.start_backfill(user, rule["id"])
+        backfill.start(user, rule["id"])
     assert excinfo.value.code == "rule_not_runnable"

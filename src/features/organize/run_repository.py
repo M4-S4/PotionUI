@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from src.features.organize.records import Application, Run
-from src.platform.database.rows import now_iso, now_utc
+from src.platform.database.rows import dt_iso, now_iso, now_utc
 from src.platform.util.ids import generate_ulid
 
 _RUN_SELECT = (
@@ -31,7 +31,7 @@ class OrganizeRunRepository:
         return self.get_run(user_id, run_id)
 
     def open_live_run(self, rule_id: str, rule_name: str, user_id: str, subject: str) -> Run:
-        since = (now_utc() - timedelta(hours=1)).isoformat()
+        since = dt_iso(now_utc() - timedelta(hours=1))
         with _db().get_cursor() as cursor:
             cursor.execute(
                 "SELECT id FROM organize_runs WHERE rule_id = ? AND user_id = ? AND kind = 'live' "
@@ -84,7 +84,7 @@ class OrganizeRunRepository:
             )
 
     def live_items_last_hour(self, user_id: str, rule_id: str) -> int:
-        since = (now_utc() - timedelta(hours=1)).isoformat()
+        since = dt_iso(now_utc() - timedelta(hours=1))
         with _db().get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(DISTINCT a.item_type || ':' || a.item_id) AS n FROM organize_applications a "
@@ -200,7 +200,7 @@ class OrganizeRunRepository:
             return [dict(row) for row in cursor.fetchall()]
 
     def filed_totals_by_user(self) -> Dict[str, Dict[str, int]]:
-        since = (now_utc() - timedelta(hours=24)).isoformat()
+        since = dt_iso(now_utc() - timedelta(hours=24))
         with _db().get_cursor() as cursor:
             cursor.execute(
                 "SELECT user_id, COUNT(DISTINCT item_type || ':' || item_id) AS total, "
@@ -211,7 +211,7 @@ class OrganizeRunRepository:
             return {row["user_id"]: {"total": row["total"], "day": row["day"]} for row in cursor.fetchall()}
 
     def prune(self, days: int = 90) -> int:
-        cutoff = (now_utc() - timedelta(days=days)).isoformat()
+        cutoff = dt_iso(now_utc() - timedelta(days=days))
         with _db().get_cursor() as cursor:
             cursor.execute("DELETE FROM organize_runs WHERE started_at < ?", (cutoff,))
             return cursor.rowcount

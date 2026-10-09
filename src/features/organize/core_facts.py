@@ -2,11 +2,13 @@ import json
 import re
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from src.features.generation.policy import GenerationPolicy
 from src.features.models.attributes.records import ModelAttributeDefinition
 from src.features.models.attributes.well_known import WellKnownModelAttribute
 from src.features.organize.evaluator import NEGATED_TEXT, as_list
 from src.features.organize.item_repository import OrganizeItemRepository
 from src.features.presets.mode_labels import mode_display_name
+from src.features.users.repository import UserRepository
 from src.platform.filesystem.model_types import VIRTUAL_MODEL_TYPES
 from src.platform.plugins.organize import (
     ATTRIBUTE_VALUE_OPERATORS,
@@ -532,7 +534,7 @@ def _options(values: Sequence[str], query: str, label: Callable[[str], str] = st
     return [{"value": v, "label": label(v)} for v in values if needle in v.casefold() or needle in label(v).casefold()]
 
 
-def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepository,
+def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepository, users: UserRepository,
                         presets: Callable[[], List[Tuple[str, str]]]) -> None:
     def preset_options(user_id: str, subject: str, query: str) -> List[Dict[str, str]]:
         needle = (query or "").casefold()
@@ -567,7 +569,7 @@ def register_core_facts(registry: OrganizeRegistry, items: OrganizeItemRepositor
         return _options(values, query, label)
 
     def attribute_options(user_id: str, subject: str, query: str) -> List[Dict[str, Any]]:
-        admin = items.is_admin(user_id)
+        admin = GenerationPolicy.is_admin(users.get_by_id(user_id))
         needle = (query or "").casefold()
         return [
             attribute_option(d) for d in items.attribute_definitions()

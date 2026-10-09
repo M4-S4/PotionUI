@@ -19,9 +19,9 @@ def users(seed):
 
 
 @pytest.fixture
-def client(manager, users):
+def client(manager, backfill, admin, users):
     app = FastAPI()
-    container = SimpleNamespace(organize_controller=OrganizeController(manager))
+    container = SimpleNamespace(organize_controller=OrganizeController(manager, backfill, admin))
     app.include_router(build_router(container))
     app.include_router(build_admin_router(container))
 

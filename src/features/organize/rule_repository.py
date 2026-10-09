@@ -2,7 +2,7 @@ import json
 from typing import Dict, Iterable, List, Optional, Sequence, Set
 
 from src.features.organize.records import Controls, Rule
-from src.platform.database.rows import now_iso
+from src.platform.database.rows import dt_iso, now_iso
 from src.platform.util.ids import generate_ulid
 
 GLOBAL_SCOPE = "*"
@@ -93,7 +93,7 @@ class OrganizeRuleRepository:
                 (
                     rule.name, rule.match, json.dumps(rule.conditions), json.dumps(rule.actions),
                     int(rule.enabled), int(rule.stop_after), rule.paused_reason,
-                    rule.paused_at.isoformat() if rule.paused_at else None, now_iso(), rule.id, rule.user_id,
+                    dt_iso(rule.paused_at), now_iso(), rule.id, rule.user_id,
                 ),
             )
             updated = cursor.rowcount > 0
@@ -218,14 +218,3 @@ class OrganizeRuleRepository:
         with _db().get_cursor() as cursor:
             cursor.execute(f"SELECT id, username FROM users WHERE id IN ({placeholders})", ids)
             return {row["id"]: row["username"] for row in cursor.fetchall()}
-
-    def user_exists(self, user_id: str) -> bool:
-        with _db().get_cursor() as cursor:
-            cursor.execute("SELECT 1 FROM users WHERE id = ?", (user_id,))
-            return cursor.fetchone() is not None
-
-    def is_admin(self, user_id: str) -> bool:
-        with _db().get_cursor() as cursor:
-            cursor.execute("SELECT account_type FROM users WHERE id = ?", (user_id,))
-            row = cursor.fetchone()
-        return bool(row) and row["account_type"] == "ADMIN"

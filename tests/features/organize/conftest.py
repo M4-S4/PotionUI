@@ -3,6 +3,8 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+from src.features.organize.admin import OrganizeAdmin
+from src.features.organize.backfill import BackfillManager
 from src.features.organize.core_actions import register_core_actions
 from src.features.organize.core_facts import register_core_facts
 from src.features.organize.item_repository import OrganizeItemRepository
@@ -11,6 +13,7 @@ from src.features.organize.rule_repository import OrganizeRuleRepository
 from src.features.organize.run_repository import OrganizeRunRepository
 from src.features.organize.worker import OrganizeWorker
 from src.features.organize.write_repository import OrganizeWriteRepository
+from src.features.users.repository import UserRepository
 from src.platform.plugins.organize import OrganizeRegistry
 from src.platform.security.user import AccountType, User
 from src.platform.util.ids import generate_ulid
@@ -223,17 +226,28 @@ def presets():
 def manager(mock_db, registry, visibility, notices, executor, presets):
     items = OrganizeItemRepository()
     writer = OrganizeWriteRepository()
-    register_core_facts(registry, items, lambda: presets)
+    users = UserRepository()
+    register_core_facts(registry, items, users, lambda: presets)
     register_core_actions(registry, writer)
     built = OrganizeManager(
         OrganizeCollaborators(
             rules=OrganizeRuleRepository(), runs=OrganizeRunRepository(), items=items, writer=writer,
-            registry=registry, visibility=visibility, notify=notices,
+            users=users, registry=registry, visibility=visibility, notify=notices,
         ),
         executor=executor,
     )
     yield built
     built._options_pool.shutdown(wait=False)
+
+
+@pytest.fixture
+def backfill(manager):
+    return BackfillManager(manager)
+
+
+@pytest.fixture
+def admin(manager):
+    return OrganizeAdmin(manager)
 
 
 @pytest.fixture

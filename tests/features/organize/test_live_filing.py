@@ -118,11 +118,11 @@ def test_late_tags_trigger_tag_rules(seed, manager, worker):
     assert seed.members(pets) == {generation}
 
 
-def test_safety_valve_pauses_a_rule_past_the_hourly_limit(seed, manager, notices):
+def test_safety_valve_pauses_a_rule_past_the_hourly_limit(seed, manager, notices, admin):
     user = seed.user("u1")
     everything = seed.collection("u1", "Everything")
     rule = manager.create_rule(user, rule_body(name="All of it", actions=[collection_action(everything)]))
-    manager.admin_controls({"hourly_limit": 3})
+    admin.controls({"hourly_limit": 3})
     generations = [seed.generation("u1") for _ in range(5)]
 
     for generation in generations:
@@ -153,13 +153,13 @@ def test_turning_a_paused_rule_back_on_resumes_it(seed, manager):
     assert seed.members(everything) == {generation}
 
 
-def test_backfill_filing_does_not_count_toward_the_safety_valve(seed, manager):
+def test_backfill_filing_does_not_count_toward_the_safety_valve(seed, manager, admin, backfill):
     user = seed.user("u1")
     everything = seed.collection("u1", "Everything")
     rule = manager.create_rule(user, rule_body(actions=[collection_action(everything)]))
-    manager.admin_controls({"hourly_limit": 2})
+    admin.controls({"hourly_limit": 2})
     old = [seed.generation("u1") for _ in range(4)]
-    manager.start_backfill(user, rule["id"])
+    backfill.start(user, rule["id"])
     assert seed.members(everything) == set(old)
 
     fresh = seed.generation("u1")
@@ -246,11 +246,11 @@ def test_multi_file_generations_match_when_any_output_matches(seed, manager):
     assert seed.members(videos) == {generation}
 
 
-def test_kill_switch_stops_live_filing_for_everyone(seed, manager):
+def test_kill_switch_stops_live_filing_for_everyone(seed, manager, admin):
     user = seed.user("u1")
     landscapes = seed.collection("u1")
     manager.create_rule(user, rule_body(actions=[collection_action(landscapes)]))
-    manager.admin_controls({"paused_all": True})
+    admin.controls({"paused_all": True})
 
     manager.process_item("generation", "u1", seed.generation("u1"))
 
@@ -258,14 +258,14 @@ def test_kill_switch_stops_live_filing_for_everyone(seed, manager):
     assert manager.summary(user)["paused_by_admin"] is True
 
 
-def test_per_user_kill_switch_only_stops_that_user(seed, manager):
+def test_per_user_kill_switch_only_stops_that_user(seed, manager, admin):
     one = seed.user("u1")
     two = seed.user("u2")
     first = seed.collection("u1")
     second = seed.collection("u2")
     manager.create_rule(one, rule_body(actions=[collection_action(first)]))
     manager.create_rule(two, rule_body(actions=[collection_action(second)]))
-    manager.admin_user("u1", {"paused": True})
+    admin.user_controls("u1", {"paused": True})
     g1 = seed.generation("u1")
     g2 = seed.generation("u2")
 

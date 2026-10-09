@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from typing import Any, Callable, List, Optional, Tuple
 
 from src.features.notifications.types import NotificationTypeRegistry, NotificationTypeSpec
+from src.features.organize.admin import OrganizeAdmin
+from src.features.organize.backfill import BackfillManager
 from src.features.organize.core_actions import register_core_actions
 from src.features.organize.core_facts import register_core_facts
 from src.features.organize.item_repository import OrganizeItemRepository
@@ -17,6 +19,7 @@ from src.features.organize.run_repository import OrganizeRunRepository
 from src.features.organize.visibility import ContentSafetyVisibility
 from src.features.organize.worker import OrganizeWorker
 from src.features.organize.write_repository import OrganizeWriteRepository
+from src.features.users.repository import UserRepository
 from src.platform.plugins.organize import OrganizeRegistry
 
 
@@ -49,7 +52,8 @@ def build_organize(registry: OrganizeRegistry, content_safety: Any, notify: Opti
                    executor: Optional[Any] = None) -> OrganizeComponents:
     items = OrganizeItemRepository()
     writer = OrganizeWriteRepository()
-    register_core_facts(registry, items, presets)
+    users = UserRepository()
+    register_core_facts(registry, items, users, presets)
     register_core_actions(registry, writer)
     if notification_types is not None:
         register_notification_types(notification_types)
@@ -59,11 +63,13 @@ def build_organize(registry: OrganizeRegistry, content_safety: Any, notify: Opti
             runs=OrganizeRunRepository(),
             items=items,
             writer=writer,
+            users=users,
             registry=registry,
             visibility=ContentSafetyVisibility(content_safety),
             notify=notify,
         ),
         executor=executor,
     )
+    backfill = BackfillManager(manager)
     worker = OrganizeWorker(manager.handle_event, prune=manager.prune)
-    return OrganizeComponents(manager=manager, controller=OrganizeController(manager), worker=worker)
+    return OrganizeComponents(manager=manager, controller=OrganizeController(manager, backfill, OrganizeAdmin(manager)), worker=worker)
