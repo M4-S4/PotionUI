@@ -404,11 +404,13 @@
 		modeController.dispose();
 	});
 
-	// Get progress percentage; null means the active stage reported no fraction
-	// yet (e.g. a cold model load) and the bar renders indeterminate instead.
+	function gridPercent(_revision: number, cells: typeof compareState.cells): number {
+		return Math.round(gridFraction({ cells }) * 100);
+	}
+
 	$: hasProgressFraction = compareGridActive || generation.currentProgress?.progress != null;
 	$: progressPercent = compareGridActive
-		? ($compareProgressRevision, Math.round(gridFraction({ cells: compareState.cells }) * 100))
+		? gridPercent($compareProgressRevision, compareState.cells)
 		: Math.round((generation.currentProgress?.progress ?? 0) * 100);
 	$: stepParsed = parseTemplateMarkers(generation.currentProgress?.current_step || '');
 	$: messageParsed = parseTemplateMarkers(generation.currentProgress?.message || '');
