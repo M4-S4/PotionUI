@@ -4,7 +4,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.features.plans.records import GroupPlan, Plan, PlanLimit, PlanSubject, dump_limits
 from src.features.user_groups.constants import ALL_USERS_GROUP_ID
-from src.platform.database.rows import now_iso
+from src.platform.database.rows import dt_iso, now_iso
 from src.platform.util.ids import generate_ulid
 
 
@@ -173,7 +173,7 @@ class LimitEventRepository:
         with _db().get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO limit_events (id, user_id, kind, units, created_at, ref_id) VALUES (?, ?, ?, ?, ?, ?)",
-                (event_id, user_id, kind, units, at.isoformat(), ref_id),
+                (event_id, user_id, kind, units, dt_iso(at), ref_id),
             )
         return event_id
 
@@ -182,10 +182,10 @@ class LimitEventRepository:
         params: List[Any] = [user_id, kind]
         if since is not None:
             query += " AND created_at >= ?"
-            params.append(since.isoformat())
+            params.append(dt_iso(since))
         if until is not None:
             query += " AND created_at < ?"
-            params.append(until.isoformat())
+            params.append(dt_iso(until))
         with _db().get_cursor() as cursor:
             cursor.execute(query, params)
             return float(cursor.fetchone()["total"] or 0)
@@ -194,18 +194,13 @@ class LimitEventRepository:
         with _db().get_cursor() as cursor:
             cursor.execute(
                 "UPDATE limit_events SET refunded_at = ? WHERE ref_id = ? AND refunded_at IS NULL",
-                (at.isoformat(), ref_id),
+                (dt_iso(at), ref_id),
             )
             return cursor.rowcount
 
-    def for_ref(self, ref_id: str) -> List[Dict[str, Any]]:
-        with _db().get_cursor() as cursor:
-            cursor.execute("SELECT * FROM limit_events WHERE ref_id = ? ORDER BY created_at", (ref_id,))
-            return [dict(row) for row in cursor.fetchall()]
-
     def prune(self, before: datetime) -> int:
         with _db().get_cursor() as cursor:
-            cursor.execute("DELETE FROM limit_events WHERE created_at < ?", (before.isoformat(),))
+            cursor.execute("DELETE FROM limit_events WHERE created_at < ?", (dt_iso(before),))
             return cursor.rowcount
 
 
@@ -271,10 +266,10 @@ class UsageRepository:
         params: List[Any] = [user_id]
         if since is not None:
             query += " AND created_at >= ?"
-            params.append(since.isoformat())
+            params.append(dt_iso(since))
         if until is not None:
             query += " AND created_at < ?"
-            params.append(until.isoformat())
+            params.append(dt_iso(until))
         with _db().get_cursor() as cursor:
             cursor.execute(query, params)
             total = sum((_decimal(row["amount_usd"]) for row in cursor.fetchall()), Decimal(0))

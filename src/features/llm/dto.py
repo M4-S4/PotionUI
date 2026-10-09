@@ -1,7 +1,7 @@
 """LLM Data Transfer Objects for API requests and responses."""
 
 import math
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 from pydantic import BaseModel, model_validator
 
 # provider_options keys shared by the native and Ollama sampling controls
@@ -255,16 +255,3 @@ class UserLLMAssignmentRequest(BaseModel):
     """Request model for assigning LLM to user."""
     user_id: str
     llm_config_id: str
-
-
-class UserLLMAssignmentResponse(BaseModel):
-    """Response model for a user-LLM assignment."""
-    user_id: str
-    llm_config_id: str
-    assigned_at: str
-
-
-class UserLLMAssignmentsResponse(BaseModel):
-    """Response model for user's LLM assignments."""
-    user_id: str
-    llm_configs: List[LLMConfigResponse]

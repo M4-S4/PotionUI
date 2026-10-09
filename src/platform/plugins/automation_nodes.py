@@ -21,13 +21,6 @@ class DuplicateNodeTypeError(ValueError):
 
 
 @dataclass(frozen=True)
-class NodePort:
-    """A single output port on a node (name shown on the canvas edge handle)."""
-    key: str
-    label: str = ""
-
-
-@dataclass(frozen=True)
 class NodeField:
     """
     One field a node emits, i.e. one key of `NodeResult.output`.

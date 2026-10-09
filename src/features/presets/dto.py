@@ -62,8 +62,3 @@ class PresetInfo(BaseModel):
     # endpoints themselves. See docs/presets.md "Requirements".
     requirements_summary: Optional[dict] = None
     negative_prompt: Optional[Dict[str, Any]] = None
-
-
-class PresetFormSchema(BaseModel):
-    preset_id: str
-    form_schema: Dict[str, Any]
