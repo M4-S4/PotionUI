@@ -9,6 +9,7 @@ House rule followed here: GET handlers read straight from
 `src.features.inspirations.operations`.
 """
 
+import asyncio
 import logging
 import mimetypes
 from typing import Optional, TYPE_CHECKING
@@ -166,7 +167,9 @@ class InspirationController(BaseController):
 
     async def save_to_library(self, inspiration_id: str, current_user) -> APIResponse:
         try:
-            save_count = operations.save_to_library(self.collaborators, inspiration_id, current_user.id)
+            save_count = await asyncio.to_thread(
+                operations.save_to_library, self.collaborators, inspiration_id, current_user.id
+            )
             return self.success_response(data={"saved": True, "save_count": save_count})
         except LimitExceeded as e:
             raise e.http()

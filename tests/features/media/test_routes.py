@@ -1,3 +1,4 @@
+import threading
 import pytest
 import sys
 import os
@@ -331,6 +332,25 @@ class TestMediaController:
 
         assert result.success is True
         assert "path" in result.data
+
+    @pytest.mark.asyncio
+    async def test_upload_size_precheck_runs_off_the_event_loop_thread(self, controller, mock_media_manager):
+        from src.features.media.dto import UploadResult
+
+        threads = []
+        mock_media_manager.check_upload_size = Mock(
+            side_effect=lambda *args: threads.append(threading.current_thread())
+        )
+        mock_media_manager.upload_media = AsyncMock(return_value=UploadResult(
+            path="p", relative_path="uploads/a.png", filename="a.png", size=1, url="/u"
+        ))
+        mock_file = Mock(filename="a.png", content_type="image/png", size=1)
+        mock_file.read = AsyncMock(return_value=b"x")
+
+        await controller.upload_media(mock_file, Mock(id="user123"))
+
+        assert len(threads) == 1
+        assert threads[0] is not threading.main_thread()
 
     # Test get_upload_info method
     @pytest.mark.asyncio

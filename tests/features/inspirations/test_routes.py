@@ -6,7 +6,9 @@ is overridden. Asserting through the router is what catches a ValueError that
 never becomes the right status code - a controller called directly cannot.
 """
 
+import asyncio
 import unittest
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -174,6 +176,26 @@ class TestSaveRoutes(InspirationRoutesTestBase):
 
         unsaved = self.client.delete(f"/api/inspirations/{insp.id}/save")
         self.assertEqual(unsaved.json()["data"], {"saved": False, "save_count": 0})
+
+    def test_save_to_library_runs_off_the_event_loop_thread(self):
+        insp, _ = self._publish()
+        self._as_user_id = self.other_user_id
+        on_loop = []
+        real = operations.save_to_library
+
+        def spy(*args, **kwargs):
+            try:
+                asyncio.get_running_loop()
+                on_loop.append(True)
+            except RuntimeError:
+                on_loop.append(False)
+            return real(*args, **kwargs)
+
+        with patch.object(operations, "save_to_library", spy):
+            response = self.client.post(f"/api/inspirations/{insp.id}/save-to-library")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(on_loop, [False])
 
 
 class TestCollectionRoutes(InspirationRoutesTestBase):

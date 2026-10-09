@@ -159,7 +159,9 @@ class MediaController(BaseController):
         """Upload a media file"""
         try:
             user_id = current_user.id if current_user else None
-            self.manager.check_upload_size(user_id, getattr(file, "size", None), purpose or UPLOAD_PURPOSE_USER)
+            await asyncio.to_thread(
+                self.manager.check_upload_size, user_id, getattr(file, "size", None), purpose or UPLOAD_PURPOSE_USER
+            )
             content = await file.read()
 
             result = await self.manager.upload_media(
