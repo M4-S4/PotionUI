@@ -369,7 +369,7 @@ def test_decimating_a_remeshed_surface_drops_its_tiny_fragments():
     mesh = trimesh.util.concatenate([body, speck])
     vertices = np.asarray(mesh.vertices, dtype=np.float32)
     faces = np.asarray(mesh.faces, dtype=np.int64)
-    out_vertices, out_faces, rows = mesh_ops.decimate_traced(vertices, faces, 2000)
+    out_vertices, out_faces, rows = mesh_ops.decimate_traced(vertices, faces, 2000, True)
     result = trimesh.Trimesh(out_vertices, out_faces, process=False)
     assert len(trimesh.graph.connected_components(result.face_adjacency, nodes=np.arange(out_faces.shape[0]))) == 1
     assert np.linalg.norm(out_vertices, axis=1).min() > 0.3

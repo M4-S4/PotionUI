@@ -316,6 +316,8 @@ class GeneratorTrellis2Pipe(BasePipe):
 
     @staticmethod
     def _source_id(image, seed: int, tier: str) -> str:
+        if not profiling_enabled():
+            return ""
         try:
             digest = hashlib.sha1(image.tobytes()).hexdigest()[:16]
         except Exception:

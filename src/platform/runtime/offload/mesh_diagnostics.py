@@ -86,7 +86,8 @@ def log_stage_row(row: StageRow) -> None:
 
 
 class StageRecorder:
-    def __init__(self) -> None:
+    def __init__(self, enabled: bool) -> None:
+        self.enabled = enabled
         self.rows: List[StageRow] = []
         self._mark = time.perf_counter()
 
@@ -96,7 +97,7 @@ class StageRecorder:
     def record(self, name: str, vertices: np.ndarray, faces: np.ndarray) -> StageRow:
         seconds = time.perf_counter() - self._mark
         faces = np.asarray(faces)
-        boundary, components = boundary_and_components(np.asarray(vertices), faces)
+        boundary, components = boundary_and_components(np.asarray(vertices), faces) if self.enabled else (-1, -1)
         row = (name, int(faces.shape[0]), int(np.asarray(vertices).shape[0]), boundary, components, seconds)
         self.rows.append(row)
         self._mark = time.perf_counter()

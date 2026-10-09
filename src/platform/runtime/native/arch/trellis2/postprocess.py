@@ -85,6 +85,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from src.platform.observability.profiling import profiling_enabled
 from src.platform.runtime.offload.mesh_diagnostics import StageRecorder, log_stage_row
 from src.platform.runtime.offload.mesh_ops import (
     DEFAULT_UV_QUALITY,
@@ -554,8 +555,9 @@ def _remesh_and_decimate(
     decimation_target: int,
     device: torch.device,
     is_cancelled: Optional[Callable[[], bool]],
+    diagnostics: bool,
 ):
-    filled_vertices, filled_faces, rows = _offload(fill_holes_traced, vertices, faces, is_cancelled=is_cancelled)
+    filled_vertices, filled_faces, rows = _offload(fill_holes_traced, vertices, faces, diagnostics, is_cancelled=is_cancelled)
     resolution = int(grid_size.max())
     extent = float((aabb[1] - aabb[0]).max())
     started = time.perf_counter()
@@ -572,7 +574,7 @@ def _remesh_and_decimate(
     remeshed_faces = remeshed_faces.cpu().numpy()
     elapsed = time.perf_counter() - started
     clean_vertices, clean_faces, decimate_rows = _offload(
-        decimate_traced, remeshed_vertices, remeshed_faces, decimation_target, is_cancelled=is_cancelled
+        decimate_traced, remeshed_vertices, remeshed_faces, decimation_target, diagnostics, is_cancelled=is_cancelled
     )
     decimate_rows = list(decimate_rows)
     decimate_rows[0] = tuple(decimate_rows[0][:5]) + (elapsed,)
@@ -611,12 +613,13 @@ def build_textured_mesh(
     source_vertices = np.ascontiguousarray(_to_numpy(vertices), dtype=np.float32)
     source_faces = np.ascontiguousarray(_to_numpy(faces), dtype=np.int64)
 
-    recorder = StageRecorder()
+    diagnostics = profiling_enabled()
+    recorder = StageRecorder(diagnostics)
     log_stage_row(recorder.record("raw", source_vertices, source_faces))
     recorder.reset()
     if remesh:
         clean_vertices, clean_faces, clean_rows = _remesh_and_decimate(
-            source_vertices, source_faces, aabb_t, grid_size, remesh_band, int(decimation_target), device, is_cancelled
+            source_vertices, source_faces, aabb_t, grid_size, remesh_band, int(decimation_target), device, is_cancelled, diagnostics
         )
     else:
         clean_vertices, clean_faces, clean_rows = _offload(
@@ -624,6 +627,7 @@ def build_textured_mesh(
             source_vertices,
             source_faces,
             int(decimation_target),
+            diagnostics,
             is_cancelled=is_cancelled,
         )
     for row in clean_rows:
@@ -735,6 +739,6 @@ def postprocess_to_glb(
         remesh=remesh,
         uv_quality=uv_quality,
     )
-    recorder = StageRecorder()
+    recorder = StageRecorder(profiling_enabled())
     mesh.export(out_path, file_type="glb", extension_webp=embed_webp)
     log_stage_row(recorder.record("export", np.asarray(mesh.vertices), np.asarray(mesh.faces)))

@@ -38,6 +38,8 @@ from typing import Any, Callable, Optional, Tuple
 import numpy as np
 import torch
 
+from src.platform.observability.profiling import profiling_enabled
+
 from ...sparse3d import SparseTensor
 from .config import (
     SHAPE_SLAT_NORMALIZATION,
@@ -391,8 +393,9 @@ def run_image_to_mesh(
     )
 
     volume = _decode(components, shape_slat, tex_slat, resolution, device, progress)
-    volume.cond_image = image
-    volume.tex_slat = tex_slat
+    if profiling_enabled():
+        volume.cond_image = image
+        volume.tex_slat = tex_slat
     return volume
 
 

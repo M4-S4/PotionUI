@@ -199,3 +199,41 @@ def test_the_old_implementation_allocates_the_full_kernel_volume_gather():
     with torch.no_grad(), recorder:
         _old_forward(conv, x)
     assert max(recorder.sizes) >= 27 * n * cin * 2
+
+
+def _naive_forward(conv, coords, feats):
+    lookup = {tuple(c.tolist()): i for i, c in enumerate(coords)}
+    kd, kh, kw = conv.kernel_size
+    weight = conv.weight
+    out = torch.zeros((coords.shape[0], conv.out_channels), dtype=feats.dtype)
+    for i, c in enumerate(coords.tolist()):
+        for dz in range(-(kd // 2), kd // 2 + 1):
+            for dy in range(-(kh // 2), kh // 2 + 1):
+                for dx in range(-(kw // 2), kw // 2 + 1):
+                    j = lookup.get((c[0], c[1] + dz * conv.dilation, c[2] + dy * conv.dilation, c[3] + dx * conv.dilation))
+                    if j is not None:
+                        out[i] += weight[:, dz + kd // 2, dy + kh // 2, dx + kw // 2, :] @ feats[j]
+    return out + conv.bias
+
+
+def test_fp32_output_equals_a_naive_neighbour_walk_on_a_tiny_grid():
+    coords = _coords([30], 3, seed=11)
+    conv = _conv(3, 4)
+    feats = torch.randn(coords.shape[0], 3, generator=torch.Generator().manual_seed(12))
+    got = conv(SparseTensor(feats, coords)).feats
+    assert torch.allclose(got, _naive_forward(conv, coords, feats), atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize("chunk_bytes", [None, 4096])
+def test_bf16_error_against_float64_is_no_worse_than_the_single_einsum(monkeypatch, chunk_bytes):
+    if chunk_bytes is not None:
+        monkeypatch.setattr(conv_module, "_CHUNK_BYTES", chunk_bytes)
+    coords = _shell_coords(14)
+    conv = _conv(64, 16, dtype=torch.bfloat16)
+    feats = torch.randn(coords.shape[0], 64, generator=torch.Generator().manual_seed(13)).to(torch.bfloat16)
+    old = _old_forward(conv, SparseTensor(feats, coords))
+    got = conv(SparseTensor(feats, coords)).feats
+    exact = _old_forward(copy.deepcopy(conv).double(), SparseTensor(feats.double(), coords))
+    old_error = (old.double() - exact).abs().max()
+    new_error = (got.double() - exact).abs().max()
+    assert new_error <= old_error

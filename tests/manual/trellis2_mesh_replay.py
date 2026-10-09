@@ -93,13 +93,13 @@ def clean_and_decimate_0901(vertices: np.ndarray, faces: np.ndarray, decimation_
 
 
 def run_current(vertices: np.ndarray, faces: np.ndarray, target: int) -> None:
-    _, _, rows = clean_and_decimate_traced(vertices, faces, target)
+    _, _, rows = clean_and_decimate_traced(vertices, faces, target, True)
     for row in rows:
         print(format_stage_line(row), flush=True)
 
 
 def run_pre_0905(vertices: np.ndarray, faces: np.ndarray, target: int) -> None:
-    clean_and_decimate_0901(vertices, faces, target, StageRecorder())
+    clean_and_decimate_0901(vertices, faces, target, StageRecorder(True))
 
 
 def run_remesh(vertices: np.ndarray, faces: np.ndarray, target: int, resolution: int, device: str) -> None:
@@ -133,7 +133,7 @@ def main() -> int:
     names = ["current", "pre-0905"] if args.variant == "both" else [args.variant]
     for name in names:
         print(f"--- variant={name} decimation_target={args.decimation_target}", flush=True)
-        recorder = StageRecorder()
+        recorder = StageRecorder(True)
         print(format_stage_line(recorder.record("raw", vertices, faces)), flush=True)
         if name == "remesh":
             run_remesh(vertices, faces, args.decimation_target, int(data["resolution"]), args.device)

@@ -474,11 +474,11 @@ def _clean_and_decimate(vertices: np.ndarray, faces: np.ndarray, decimation_targ
     return (np.ascontiguousarray(mesh.vertices, dtype=np.float32), np.ascontiguousarray(mesh.faces, dtype=np.int64))
 
 
-def fill_holes_traced(vertices: np.ndarray, faces: np.ndarray):
+def fill_holes_traced(vertices: np.ndarray, faces: np.ndarray, diagnostics: bool):
     import trimesh
     from src.platform.runtime.offload.mesh_diagnostics import StageRecorder
 
-    recorder = StageRecorder()
+    recorder = StageRecorder(diagnostics)
     mesh = trimesh.Trimesh(vertices=np.ascontiguousarray(vertices, dtype=np.float32), faces=np.ascontiguousarray(faces, dtype=np.int64), process=False)
     if mesh.faces.shape[0]:
         mesh.update_faces(mesh.nondegenerate_faces())
@@ -487,11 +487,11 @@ def fill_holes_traced(vertices: np.ndarray, faces: np.ndarray):
     return (np.ascontiguousarray(mesh.vertices, dtype=np.float32), np.ascontiguousarray(mesh.faces, dtype=np.int64), recorder.rows)
 
 
-def decimate_traced(vertices: np.ndarray, faces: np.ndarray, decimation_target: int, source_stage: str = "remesh"):
+def decimate_traced(vertices: np.ndarray, faces: np.ndarray, decimation_target: int, diagnostics: bool, source_stage: str = "remesh"):
     import trimesh
     from src.platform.runtime.offload.mesh_diagnostics import StageRecorder
 
-    recorder = StageRecorder()
+    recorder = StageRecorder(diagnostics)
     verts = np.ascontiguousarray(vertices, dtype=np.float32)
     tris = np.ascontiguousarray(faces, dtype=np.int64)
     recorder.record(source_stage, verts, tris)
@@ -510,10 +510,10 @@ def clean_and_decimate_arrays(vertices: np.ndarray, faces: np.ndarray, decimatio
     return _clean_and_decimate(vertices, faces, decimation_target)
 
 
-def clean_and_decimate_traced(vertices: np.ndarray, faces: np.ndarray, decimation_target: int):
+def clean_and_decimate_traced(vertices: np.ndarray, faces: np.ndarray, decimation_target: int, diagnostics: bool):
     from src.platform.runtime.offload.mesh_diagnostics import StageRecorder
 
-    recorder = StageRecorder()
+    recorder = StageRecorder(diagnostics)
     out_vertices, out_faces = _clean_and_decimate(vertices, faces, decimation_target, recorder)
     return out_vertices, out_faces, recorder.rows
 

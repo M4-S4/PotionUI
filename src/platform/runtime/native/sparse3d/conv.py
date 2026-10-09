@@ -135,27 +135,18 @@ class SparseConv3d(nn.Module):
     def _apply_taps(self, feats: torch.Tensor, row_idx: torch.Tensor, valid: torch.Tensor) -> torch.Tensor:
         n = feats.shape[0]
         k = row_idx.shape[0]
-        weight = self.weight.reshape(self.out_channels, k, self.in_channels)
-        acc_dtype = torch.float32 if feats.dtype in (torch.float16, torch.bfloat16) else feats.dtype
+        weight = self.weight.reshape(self.out_channels, k * self.in_channels).t()
         out = torch.empty((n, self.out_channels), dtype=feats.dtype, device=feats.device)
-        row_bytes = (
-            self.in_channels * feats.element_size()
-            + self.out_channels * (feats.element_size() + torch.finfo(acc_dtype).bits // 8)
-        )
+        row_bytes = k * (self.in_channels * feats.element_size() + row_idx.element_size() + 1) + self.out_channels * feats.element_size()
         rows = max(1, _CHUNK_BYTES // row_bytes)
         for start in range(0, n, rows):
             stop = min(n, start + rows)
-            acc = torch.zeros((stop - start, self.out_channels), dtype=acc_dtype, device=feats.device)
-            for tap in range(k):
-                gathered = feats.index_select(0, row_idx[tap, start:stop])
-                gathered.masked_fill_(~valid[tap, start:stop].unsqueeze(-1), 0)
-                tap_weight = weight[:, tap].t()
-                if acc_dtype == gathered.dtype:
-                    acc.addmm_(gathered, tap_weight)
-                else:
-                    acc += torch.mm(gathered, tap_weight)
-                del gathered
-            if self.bias is not None:
-                acc += self.bias
-            out[start:stop] = acc
+            gathered = feats.index_select(0, row_idx[:, start:stop].t().reshape(-1)).view(stop - start, k, self.in_channels)
+            gathered.masked_fill_(~valid[:, start:stop].t().unsqueeze(-1), 0)
+            gathered = gathered.view(stop - start, k * self.in_channels)
+            if self.bias is None:
+                out[start:stop] = torch.mm(gathered, weight)
+            else:
+                out[start:stop] = torch.addmm(self.bias, gathered, weight)
+            del gathered
         return out

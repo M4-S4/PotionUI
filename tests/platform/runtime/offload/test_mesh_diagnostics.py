@@ -51,7 +51,7 @@ def test_components_are_skipped_above_the_face_limit(sphere, monkeypatch):
 
 
 def test_stage_line_format(sphere, caplog):
-    recorder = StageRecorder()
+    recorder = StageRecorder(True)
     row = recorder.record("raw", *sphere)
     assert format_stage_line(row).startswith(
         f"[TRELLIS2_MESH] stage=raw faces={sphere[1].shape[0]} verts={sphere[0].shape[0]} "
@@ -64,7 +64,7 @@ def test_stage_line_format(sphere, caplog):
 
 def test_traced_cleanup_reports_every_substep(sphere):
     vertices, faces = sphere
-    _, out_faces, rows = clean_and_decimate_traced(vertices.astype(np.float32), faces, 100)
+    _, out_faces, rows = clean_and_decimate_traced(vertices.astype(np.float32), faces, 100, True)
     names = [row[0] for row in rows]
     assert names[0] == "clean_unreferenced"
     assert "decimate_1x" in names and "tidy_1x_hole_fill" in names and names[-1] == "fix_normals"
@@ -90,3 +90,26 @@ def test_boundary_count_above_the_face_limit_matches_the_count_below_it(sphere, 
     monkeypatch.setattr(mesh_diagnostics, "MAX_COMPONENT_FACES", 5)
     assert below[0] > 0
     assert boundary_and_components(vertices, opened) == (below[0], -1)
+
+
+def test_disabled_recorder_never_computes_boundary_and_components(sphere, monkeypatch):
+    def fail(*_args):
+        raise AssertionError("diagnostics computed")
+
+    monkeypatch.setattr(mesh_diagnostics, "boundary_and_components", fail)
+    row = StageRecorder(False).record("raw", *sphere)
+    assert row[:5] == ("raw", sphere[1].shape[0], sphere[0].shape[0], -1, -1)
+
+
+def test_enabled_recorder_computes_boundary_and_components(sphere, monkeypatch):
+    calls = []
+    monkeypatch.setattr(mesh_diagnostics, "boundary_and_components", lambda v, f: calls.append(1) or (0, 1))
+    assert StageRecorder(True).record("raw", *sphere)[3:5] == (0, 1)
+    assert calls == [1]
+
+
+def test_traced_cleanup_skips_diagnostics_when_disabled(sphere, monkeypatch):
+    monkeypatch.setattr(mesh_diagnostics, "boundary_and_components", lambda v, f: pytest.fail("computed"))
+    vertices, faces = sphere
+    _, _, rows = clean_and_decimate_traced(vertices.astype(np.float32), faces, 100, False)
+    assert rows and all(row[3:5] == (-1, -1) for row in rows)
