@@ -166,6 +166,7 @@ describe('retireConfirmedCancellations', () => {
 
 		const tab = currentTab(tabId);
 		expect(tab.directorRuns!['shot-1'].status).toBe('failed');
+		expect(tab.directorRuns!['shot-1'].message).toBe('Stopped before it finished.');
 		expect(tab.directorRunLinks?.['gen-1']).toBeUndefined();
 		expect(isGenerationOutputsRetired('gen-1')).toBe(true);
 		expect(listenerCount(ws, 'gen-1')).toBe(0);

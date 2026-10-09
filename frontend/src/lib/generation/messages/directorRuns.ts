@@ -115,7 +115,7 @@ export function parseDirectorShotUpdate(message: Record<string, any>): DirectorS
 }
 
 const SKIPPED_TEXT = 'Not made because an earlier shot did not finish.';
-const CANCELLED_TEXT = 'Stopped before it finished.';
+export const CANCELLED_TEXT = 'Stopped before it finished.';
 
 export function withDirectorShotUpdate(
 	tab: Pick<Tab, 'directorRuns'>,

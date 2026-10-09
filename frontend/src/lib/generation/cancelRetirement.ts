@@ -41,6 +41,7 @@ import { get } from 'svelte/store';
 import type { Readable } from 'svelte/store';
 import type { Tab } from '$lib/types/tabs';
 import {
+	CANCELLED_TEXT,
 	directorShotIdsFor,
 	withDirectorRunTerminal,
 	withoutDirectorRunLink
@@ -147,7 +148,7 @@ export function retireConfirmedCancellations(
 		if (directorTab) {
 			const shotIds = directorShotIdsFor(directorTab, generationId)!;
 			deps.tabsStore.updateTab(directorTab.id, {
-				directorRuns: withDirectorRunTerminal(directorTab, shotIds, 'failed', null, now(), generationId),
+				directorRuns: withDirectorRunTerminal(directorTab, shotIds, 'failed', null, now(), generationId, CANCELLED_TEXT),
 				directorRunLinks: withoutDirectorRunLink(directorTab, generationId)
 			});
 		}

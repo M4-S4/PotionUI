@@ -1,6 +1,6 @@
 import { generationMessageRegistry, type GenerationMessageHandler } from '$lib/registries/generationMessageRegistry';
 import { playGenerationErrorSound } from '$lib/utils/generationSounds';
-import { directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } from './directorRuns';
+import { CANCELLED_TEXT, directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } from './directorRuns';
 import { isTabsCurrentGeneration, withoutQueueEntry, nextQueueCandidate, beginGenerationOwnership } from './ownership';
 import { refreshLimitsSoon } from '$lib/plans/store';
 import { peekGenerationOutputs, retireGeneration } from './generationOutputs';
@@ -101,7 +101,7 @@ const handler: GenerationMessageHandler = {
 							null,
 							Date.now(),
 							ctx.generationId,
-							message.type === 'generation_cancelled' ? 'Stopped before it finished.' : String(error)
+							message.type === 'generation_cancelled' ? CANCELLED_TEXT : String(error)
 						),
 						directorRunLinks: withoutDirectorRunLink(targetTab, ctx.generationId)
 					}
