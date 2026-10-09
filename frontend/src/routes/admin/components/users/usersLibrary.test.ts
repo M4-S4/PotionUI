@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { USERS_LIBRARY_SECTIONS, accountTypeCounts, deletableGroupIds, deletableUserIds, usersSubViewFromParam } from './usersLibrary';
+import {
+	USERS_LIBRARY_SECTIONS,
+	accountTypeCounts,
+	deletableGroupIds,
+	deletableUserIds,
+	groupEditFormFrom,
+	groupUpdatePayload,
+	pluralize,
+	userEditFormFrom,
+	userUpdatePayload,
+	usersSubViewFromParam
+} from './usersLibrary';
 import type { User } from '$lib/stores/auth';
 import type { UserGroup } from '$lib/services/admin-api';
 
@@ -81,5 +92,72 @@ describe('users sub views', () => {
 		expect(usersSubViewFromParam('groups')).toBe('groups');
 		expect(usersSubViewFromParam('nope')).toBe('users');
 		expect(usersSubViewFromParam(null)).toBe('users');
+	});
+});
+
+describe('userEditFormFrom', () => {
+	it('copies identity fields and blanks the password', () => {
+		expect(userEditFormFrom(makeUser({ username: 'a', email: 'a@x.io', account_type: 'ADMIN' }))).toEqual({
+			username: 'a',
+			email: 'a@x.io',
+			password: '',
+			account_type: 'ADMIN'
+		});
+	});
+
+	it('returns an empty regular-user form for null', () => {
+		expect(userEditFormFrom(null)).toEqual({ username: '', email: '', password: '', account_type: 'USER' });
+	});
+});
+
+describe('userUpdatePayload', () => {
+	it('omits empty fields so a blank password keeps the current one', () => {
+		expect(userUpdatePayload({ username: 'a', email: 'a@x.io', password: '', account_type: 'USER' })).toEqual({
+			username: 'a',
+			email: 'a@x.io',
+			account_type: 'USER'
+		});
+	});
+
+	it('includes a typed password', () => {
+		expect(userUpdatePayload({ username: 'a', email: 'a@x.io', password: 'pw', account_type: 'USER' }).password).toBe('pw');
+	});
+});
+
+describe('groupEditFormFrom', () => {
+	it('keeps a valid content policy and defaults the description', () => {
+		expect(groupEditFormFrom({ name: 'g', description: null, content_policy: 'blur' })).toEqual({
+			name: 'g',
+			description: '',
+			content_policy: 'blur'
+		});
+	});
+
+	it('falls back to inherit for unknown policies and for null', () => {
+		expect(groupEditFormFrom({ name: 'g', content_policy: 'weird' }).content_policy).toBe('inherit');
+		expect(groupEditFormFrom(null)).toEqual({ name: '', description: '', content_policy: 'inherit' });
+	});
+});
+
+describe('groupUpdatePayload', () => {
+	it('sends the policy, mapping inherit to null', () => {
+		expect(groupUpdatePayload({ name: 'g', description: 'd', content_policy: 'inherit' }, false)).toEqual({
+			name: 'g',
+			description: 'd',
+			content_policy: null
+		});
+		expect(groupUpdatePayload({ name: 'g', description: 'd', content_policy: 'blocked' }, false).content_policy).toBe('blocked');
+	});
+
+	it('leaves the policy out for locked groups and omits an empty name', () => {
+		expect(groupUpdatePayload({ name: '', description: 'd', content_policy: 'blocked' }, true)).toEqual({ description: 'd' });
+	});
+});
+
+describe('pluralize', () => {
+	it('uses the singular only for one', () => {
+		expect(pluralize(1, 'user')).toBe('1 user');
+		expect(pluralize(0, 'user')).toBe('0 users');
+		expect(pluralize(2, 'change')).toBe('2 changes');
 	});
 });
