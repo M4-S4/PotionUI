@@ -63,6 +63,8 @@ from src.features.media_index.indexer import PASS_TAGS
 from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.generation.output_processor import OutputProcessor
+from src.features.generation.prompt_batch import PROMPT_BATCH_SPLIT_NOTICE, PromptBatch, check_prompt_batch
+from src.features.generation.prompt_batch_split_repository import PromptBatchSplitRepository
 from src.features.generation.output_bridge import OutputBridge
 from src.features.generation.queue import QueuedGeneration
 from src.features.generation.queue_dispatcher import CancelledBeforeStart, QueueDispatcher
@@ -570,6 +572,8 @@ class GenerationOrchestrator:
         self.model_locator = model_locator
         self.content_safety = content_safety
         self._content_tally: Dict[str, Dict[str, int]] = {}
+        self._prompt_batches: Dict[str, PromptBatch] = {}
+        self._prompt_batch_splitter = PromptBatchSplitRepository()
         self.generation_stats_repository = generation_stats_repository
         # Cheap stateless wrapper over `preset_template_loader`, used solely to
         # resolve a preset's display name at generation_stats write time (see
@@ -1112,6 +1116,8 @@ class GenerationOrchestrator:
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")
 
+            check_prompt_batch(request, backend)
+
             if engine == CLOUD_ENGINE and getattr(self, "cloud_capabilities", None) is not None:
                 bound = self._bind(
                     preset_template, mode, bound.form_name, request.form_data,
@@ -1416,7 +1422,11 @@ class GenerationOrchestrator:
         if prompts is not None:
             prompts = [{'positive': p.positive, 'negative': p.negative} if hasattr(p, 'positive') else p for p in prompts]
 
+        batch = PromptBatch.plan(request)
         prompts = self._expand_prompts_per_image(generation_id, request, prompts)
+        if batch is not None:
+            batch.settle(request, prompts)
+            self._prompt_batches[generation_id] = batch
 
         if self.content_safety is not None:
             matched = await asyncio.to_thread(
@@ -1445,6 +1455,8 @@ class GenerationOrchestrator:
                 form_name=getattr(request, 'form_name', None),
                 user_id=db_generation.user_id,
             )
+            if batch is not None:
+                batch.apply_to_pipes(built_pipeline.pipes)
             logger.info(f"Pipeline built with {len(built_pipeline.pipes)} pipes")
         except Exception as e:
             logger.error(f"Failed to build pipeline: {str(e)}", exc_info=True)
@@ -1606,6 +1618,10 @@ class GenerationOrchestrator:
 
         logger.debug(f"Processing output for {generation_id}: {type(output).__name__}")
 
+        prompt_batch = self._prompt_batches.get(generation_id)
+        if prompt_batch is not None:
+            prompt_batch.stamp(output)
+
         if output_type_registry.is_server_only(output):
             generation = generation_repo.get_by_id(generation_id)
             try:
@@ -1652,6 +1668,8 @@ class GenerationOrchestrator:
             handler_metadata = await self.output_processor.process_output(
                 generation_id, output, user_id
             )
+            if prompt_batch is not None and handler_metadata.get('processed'):
+                prompt_batch.record_saved(output)
             if handler_metadata.get('processed'):
                 logger.debug(
                     f"Processed {type(output).__name__} with {handler_metadata.get('handler', 'Unknown')}"
@@ -1740,6 +1758,7 @@ class GenerationOrchestrator:
         logger.info(f"Completing generation {generation_id}")
 
         backend = self._run_backends.pop(generation_id, None)
+        prompt_batch = self._prompt_batches.pop(generation_id, None)
         record = self.status_tracker.get(generation_id)
         if record is None:
             return
@@ -1751,17 +1770,28 @@ class GenerationOrchestrator:
             self.status_tracker.set_cancel_notice(generation_id, late_notice)
 
         try:
-            await self._finish_generation(generation_id, record, output_callback)
+            await self._finish_generation(generation_id, record, output_callback, prompt_batch)
         finally:
             if record.backend_id:
                 await self._queue_dispatcher.release(record.backend_id, generation_id)
             self._queue_dispatcher.prune_finished()
 
+    async def _split_prompt_batch(self, generation_id: str, prompt_batch: Optional[PromptBatch]) -> List[str]:
+        if prompt_batch is None:
+            return []
+        try:
+            return await asyncio.to_thread(self._prompt_batch_splitter.split, generation_id, prompt_batch)
+        except Exception:
+            logger.exception(f"failed splitting prompt batch {generation_id}")
+            self.status_tracker.set_message(generation_id, PROMPT_BATCH_SPLIT_NOTICE)
+            return []
+
     async def _finish_generation(
         self,
         generation_id: str,
         record,
-        output_callback: Optional[Callable]
+        output_callback: Optional[Callable],
+        prompt_batch: Optional[PromptBatch] = None,
     ):
         """
         Transition status (unless the generation already reached a terminal
@@ -1801,6 +1831,8 @@ class GenerationOrchestrator:
                 logger.debug(f"Removed {removed} temp video source(s) for {generation_id}")
         except Exception:
             logger.exception(f"failed cleaning up temp video sources for {generation_id}")
+
+        split_ids = await self._split_prompt_batch(generation_id, prompt_batch)
 
         generation = generation_repo.get_by_id(generation_id)
 
@@ -1845,15 +1877,15 @@ class GenerationOrchestrator:
         # stats write above: indexing must never break generation completion).
         if self.media_indexer is not None:
             try:
-                self.media_indexer.on_generation_complete(
-                    generation_id, record.state.value
-                )
+                for indexed_id in (generation_id, *split_ids):
+                    self.media_indexer.on_generation_complete(indexed_id, record.state.value)
             except Exception:
                 logger.exception(f"failed queueing media index for {generation_id}")
 
             if record.state == GenerationState.COMPLETED:
-                self._schedule_mesh_thumbnails(generation_id)
-                self._schedule_media_tagging(generation_id)
+                for indexed_id in (generation_id, *split_ids):
+                    self._schedule_mesh_thumbnails(indexed_id)
+                    self._schedule_media_tagging(indexed_id)
 
         # Execute generation.after_complete hook
         if self.plugin_registry:

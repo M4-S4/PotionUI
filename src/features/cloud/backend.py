@@ -43,6 +43,7 @@ class CloudRun:
 
 class CloudBackend(BaseBackend):
     execution_device: ClassVar[ExecutionDevice] = "remote"
+    supports_prompt_batch: ClassVar[bool] = True
     authoritative_listing: ClassVar[bool] = True
     provider_class: ClassVar[Type[CloudProvider]]
 

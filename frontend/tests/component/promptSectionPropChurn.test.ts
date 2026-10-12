@@ -43,9 +43,7 @@ const tabHandlers = {
 	handlePromptChange: () => {},
 	handlePromptSegmentsChange: () => {},
 	handleNegativePromptChange: () => {},
-	handleNegativePromptSegmentsChange: () => {},
-	handlePromptTabsChange: () => {},
-	handleActivePromptTabChange: () => {}
+	handleNegativePromptSegmentsChange: () => {}
 };
 
 async function settle() {
@@ -81,7 +79,7 @@ describe('PromptSection under prompt keystrokes', () => {
 		const component = createClassComponent({
 			component: PromptSection as never,
 			target,
-			props: { tab, tabHandlers, promptRelayActive: false, numPrompts: 1 }
+			props: { tab, tabHandlers, promptRelayActive: false, canBatch: false }
 		});
 		await settle();
 		expect(propReadProbe.runs.promptSyntax).toBeGreaterThanOrEqual(1);

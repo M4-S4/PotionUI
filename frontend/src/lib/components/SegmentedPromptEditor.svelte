@@ -102,6 +102,7 @@
 	// scope class stays on the root either way, so chip/picker styling still applies.
 	export let embedded = false;
 	export let plain = false;
+	export let titleExtra: import('svelte').Snippet | undefined = undefined;
 
 	$: paired = negativeSegments !== undefined;
 	// aria-label for the sections role="list" — kept stable independent of the
@@ -628,6 +629,7 @@
 			>
 				<strong class="composer-title section-title">{headerWord}</strong>
 				<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(segments.length)}</span>
+				{#if titleExtra}{@render titleExtra()}{/if}
 
 				{#if !paired && isNegative && negativePromptUnavailable}
 					<span class="inline-note-warning">Not used by this preset</span>

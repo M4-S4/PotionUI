@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from src.pipelines.outputs import GalleryGenerationOutput, ParamGenerationOutput, VideoGenerationOutput
 from src.pipelines.contracts import BasePipe
 from src.pipelines.contracts import PipeInput, PipeOutput
+from src.pipelines.pipes._shared.generation.batch_layout import PromptBatchLayout
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.seed_plan import plan_seeds
 
@@ -145,12 +146,15 @@ class BaseGeneratorPipe(BasePipe):
         seeds = plan_seeds(ctx.input_seeds, int(self.config.get("seed", -1)), ctx.quantity)
         progress = ProgressEmitter(generation_outputs, title=self.name)
 
+        batch_layout = PromptBatchLayout.from_config(self.config)
         results: List[Any] = []
         used_seeds: List[int] = []
         try:
             for i, seed in enumerate(seeds):
                 if ctx.is_cancelled():
                     break
+                if batch_layout is not None:
+                    progress.state(batch_layout.status(i, len(seeds)))
                 with self.generation_scope(ctx, i):
                     result = self.generate_one(ctx, i, seed, progress)
                 if ctx.is_cancelled():

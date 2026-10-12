@@ -39,6 +39,7 @@ class PresetInfo(BaseModel):
     modes: List[str] = []
     engine: Optional[str] = None
     driver: Optional[str] = None
+    supports_prompt_batch: bool = False
     media: Optional[dict] = None
     # Curated styles from `styles.yml` (docs/presets/manifest.md "Styles"); [] when the
     # preset ships none. See `file_repository.preset_to_info`'s

@@ -4,6 +4,7 @@ import type { Tab, ImageData, VideoData, MeshData } from '$lib/types/tabs';
 import type { AudioData } from '$lib/types/audio';
 import type { Segment } from '$lib/types/segments';
 import { applySegmentAffixes, flattenRichSegments, type SegmentJoin } from '$lib/utils/richSegments';
+import { batchPromptFields, batchTileLabel, promptList } from '$lib/generation/promptBatch';
 import { buildVariablesForSubmit, type VariableRoll, type VariablesForSubmitOptions } from '$lib/utils/variableDefs';
 
 // ---------------------------------------------------------------------------
@@ -61,24 +62,14 @@ export function buildSegmentInput(
  * prompt tab's segments with its `prompt_index`) into the `SegmentInput[]` that is
  * attached to the generation request. Pure and unit-testable.
  */
-export function buildSegmentsPayload(tab: Tab, numPrompts: number): SegmentInput[] {
+export function buildSegmentsPayload(tab: Tab, batchPrompts: boolean): SegmentInput[] {
 	const out: SegmentInput[] = [];
+	const sent = batchPrompts ? promptList(tab) : promptList(tab).slice(0, 1);
 
-	const pushChannel = (segments: Segment[] | undefined, channel: 'positive' | 'negative', promptIndex: number) => {
-		(segments || []).forEach((seg, i) => {
-			out.push(buildSegmentInput(seg, channel, promptIndex, i));
-		});
-	};
-
-	if (numPrompts > 1 && tab.promptTabs && tab.promptTabs.length > 0) {
-		tab.promptTabs.slice(0, numPrompts).forEach((promptTab, promptIndex) => {
-			pushChannel(promptTab.promptSegments, 'positive', promptIndex);
-			pushChannel(promptTab.negativePromptSegments, 'negative', promptIndex);
-		});
-	} else {
-		pushChannel(tab.promptSegments, 'positive', 0);
-		pushChannel(tab.negativePromptSegments, 'negative', 0);
-	}
+	sent.forEach((entry, promptIndex) => {
+		(entry.promptSegments || []).forEach((seg, i) => out.push(buildSegmentInput(seg, 'positive', promptIndex, i)));
+		(entry.negativePromptSegments || []).forEach((seg, i) => out.push(buildSegmentInput(seg, 'negative', promptIndex, i)));
+	});
 
 	return out;
 }
@@ -136,35 +127,36 @@ function fileUrlOf(f: any, generationId: string, fallbackName: string): string {
 }
 
 export function mapGenerationFiles(files: any[], generationId: string): RestoredGenerationData {
-	const images: ImageData[] = (files || [])
-		.filter((f: any) => fileTypeOf(f) === 'image')
-		.map((f: any, index: number) => {
-			const url = fileUrlOf(f, generationId, `${index}.png`);
-			return {
-				url,
-				originalUrl: url,
-				derived: f.is_derived === true,
-				label: f.label ?? null,
-				seed: f.seed,
-				resolution: f.resolution,
-				sampler: f.sampler,
-				cfg: f.cfg,
-				step: f.step
-			};
-		});
+	const imageFiles = (files || []).filter((f: any) => fileTypeOf(f) === 'image');
+	const images: ImageData[] = imageFiles.map((f: any, index: number) => {
+		const url = fileUrlOf(f, generationId, `${index}.png`);
+		const batch = batchPromptFields(imageFiles, index);
+		return {
+			url,
+			originalUrl: url,
+			derived: f.is_derived === true,
+			label: f.label ?? batchTileLabel(batch),
+			...(batch ?? {}),
+			seed: f.seed,
+			resolution: f.resolution,
+			sampler: f.sampler,
+			cfg: f.cfg,
+			step: f.step
+		};
+	});
 
-	const videos: VideoData[] = (files || [])
-		.filter((f: any) => fileTypeOf(f) === 'video')
-		.map((f: any, index: number) => {
-			const url = fileUrlOf(f, generationId, `${index}.mp4`);
-			return {
-				url,
-				originalUrl: url,
-				derived: f.is_derived === true,
-				seed: f.seed,
-				resolution: f.resolution
-			};
-		});
+	const videoFiles = (files || []).filter((f: any) => fileTypeOf(f) === 'video');
+	const videos: VideoData[] = videoFiles.map((f: any, index: number) => {
+		const url = fileUrlOf(f, generationId, `${index}.mp4`);
+		return {
+			url,
+			originalUrl: url,
+			derived: f.is_derived === true,
+			...(batchPromptFields(videoFiles, index) ?? {}),
+			seed: f.seed,
+			resolution: f.resolution
+		};
+	});
 
 	const audios: AudioData[] = (files || [])
 		.filter((f: any) => fileTypeOf(f) === 'audio')

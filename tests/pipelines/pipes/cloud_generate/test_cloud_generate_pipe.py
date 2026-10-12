@@ -79,6 +79,17 @@ def test_different_prompts_make_one_request_per_image(tmp_path):
     assert len(output["image"]) == 2
 
 
+def test_a_prompt_batch_sends_each_expanded_pair_with_its_own_seed(tmp_path):
+    runner = FakeRunner(tmp_path)
+    pairs = [{"positive": text, "negative": ""} for text in ("cat", "cat", "dog", "dog")]
+
+    run(runner, {"prompts": pairs, "quantity": 4}, {"seed": [20, 21, 22, 23]})
+
+    assert [(r.prompt, r.count, r.seed) for r in runner.requests] == [
+        ("cat", 1, 20), ("cat", 1, 21), ("dog", 1, 22), ("dog", 1, 23),
+    ]
+
+
 def test_a_random_seed_is_not_sent(tmp_path):
     runner = FakeRunner(tmp_path)
 

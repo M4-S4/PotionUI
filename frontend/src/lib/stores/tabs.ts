@@ -7,6 +7,7 @@ import { getGlobalSoundDefault } from '$lib/utils/soundSettings';
 import { tabClaimedGenerationIds } from '$lib/generation/messages/ownership';
 import { retireOrphanedGenerationIds } from '$lib/generation/messages/generationOutputs';
 import { formulaApplied } from './formulaApplied';
+import { mirrorActivePrompt } from '$lib/generation/promptBatch';
 
 function createInitialGenerationState(): GenerationState {
 	return {
@@ -296,7 +297,7 @@ function createTabsStore() {
 					(['selectedPreset', 'selectedMode', 'selectedVariant'] as const).some(
 						(key) => key in updates && !Object.is(current[key], updates[key])
 					);
-				const nextTab: Tab = {
+				const merged: Tab = {
 					...current,
 					...updates,
 					...(schemaChanged ? { formPublished: false, formBaselineSignature: undefined } : {}),
@@ -304,6 +305,7 @@ function createTabsStore() {
 						? { ...current.generation, ...updates.generation }
 						: current.generation
 				};
+				const nextTab: Tab = { ...merged, ...mirrorActivePrompt(merged, updates) };
 				const tabs = [...state.tabs];
 				tabs[index] = nextTab;
 				return { ...state, tabs };

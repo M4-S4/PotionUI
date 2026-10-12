@@ -2,9 +2,10 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { ImageData, VideoData, MeshData } from '$lib/types/tabs';
 	import type { AudioData } from '$lib/types/audio';
-	import { Badge } from '$lib/components/ui';
+	import { Badge, SegmentedControl } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
+	import { groupByPrompt, isPromptBatch, type PromptEntry } from './promptGroups';
 
 	export let batchImages: ImageData[] = [];
 	export let batchVideos: VideoData[] = [];
@@ -19,11 +20,89 @@
 	function handleSelect(item: any, index: number) {
 		dispatch('select', { item, index });
 	}
+
+	let view: 'prompt' | 'all' = 'prompt';
+
+	$: promptEntries = [
+		...batchImages.map((item, index): PromptEntry<ImageData | VideoData> => ({ item, index, kind: 'image' })),
+		...batchVideos.map((item, index): PromptEntry<ImageData | VideoData> => ({
+			item,
+			index: batchImages.length + index,
+			kind: 'video'
+		}))
+	];
+	$: batched = isPromptBatch(promptEntries.map((entry) => entry.item));
+	$: grouped = batched && view === 'prompt';
+	$: groups = grouped ? groupByPrompt(promptEntries) : [];
+	$: hasOtherMedia = batchAudios.length > 0 || batchMeshes.length > 0;
 </script>
+
+{#snippet groupTile(tile: (typeof groups)[number]['tiles'][number], group: (typeof groups)[number])}
+	<div
+		class="relative cursor-pointer"
+		class:tile-selected={selectedIndex === tile.index}
+		on:click={() => handleSelect({ url: tile.item.url, originalUrl: tile.item.originalUrl || tile.item.url, file_type: tile.kind }, tile.index)}
+		on:keydown={(e) => e.key === 'Enter' && handleSelect({ url: tile.item.url, originalUrl: tile.item.originalUrl || tile.item.url, file_type: tile.kind }, tile.index)}
+		role="button"
+		tabindex="0"
+		aria-label="Prompt {group.promptIndex + 1}, image {tile.imageNumber}"
+	>
+		<div class="h-24 w-24 overflow-hidden rounded-lg border bg-surface-2 transition-colors {selectedIndex === tile.index ? 'border-line-hover' : 'border-line hover:border-line-hover'}">
+			{#if tile.kind === 'video'}
+				<video src={tile.item.url} class="h-full w-full object-cover" muted></video>
+			{:else}
+				<img src={tile.item.url} alt="Prompt {group.promptIndex + 1}, image {tile.imageNumber}" class="h-full w-full object-cover" loading="lazy" />
+			{/if}
+		</div>
+		<div class="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-sm font-medium tabular-nums text-white" data-output-label>
+			{group.promptIndex + 1}.{tile.imageNumber}
+		</div>
+	</div>
+{/snippet}
 
 <div class="flex-shrink-0 border-t border-line-strong bg-canvas">
 	<div class="p-3">
-		<div class="flex gap-3 overflow-x-auto pb-2">
+		{#if batched}
+			<div class="mb-2 flex items-center justify-between gap-3">
+				<span class="font-mono text-sm tabular-nums text-fg-subtle">
+					{promptEntries.length} {promptEntries.length === 1 ? 'image' : 'images'} · {new Set(promptEntries.map((entry) => entry.item.promptIndex)).size} prompts
+				</span>
+				<SegmentedControl
+					variant="toggle"
+					ariaLabel="Group images"
+					selected={view}
+					items={[
+						{ id: 'prompt', label: 'By prompt' },
+						{ id: 'all', label: 'All' }
+					]}
+					onSelect={(id) => (view = id === 'all' ? 'all' : 'prompt')}
+				/>
+			</div>
+		{/if}
+		{#if grouped}
+			<div class="mb-2 max-h-72 overflow-y-auto rounded-lg border border-line">
+				{#each groups as group (group.promptIndex)}
+					{@const current = group.tiles.some((tile) => tile.index === selectedIndex)}
+					<div class="grid grid-cols-[10rem_minmax(0,1fr)] items-start gap-3 border-t border-line px-3 py-2.5 first:border-t-0 {current ? 'border-l-2 border-l-signal bg-signal/5' : ''}">
+						<button
+							type="button"
+							class="min-w-0 rounded text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
+							on:click={() => handleSelect({ url: group.tiles[0].item.url, originalUrl: group.tiles[0].item.originalUrl || group.tiles[0].item.url, file_type: group.tiles[0].kind }, group.tiles[0].index)}
+						>
+							<span class="mb-1 block font-mono text-sm font-medium tabular-nums text-fg-subtle">{group.promptIndex + 1}</span>
+							<span class="line-clamp-3 text-sm {current ? 'text-fg' : 'text-fg-muted'}">{group.promptText}</span>
+						</button>
+						<div class="flex flex-wrap gap-2">
+							{#each group.tiles as tile (tile.index)}
+								{@render groupTile(tile, group)}
+							{/each}
+						</div>
+					</div>
+				{/each}
+			</div>
+		{/if}
+		<div class="flex gap-3 overflow-x-auto pb-2" class:hidden={grouped && !hasOtherMedia}>
+			{#if !grouped}
 			<!-- Batch Images -->
 			{#each batchImages as imageData, index}
 				<div
@@ -86,8 +165,15 @@
 						</svg>
 						#{globalIndex + 1}
 					</div>
+
+					{#if videoData.promptIndex !== undefined}
+						<div class="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-sm font-medium tabular-nums text-white" data-output-label>
+							{videoData.promptIndex + 1}.{videoData.promptImage}
+						</div>
+					{/if}
 				</div>
 			{/each}
+			{/if}
 
 			<!-- Batch Audio -->
 			{#each batchAudios as audioData, index}

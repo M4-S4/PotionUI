@@ -13,15 +13,13 @@
 		handlePromptSegmentsChange: (segments: any[]) => void;
 		handleNegativePromptChange: (prompt: string) => void;
 		handleNegativePromptSegmentsChange: (segments: any[]) => void;
-		handlePromptTabsChange: (promptTabs: any[]) => void;
-		handleActivePromptTabChange: (activePromptTab: number) => void;
 	};
 	export let promptRelayActive: boolean;
 	export let videoDirectorActive: boolean;
 	export let videoDirectorCaps: DirectorCapabilities | null;
 	export let musicDirectorActive: boolean;
 	export let musicDirectorCaps: MusicDirectorCapabilities | null;
-	export let numPrompts: number;
+	export let canBatch: boolean;
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
@@ -52,7 +50,7 @@
 			{musicDirectorCaps}
 			{presetSegmentTemplates}
 			{presetStyles}
-			{numPrompts}
+			{canBatch}
 			{negativePromptSupported}
 			{negativeInert}
 			spacingClass="mt-0"

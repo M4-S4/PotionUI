@@ -126,6 +126,18 @@ def test_quantity_is_forced_to_one_and_extra_prompts_are_dropped():
         assert [pair.positive for pair in cell.request.prompts] == ["one"]
 
 
+def test_a_batch_request_never_reaches_a_cell():
+    request = base_request(
+        prompts=[{"positive": "one", "negative": ""}, {"positive": "two", "negative": ""}],
+        batch_prompts=True,
+    )
+
+    cells = expand(axis("sampler", ["euler", "heun"]), request=request, quantity_fields=["quantity"])
+
+    assert [cell.request.batch_prompts for cell in cells] == [False, False]
+    assert request.batch_prompts is True
+
+
 def test_only_the_fields_the_pipeline_reads_as_quantity_are_forced_to_one():
     index = field_index(sampler="select", seed="seed", count="stepper", quantity="number")
     request = base_request(form_data={"sampler": "euler", "seed": 1, "count": 4, "quantity": 4})

@@ -26,8 +26,6 @@
 		handlePromptSegmentsChange: (segments: any[]) => void;
 		handleNegativePromptChange: (prompt: string) => void;
 		handleNegativePromptSegmentsChange: (segments: any[]) => void;
-		handlePromptTabsChange: (promptTabs: any[]) => void;
-		handleActivePromptTabChange: (activePromptTab: number) => void;
 	};
 	export let presets: any[];
 	export let readiness: ReadinessReport | null;
@@ -46,7 +44,7 @@
 	export let musicDirectorCaps: MusicDirectorCapabilities | null;
 	export let presetSegmentTemplates: PresetSegmentTemplate[] = [];
 	export let presetStyles: PresetStyle[] = [];
-	export let numPrompts: number;
+	export let canBatch: boolean;
 	export let negativePromptSupported: boolean;
 	export let negativeInert: boolean;
 	export let promptlessActive: boolean;
@@ -117,7 +115,7 @@
 		{musicDirectorCaps}
 		{presetSegmentTemplates}
 		{presetStyles}
-		{numPrompts}
+		{canBatch}
 		{negativePromptSupported}
 		{negativeInert}
 		onClose={closeSheet}

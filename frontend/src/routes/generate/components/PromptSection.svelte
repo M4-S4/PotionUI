@@ -13,7 +13,22 @@
 	import type { PresetStyle } from '$lib/types/api';
 	import { appliedStyleTag, applyStyleToPrompt, clearStyle } from '$lib/prompt/styleSegments';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
-	import MultiPromptEditor from '$lib/components/MultiPromptEditor.svelte';
+	import PromptPicker from '$lib/components/PromptPicker.svelte';
+	import { Alert, Button } from '$lib/components/ui';
+	import {
+		BATCH_CAP_MESSAGE,
+		activePromptIndex,
+		addPrompt,
+		batchSummary,
+		deletePrompt,
+		duplicatePrompt,
+		promptCount,
+		promptList,
+		quantityOf,
+		renamePrompt,
+		selectPrompt,
+		type PromptListPatch
+	} from '$lib/generation/promptBatch';
 	import PromptRelayEditor from '$lib/components/PromptRelayEditor.svelte';
 	import VideoDirectorEditor from '$lib/components/video-director/VideoDirectorEditor.svelte';
 	import MusicDirectorEditor from '$lib/components/music-director/MusicDirectorEditor.svelte';
@@ -31,15 +46,12 @@
 		handlePromptSegmentsChange: (segments: any[]) => void;
 		handleNegativePromptChange: (prompt: string) => void;
 		handleNegativePromptSegmentsChange: (segments: any[]) => void;
-		handlePromptTabsChange: (promptTabs: any[]) => void;
-		handleActivePromptTabChange: (activePromptTab: number) => void;
 	};
 
 	const EMPTY_VARIABLES: VariablesMap = {};
 	const EMPTY_ROLLS: Record<string, VariableRoll> = {};
 	const EMPTY_FORM_DATA: Record<string, unknown> = {};
 	const EMPTY_SEGMENTS: Segment[] = [];
-	const EMPTY_PROMPT_TABS: NonNullable<Tab['promptTabs']> = [];
 	const EMPTY_RESOURCE_SPECS: PromptResourceSpec[] = [];
 	const EMPTY_FIELD_LABELS: Record<string, string> = {};
 	const EMPTY_SYNTAX_SPECS: PromptSyntaxSpec[] = [];
@@ -55,7 +67,7 @@
 		onDirectorGenerateShots = undefined,
 		musicDirectorActive = false,
 		musicDirectorCaps = null,
-		numPrompts,
+		canBatch = false,
 		negativePromptSupported = true,
 		negativeInert = false,
 		presetSegmentTemplates = [],
@@ -72,7 +84,7 @@
 		onDirectorGenerateShots?: ((shotIds: string[]) => void) | undefined;
 		musicDirectorActive?: boolean;
 		musicDirectorCaps?: MusicDirectorCapabilities | null;
-		numPrompts: number;
+		canBatch?: boolean;
 		negativePromptSupported?: boolean;
 		negativeInert?: boolean;
 		presetSegmentTemplates?: PresetSegmentTemplate[];
@@ -98,8 +110,14 @@
 	const resourceFieldValues = $derived(tab.formData || EMPTY_FORM_DATA);
 	const promptSegments = $derived(tab.promptSegments || EMPTY_SEGMENTS);
 	const negativePromptSegments = $derived(tab.negativePromptSegments || EMPTY_SEGMENTS);
-	const promptTabs = $derived(tab.promptTabs || EMPTY_PROMPT_TABS);
-	const activePromptTab = $derived(tab.activePromptTab || 0);
+	const prompts = $derived(promptList(tab));
+	const unsupportedNote = $derived(
+		`Your other ${promptCount(tab) - 1} ${promptCount(tab) === 2 ? 'prompt is' : 'prompts are'} kept, but only prompt 1 will be generated.`
+	);
+	const activePrompt = $derived(activePromptIndex(tab));
+	const summary = $derived(
+		batchSummary({ prompts: promptCount(tab), perPrompt: quantityOf(tab.formData), canBatch })
+	);
 	const formData = $derived(tab.formData);
 	const videoDirectorValue = $derived(tab.videoDirector);
 	const musicDirectorValue = $derived(tab.musicDirector);
@@ -159,6 +177,14 @@
 
 	function openVariableManager() {
 		variablesModalOpen = true;
+	}
+
+	function applyPatch(patch: PromptListPatch | null) {
+		if (patch) tabsStore.updateTab(tabId, patch);
+	}
+
+	function limitToOneImage() {
+		tabsStore.updateTab(tabId, { formData: { ...(tab.formData || {}), quantity: 1 } });
 	}
 
 	function applyStyle(style: PresetStyle) {
@@ -232,28 +258,6 @@
 			value={promptRelayValue}
 			on:change={(e) => tabsStore.updateTab(tabId, { promptRelay: e.detail })}
 		/>
-	{:else if numPrompts > 1}
-		<!-- Multi-Prompt Editor -->
-		<MultiPromptEditor
-			promptTabs={promptTabs}
-			activeTab={activePromptTab}
-			{numPrompts}
-			variables={variables}
-			variableRolls={variableRolls}
-			onVariableDefChange={handleVariableDefChange}
-			onVariablesImport={handleVariablesChange}
-			onSourcePromptChange={handleSourcePromptChange}
-			onOpenVariableManager={openVariableManager}
-			{activeTriggerWords}
-			{presetSegmentTemplates}
-			promptResources={promptResourceSpecs}
-			{resourceFieldValues}
-			resourceFieldLabels={promptResourceFieldLabels}
-			promptSyntax={promptSyntaxSpecs}
-			plain
-			on:tabsChange={(e) => tabHandlers.handlePromptTabsChange(e.detail)}
-			on:activeTabChange={(e) => tabHandlers.handleActivePromptTabChange(e.detail)}
-		/>
 	{:else}
 		<!-- Single Prompt Mode (Default) -->
 		<div class="prompt-composer">
@@ -281,7 +285,43 @@
 				plain
 				on:segmentsChange={(e) => tabHandlers.handlePromptSegmentsChange(e.detail)}
 				on:negativeSegmentsChange={(e) => tabHandlers.handleNegativePromptSegmentsChange(e.detail)}
-			/>
+			>
+				{#snippet titleExtra()}
+					<PromptPicker
+						{prompts}
+						active={activePrompt}
+						perPrompt={summary.perPrompt}
+						{canBatch}
+						overCap={summary.overCap}
+						maxPrompts={summary.maxPrompts}
+						onSelect={(index) => applyPatch(selectPrompt(tab, index))}
+						onAdd={() => applyPatch(addPrompt(tab))}
+						onDuplicate={(index) => applyPatch(duplicatePrompt(tab, index))}
+						onDelete={(index) => applyPatch(deletePrompt(tab, index))}
+						onRename={(index, name) => applyPatch(renamePrompt(tab, index, name))}
+					/>
+				{/snippet}
+			</SegmentedPromptEditor>
+			{#if summary.overCap}
+				<Alert variant="danger" density="compact" icon class="mt-4">
+					<span class="font-medium">{BATCH_CAP_MESSAGE}</span>
+					Remove a prompt{summary.perPrompt > 1 ? ' or lower images per prompt to 1' : ''}.
+					{#snippet actions()}
+						<div class="flex flex-wrap justify-end gap-2">
+							<Button variant="secondary" size="sm" onclick={() => applyPatch(deletePrompt(tab, summary.prompts - 1))}>
+								Remove prompt {summary.prompts}
+							</Button>
+							{#if summary.perPrompt > 1}
+								<Button variant="secondary" size="sm" onclick={limitToOneImage}>Make 1 image per prompt</Button>
+							{/if}
+						</div>
+					{/snippet}
+				</Alert>
+			{:else if summary.unsupported}
+				<Alert variant="warning" density="compact" icon class="mt-4">
+					This preset runs one prompt at a time. {unsupportedNote}
+				</Alert>
+			{/if}
 			<div class="mt-4">
 				<ResolvedPromptPreview
 					prompt={tab.prompt}

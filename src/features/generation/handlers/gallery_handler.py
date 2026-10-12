@@ -197,7 +197,9 @@ def serialize_gallery_output(output: GalleryGenerationOutput, ctx: SerializeCont
                             'clip_skip': getattr(img_output, 'clip_skip', None),
                             'cfg': getattr(img_output, 'cfg', None),
                             'denoise': getattr(img_output, 'denoise', None),
-                            'step': getattr(img_output, 'step', None)
+                            'step': getattr(img_output, 'step', None),
+                            'prompt_index': getattr(img_output, 'prompt_index', None),
+                            'prompt': getattr(img_output, 'prompt_text', None),
                         }
                         result['image_urls_list'].append(image_data)
 
@@ -223,6 +225,8 @@ def serialize_gallery_output(output: GalleryGenerationOutput, ctx: SerializeCont
                     'duration': getattr(video_output, 'duration', None),
                     'fps': getattr(video_output, 'fps', None),
                     'seed': getattr(video_output, 'seed', None),
+                    'prompt_index': getattr(video_output, 'prompt_index', None),
+                    'prompt': getattr(video_output, 'prompt_text', None),
                     'temporary': getattr(video_output, 'temporary', True),
                     'nsfw': bool(getattr(video_output, '_content_nsfw', False)),
                     'content_flagged': bool(getattr(video_output, '_content_flagged', False)),

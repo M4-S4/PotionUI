@@ -78,6 +78,8 @@ class ImageGenerationOutput(GenerationOutput):
     cfg: float = None
     denoise: float = None
     step: int = None
+    prompt_index: int = None
+    prompt_text: str = None
 
     def __post_init__(self):
         _force_eager_decode(self.image)
@@ -98,6 +100,8 @@ class VideoGenerationOutput(GenerationOutput):
     denoise: float = None
     step: int = None
     motion_strength: float = None  # Video-specific parameter
+    prompt_index: int = None
+    prompt_text: str = None
 
 
 @dataclass

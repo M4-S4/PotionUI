@@ -203,3 +203,102 @@ class TestMediaOverrideValidation:
             )
         assert result.success is False
         orchestrator.start_generation.assert_not_awaited()
+
+
+BATCH = [{"positive": "a red fox", "negative": "blurry"}, {"positive": "a grey wolf"}]
+
+
+class TestBatchPrompts:
+    def test_schema_offers_prompts_and_the_description_recommends_it(self):
+        tool = StartGenerationTool()
+        schema = tool.parameters["properties"]["prompts"]
+        assert schema["type"] == "array"
+        assert schema["items"]["required"] == ["positive"]
+        assert "faster than" in tool.description
+
+    @pytest.mark.asyncio
+    async def test_preview_lists_every_prompt(self):
+        result = await StartGenerationTool().execute(make_context(), preset_id="sdxl/base", prompts=BATCH)
+        assert result.success is True
+        payload = json.loads(result.data)
+        assert payload["prompts"] == [
+            {"positive": "a red fox", "negative": "blurry"},
+            {"positive": "a grey wolf", "negative": ""},
+        ]
+        assert "prompt" not in payload
+        assert result.preview.text_blocks[0]["text"] == "1. a red fox\n2. a grey wolf"
+        assert result.preview.text_blocks[1] == {"label": "Negative prompt", "text": "1. blurry"}
+
+    @pytest.mark.asyncio
+    async def test_prompt_and_prompts_are_mutually_exclusive(self):
+        result = await StartGenerationTool().execute(
+            make_context(), preset_id="sdxl/base", prompt="a fox", prompts=BATCH,
+        )
+        assert result.success is False
+        assert "not both" in result.error
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad", [[], "fox", ["fox"], [{"negative": "x"}], [{"positive": "  "}], [{"positive": "a", "negative": 3}]])
+    async def test_malformed_prompts_are_rejected(self, bad):
+        result = await StartGenerationTool().execute(make_context(), preset_id="sdxl/base", prompts=bad)
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_too_many_prompts_are_rejected(self):
+        many = [{"positive": f"p{i}"} for i in range(21)]
+        result = await StartGenerationTool().execute(make_context(), preset_id="sdxl/base", prompts=many)
+        assert result.success is False
+        assert "at most 20" in result.error
+
+    @pytest.mark.asyncio
+    async def test_confirmed_run_sends_a_batch_request(self):
+        orchestrator = make_orchestrator()
+        result = await StartGenerationTool().execute_confirmed(
+            make_context(generation_orchestrator=orchestrator),
+            preset_id="sdxl/base", prompts=BATCH, form_overrides={"quantity": 2},
+        )
+        assert result.success is True
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.batch_prompts is True
+        assert [(p.positive, p.negative) for p in request.prompts] == [("a red fox", "blurry"), ("a grey wolf", "")]
+        assert request.form_data == {"quantity": 2}
+
+    @pytest.mark.asyncio
+    async def test_confirmed_single_entry_is_not_a_batch(self):
+        orchestrator = make_orchestrator()
+        await StartGenerationTool().execute_confirmed(
+            make_context(generation_orchestrator=orchestrator), preset_id="sdxl/base", prompts=BATCH[:1],
+        )
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.batch_prompts is False
+        assert request.prompts[0].positive == "a red fox"
+
+    @pytest.mark.asyncio
+    async def test_plain_prompt_still_sends_no_batch(self):
+        orchestrator = make_orchestrator()
+        await StartGenerationTool().execute_confirmed(
+            make_context(generation_orchestrator=orchestrator), preset_id="sdxl/base", prompt="a fox",
+        )
+        request = orchestrator.start_generation.call_args[1]["request"]
+        assert request.batch_prompts is False
+
+    @pytest.mark.asyncio
+    async def test_confirmed_mutual_exclusion_is_rechecked(self):
+        orchestrator = make_orchestrator()
+        result = await StartGenerationTool().execute_confirmed(
+            make_context(generation_orchestrator=orchestrator), preset_id="sdxl/base", prompt="a fox", prompts=BATCH,
+        )
+        assert result.success is False
+        orchestrator.start_generation.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_a_batch_refusal_reaches_a_regular_user_verbatim(self):
+        from src.features.generation.prompt_batch import PromptBatchError
+
+        orchestrator = AsyncMock()
+        orchestrator.start_generation.side_effect = PromptBatchError("A batch can produce at most 20 images, but 24.")
+        result = await StartGenerationTool().execute_confirmed(
+            make_context(generation_orchestrator=orchestrator), preset_id="sdxl/base", prompts=BATCH,
+        )
+        assert result.success is False
+        assert result.error == "A batch can produce at most 20 images, but 24."

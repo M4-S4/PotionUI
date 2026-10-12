@@ -16,6 +16,7 @@ from src.pipelines.contracts import (
     PipeOutputSpec,
     PipeConfigSpec,
 )
+from src.pipelines.pipes._shared.generation.batch_layout import PromptBatchLayout
 from src.pipelines.pipes._shared.generation.prompt_diff import word_diff
 from src.pipelines.pipes._shared.generation.reference_order import pack_references
 from src.pipelines.pipes._shared.generation.refmods import RefMod, load_refmods
@@ -233,7 +234,10 @@ class PromptEncoderPipe(BasePipe):
             values=[negative_applied] * quantity,
         ))
 
-        generation_outputs(ProgressGenerationOutput(state="Encoding prompts"))
+        batch_layout = PromptBatchLayout.from_config(self.config)
+        generation_outputs(ProgressGenerationOutput(
+            state=batch_layout.reading() if batch_layout is not None else "Encoding prompts"
+        ))
 
         clip: ClipTextEncoder = pipe_input.input["text_encoder"]
         models = pipe_input.input.get("MODELS", None)

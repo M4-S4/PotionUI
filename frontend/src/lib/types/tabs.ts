@@ -154,6 +154,9 @@ export interface ImageData {
 	originalUrl?: string;
 	derived?: boolean;
 	label?: string | null;
+	promptIndex?: number;
+	promptText?: string;
+	promptImage?: number;
 	content_flagged?: boolean;
 	seed?: number;
 	resolution?: [number, number];
@@ -168,6 +171,9 @@ export interface VideoData {
 	url: string;
 	originalUrl?: string;
 	derived?: boolean;
+	promptIndex?: number;
+	promptText?: string;
+	promptImage?: number;
 	content_flagged?: boolean;
 	duration?: number;
 	fps?: number;
@@ -288,6 +294,7 @@ export interface PromptTabData {
 	negativePromptSegments: Segment[];
 	prompt: string;
 	negativePrompt: string;
+	name?: string;
 }
 
 /** The prompt- and form-editor slice of a tab, snapshotted per preset mode so

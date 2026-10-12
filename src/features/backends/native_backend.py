@@ -85,6 +85,7 @@ class NativeBackend(InProcessBackend):
     """
 
     execution_device: ClassVar[ExecutionDevice] = "this_host_gpu"
+    supports_prompt_batch: ClassVar[bool] = True
 
     _model_locator = None
 

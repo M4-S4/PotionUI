@@ -296,6 +296,10 @@ class BackendRegistry:
         """Get all available backends providing an engine, highest priority first"""
         return [b for b in self.get_available_backends() if b.engine == engine]
 
+    def engine_supports_prompt_batch(self, engine: Optional[str]) -> bool:
+        backends = self.get_backends_for_engine(engine) if engine else []
+        return bool(backends) and all(b.supports_prompt_batch for b in backends)
+
     def select_backend_for_generation(
         self,
         engine: str,

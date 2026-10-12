@@ -7,7 +7,6 @@ import { resolveMusicDirectorCapabilities } from '$lib/utils/musicDirector';
 import { isPromptlessMode } from '$lib/utils/promptlessMode';
 
 export interface RequestContext {
-	numPrompts: number;
 	segmentJoin: SegmentJoin;
 	promptRelayActive: boolean;
 	promptlessActive: boolean;
@@ -33,7 +32,6 @@ export function resolveRequestContext(
 	const videoDirectorCaps = parseDirectorCapabilities(applyModelOverlay(resolveDirectorRaw(vars?.video_director, mode), directorOverlay));
 	const musicDirectorCaps = resolveMusicDirectorCapabilities(vars?.music_director, mode);
 	return {
-		numPrompts: vars?.num_prompts || 1,
 		segmentJoin: vars?.prompt?.segment_join === 'paragraph' ? 'paragraph' : 'space',
 		promptRelayActive: !!mode && relayModes.includes(mode),
 		promptlessActive: isPromptlessMode(vars ?? {}, mode),
@@ -56,7 +54,6 @@ function contextKey(
 		mode ?? '',
 		vars?.video_director ?? null,
 		vars?.music_director ?? null,
-		vars?.num_prompts ?? null,
 		vars?.prompt?.segment_join ?? null,
 		vars?.prompt_relay_modes ?? null,
 		vars?.promptless_modes ?? null,

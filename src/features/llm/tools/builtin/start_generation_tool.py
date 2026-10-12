@@ -9,9 +9,10 @@ preset's own defaults.
 
 import json
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.generation.failure import start_failure_reason
+from src.features.generation.prompt_batch import MAX_BATCH_IMAGES, PromptBatchError
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import build_generation_preview
 from src.features.llm.tools.errors import unexpected
@@ -54,7 +55,10 @@ class StartGenerationTool(BaseTool):
             "Start a generation for an explicit preset, independent of any live form state. "
             "Unset fields fall back to the preset's own defaults. Get preset ids from list_presets "
             "and a preset's modes and field names from get_preset_info. Requires user approval; "
-            "returns the generation_id once started. Example: "
+            "returns the generation_id once started. For several distinct prompts in one run, pass "
+            "'prompts' (a list of {positive, negative?}) instead of 'prompt': they render in one "
+            "generation and are much faster than calling this tool once per prompt. 'prompts' and "
+            "'prompt' are mutually exclusive; form_overrides.quantity then applies per prompt. Example: "
             '{"preset_id": "<id from list_presets>", "mode": "txt2img", "prompt": "a red fox in snow", '
             '"form_overrides": {"width": 1024, "height": 1024, "steps": 30}}'
         )
@@ -68,6 +72,23 @@ class StartGenerationTool(BaseTool):
                 "mode": {"type": "string", "description": "One of the preset's modes (see get_preset_info). Defaults to txt2img when the preset has it, else its first mode."},
                 "prompt": {"type": "string"},
                 "negative_prompt": {"type": "string"},
+                "prompts": {
+                    "type": "array",
+                    "maxItems": MAX_BATCH_IMAGES,
+                    "description": (
+                        "Several distinct prompts rendered in one generation, in order. Use instead of "
+                        "'prompt'/'negative_prompt'. Each prompt is expanded 'quantity' times; the total "
+                        f"image count (prompts x quantity) is capped at {MAX_BATCH_IMAGES}."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "positive": {"type": "string"},
+                            "negative": {"type": "string"},
+                        },
+                        "required": ["positive"],
+                    },
+                },
                 "form_overrides": {
                     "type": "object",
                     "description": (
@@ -91,6 +112,8 @@ class StartGenerationTool(BaseTool):
             "preset_id": kwargs.get("preset_id"),
             "mode": kwargs.get("mode") or "txt2img",
         }
+        if kwargs.get("prompts"):
+            preview["prompts"] = kwargs["prompts"]
         if kwargs.get("prompt"):
             preview["prompt"] = kwargs["prompt"]
         if kwargs.get("negative_prompt"):
@@ -100,14 +123,46 @@ class StartGenerationTool(BaseTool):
         return preview
 
     @staticmethod
+    def _prompt_pairs(kwargs: Dict[str, Any]) -> Tuple[Optional[List[Dict[str, str]]], Optional[str]]:
+        prompts = kwargs.get("prompts")
+        if prompts is None:
+            return None, None
+        if kwargs.get("prompt") or kwargs.get("negative_prompt"):
+            return None, "Give either 'prompts' or 'prompt'/'negative_prompt', not both."
+        if not isinstance(prompts, list) or not prompts:
+            return None, "'prompts' must be a non-empty list of {positive, negative} objects."
+        if len(prompts) > MAX_BATCH_IMAGES:
+            return None, f"'prompts' can hold at most {MAX_BATCH_IMAGES} entries."
+        pairs: List[Dict[str, str]] = []
+        for index, entry in enumerate(prompts, start=1):
+            if not isinstance(entry, dict):
+                return None, f"prompts[{index}] must be an object with a 'positive' string."
+            positive, negative = entry.get("positive"), entry.get("negative") or ""
+            if not isinstance(positive, str) or not positive.strip():
+                return None, f"prompts[{index}] needs a non-empty 'positive' string."
+            if not isinstance(negative, str):
+                return None, f"prompts[{index}].negative must be a string."
+            pairs.append({"positive": positive, "negative": negative})
+        return pairs, None
+
+    @staticmethod
     def _build_approval_preview(kwargs: Dict[str, Any]):
         # No live form here (see the module docstring), so there is no "old"
         # value to diff a form_override against - old_form_data stays None.
+        pairs = kwargs.get("prompts")
+        if pairs:
+            prompt_text = "\n".join(f"{index}. {pair['positive']}" for index, pair in enumerate(pairs, start=1))
+            negative_text = "\n".join(
+                f"{index}. {pair['negative']}" for index, pair in enumerate(pairs, start=1) if pair.get("negative")
+            )
+        else:
+            prompt_text = kwargs.get("prompt") or ""
+            negative_text = kwargs.get("negative_prompt") or ""
         return build_generation_preview(
             preset_id=kwargs.get("preset_id"),
             mode=kwargs.get("mode") or "txt2img",
-            prompt_text=kwargs.get("prompt") or "",
-            negative_text=kwargs.get("negative_prompt") or "",
+            prompt_text=prompt_text,
+            negative_text=negative_text,
             form_data=kwargs.get("form_overrides") or {},
         )
 
@@ -120,7 +175,10 @@ class StartGenerationTool(BaseTool):
         mode, preset_error = self._resolve_preset(context, preset_id, kwargs.get("mode"))
         if preset_error:
             return ToolResult(success=False, data="", error=preset_error)
-        kwargs = {**kwargs, "mode": mode}
+        pairs, prompts_error = self._prompt_pairs(kwargs)
+        if prompts_error:
+            return ToolResult(success=False, data="", error=prompts_error)
+        kwargs = {**kwargs, "mode": mode, **({"prompts": pairs} if pairs else {})}
         overrides = kwargs.get("form_overrides") or {}
         media_errors = preset_form_media_errors(context.preset_collaborators, context.storage_dir(), preset_id, mode, overrides)
         if media_errors:
@@ -173,6 +231,9 @@ class StartGenerationTool(BaseTool):
         mode, preset_error = self._resolve_preset(context, preset_id, kwargs.get("mode"))
         if preset_error:
             return ToolResult(success=False, data="", error=preset_error)
+        pairs, prompts_error = self._prompt_pairs(kwargs)
+        if prompts_error:
+            return ToolResult(success=False, data="", error=prompts_error)
         form_data = dict(kwargs.get("form_overrides") or {})
 
         # Re-validated on replay (same reasoning as run_generation): approval
@@ -189,11 +250,16 @@ class StartGenerationTool(BaseTool):
         try:
             from src.features.generation.dto import GenerationRequest, PromptPair
 
+            if pairs:
+                prompt_pairs = [PromptPair(positive=pair["positive"], negative=pair["negative"]) for pair in pairs]
+            else:
+                prompt_pairs = [PromptPair(positive=kwargs.get("prompt") or "", negative=kwargs.get("negative_prompt") or "")]
             request = GenerationRequest(
                 preset_id=preset_id,
                 mode=mode,
                 form_data=form_data,
-                prompts=[PromptPair(positive=kwargs.get("prompt") or "", negative=kwargs.get("negative_prompt") or "")],
+                prompts=prompt_pairs,
+                batch_prompts=bool(pairs) and len(pairs) > 1,
             )
 
             result = await context.generation_orchestrator.start_generation(
@@ -206,6 +272,8 @@ class StartGenerationTool(BaseTool):
                 "generation_id": result.get("generation_id", ""),
                 "status": result.get("status", {}).get("status", "pending"),
             }))
+        except PromptBatchError as e:
+            return ToolResult(success=False, data="", error=str(e))
         except Exception as e:
             logger.error(f"Failed to start generation: {e}")
             return ToolResult(success=False, data="", error=unexpected("start_generation", "start the generation", start_failure_reason(e, context.is_admin), True))

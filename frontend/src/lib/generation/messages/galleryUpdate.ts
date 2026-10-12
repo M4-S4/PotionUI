@@ -2,6 +2,7 @@ import { generationMessageRegistry } from '$lib/registries/generationMessageRegi
 import { directorShotIdsFor, withDirectorRunPoster } from './directorRuns';
 import { resolveOwnership } from './ownership';
 import { peekGenerationOutputs, setGenerationOutputs } from './generationOutputs';
+import { batchPromptFields, batchTileLabel } from '$lib/generation/promptBatch';
 
 function mergeSavedImages(previous: any[], incoming: any[]): any[] {
 	const merged = [...previous];
@@ -54,6 +55,7 @@ generationMessageRegistry.register('gallery_update', {
 				let originalUrl = imageUrl;
 				let derived = false;
 				let label: string | null = null;
+				const batch = batchPromptFields(message.image_urls_list ?? [], index);
 				let seed, resolution, sampler, clip_skip, cfg, denoise, step;
 				let content_flagged = message.content_flagged === true;
 
@@ -93,7 +95,8 @@ generationMessageRegistry.register('gallery_update', {
 					url: imageUrl,
 					originalUrl: originalUrl,
 					derived,
-					label,
+					label: label ?? batchTileLabel(batch),
+					...(batch ?? {}),
 					seed,
 					resolution,
 					sampler,
@@ -122,8 +125,10 @@ generationMessageRegistry.register('gallery_update', {
 					const urlData = message.video_urls_list?.[index] || {};
 					const path = urlData.path || video.path || '';
 					if (!path) return null;
+					const batch = batchPromptFields(message.video_urls_list ?? [], index);
 					return {
 						url: path,
+						...(batch ?? {}),
 						originalUrl: path,
 						file_type: 'video',
 						derived: (urlData.derived ?? video.derived) === true,

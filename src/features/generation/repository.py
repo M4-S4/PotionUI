@@ -92,6 +92,15 @@ class GenerationRepository:
             ))
             bump_history_revision(cursor, generation.user_id)
 
+    def batch_member_ids(self, batch_id: str, user_id: str) -> List[str]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM generations WHERE batch_id = ? AND user_id = ? ORDER BY rowid",
+                (batch_id, user_id),
+            )
+            return [row["id"] for row in cursor.fetchall()]
+
     def get_by_idempotency_key(self, user_id: str, idempotency_key: str) -> Optional[Generation]:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
@@ -918,6 +927,9 @@ class GenerationRepository:
             bump_history_revision_for_generation(cursor, generation_id)
 
         return created_file
+
+    def get_file_in_generation_directory(self, user_id: str, generation_id: str, filename: str) -> Optional[File]:
+        return file_repo.get_in_generation_directory(user_id, generation_id, filename)
 
     def get_files(self, generation_id: str, user_id: Optional[str] = None, file_type: Optional[str] = None, is_final: Optional[bool] = None) -> List[File]:
         """Get files for a generation (delegates to file_repo)"""

@@ -144,6 +144,7 @@ class Generation:
     idempotency_key: Optional[str] = None
     idempotency_fingerprint: Optional[str] = None
     grid_id: Optional[str] = None
+    batch_id: Optional[str] = None
     grid_x: Optional[int] = None
     grid_y: Optional[int] = None
     axis_values: Optional[Dict[str, Any]] = None
@@ -192,6 +193,7 @@ class Generation:
             idempotency_key=row_get(row, 'idempotency_key'),
             idempotency_fingerprint=row_get(row, 'idempotency_fingerprint'),
             grid_id=row_get(row, 'grid_id'),
+            batch_id=row_get(row, 'batch_id'),
             grid_x=row_get(row, 'grid_x'),
             grid_y=row_get(row, 'grid_y'),
             axis_values=json_column(row_get(row, 'axis_values')),

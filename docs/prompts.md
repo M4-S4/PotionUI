@@ -80,6 +80,38 @@ same batch of prompts *and* the same images.
 Only `prompts[0]` is treated as the template. Multi-prompt tabs are a separate concept; expanding
 each would multiply the image count.
 
+### Batch prompts
+
+Send `batch_prompts: true` with more than one entry in `prompts` to run several distinct prompts as one
+generation. Every entry is a template, expanded `quantity` times (so `quantity` means *per prompt*) in
+prompt order. Image `i` of the whole run uses seed `base + i`. The native engine encodes all prompts in
+one text-encoder pass instead of swapping models per prompt.
+
+- **Cap:** at most 20 images in total (`len(prompts) x quantity`); over it the request gets a 400.
+- **Engines:** a backend takes part only if it sets `supports_prompt_batch` (native, remote native and cloud
+  do; ComfyUI and other one-prompt-per-run backends are refused with a 400). `GET /api/presets` and
+  `GET /api/presets/{id}` report `supports_prompt_batch` per preset: true when every enabled backend of the
+  preset's engine supports it.
+- **Exclusions:** forms carrying a Video Director or Music Director document are refused (400). X/Y compare
+  grids ignore the flag, so a grid cell is never a batch.
+- **Storage:** the batch runs once (one queue slot, one daily-limit count) and is stored as one history entry
+  per prompt. When the run ends, completed, failed or cancelled, the original entry becomes prompt 1 and each
+  later prompt that produced files gets its own entry, with its own `quantity`, its first-image `seed`
+  (`base + k * quantity`) and its own `prompt_state`. Files keep their ids and paths; tags, collections,
+  models, input sources, per-image parameters and prompt segments follow. The run report, cost and stats
+  stay with the original entry. All entries share a `batch_id` (the original generation id). If the split
+  fails, the entries stay together and the generation carries a `message` saying so.
+- **`prompt_state`:** if it holds a `prompts` list with one entry per authored prompt, entry `k` is merged
+  into row `k`'s state (the list itself is removed); otherwise every row keeps the state unchanged.
+- **Reloading a finished batch:** `GET /api/generations/history/{id}?include_batch=true` returns, in
+  `data.files`, the files of every entry in the batch (original first), each with `prompt_index` (0-based),
+  `prompt` (the entry's authored text) and `generation_id`. Without the flag the response is unchanged.
+- **Live updates:** `gallery_update` entries (`image_urls_list`, `video_urls_list`) carry `prompt_index` and
+  `prompt` while the run is in flight, on the original generation id. Progress reads
+  `Generating image 5 of 12 · prompt 3 of 6` and `Reading 6 prompts`; single-prompt runs keep their text.
+- **MCP / chat:** `start_generation` takes `prompts: [{positive, negative?}]` instead of `prompt` /
+  `negative_prompt` (mutually exclusive) and sets `batch_prompts` for you. It is faster than one call per prompt.
+
 Expansion never fails a generation — a malformed template (unbalanced brace, bad weight) falls back
 to the literal text the user typed.
 

@@ -53,6 +53,30 @@ class FileRepository:
             
             return File.from_row(row)
     
+    def get_in_generation_directory(self, user_id: str, generation_id: str, filename: str) -> Optional[File]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT f.file_path FROM files f JOIN generation_files gf ON gf.file_id = f.id "
+                "WHERE gf.generation_id = ? AND f.user_id = ? LIMIT 1",
+                (generation_id, user_id),
+            )
+            sibling = cursor.fetchone()
+            if sibling is not None and "/" in sibling["file_path"]:
+                directory = sibling["file_path"].rsplit("/", 1)[0]
+                cursor.execute(
+                    "SELECT * FROM files WHERE file_path = ? AND user_id = ? AND is_final = 1",
+                    (f"{directory}/{filename}", user_id),
+                )
+            else:
+                escaped = filename.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                cursor.execute(
+                    "SELECT * FROM files WHERE user_id = ? AND is_final = 1 AND file_path LIKE ? ESCAPE '\\'",
+                    (user_id, f"%/{generation_id}/{escaped}"),
+                )
+            row = cursor.fetchone()
+            return File.from_row(row) if row else None
+
     def get_by_id(self, file_id: str, user_id: Optional[str] = None) -> Optional[File]:
         """Get file by ID, optionally filtered by user"""
         from src.platform.database.database import db

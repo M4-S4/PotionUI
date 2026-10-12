@@ -180,6 +180,7 @@ def expand_cells(
                 form_data[name] = 1
         if request.prompts and len(request.prompts) > 1:
             request.prompts = request.prompts[:1]
+        request.batch_prompts = False
         request.form_data = form_data
         request.idempotency_key = cell_idempotency_key(base_request.idempotency_key, x, y)
         cell_seed = usable_seed(form_data.get(primary_seed))

@@ -14,6 +14,7 @@
 	import { pluginStore } from '$lib/stores/plugins';
 	import { fade } from 'svelte/transition';
 	import GalleryStrip from '$lib/components/workbench/GalleryStrip.svelte';
+	import { batchCaption } from '$lib/components/workbench/promptGroups';
 	import WorkbenchParametersModal from '$lib/components/workbench/WorkbenchParametersModal.svelte';
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
 	import { authStore } from '$lib/stores/auth';
@@ -199,6 +200,7 @@
 	$: previewSuppressed = !!currentGeneration?.preview_suppressed;
 	$: contentBlocked = currentGeneration?.content_blocked ?? null;
 	$: currentImageLabel = isGalleryMode && displayFileType === 'image' ? ((currentGalleryItem as { label?: string | null } | null)?.label ?? null) : null;
+	$: promptCaption = isGalleryMode ? batchCaption([...batchImages, ...batchVideos], currentGalleryItem as { promptIndex?: number } | null) : null;
 	$: displayFlagged = isGalleryMode ? !!(currentGalleryItem as { content_flagged?: boolean } | null)?.content_flagged : !!currentGeneration?.content_flagged;
 	$: flaggedRevealKey = `workbench:${currentGeneration?.id ?? ''}:${isGalleryMode ? workbenchIndex : 'live'}`;
 	$: flaggedBlur = hasDisplayMedia && displayFlagged && !$nsfwRevealStore.has(flaggedRevealKey);
@@ -944,6 +946,18 @@
 							<span class="truncate">{currentImageLabel}</span>
 						</Badge>
 					</Tooltip>
+				</div>
+			{/if}
+
+			{#if promptCaption}
+				<div
+					class="pointer-events-none absolute inset-x-0 z-20 flex flex-wrap items-end gap-x-3 gap-y-1 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2.5 pt-7 text-white {displayFileType === 'video' ? 'bottom-14' : 'bottom-0'}"
+					data-prompt-caption
+				>
+					<span class="rounded border border-white/20 bg-white/10 px-2 py-0.5 font-mono text-sm font-medium tabular-nums">{promptCaption.title}</span>
+					{#if promptCaption.prompt}
+						<span class="min-w-0 flex-1 basis-56 text-sm line-clamp-2">{promptCaption.prompt}</span>
+					{/if}
 				</div>
 			{/if}
 

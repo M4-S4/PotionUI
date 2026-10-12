@@ -51,6 +51,7 @@ export interface GenerationRequest {
 	prompt?: string; // Legacy, deprecated - use prompts array
 	negative_prompt?: string; // Legacy, deprecated - use prompts array
 	prompts?: PromptPair[]; // Array of prompt pairs
+	batch_prompts?: boolean;
 	mode?: string;
 	/** Selects the mode's preset variant's form (see PresetModeVariant). Omitted for
 	 *  presets/modes with a single implicit variant. */
@@ -275,6 +276,7 @@ export interface PresetInfo {
 	origin?: PresetOrigin | null;
 	modes?: string[];
 	engine?: string;
+	supports_prompt_batch?: boolean;
 	driver?: string | null;
 	media?: PresetMedia;
 	requires?: PresetRequirements;
@@ -424,6 +426,7 @@ export interface PromptTabSessionData {
 	negativePrompt: string;
 	promptSegments: Segment[];
 	negativePromptSegments: Segment[];
+	name?: string;
 }
 
 export interface SessionData {

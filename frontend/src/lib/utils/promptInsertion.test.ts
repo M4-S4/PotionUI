@@ -54,17 +54,23 @@ describe('insertTriggerIntoActivePrompt', () => {
 		expect(result).toBe('unavailable');
 	});
 
-	it('returns unavailable for multi-prompt tabs', () => {
+	it('inserts into the active prompt of a multi-prompt tab and leaves the others alone', () => {
 		const id = activeTabId();
+		const first = { promptSegments: [{ id: 'a', content: 'a cat', type: 'content' as const }], negativePromptSegments: [], prompt: 'a cat', negativePrompt: '' };
+		const second = { promptSegments: [{ id: 'b', content: 'a dog', type: 'content' as const }], negativePromptSegments: [], prompt: 'a dog', negativePrompt: '' };
 		tabsStore.updateTab(id, {
-			promptTabs: [
-				{ promptSegments: [], negativePromptSegments: [], prompt: '', negativePrompt: '' },
-				{ promptSegments: [], negativePromptSegments: [], prompt: '', negativePrompt: '' }
-			]
+			promptTabs: [first, second],
+			activePromptTab: 1,
+			promptSegments: second.promptSegments,
+			prompt: second.prompt
 		});
 
 		const result = insertTriggerIntoActivePrompt('masterpiece');
-		expect(result).toBe('unavailable');
+
+		const tab = get(tabsStore).tabs.find((t) => t.id === id)!;
+		expect(result).toBe('inserted');
+		expect(tab.promptTabs![1].prompt).toBe('a dog, masterpiece');
+		expect(tab.promptTabs![0]).toEqual(first);
 	});
 
 	it('returns unavailable for prompt-relay mode tabs', () => {

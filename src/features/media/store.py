@@ -204,6 +204,11 @@ class MediaStore:
                 break
 
         if not target_file:
+            target_file = self.generation_repo.get_file_in_generation_directory(
+                generation.user_id, generation_id, filename
+            )
+
+        if not target_file:
             raise ValueError("File not found in database")
 
         # Handle thumbnail requests

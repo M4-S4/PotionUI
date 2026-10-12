@@ -140,7 +140,7 @@ describe('buildSegmentsPayload', () => {
 			promptSegments: [segment({ id: 'p0', content: 'first' }), segment({ id: 'p1', content: 'second' })],
 			negativePromptSegments: [segment({ id: 'n0', content: 'bad' })]
 		});
-		const out = buildSegmentsPayload(tab, 1);
+		const out = buildSegmentsPayload(tab, false);
 		expect(out).toHaveLength(3);
 		expect(out.map((s) => [s.channel, s.prompt_index, s.segment_index, s.text])).toEqual([
 			['positive', 0, 0, 'first'],
@@ -166,7 +166,7 @@ describe('buildSegmentsPayload', () => {
 				}
 			]
 		});
-		const out = buildSegmentsPayload(tab, 2);
+		const out = buildSegmentsPayload(tab, true);
 		expect(out).toHaveLength(3);
 		expect(out.map((s) => [s.channel, s.prompt_index, s.text])).toEqual([
 			['positive', 0, 'p0-pos'],
@@ -175,8 +175,20 @@ describe('buildSegmentsPayload', () => {
 		]);
 	});
 
+	it('emits only the first prompt segments when the batch is not sent', () => {
+		const entry = (id: string) => ({
+			promptSegments: [segment({ id, content: id })],
+			negativePromptSegments: [],
+			prompt: '',
+			negativePrompt: ''
+		});
+		const out = buildSegmentsPayload(makeTab({ promptTabs: [entry('a'), entry('b')] }), false);
+
+		expect(out.map((s) => [s.prompt_index, s.text])).toEqual([[0, 'a']]);
+	});
+
 	it('returns an empty array when there are no segments', () => {
-		expect(buildSegmentsPayload(makeTab({}), 1)).toEqual([]);
+		expect(buildSegmentsPayload(makeTab({}), false)).toEqual([]);
 	});
 
 	it('records each segment with its affixes, so the payload reassembles to the prompt sent', () => {
@@ -184,7 +196,7 @@ describe('buildSegmentsPayload', () => {
 			segment({ id: 'p0', content: 'portrait', prefix: '(', suffix: ':1.2)' }),
 			segment({ id: 'p1', content: 'rain' })
 		];
-		const out = buildSegmentsPayload(makeTab({ promptSegments: segments }), 1);
+		const out = buildSegmentsPayload(makeTab({ promptSegments: segments }), false);
 		expect(out.map((s) => s.text)).toEqual(['(portrait:1.2)', 'rain']);
 		expect(out.map((s) => s.text).join(' ')).toBe(combineSegmentsToString(segments));
 	});

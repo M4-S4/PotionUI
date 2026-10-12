@@ -34,7 +34,7 @@ function prepare(tab: any, extra: Record<string, unknown> = {}) {
 	return prepareRequest({
 		tab,
 		tabId: 'tab-1',
-		numPrompts: 1,
+		canBatch: false,
 		segmentJoin: 'space',
 		promptRelayActive: false,
 		promptlessActive: false,
@@ -44,6 +44,23 @@ function prepare(tab: any, extra: Record<string, unknown> = {}) {
 		now: () => 1000,
 		...extra
 	} as any);
+}
+
+function batchTab({ active }: { active: number }) {
+	const entries = [
+		{ prompt: 'first', negativePrompt: 'neg one', promptSegments: [], negativePromptSegments: [] },
+		{ prompt: 'unused', negativePrompt: '', promptSegments: [{ id: 'x', content: 'second from segments' }], negativePromptSegments: [] },
+		{ prompt: 'third', negativePrompt: '', promptSegments: [], negativePromptSegments: [] }
+	];
+	const current = entries[active];
+	return baseTab({
+		promptTabs: entries,
+		activePromptTab: active,
+		prompt: current.prompt,
+		negativePrompt: current.negativePrompt,
+		promptSegments: current.promptSegments,
+		negativePromptSegments: current.negativePromptSegments
+	});
 }
 
 const chip = {
@@ -116,26 +133,60 @@ describe('prepareRequest', () => {
 		expect(result.request.prompt_state!.promptSegments).toBe(tab.promptSegments);
 	});
 
-	it('builds one prompt pair per prompt tab in multi-prompt mode', () => {
-		const tab = baseTab({
-			promptTabs: [
-				{ prompt: 'first', negativePrompt: 'neg one', promptSegments: [], negativePromptSegments: [] },
-				{ prompt: 'unused', negativePrompt: '', promptSegments: [{ id: 'x', content: 'second from segments' }], negativePromptSegments: [] },
-				{ prompt: 'beyond the limit', negativePrompt: '', promptSegments: [], negativePromptSegments: [] }
-			]
-		});
-
-		const result = prepare(tab, { numPrompts: 2 });
+	it('sends a single prompt without a batch flag', () => {
+		const result = prepare(baseTab());
 
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
+		expect(result.request.prompts).toEqual([{ positive: 'a lighthouse at dusk', negative: 'blur' }]);
+		expect('batch_prompts' in result.request).toBe(false);
+		expect('prompts' in result.request.prompt_state!).toBe(false);
+	});
+
+	it('sends every prompt with the batch flag when the preset can batch', () => {
+		const tab = batchTab({ active: 1 });
+
+		const result = prepare(tab, { canBatch: true });
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect(result.request.batch_prompts).toBe(true);
 		expect(result.request.prompts).toEqual([
 			{ positive: 'first', negative: 'neg one' },
-			{ positive: 'second from segments', negative: '' }
+			{ positive: 'second from segments', negative: '' },
+			{ positive: 'third', negative: '' }
 		]);
 		expect(result.request.segments).toEqual([
-			expect.objectContaining({ channel: 'positive', prompt_index: 1 })
+			expect.objectContaining({ channel: 'positive', prompt_index: 1, text: 'second from segments' })
 		]);
+		const state = result.request.prompt_state as Record<string, any>;
+		expect(state.prompts).toHaveLength(3);
+		expect(state.prompts[1]).toEqual({
+			prompt: 'unused',
+			negativePrompt: '',
+			promptSegments: [{ id: 'x', content: 'second from segments' }],
+			negativePromptSegments: []
+		});
+		expect(state.prompt).toBe('first');
+		expect('promptTabs' in state).toBe(false);
+	});
+
+	it('sends only the first prompt when the preset cannot batch', () => {
+		const result = prepare(batchTab({ active: 2 }), { canBatch: false });
+
+		expect(result.ok).toBe(true);
+		if (!result.ok) return;
+		expect('batch_prompts' in result.request).toBe(false);
+		expect(result.request.prompts).toEqual([{ positive: 'first', negative: 'neg one' }]);
+		expect(result.request.segments).toEqual([]);
+		expect(result.shuffled.changed).toBe(false);
+	});
+
+	it('refuses a batch that contains an empty prompt', () => {
+		const tab = batchTab({ active: 0 });
+		tab.promptTabs[2] = { ...tab.promptTabs[2], prompt: '' };
+
+		expect(prepare(tab, { canBatch: true })).toEqual({ ok: false, code: 'no_prompt', reason: null });
 	});
 
 	it('takes prompts and timing from the prompt relay timeline', () => {
@@ -184,7 +235,6 @@ describe('buildGenerationRequest', () => {
 			prompts: [{ positive: 'shot one', negative: '' }],
 			formData: { ...tab.formData, video_director: { mode: 'i2v' } },
 			variables: { place: 'harbour' },
-			numPrompts: 1,
 			promptStateVariables: false
 		});
 
@@ -309,7 +359,7 @@ describe('prepareRequestFromSession', () => {
 		expect(session.promptSegments[0].content).toBe('a harbour at #style');
 	});
 
-	it('follows the preset vars for the number of prompts and how segments join', () => {
+	it('follows the preset vars for how segments join and the capability for how many prompts', () => {
 		const promptTab = (name: string) => ({
 			prompt: '',
 			negativePrompt: '',
@@ -322,15 +372,16 @@ describe('prepareRequestFromSession', () => {
 			presetId: 'preset-1',
 			mode: 'txt2img',
 			session,
-			presetVars: { num_prompts: 3, prompt: { segment_join: 'paragraph' } },
+			presetVars: { prompt: { segment_join: 'paragraph' } },
+			canBatch: true,
 			random: () => 0
 		});
-		const plain = prepareRequestFromSession({ presetId: 'preset-1', mode: 'txt2img', session: { ...session, prompt: 'single' }, random: () => 0 });
+		const plain = prepareRequestFromSession({ presetId: 'preset-1', mode: 'txt2img', session: { prompt: 'single', formData: {} }, random: () => 0 });
 
 		expect(tuned.ok && plain.ok).toBe(true);
 		if (!tuned.ok || !plain.ok) return;
-		expect(tuned.request.prompts!.map((pair) => pair.positive)).toEqual(['a one\n\na two', 'b one\n\nb two', 'c one\n\nc two']);
-		expect(tuned.request.segments).toHaveLength(6);
+		expect(tuned.request.prompts!.map((pair) => pair.positive)).toEqual(['a one\n\na two', 'b one\n\nb two', 'c one\n\nc two', 'd one\n\nd two']);
+		expect(tuned.request.segments).toHaveLength(8);
 		expect(plain.request.prompts).toEqual([{ positive: 'single', negative: '' }]);
 	});
 

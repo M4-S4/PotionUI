@@ -10,10 +10,9 @@ export type InsertTriggerResult = 'inserted' | 'duplicate' | 'unavailable';
  * Insert a LoRA trigger word into the active tab's positive prompt.
  *
  * Returns:
- * - 'unavailable' when there is no active tab, the tab uses multi-prompt
- *   tabs (`promptTabs.length > 1`), or the tab is in prompt-relay mode
- *   (`tab.promptRelay` present - relay tabs don't have a single flat prompt
- *   to append to).
+ * - 'unavailable' when there is no active tab, or the tab is in prompt-relay
+ *   mode (`tab.promptRelay` present - relay tabs don't have a single flat
+ *   prompt to append to).
  * - 'duplicate' when the trigger (case-insensitive) is already present in
  *   the combined prompt text.
  * - 'inserted' when the trigger was appended to the last content segment
@@ -24,7 +23,6 @@ export function insertTriggerIntoActivePrompt(trigger: string): InsertTriggerRes
 	const tab = state.tabs.find((t) => t.id === state.activeTabId);
 
 	if (!tab) return 'unavailable';
-	if (tab.promptTabs && tab.promptTabs.length > 1) return 'unavailable';
 	if (tab.promptRelay) return 'unavailable';
 
 	const segments: Segment[] = tab.promptSegments || [];

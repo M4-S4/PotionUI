@@ -1,6 +1,6 @@
 import type { GenerationRequest, PromptPair } from '$lib/services/api';
 import type { Segment } from '$lib/types/segments';
-import type { Tab } from '$lib/types/tabs';
+import type { PromptTabData, Tab } from '$lib/types/tabs';
 import type { DirectorCapabilities, VideoDirectorValue } from '$lib/types/videoDirector';
 import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 import type { PredecessorOutputLike } from '$lib/utils/directorContinuation';
@@ -11,6 +11,7 @@ import { assembleDirectorRequest } from '$lib/generation/requestAssembly';
 import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
 import { resolveRequestContext } from '$lib/generation/requestContext';
+import { activePromptIndex, firstEmptyPrompt, promptList } from '$lib/generation/promptBatch';
 import type { DirectorModelOverlay } from '$lib/utils/cloudDirector';
 
 export type RequestTab = Pick<
@@ -45,23 +46,18 @@ export interface BuildRequestOptions {
 	prompts: PromptPair[];
 	formData: Record<string, unknown>;
 	variables: Record<string, string> | undefined;
-	numPrompts: number;
+	batchPrompts?: boolean;
 	promptStateVariables: boolean;
 }
 
-export function buildGenerationRequest(tab: RequestTab, options: BuildRequestOptions): GenerationRequest {
-	return {
-		preset_id: tab.selectedPreset!,
-		prompts: options.prompts,
-		mode: tab.selectedMode ?? undefined,
-		form_name: tab.selectedVariant ?? undefined,
-		form_data: options.formData,
-		tag_ids: tab.autoTagIds?.length ? tab.autoTagIds : undefined,
-		collection_ids: tab.autoCollectionIds?.length ? tab.autoCollectionIds : undefined,
-		variables: options.variables,
-		tab_id: options.tabId,
-		source_prompt_id: tab.sourcePromptId ?? undefined,
-		prompt_state: {
+function promptStateFor(tab: RequestTab, options: BuildRequestOptions): Record<string, unknown> {
+	const shared = {
+		...(options.promptStateVariables ? { variables: tab.variables } : {}),
+		promptRelay: tab.promptRelay,
+		videoDirector: tab.videoDirector
+	};
+	if (!options.batchPrompts) {
+		return {
 			prompt: tab.prompt,
 			negativePrompt: tab.negativePrompt,
 			promptSegments: tab.promptSegments,
@@ -71,8 +67,33 @@ export function buildGenerationRequest(tab: RequestTab, options: BuildRequestOpt
 			activePromptTab: tab.activePromptTab,
 			promptRelay: tab.promptRelay,
 			videoDirector: tab.videoDirector
-		},
-		segments: buildSegmentsPayload(tab as Tab, options.numPrompts)
+		};
+	}
+	const entryState = (entry: PromptTabData) => ({
+		prompt: entry.prompt,
+		negativePrompt: entry.negativePrompt,
+		promptSegments: entry.promptSegments,
+		negativePromptSegments: entry.negativePromptSegments
+	});
+	const entries = promptList(tab);
+	return { ...entryState(entries[0]), ...shared, prompts: entries.map(entryState) };
+}
+
+export function buildGenerationRequest(tab: RequestTab, options: BuildRequestOptions): GenerationRequest {
+	return {
+		preset_id: tab.selectedPreset!,
+		prompts: options.prompts,
+		...(options.batchPrompts ? { batch_prompts: true } : {}),
+		mode: tab.selectedMode ?? undefined,
+		form_name: tab.selectedVariant ?? undefined,
+		form_data: options.formData,
+		tag_ids: tab.autoTagIds?.length ? tab.autoTagIds : undefined,
+		collection_ids: tab.autoCollectionIds?.length ? tab.autoCollectionIds : undefined,
+		variables: options.variables,
+		tab_id: options.tabId,
+		source_prompt_id: tab.sourcePromptId ?? undefined,
+		prompt_state: promptStateFor(tab, options),
+		segments: buildSegmentsPayload(tab as Tab, options.batchPrompts === true)
 	};
 }
 
@@ -129,7 +150,7 @@ export interface DirectorContext {
 export interface PrepareRequestOptions extends RandomSources {
 	tab: RequestTab;
 	tabId: string;
-	numPrompts: number;
+	canBatch: boolean;
 	segmentJoin: SegmentJoin;
 	promptRelayActive: boolean;
 	promptlessActive: boolean;
@@ -151,8 +172,10 @@ export type PreparedRequest =
 export function prepareRequest(options: PrepareRequestOptions): PreparedRequest {
 	const { tab } = options;
 	const random = options.random ?? Math.random;
-	const positive = shuffleSegmentChips(tab.promptSegments, random);
-	const negative = shuffleSegmentChips(tab.negativePromptSegments, random);
+	const list = promptList(tab);
+	const active = activePromptIndex(tab);
+	const positive = shuffleSegmentChips(list[active].promptSegments, random);
+	const negative = shuffleSegmentChips(list[active].negativePromptSegments, random);
 	const hasShuffledChips = positive.changed || negative.changed;
 
 	let promptsArray: PromptPair[];
@@ -160,6 +183,8 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 	let primaryShotIds: string[] = [];
 	let remainingShotIds: string[] = [];
 	let directorValue: VideoDirectorValue | null = null;
+	let batchPrompts = false;
+	let activeSent = true;
 
 	if (options.videoDirector) {
 		const assembled = assembleDirectorRequest({
@@ -212,22 +237,27 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 			timeline: relay?.timeline ?? { duration: 5, fps: 24, segments: [] }
 		};
 		promptsArray = [{ positive: [globalPrompt, joinedSegments].filter(Boolean).join(' | '), negative: '' }];
-	} else if (options.numPrompts > 1 && tab.promptTabs && tab.promptTabs.length > 0) {
-		promptsArray = tab.promptTabs.slice(0, options.numPrompts).map((promptTab) => {
-			const tabPositive = shuffleSegmentChips(promptTab.promptSegments, random).segments;
-			const tabNegative = shuffleSegmentChips(promptTab.negativePromptSegments, random).segments;
+	} else {
+		batchPrompts = options.canBatch && list.length > 1;
+		const sent = batchPrompts ? list : list.slice(0, 1);
+		if (batchPrompts && firstEmptyPrompt(sent) >= 0) return { ok: false, code: 'no_prompt', reason: null };
+		promptsArray = sent.map((entry, index) => {
+			const entryPositive =
+				index === active ? positive.segments : shuffleSegmentChips(entry.promptSegments, random).segments;
+			const entryNegative =
+				index === active ? negative.segments : shuffleSegmentChips(entry.negativePromptSegments, random).segments;
 			return {
-				positive: tabPositive.length > 0 ? resolvePromptSegments(tabPositive, options.segmentJoin) : promptTab.prompt || '',
-				negative:
-					tabNegative.length > 0 ? resolvePromptSegments(tabNegative, options.segmentJoin) : promptTab.negativePrompt || ''
+				positive: (entryPositive.length > 0
+					? resolvePromptSegments(entryPositive, options.segmentJoin)
+					: entry.prompt || ''
+				).trim(),
+				negative: (entryNegative.length > 0
+					? resolvePromptSegments(entryNegative, options.segmentJoin)
+					: entry.negativePrompt || ''
+				).trim()
 			};
 		});
-	} else {
-		const mergedPrompt =
-			positive.segments.length > 0 ? resolvePromptSegments(positive.segments, options.segmentJoin) : tab.prompt;
-		const mergedNegativePrompt =
-			negative.segments.length > 0 ? resolvePromptSegments(negative.segments, options.segmentJoin) : tab.negativePrompt;
-		promptsArray = [{ positive: mergedPrompt.trim(), negative: mergedNegativePrompt.trim() }];
+		activeSent = active < sent.length;
 	}
 
 	const hasValidPrompt = promptsArray.some((p) => p.positive.trim().length > 0);
@@ -243,14 +273,14 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 		prompts: promptsArray,
 		formData: formDataForRequest,
 		variables: variablesResult.variables,
-		numPrompts: options.numPrompts,
+		batchPrompts,
 		promptStateVariables: true
 	});
 
 	return {
 		ok: true,
 		request,
-		shuffled: { changed: hasShuffledChips, promptSegments: positive.segments, negativePromptSegments: negative.segments },
+		shuffled: { changed: hasShuffledChips && activeSent, promptSegments: positive.segments, negativePromptSegments: negative.segments },
 		variableRolls: variablesResult.rolls,
 		submittedPromptTemplate: promptsArray[0] ? { positive: promptsArray[0].positive, negative: promptsArray[0].negative } : null,
 		director: { primaryShotIds, remainingShotIds, value: directorValue }
@@ -265,6 +295,7 @@ export interface SessionRequestInput extends RandomSources {
 	presetVars?: Record<string, any>;
 	tabId?: string;
 	directorOverlay?: DirectorModelOverlay | null;
+	canBatch?: boolean;
 }
 
 export function prepareRequestFromSession(input: SessionRequestInput): PreparedRequest {
@@ -290,7 +321,7 @@ export function prepareRequestFromSession(input: SessionRequestInput): PreparedR
 	return prepareRequest({
 		tab,
 		tabId: input.tabId ?? '',
-		numPrompts: context.numPrompts,
+		canBatch: input.canBatch === true,
 		segmentJoin: context.segmentJoin,
 		promptRelayActive: context.promptRelayActive,
 		promptlessActive: context.promptlessActive || isPromptlessMode(vars, input.mode, tab.formData),

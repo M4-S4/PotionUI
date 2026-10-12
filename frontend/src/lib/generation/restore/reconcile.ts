@@ -109,7 +109,8 @@ export interface ReconcileApi {
 	getGenerationById(
 		generationId: string,
 		includeTags?: boolean,
-		includeFiles?: boolean
+		includeFiles?: boolean,
+		options?: { includeBatch?: boolean }
 	): Promise<APIResponse<{ files?: unknown[] }>>;
 }
 
@@ -256,7 +257,7 @@ async function fetchOutputsOnce(api: ReconcileApi, generationId: string): Promis
 	let response: APIResponse<{ files?: unknown[] }> | null = null;
 	let thrown: unknown = null;
 	try {
-		response = await api.getGenerationById(generationId, false, true);
+		response = await api.getGenerationById(generationId, false, true, { includeBatch: true });
 	} catch (err) {
 		thrown = err;
 	}

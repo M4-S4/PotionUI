@@ -605,6 +605,16 @@ class TestGenerationController:
         assert result.data['id'] == "test-gen-123"
 
     @pytest.mark.asyncio
+    async def test_get_generation_by_id_forwards_include_batch(self, controller, mock_current_user):
+        controller.history_facade.get_by_id_async.return_value = {"id": "g", "status": "completed"}
+
+        await controller.get_generation_by_id("g", mock_current_user, include_batch=True)
+        await controller.get_generation_by_id("g", mock_current_user)
+
+        flags = [call.kwargs["include_batch"] for call in controller.history_facade.get_by_id_async.call_args_list]
+        assert flags == [True, False]
+
+    @pytest.mark.asyncio
     async def test_get_generation_by_id_not_found(self, controller, mock_current_user):
         """Test generation retrieval for non-existent ID"""
         # Arrange - history_facade raises exception

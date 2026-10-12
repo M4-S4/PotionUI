@@ -635,11 +635,36 @@ class GenerationHistoryQuery:
         ]
         return facets
 
+    def _batch_files(self, batch_id: str, user_id: str) -> List[Dict[str, Any]]:
+        files: List[Dict[str, Any]] = []
+        for prompt_index, member_id in enumerate(self.generation_repo.batch_member_ids(batch_id, user_id)):
+            member = self.generation_repo.get_by_id(member_id, user_id=user_id, include_files=True)
+            if member is None:
+                continue
+            prompt = self._authored_prompt(member)
+            for entry in member.to_dict(include_files=True).get('files') or []:
+                files.append({**entry, 'prompt_index': prompt_index, 'prompt': prompt, 'generation_id': member_id})
+        return files
+
+    @staticmethod
+    def _authored_prompt(generation: Generation) -> Optional[str]:
+        state = generation.prompt_state if isinstance(generation.prompt_state, dict) else {}
+        for key in ('prompt', 'positive', 'text'):
+            if isinstance(state.get(key), str):
+                return state[key]
+        from src.features.generation.segment_repository import generation_segment_repo
+        texts = [
+            segment.text for segment in generation_segment_repo.get_by_generation(generation.id)
+            if segment.channel == 'positive' and not segment.is_disabled and segment.text
+        ]
+        return ' '.join(texts) if texts else None
+
     def get_by_id(
         self,
         generation_id: str,
         user_id: str,
-        include_files: bool = True
+        include_files: bool = True,
+        include_batch: bool = False,
     ) -> Dict[str, Any]:
         """Get specific generation by ID with parameters and models.
 
@@ -658,6 +683,8 @@ class GenerationHistoryQuery:
 
         # Get base generation data
         generation_data = generation.to_dict(include_files=include_files)
+        if include_batch and include_files and generation.batch_id:
+            generation_data['files'] = self._batch_files(generation.batch_id, user_id)
         if include_files:
             self._attach_system_tags([generation_data])
             if not self._apply_content_ledger([generation_data], viewer_id=user_id):

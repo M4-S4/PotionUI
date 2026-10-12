@@ -251,6 +251,29 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertIs(result['image_urls_list'][0]['has_alpha'], False)
         self.assertIs(result['image_urls_list'][1]['has_alpha'], True)
 
+    def test_serialize_gallery_output_carries_the_authored_prompt(self):
+        img = Image.new('RGB', (100, 100), color='red')
+        img_output = ImageGenerationOutput(image=img, temporary=False, prompt_index=1, prompt_text='a blue fox')
+        img_output._saved_path = "outputs/2025-01-26/test_gen_123/0.png"
+        plain = ImageGenerationOutput(image=img, temporary=False)
+        plain._saved_path = "outputs/2025-01-26/test_gen_123/1.png"
+        video_output = VideoGenerationOutput(
+            video_path="/tmp/out.mp4", temporary=False, prompt_index=3, prompt_text='a moving fox'
+        )
+        video_output._saved_path = "outputs/2025-01-26/test_gen_123/2.mp4"
+
+        output = GalleryGenerationOutput(images=[img_output, plain], videos=[video_output])
+        output.pipe_id = 9
+        output.pipe_name = "gallery"
+
+        result = self.mapper.serialize_output(output)
+
+        self.assertEqual(result['image_urls_list'][0]['prompt_index'], 1)
+        self.assertEqual(result['image_urls_list'][0]['prompt'], 'a blue fox')
+        self.assertIsNone(result['image_urls_list'][1]['prompt_index'])
+        self.assertEqual(result['video_urls_list'][0]['prompt_index'], 3)
+        self.assertEqual(result['video_urls_list'][0]['prompt'], 'a moving fox')
+
     def test_serialize_gallery_output_carries_derived_flag(self):
         """A derived gallery emit (e.g. an enhance pass) flags every item."""
         img = Image.new('RGB', (100, 100), color='green')

@@ -139,6 +139,9 @@ class PresetController(BaseController):
         else:
             raise self.handle_exception(e, error_code, message)
 
+    def _supports_prompt_batch(self, engine: Optional[str]) -> bool:
+        return self.backend_registry.engine_supports_prompt_batch(engine)
+
     async def list_presets(
         self,
         current_user: User,
@@ -152,6 +155,7 @@ class PresetController(BaseController):
             )
             for preset in data:
                 preset['recipes'] = by_preset.get(preset['id'], [])
+                preset['supports_prompt_batch'] = self._supports_prompt_batch(preset.get('engine'))
             return self.success_response(data=data)
         except Exception as e:
             raise self.handle_exception(e, "preset_list_failed", "Failed to list presets")
@@ -165,6 +169,7 @@ class PresetController(BaseController):
                 if self.recipe_links is not None
                 else []
             )
+            data['supports_prompt_batch'] = self._supports_prompt_batch(data.get('engine'))
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(e, "preset_get_failed", "Failed to get preset")

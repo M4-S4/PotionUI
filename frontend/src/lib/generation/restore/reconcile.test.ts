@@ -127,6 +127,47 @@ function createFakeApi() {
 	};
 }
 
+function batchFile(path: string, promptIndex: number, prompt: string) {
+	return { file_type: 'IMAGE', file_path: path, is_derived: false, prompt_index: promptIndex, prompt };
+}
+
+describe('reconciling a finished prompt batch', () => {
+	beforeEach(() => {
+		tabsStore.reset();
+		resetPendingPosterRecoveriesForTests();
+	});
+
+	it('asks for every file of the batch and keeps each prompt label', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-b' });
+		const getGenerationById = vi.fn().mockResolvedValue({
+			success: true,
+			data: {
+				files: [
+					batchFile('gen-b/0.png', 0, 'lighthouse'),
+					batchFile('gen-b/1.png', 0, 'lighthouse'),
+					batchFile('gen-c/0.png', 1, 'red fox')
+				]
+			}
+		});
+		const api: ReconcileApi = {
+			getGenerationStatus: vi.fn().mockResolvedValue(statusResponse({ status: 'completed', id: 'gen-b' })),
+			getGenerationById
+		};
+
+		await reconcileTabGenerations(tabId, api, tabsStore);
+
+		expect(getGenerationById).toHaveBeenCalledWith('gen-b', false, true, { includeBatch: true });
+		const images = currentTab(tabId).generation.batchImages;
+		expect(images.map((image) => [image.promptIndex, image.promptImage, image.label])).toEqual([
+			[0, 1, '1.1'],
+			[0, 2, '1.2'],
+			[1, 1, '2.1']
+		]);
+		expect(images[2].promptText).toBe('red fox');
+	});
+});
+
 describe('collectInFlightGenerationIds', () => {
 	it('dedupes across activeGenerationId, non-terminal directorRuns, directorRunLinks keys and queue', () => {
 		const ids = collectInFlightGenerationIds({

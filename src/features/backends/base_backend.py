@@ -113,6 +113,8 @@ class BaseBackend(ABC):
 
     authoritative_listing: ClassVar[bool] = False
 
+    supports_prompt_batch: ClassVar[bool] = False
+
     def __init__(self, backend_config):
         self.config = backend_config
         self.backend_id = backend_config.id

@@ -170,19 +170,21 @@ class GenerationHistoryFacade:
         self,
         generation_id: str,
         user_id: str,
-        include_files: bool = True
+        include_files: bool = True,
+        include_batch: bool = False,
     ) -> Dict[str, Any]:
-        return self._query.get_by_id(generation_id, user_id, include_files)
+        return self._query.get_by_id(generation_id, user_id, include_files, include_batch)
 
     async def get_by_id_async(
         self,
         generation_id: str,
         user_id: str,
-        include_files: bool = True
+        include_files: bool = True,
+        include_batch: bool = False,
     ) -> Dict[str, Any]:
         """`get_by_id()` off the event loop, for async call sites."""
         return await self.executor.run(
-            self.get_by_id, generation_id, user_id, include_files
+            self.get_by_id, generation_id, user_id, include_files, include_batch
         )
 
     def get_history_version(self, user_id: str) -> str:

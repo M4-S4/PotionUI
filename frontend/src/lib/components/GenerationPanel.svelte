@@ -47,6 +47,7 @@
 	// actually `disabled` — never overrides the running/armed/ready text.
 	export let disabledReason: string | undefined = undefined;
 	export let costNote: string | null = null;
+	export let batchLine: { text: string; generateLabel: string; over: boolean } | null = null;
 	export let generatingTabName: string | undefined = undefined;
 	export let isActiveTabGenerating: boolean = false;
 	export let onSwitchToGeneratingTab: (() => void) | undefined = undefined;
@@ -259,6 +260,8 @@
 				? effectiveDisabledReason
 				: compareArmed
 					? `Generate ${compareSummary.count} comparison cells`
+				: batchLine
+					? batchLine.generateLabel
 				: $generationMode === 'forever'
 					? 'Start continuous generation'
 					: 'Generate';
@@ -560,6 +563,11 @@
 								? effectiveDisabledReason
 								: `${compareSummary.count} ${compareSummary.count === 1 ? 'cell' : 'cells'} · ${compareSummary.estimate}`}
 						</span>
+					{:else if batchLine}
+						{#if markState === 'disabled' && disabledReason && !batchLine.over}
+							<span>{disabledReason} ·</span>
+						{/if}
+						<span class="font-mono tabular-nums" data-batch-line>{batchLine.text}</span>
 					{:else if costNote && !(markState === 'disabled' && disabledReason)}
 						<span class="font-mono tabular-nums" data-cost-note>{costNote}</span>
 					{:else}

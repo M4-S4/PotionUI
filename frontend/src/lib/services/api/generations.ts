@@ -177,9 +177,11 @@ export function createGenerationsApi(client: AxiosInstance) {
 		async getGenerationById(
 			generationId: string,
 			includeTags: boolean = false,
-			includeFiles: boolean = false
+			includeFiles: boolean = false,
+			options: { includeBatch?: boolean } = {}
 		): Promise<APIResponse<any>> {
 			const searchParams = new URLSearchParams();
+			if (options.includeBatch) searchParams.append('include_batch', 'true');
 			if (includeTags) searchParams.append('include_tags', 'true');
 			if (includeFiles) searchParams.append('include_files', 'true');
 			const queryString = searchParams.toString();

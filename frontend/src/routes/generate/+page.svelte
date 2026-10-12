@@ -3,7 +3,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
-	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
+	import type { DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { submitGate, limits, limitsMeta } from '$lib/plans/store';
 	import { get } from 'svelte/store';
@@ -67,6 +67,16 @@
 	import { normalizeDirectorValue, validateDirector, buildDirectorSubmission, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
 	import { buildGenerationRequest, prepareRequest } from '$lib/generation/prepareRequest';
 	import { createRequestContextCache, resolveRequestContext } from '$lib/generation/requestContext';
+	import {
+		BATCH_CAP_MESSAGE,
+		batchLine,
+		batchSummary,
+		canBatchPrompts,
+		firstEmptyPrompt,
+		promptCount,
+		promptList,
+		quantityOf
+	} from '$lib/generation/promptBatch';
 	import { createCapabilityTracker, sharedCapabilityCache } from '$lib/form/capabilityTracker';
 	import { fetchCloudCapabilities } from '$lib/services/cloudCapabilities';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -279,7 +289,6 @@
 			prompts: [{ positive, negative }],
 			formData: { ...tab.formData, video_director: resolvedDoc },
 			variables: variablesResult.variables,
-			numPrompts: resolveRequestContext(presetVars[tab.selectedPreset!], tab.selectedMode).numPrompts,
 			promptStateVariables: false
 		});
 
@@ -663,7 +672,14 @@
 		currentTab.selectedMode,
 		directorOverlay
 	);
-	$: numPrompts = requestContext.numPrompts;
+	$: canBatch = canBatchPrompts(presets.find((p: any) => p.id === currentTab.selectedPreset));
+	$: batch = batchSummary({
+		prompts: promptCount(currentTab),
+		perPrompt: quantityOf(currentTab.formData),
+		canBatch
+	});
+	$: standardPromptActive = !promptlessActive && !videoDirectorActive && !musicDirectorActive && !promptRelayActive;
+	$: batchStatusLine = standardPromptActive ? batchLine(batch) : null;
 	$: currentPresetVars = presetVars[currentTab.selectedPreset || ''] || {};
 	// Preset-declared Segment Templates for the tab's selected mode — merged into
 	// the segment editors' apply picker beside the user's own library.
@@ -1315,13 +1331,6 @@
 					negativePromptSegments: segments,
 					negativePrompt: mergedPrompt  // SYNC the string field
 				});
-			},
-			// Multi-prompt handlers
-			handlePromptTabsChange: (promptTabs: PromptTabData[]) => {
-				tabsStore.updateTab(tabId, { promptTabs });
-			},
-			handleActivePromptTabChange: (activePromptTab: number) => {
-				tabsStore.updateTab(tabId, { activePromptTab });
 			}
 		};
 	}
@@ -1364,7 +1373,7 @@
 		const prepared = prepareRequest({
 			tab: currentTab,
 			tabId: activeTabId,
-			numPrompts: requestContext.numPrompts,
+			canBatch,
 			segmentJoin: segmentJoinForPreset(currentTab.selectedPreset),
 			promptRelayActive,
 			promptlessActive,
@@ -1736,40 +1745,21 @@
 			const hasGlobal = (relay?.global_prompt || '').trim().length > 0;
 			hasPrompt = hasSegmentText || hasGlobal;
 		} else {
-			const currentNumPrompts = requestContext.numPrompts;
-
-			if (currentNumPrompts > 1 && currentTab.promptTabs && currentTab.promptTabs.length > 0) {
-				// Multi-prompt mode: check if any prompt tab has content
-				hasPrompt = currentTab.promptTabs.some(tab => {
-					const fromSegments = tab.promptSegments && tab.promptSegments.length > 0
-						? resolvePromptSegments(tab.promptSegments).trim().length > 0
-						: false;
-					return fromSegments || (tab.prompt && tab.prompt.trim().length > 0);
-				});
-			} else {
-				// Single prompt mode
-				hasPrompt = currentTab.promptSegments && currentTab.promptSegments.length > 0
-					? resolvePromptSegments(currentTab.promptSegments).trim().length > 0
-					: !!(currentTab.prompt && currentTab.prompt.trim());
-			}
+			const sentPrompts = canBatch ? promptList(currentTab) : promptList(currentTab).slice(0, 1);
+			const emptyAt = firstEmptyPrompt(sentPrompts);
+			hasPrompt = emptyAt < 0;
+			if (!hasPrompt && sentPrompts.length > 1) noPromptReason = `Prompt ${emptyAt + 1} is empty`;
 		}
 
 		let resourceIssue: string | undefined;
 		if (!promptlessActive && !videoDirectorActive && !musicDirectorActive && !promptRelayActive) {
-			const currentNumPrompts = requestContext.numPrompts;
 			const formValues = currentTab.formData || {};
-			resourceIssue =
-				currentNumPrompts > 1 && currentTab.promptTabs && currentTab.promptTabs.length > 0
-					? firstResourceIssue(
-							currentTab.promptTabs.flatMap((promptTab) => [promptTab.promptSegments, promptTab.negativePromptSegments]),
-							currentTabPromptResources,
-							formValues
-						)
-					: firstResourceIssue(
-							[currentTab.promptSegments, currentTab.negativePromptSegments],
-							currentTabPromptResources,
-							formValues
-						);
+			const sentPrompts = canBatch ? promptList(currentTab) : promptList(currentTab).slice(0, 1);
+			resourceIssue = firstResourceIssue(
+				sentPrompts.flatMap((entry) => [entry.promptSegments, entry.negativePromptSegments]),
+				currentTabPromptResources,
+				formValues
+			);
 		}
 
 		const limitGate = $submitGate;
@@ -1780,13 +1770,14 @@
 					`${currentTab.selectedPreset}-${currentTab.selectedMode ?? 'txt2img'}-${currentTab.selectedVariant ?? ''}`
 				)
 			: null;
-		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue && !limitGate && !missingModelField;
+		const batchBlocked = standardPromptActive && batch.overCap;
+		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
 		generateDisabledReason = canGenerate
 			? undefined
 			: !currentTab.selectedPreset
 				? 'Select a preset to generate'
 				: resourceIssue ||
-					(!hasPrompt ? noPromptReason : limitGate?.reason) ||
+					(batchBlocked ? BATCH_CAP_MESSAGE : !hasPrompt ? noPromptReason : limitGate?.reason) ||
 					(missingModelField ? `Select ${missingModelField.label} to generate` : undefined);
 	}
 
@@ -1942,7 +1933,7 @@
 						{musicDirectorCaps}
 						{presetSegmentTemplates}
 						{presetStyles}
-						{numPrompts}
+						{canBatch}
 						{negativePromptSupported}
 						{negativeInert}
 						{promptlessActive}
@@ -1993,7 +1984,7 @@
 						directorRuns={tab.directorRuns}
 						onDirectorCheckedChange={(checked) => handleDirectorCheckedChange(tab.id, checked)}
 						onDirectorGenerateShots={(shotIds) => submitVideoDirectorShots(tab.id, shotIds)}
-						{numPrompts}
+						{canBatch}
 						{negativePromptSupported}
 						{negativeInert}
 						{presetSegmentTemplates}
@@ -2059,6 +2050,7 @@
 			{canGenerate}
 			disabledReason={generateDisabledReason}
 			{costNote}
+			batchLine={batchStatusLine}
 			{generatingTabName}
 			isActiveTabGenerating={$isActiveTabGenerating}
 			onSwitchToGeneratingTab={switchToGeneratingTab}

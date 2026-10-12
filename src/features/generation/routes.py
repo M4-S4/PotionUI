@@ -572,14 +572,16 @@ class GenerationController(BaseController):
         self,
         generation_id: str,
         current_user,
-        include_files: bool = True
+        include_files: bool = True,
+        include_batch: bool = False,
     ) -> APIResponse:
         """Get specific generation by ID from database"""
         try:
             result = await self.history_facade.get_by_id_async(
                 generation_id=generation_id,
                 user_id=current_user.id,
-                include_files=include_files
+                include_files=include_files,
+                include_batch=include_batch,
             )
             return self.success_response(data=scope_generation(result, GenerationPolicy.is_admin(current_user)))
 
@@ -1485,9 +1487,9 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.get_history_version(current_user)
 
     @router.get("/history/{generation_id}", response_model=APIResponse, summary="Get Generation by ID")
-    async def get_generation_by_id(generation_id: str, include_files: bool = True, current_user = Depends(get_current_active_user)):
+    async def get_generation_by_id(generation_id: str, include_files: bool = True, include_batch: bool = False, current_user = Depends(get_current_active_user)):
         """Get detailed information about a specific generation from the database."""
-        return await controller.get_generation_by_id(generation_id, current_user, include_files=include_files)
+        return await controller.get_generation_by_id(generation_id, current_user, include_files=include_files, include_batch=include_batch)
 
     @router.get("/history/{generation_id}/export-bundle", summary="Export Generation Bundle")
     async def export_generation_bundle(generation_id: str, current_user = Depends(get_current_active_user)):

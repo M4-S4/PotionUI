@@ -31,7 +31,7 @@ function prepare(extra: Record<string, unknown>) {
 	return prepareRequest({
 		tab: tab(),
 		tabId: 'tab-1',
-		numPrompts: 1,
+		canBatch: false,
 		segmentJoin: 'space',
 		promptRelayActive: false,
 		promptlessActive: false,

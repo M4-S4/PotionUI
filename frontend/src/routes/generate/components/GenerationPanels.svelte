@@ -51,7 +51,7 @@
 	 *  every PromptSection instance below. */
 	export let onDirectorCheckedChange: ((checked: Set<string>) => void) | undefined = undefined;
 	export let onDirectorGenerateShots: ((shotIds: string[]) => void) | undefined = undefined;
-	export let numPrompts: number;
+	export let canBatch: boolean;
 	export let negativePromptSupported = true;
 	export let negativeInert = false;
 	/** Resolved on the page from the preset's `vars.prompt`; passed straight
@@ -359,7 +359,7 @@
 					{directorRuns}
 					onDirectorCheckedChange={onDirectorCheckedChange}
 					onDirectorGenerateShots={onDirectorGenerateShots}
-					{numPrompts}
+					{canBatch}
 					{negativePromptSupported}
 					{negativeInert}
 					{presetSegmentTemplates}
@@ -465,7 +465,7 @@
 							{directorRuns}
 							onDirectorCheckedChange={onDirectorCheckedChange}
 							onDirectorGenerateShots={onDirectorGenerateShots}
-							{numPrompts}
+							{canBatch}
 							{negativePromptSupported}
 							{negativeInert}
 							{presetSegmentTemplates}
@@ -521,7 +521,7 @@
 							{directorRuns}
 							onDirectorCheckedChange={onDirectorCheckedChange}
 							onDirectorGenerateShots={onDirectorGenerateShots}
-							{numPrompts}
+							{canBatch}
 							{negativePromptSupported}
 							{negativeInert}
 							{presetSegmentTemplates}

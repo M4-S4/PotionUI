@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from src.platform.util.latents import generate_seed
 from src.features.prompt.expander import expand_prompts
 from src.features.music_director import compile_sections_to_lyrics
+from src.features.generation.prompt_batch import is_prompt_batch, per_prompt_quantity
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +66,7 @@ class PromptExpander:
         if not prompts:
             return prompts
 
-        try:
-            quantity = max(1, int(form_data.get('quantity', 1) or 1))
-        except (TypeError, ValueError):
-            quantity = 1
+        quantity = per_prompt_quantity(form_data)
 
         try:
             base_seed = int(form_data.get('seed', -1))
@@ -84,24 +82,45 @@ class PromptExpander:
             request.form_data = form_data
             logger.debug(f"Resolved seed -1 to {base_seed} for generation {generation_id}")
 
+        if is_prompt_batch(request):
+            expanded_batch: List[Dict[str, str]] = []
+            for index, entry in enumerate(prompts):
+                realized = self._expand_template(
+                    generation_id, request, entry, quantity, base_seed + index * quantity,
+                )
+                expanded_batch.extend(realized if realized is not None else [entry] * quantity)
+            form_data['quantity'] = len(expanded_batch)
+            request.form_data = form_data
+            return expanded_batch
+
         # Only the first authored pair is a template. Multi-prompt tabs are a
         # separate concept; expanding each would multiply the image count.
         template = prompts[0]
 
+        realized = self._expand_template(generation_id, request, template, quantity, base_seed)
+        return realized if realized is not None else prompts
+
+    def _expand_template(
+        self,
+        generation_id: str,
+        request,
+        template: Dict[str, str],
+        count: int,
+        base_seed: int,
+    ) -> Optional[List[Dict[str, str]]]:
         try:
             expanded = expand_prompts(
                 template.get('positive', '') or '',
                 template.get('negative', '') or '',
-                count=quantity,
+                count=count,
                 base_seed=base_seed,
                 variables=getattr(request, 'variables', None),
                 plugin_registry=self.plugin_registry,
                 generation_id=generation_id,
             )
         except Exception as e:
-            # Never fail a generation because expansion misbehaved.
             logger.error(f"Prompt expansion failed for {generation_id}, using template: {e}", exc_info=True)
-            return prompts
+            return None
 
         return [{'positive': e.positive, 'negative': e.negative} for e in expanded]
 

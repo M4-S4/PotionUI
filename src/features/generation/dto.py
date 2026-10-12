@@ -36,6 +36,7 @@ class GenerationRequest(BaseModel):
     prompt: Optional[str] = ""  # Legacy single prompt (deprecated, use prompts array)
     negative_prompt: Optional[str] = ""  # Legacy single negative (deprecated)
     prompts: Optional[List[PromptPair]] = None  # Array of prompt pairs
+    batch_prompts: bool = False
     prompt_state: Optional[Dict[str, Any]] = None  # Full prompt UI state (segments/chips/timeline) for "Reuse"
     segments: Optional[List[SegmentInput]] = None  # Ordered resolved prompt segments for this generation
     # Prompt variables, name -> value template. Referenced from a prompt as `${name}`

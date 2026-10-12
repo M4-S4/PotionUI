@@ -87,6 +87,7 @@ class RemoteNativeBackend(BaseBackend):
     """A configured Remote Native worker."""
 
     execution_device: ClassVar[ExecutionDevice] = "remote"
+    supports_prompt_batch: ClassVar[bool] = True
 
     def __init__(self, backend_config, *, transport_override=None):
         super().__init__(backend_config)
