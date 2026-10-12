@@ -2089,7 +2089,7 @@ major), driven by `scripts/build-plugins.mjs`:
 
 ```bash
 cd content/plugins && npm install    # once
-node ../scripts/build-plugins.mjs [pluginId ...]   # or: npm run build:plugins from frontend/
+node ../../scripts/build-plugins.mjs [pluginId ...]   # or: npm run build:plugins from frontend/
 ```
 
 The script auto-detects each plugin's build shape from `frontend/src/` (a page with
