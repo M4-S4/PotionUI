@@ -2297,9 +2297,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             forward.release()
             if lora_snapshot is not None:
                 restore_lora_state(lora_snapshot)
+            if getattr(c.bundle.dit, "is_streaming", False) or not _dit_fits_resident(c, _next_gpu_consumer_gb(c)):
+                c.bundle.dit.offload()
 
-        if not _dit_fits_resident(c, _next_gpu_consumer_gb(c)):
-            c.bundle.dit.offload()
         clear_gpu_memory()
         return video_rows, audio_rows, layout
 

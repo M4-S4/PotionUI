@@ -34,6 +34,7 @@ from __future__ import annotations
 import gc
 import logging
 import os
+import time
 
 import psutil
 import pytest
@@ -252,6 +253,8 @@ def test_orphaned_dit_is_eventually_freed_and_trimmed_after_stale_holder_release
 
     trim_calls = []
     monkeypatch.setattr(manager_module, "trim_host_allocator", lambda: trim_calls.append(1))
+    monkeypatch.setattr(manager_module, "empty_pinned_host_cache", lambda: None)
+    monkeypatch.setattr(residency_module, "_ORPHAN_RECLAIM_DELAY_S", 0.0)
 
     manager = ModelLifecycle(gpu_monitor=None, settings=None)
 
@@ -290,6 +293,9 @@ def test_orphaned_dit_is_eventually_freed_and_trimmed_after_stale_holder_release
     # generation's models forever, so eventually it lets go).
     stale_holder.clear()
     gc.collect()
+    deadline = time.monotonic() + 2.0
+    while not trim_calls and time.monotonic() < deadline:
+        time.sleep(0.01)
 
     # The finalizer registered by mark_orphaned() must have fired by now,
     # trimming the host allocator - this is the guarantee that closes the gap

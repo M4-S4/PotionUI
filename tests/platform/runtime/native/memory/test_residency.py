@@ -1190,3 +1190,35 @@ def test_single_item_te_encode_mark_has_no_count_field(monkeypatch):
     _event, fields = marks[0]
     assert "count" not in fields
     mgr.clear()
+
+
+def test_orphan_release_reclaims_host_memory_after_its_weights_are_freed(monkeypatch):
+    import threading
+
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
+
+    events = []
+    done = threading.Event()
+
+    class _Weights:
+        def __del__(self):
+            events.append("weights_freed")
+
+    class _Model:
+        def __init__(self):
+            self.module = _Weights()
+
+    def _empty_pinned():
+        events.append("empty_pinned")
+        done.set()
+
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: events.append("trim"))
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", _empty_pinned)
+    monkeypatch.setattr(residency, "_ORPHAN_RECLAIM_DELAY_S", 0.05)
+
+    model = _Model()
+    residency.GpuResidencyRegistry().mark_orphaned(model)
+    del model
+
+    assert done.wait(2.0)
+    assert events == ["weights_freed", "trim", "empty_pinned"]

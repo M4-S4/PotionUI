@@ -37,7 +37,24 @@ from src.platform.settings.runtime_flags import runtime_flag
 logger = logging.getLogger(__name__)
 
 _BYTES_PER_GB = 1024 ** 3
+_ORPHAN_RECLAIM_DELAY_S = 1.0
 
+
+def _reclaim_host_after_orphan_release() -> None:
+    try:
+        from src.platform.runtime.model_lifecycle.lifecycle import (
+            empty_pinned_host_cache,
+            trim_host_allocator,
+        )
+
+        trim_host_allocator()
+        empty_pinned_host_cache()
+        logger.info(
+            "residency: an orphaned model's last reference was finally released; "
+            "trimmed host allocator and released cached pinned host memory"
+        )
+    except Exception:
+        logger.debug("residency: post-orphan-release reclaim failed", exc_info=True)
 
 
 def device_index(device: str | torch.device) -> int:
@@ -238,16 +255,9 @@ class GpuResidencyRegistry:
                 entry.orphaned = True
 
         def _on_finally_released() -> None:
-            try:
-                from src.platform.runtime.model_lifecycle.lifecycle import trim_host_allocator
-
-                trim_host_allocator()
-                logger.info(
-                    "residency: an orphaned model's last reference was finally released; "
-                    "trimmed host allocator"
-                )
-            except Exception:
-                logger.debug("residency: post-orphan-release trim failed", exc_info=True)
+            timer = threading.Timer(_ORPHAN_RECLAIM_DELAY_S, _reclaim_host_after_orphan_release)
+            timer.daemon = True
+            timer.start()
 
         weakref.finalize(model, _on_finally_released)
 
