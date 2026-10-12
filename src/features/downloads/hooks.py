@@ -10,7 +10,35 @@ DOWNLOAD_HOOKS = hooks_registry.declare(
     "before_cancel", "after_cancel",
     "before_delete", "after_delete",
     "before_clear", "after_clear",
+    "after_complete",
     specs={
+        "after_complete": {
+            "description": "Fired by the download worker once a download has landed: after the file is verified and marked completed and, for a plain local model download, after the catalog indexed it. Only that kind of download is indexed here: a media download, a grouped hf_repo child and a download sent to a remote backend fire with model_id and duplicate_of None. One event per download record (a grouped hf_repo parent fires none; each of its file children does). Handlers run off the worker loop and get 30 seconds; a slower handler keeps running, but the worker moves on without it.",
+            "payload": {
+                "download_id": {"type": "str", "description": "The completed download's id"},
+                "url": {"type": "str", "description": "Source URL"},
+                "type": {"type": "str", "description": "'model', 'media' or 'hf_repo'"},
+                "filename": {"type": "str", "description": "Final filename on disk"},
+                "destination_path": {"type": "str", "description": "Where the file landed"},
+                "checksum_sha256": {"type": "Optional[str]", "description": "Expected checksum, when one was given"},
+                "created_by": {"type": "Optional[str]", "description": "User id that queued the download"},
+                "destination_backend_id": {"type": "Optional[str]", "description": "The native.remote backend the file went to, or None for local disk"},
+                "model_id": {"type": "Optional[str]", "description": "Id of the catalog model the file was indexed as - None for anything but a plain local model download, for a file the indexer refused, or for a duplicate"},
+                "duplicate_of": {"type": "Optional[str]", "description": "Id of the already-indexed model this file is a byte-for-byte copy of; the copy is not indexed twice"},
+                "warning": {"type": "Optional[str]", "description": "The indexer's classification warning, when it could not settle the model's type"},
+            },
+            "mutable": [],
+            "use_when": [
+                "Assigning, enriching or notifying about a model once its download has been indexed, without polling the download",
+                "Audit logging of finished downloads",
+            ],
+            "example": (
+                "def handler(ctx):\n"
+                "    if ctx.get('model_id') and ctx.get('created_by'):\n"
+                "        assign_model_to_user(ctx.get('model_id'), ctx.get('created_by'))\n"
+                "    return ctx"
+            ),
+        },
         "before_queue": {
             "description": "Fired before a download record is created - shared by queue_model_download, queue_media_download and queue_hf_repo_download (distinguished by `type`). Can rewrite url/destination_dir/filename/tags or block queueing.",
             "payload": {

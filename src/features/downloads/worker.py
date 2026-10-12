@@ -42,8 +42,11 @@ if TYPE_CHECKING:
     from src.features.backends.backend_registry import BackendRegistry
     from src.features.models.backend_indexer import BackendModelIndexer
     from src.platform.filesystem.model_roots import ModelRootResolver
+    from src.platform.plugins import PluginRegistry
 
 logger = logging.getLogger(__name__)
+
+AFTER_COMPLETE_HOOK_TIMEOUT_S = 30.0
 
 _GROUP_STATUS_EVENTS = {
     DownloadStatus.DOWNLOADING: 'started',
@@ -104,6 +107,7 @@ class DownloadWorker:
         worker_transport_override=None,
         resolver: Optional["ModelRootResolver"] = None,
         local_model_indexer: Optional[Callable[[str], Dict[str, Any]]] = None,
+        plugin_registry: Optional["PluginRegistry"] = None,
     ):
         """Initialize download worker.
 
@@ -123,6 +127,9 @@ class DownloadWorker:
                 pointed at a real worker app, never a real socket) forwarded to
                 every `WorkerTransport` a remote-destination download builds.
                 Always `None` in production.
+            plugin_registry: Fires `download.after_complete` once a download
+                has landed and (for a local model) been indexed. `None` means
+                no hook is fired.
         """
         self.settings = settings
         self.repo = repo
@@ -133,6 +140,7 @@ class DownloadWorker:
         self._worker_transport_override = worker_transport_override
         self.resolver = resolver
         self.local_model_indexer = local_model_indexer
+        self.plugins = plugin_registry
 
         # Worker management
         self.queue: asyncio.Queue = asyncio.Queue()
@@ -455,10 +463,12 @@ class DownloadWorker:
 
                 logger.info(f"Download completed: {download.filename}")
 
+                indexed = None
                 if is_remote:
                     await self._index_remote_backend(download)
                 else:
-                    await self._index_local_download(download)
+                    indexed = await self._index_local_download(download)
+                await self._fire_after_complete(download, indexed)
 
         except asyncio.CancelledError:
             # Download was cancelled
@@ -913,14 +923,14 @@ class DownloadWorker:
                 f"Downloaded, but the catalog could not be refreshed automatically: {exc}",
             )
 
-    async def _index_local_download(self, download: Download) -> None:
+    async def _index_local_download(self, download: Download) -> Optional[Dict[str, Any]]:
         if (
             self.local_model_indexer is None
             or download.type != DownloadType.MODEL
             or download.group_id
         ):
             await self._reconcile_local_native_availability()
-            return
+            return None
 
         fresh = await asyncio.to_thread(self.repo.get_by_id, download.id)
         path = (fresh.destination_path if fresh else None) or download.destination_path
@@ -928,7 +938,7 @@ class DownloadWorker:
             result = await asyncio.to_thread(self.local_model_indexer, path)
         except Exception as exc:
             logger.warning(f"Indexing downloaded model '{download.filename}' failed: {exc}")
-            return
+            return None
         if result.get("duplicate_of"):
             logger.warning(
                 f"Downloaded {download.filename} is the same file as {result['duplicate_of']['path']}; not indexed twice"
@@ -937,6 +947,43 @@ class DownloadWorker:
         if warning:
             logger.warning(f"Classifying downloaded model '{download.filename}': {warning}")
             self.repo.update_status(download.id, DownloadStatus.COMPLETED, warning)
+        return result
+
+    async def _fire_after_complete(self, download: Download, indexed: Optional[Dict[str, Any]]) -> None:
+        if self.plugins is None:
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(self._execute_after_complete, download, indexed),
+                timeout=AFTER_COMPLETE_HOOK_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"download.after_complete for '{download.filename}' is still running after "
+                f"{AFTER_COMPLETE_HOOK_TIMEOUT_S:g}s; not waiting for it"
+            )
+        except Exception as exc:
+            logger.warning(f"download.after_complete for '{download.filename}' failed: {exc}")
+
+    def _execute_after_complete(self, download: Download, indexed: Optional[Dict[str, Any]]) -> None:
+        from src.features.downloads.hooks import DOWNLOAD_HOOKS
+        from src.platform.plugins.hooks import execute_hook
+
+        fresh = self.repo.get_by_id(download.id) or download
+        duplicate_of = (indexed or {}).get("duplicate_of") or {}
+        execute_hook(self.plugins, DOWNLOAD_HOOKS.after_complete, {
+            "download_id": download.id,
+            "url": download.url,
+            "type": download.type.value if hasattr(download.type, "value") else str(download.type),
+            "filename": fresh.filename,
+            "destination_path": fresh.destination_path,
+            "checksum_sha256": download.checksum_sha256,
+            "created_by": download.created_by,
+            "destination_backend_id": download.destination_backend_id,
+            "model_id": (indexed or {}).get("model_id"),
+            "duplicate_of": duplicate_of.get("model_id"),
+            "warning": (indexed or {}).get("warning"),
+        })
 
     async def _reconcile_local_native_availability(self) -> None:
         from src.features.models.native_availability_reconciler import (
