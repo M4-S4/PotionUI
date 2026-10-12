@@ -23,6 +23,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getBaseURL: () => 'http://localhost',
 		getToken: () => null,
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		getTags: vi.fn().mockResolvedValue({ success: true, data: { tags: [] } }),
 		getClient: () => ({ get: mockGet, post: vi.fn() })
 	}

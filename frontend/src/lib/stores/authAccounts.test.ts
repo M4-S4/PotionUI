@@ -7,17 +7,31 @@ const hoisted = vi.hoisted(() => ({
 	goto: vi.fn(),
 	expiredHandler: { current: null as null | ((token: string | null) => void) },
 	header: { current: null as string | null },
-	userById: {} as Record<string, unknown>
+	userById: {} as Record<string, unknown>,
+	meOutcomes: [] as unknown[],
+	refreshedHandler: { current: null as null | ((previous: string, next: string) => void) }
 }));
 
 vi.mock('$app/environment', () => ({ browser: true }));
 vi.mock('$app/navigation', () => ({ goto: hoisted.goto }));
 vi.mock('$lib/services/api/index', () => ({
 	api: {
-		getCurrentUser: vi.fn(async () => ({
-			success: true,
-			data: hoisted.userById[(hoisted.header.current ?? '').replace('tok-', '')]
-		})),
+		getCurrentUser: vi.fn(async () => {
+			if (hoisted.meOutcomes.length > 0) {
+				const outcome = hoisted.meOutcomes.shift();
+				if (outcome instanceof Error || (outcome as any)?.response) {
+					if ((outcome as any).response?.status === 401) {
+						hoisted.expiredHandler.current?.(hoisted.header.current);
+					}
+					throw outcome;
+				}
+				return outcome;
+			}
+			return {
+				success: true,
+				data: hoisted.userById[(hoisted.header.current ?? '').replace('tok-', '')]
+			};
+		}),
 		setAuthHeader: vi.fn((token: string) => {
 			hoisted.header.current = token;
 			localStorage.setItem('auth_token', token);
@@ -28,6 +42,9 @@ vi.mock('$lib/services/api/index', () => ({
 		}),
 		setOnAuthExpired: vi.fn((cb: (token: string | null) => void) => {
 			hoisted.expiredHandler.current = cb;
+		}),
+		setOnTokenRefreshed: vi.fn((cb: (previous: string, next: string) => void) => {
+			hoisted.refreshedHandler.current = cb;
 		}),
 		endMediaSession: vi.fn(async () => undefined),
 		getToken: vi.fn(() => hoisted.header.current),
@@ -99,6 +116,7 @@ beforeEach(() => {
 	stubLocalStorage();
 	hoisted.goto.mockClear();
 	hoisted.header.current = null;
+	hoisted.meOutcomes = [];
 	hoisted.userById = { alice: userRow('alice'), bob: userRow('bob') };
 	location.assign.mockClear();
 	location.reload.mockClear();
@@ -316,5 +334,119 @@ describe('authStore with several accounts', () => {
 		await loadAuth();
 
 		expect(location.assign).toHaveBeenCalledWith('/generate?x=1');
+	});
+});
+
+describe('authStore session bootstrap', () => {
+	async function loadWithFakeTimers() {
+		vi.useFakeTimers();
+		vi.resetModules();
+		const auth = await import('./auth');
+		const accounts = await import('./accounts');
+		const { api } = await import('$lib/services/api/index');
+		await vi.advanceTimersByTimeAsync(0);
+		return { ...auth, accounts, api };
+	}
+
+	beforeEach(async () => {
+		const { api } = await import('$lib/services/api/index');
+		vi.mocked(api.getCurrentUser).mockClear();
+		vi.mocked(api.clearAuth).mockClear();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('keeps the token and retries /me with backoff while the backend is unreachable', async () => {
+		seed('alice', ['alice']);
+		hoisted.meOutcomes = [new Error('Network Error'), { response: { status: 502 } }];
+		const { authStore, api, accounts } = await loadWithFakeTimers();
+
+		let state = get(authStore);
+		expect(state.isAuthenticated).toBe(true);
+		expect(state.loading).toBe(true);
+		expect(state.token).toBe('tok-alice');
+		expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(api.getCurrentUser).toHaveBeenCalledTimes(2);
+		expect(get(authStore).loading).toBe(true);
+
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(api.getCurrentUser).toHaveBeenCalledTimes(3);
+		state = get(authStore);
+		expect(state.isAuthenticated).toBe(true);
+		expect(state.loading).toBe(false);
+		expect(state.user?.id).toBe('alice');
+		expect(api.clearAuth).not.toHaveBeenCalled();
+		expect(localStorage.getItem('auth_token')).toBe('tok-alice');
+		expect(accounts.currentRegistry().accounts[0].expired).toBe(false);
+		expect(hoisted.goto).not.toHaveBeenCalled();
+	});
+
+	it('keeps retrying when /me answers without a user instead of dropping the session', async () => {
+		seed('alice', ['alice']);
+		hoisted.meOutcomes = [{ success: false }];
+		const { authStore, api } = await loadWithFakeTimers();
+
+		expect(get(authStore).isAuthenticated).toBe(true);
+		expect(get(authStore).loading).toBe(true);
+		expect(api.clearAuth).not.toHaveBeenCalled();
+
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(get(authStore).loading).toBe(false);
+		expect(get(authStore).user?.id).toBe('alice');
+	});
+
+	it('ends the session on a 401 and does not retry', async () => {
+		seed('alice', ['alice']);
+		hoisted.meOutcomes = [{ response: { status: 401 } }];
+		const { authStore, api } = await loadWithFakeTimers();
+
+		const state = get(authStore);
+		expect(state.isAuthenticated).toBe(false);
+		expect(state.loading).toBe(false);
+		expect(hoisted.goto).toHaveBeenCalledWith('/login?expired=1');
+
+		await vi.advanceTimersByTimeAsync(60000);
+		expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+	});
+
+	it('stops retrying once the session was signed out meanwhile', async () => {
+		seed('alice', ['alice']);
+		hoisted.meOutcomes = [new Error('Network Error')];
+		const { authStore, api } = await loadWithFakeTimers();
+
+		authStore.logout();
+		await vi.advanceTimersByTimeAsync(60000);
+
+		expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe('authStore token renewal', () => {
+	it('moves the active account, the stored token and the store state to the renewed token', async () => {
+		seed('alice', ['alice', 'bob']);
+		const { authStore, accounts } = await loadAuth();
+
+		hoisted.refreshedHandler.current!('tok-alice', 'tok-alice-renewed');
+
+		expect(get(authStore).token).toBe('tok-alice-renewed');
+		const registry = accounts.currentRegistry();
+		expect(registry.accounts.find((a) => a.userId === 'alice')?.token).toBe('tok-alice-renewed');
+		expect(registry.accounts.find((a) => a.userId === 'alice')?.expired).toBe(false);
+		expect(registry.accounts.find((a) => a.userId === 'bob')?.token).toBe('tok-bob');
+		expect(localStorage.getItem('auth_token')).toBe('tok-alice-renewed');
+	});
+
+	it('leaves the store token alone when the renewed token belongs to another session', async () => {
+		seed('alice', ['alice', 'bob']);
+		const { authStore, accounts } = await loadAuth();
+
+		hoisted.refreshedHandler.current!('tok-bob', 'tok-bob-renewed');
+
+		expect(get(authStore).token).toBe('tok-alice');
+		expect(accounts.currentRegistry().accounts.find((a) => a.userId === 'bob')?.token).toBe('tok-bob-renewed');
 	});
 });

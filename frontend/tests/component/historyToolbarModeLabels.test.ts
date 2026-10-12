@@ -9,6 +9,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getHistoryFacets: vi.fn(),
 		searchPhrasebook: vi.fn(),
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		listPresets: vi.fn().mockResolvedValue({ success: true, data: [] })
 	}
 }));

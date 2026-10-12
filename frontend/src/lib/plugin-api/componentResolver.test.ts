@@ -13,7 +13,8 @@ vi.mock('$lib/services/api/index', () => ({
 	api: {
 		getBaseURL: () => 'https://potion.test',
 		getToken: () => null,
-		setOnAuthExpired: vi.fn()
+		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn()
 	}
 }));
 vi.mock('$lib/components/plugins/PluginDistHost.svelte', () => ({ default: () => null }));

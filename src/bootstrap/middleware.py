@@ -15,10 +15,14 @@ from urllib.parse import urlencode
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
+from src.platform.security.current_user import get_auth
+from src.platform.security.media_session import media_cookie_header, media_cookie_name
 from src.platform.security.redaction import SECRET_MASK, is_secret_key, redact_mapping
+from src.platform.security.session_renewal import renewed_token
 
 # Get DEBUG mode from environment variable
 DEBUG_MODE = os.getenv('DEBUG', 'false').lower() in ('true', '1', 'yes')
@@ -38,6 +42,49 @@ class SSEAwareGZipMiddleware:
             await self.app(scope, receive, send)
         else:
             await self.gzip(scope, receive, send)
+
+
+REFRESHED_TOKEN_HEADER = "X-Refreshed-Token"
+
+
+class SessionRenewalMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        authorization = Headers(scope=scope).get("authorization", "")
+        if authorization[:7].lower() != "bearer " or not authorization[7:].strip():
+            await self.app(scope, receive, send)
+            return
+        token = authorization[7:].strip()
+
+        async def send_renewed(message):
+            if message["type"] == "http.response.start" and message["status"] < 400:
+                self._attach_renewal(scope, token, message)
+            await send(message)
+
+        await self.app(scope, receive, send_renewed)
+
+    @staticmethod
+    def _attach_renewal(scope, token, message) -> None:
+        cookie_prefix = f"{media_cookie_name()}="
+        headers = MutableHeaders(scope=message)
+        if any(value.startswith(cookie_prefix) for value in headers.getlist("set-cookie")):
+            return
+        try:
+            codec = get_auth().tokens
+        except RuntimeError:
+            return
+        fresh = renewed_token(codec, token)
+        if fresh is None:
+            return
+        headers[REFRESHED_TOKEN_HEADER] = fresh
+        cookie = media_cookie_header(Request(scope), fresh)
+        if cookie is not None:
+            headers.append("set-cookie", cookie)
 
 
 # Hard cap on how much of a request body we log, in characters.
@@ -180,7 +227,9 @@ def register_middleware(app: FastAPI) -> None:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[REFRESHED_TOKEN_HEADER],
     )
+    app.add_middleware(SessionRenewalMiddleware)
 
     # Add middleware to serve Swagger UI and API docs
     app.middleware("http")(_add_swagger_headers)

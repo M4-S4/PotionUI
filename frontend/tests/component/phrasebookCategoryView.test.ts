@@ -21,6 +21,7 @@ vi.mock('$lib/services/api/index', () => ({
 		generatePreviews: vi.fn(),
 		getFileURL: vi.fn(() => ''),
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		getBaseURL: vi.fn(() => ''),
 		getToken: vi.fn(() => null)
 	}

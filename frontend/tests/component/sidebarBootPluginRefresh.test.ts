@@ -35,6 +35,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getBaseURL: () => '',
 		getToken: () => null,
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		getReadiness: vi.fn().mockResolvedValue({ overall: 'ready' }),
 		getKeybindings: vi.fn().mockResolvedValue({ success: true, data: { keybindings: [] } })
 	}

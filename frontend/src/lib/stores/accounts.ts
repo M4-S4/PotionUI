@@ -173,6 +173,16 @@ export function syncActive(user: User, token: string): 'added' | 'replaced' | 'f
 	return outcome;
 }
 
+export function replaceAccountToken(previousToken: string, nextToken: string): void {
+	const registry = get(registryStore);
+	const owner = findByToken(registry, previousToken);
+	if (!owner || owner.expired) return;
+	commit({
+		...registry,
+		accounts: registry.accounts.map((a) => (a.userId === owner.userId ? { ...a, token: nextToken } : a))
+	});
+}
+
 export function handleUnauthorized(requestToken: string | null | undefined): UnauthorizedOutcome {
 	const registry = get(registryStore);
 	const owner = findByToken(registry, requestToken);
@@ -291,13 +301,16 @@ export async function addAccountFromToken(token: string): Promise<AddOutcome> {
 
 		if (existing) {
 			const { registry: replaced } = upsertAccount(registry, profileOf(user), token);
+			if (isExpired(existing)) {
+				navigating = true;
+				switchOverlay.set({ kind: 'initiator', username: user.username, role: user.account_type, step: 'reloading' });
+				commit(setActive(replaced, user.id));
+				if (typeof location !== 'undefined') location.assign('/generate');
+				return { status: 'refreshed', username: user.username };
+			}
 			const keepActive = previous ? setActive(replaced, previous.userId) : replaced;
 			saveRegistry(keepActive);
 			registryStore.set(keepActive);
-			if (isExpired(existing)) {
-				await restoreActiveCookie();
-				return { status: 'refreshed', username: user.username };
-			}
 			return { status: 'duplicate', username: user.username, userId: user.id };
 		}
 		if (registry.accounts.length >= MAX_ACCOUNTS) {

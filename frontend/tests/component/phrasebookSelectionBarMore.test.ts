@@ -7,7 +7,7 @@ import { writable } from 'svelte/store';
 import { mount, unmount, flushSync } from 'svelte';
 
 vi.mock('$lib/services/api/index', () => ({
-	api: { getBaseURL: vi.fn(() => ''), getToken: vi.fn(() => null), setOnAuthExpired: vi.fn() }
+	api: { getBaseURL: vi.fn(() => ''), getToken: vi.fn(() => null), setOnAuthExpired: vi.fn(), setOnTokenRefreshed: vi.fn() }
 }));
 
 vi.mock('$lib/stores/plugins', () => ({

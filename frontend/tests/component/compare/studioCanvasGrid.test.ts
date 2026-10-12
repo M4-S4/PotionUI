@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		getGenerationById: vi.fn().mockResolvedValue({ success: false }),
 		getGenerationImageURL: vi.fn(() => '/media.mp4'),
 		getClient: vi.fn(() => ({ get: vi.fn(), post: vi.fn() }))

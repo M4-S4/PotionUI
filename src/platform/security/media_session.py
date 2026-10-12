@@ -47,6 +47,25 @@ def token_lifetime_seconds(token: str, now: Optional[float] = None) -> int:
     return max(0, int(expires - (time.time() if now is None else now)))
 
 
+def _media_cookie_attributes(lifetime: int, secure: bool) -> dict:
+    return {
+        "max_age": lifetime,
+        "path": MEDIA_COOKIE_PATH,
+        "httponly": True,
+        "samesite": "lax",
+        "secure": secure,
+    }
+
+
+def media_cookie_header(request: Request, token: str) -> Optional[str]:
+    lifetime = token_lifetime_seconds(token)
+    if lifetime <= 0:
+        return None
+    probe = Response()
+    probe.set_cookie(media_cookie_name(), token, **_media_cookie_attributes(lifetime, _is_secure(request)))
+    return probe.headers["set-cookie"]
+
+
 def set_media_cookie(response: Response, request: Request, token: Optional[str]) -> None:
     lifetime = token_lifetime_seconds(token) if token else 0
     if lifetime <= 0:
@@ -55,11 +74,7 @@ def set_media_cookie(response: Response, request: Request, token: Optional[str])
     response.set_cookie(
         media_cookie_name(),
         token,
-        max_age=lifetime,
-        path=MEDIA_COOKIE_PATH,
-        httponly=True,
-        samesite="lax",
-        secure=_is_secure(request),
+        **_media_cookie_attributes(lifetime, _is_secure(request)),
     )
 
 

@@ -18,6 +18,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getMyToolsetPreferences: vi.fn().mockResolvedValue({ success: false }),
 		listPresets: vi.fn().mockResolvedValue({ success: false }),
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		clearAuth: vi.fn(),
 		listMemory: vi.fn().mockResolvedValue({ success: true, data: { notes: [], injection: { cap_per_group: 0, max_content_len: 0 } } }),
 		getChatMessagesBefore: vi.fn()

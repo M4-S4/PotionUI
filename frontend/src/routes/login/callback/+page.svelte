@@ -9,6 +9,7 @@
 	import { ADDING_ACCOUNT_FLAG, addAccountFromToken } from '$lib/stores/accounts';
 	import { ADD_ACCOUNT_BLOCKED_MESSAGE } from '$lib/stores/accountActions';
 	import { toasts } from '$lib/stores/toast';
+	import { storage } from '$lib/utils/storage';
 
 	let status: 'loading' | 'error' = 'loading';
 	let errorMessage = '';
@@ -37,7 +38,7 @@
 		}
 
 		try {
-			const tokenData = await api.exchangeExternalLoginCode(code);
+			const tokenData = await api.exchangeExternalLoginCode(code, storage.get('remember_me') === 'true');
 			if (adding) {
 				const outcome = await addAccountFromToken(tokenData.access_token);
 				if (outcome.status === 'duplicate') {

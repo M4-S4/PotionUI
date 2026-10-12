@@ -11,6 +11,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getCurrentUser: vi.fn(),
 		setAuthHeader: vi.fn(),
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		clearAuth: vi.fn(),
 		endMediaSession: vi.fn(async () => undefined),
 		getToken: vi.fn(() => null),

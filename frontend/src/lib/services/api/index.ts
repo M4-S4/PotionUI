@@ -94,6 +94,7 @@ export const api = {
 	getBaseURL: apiClient.getBaseURL.bind(apiClient),
 	getClient: apiClient.getClient.bind(apiClient),
 	setOnAuthExpired: apiClient.setOnAuthExpired.bind(apiClient),
+	setOnTokenRefreshed: apiClient.setOnTokenRefreshed.bind(apiClient),
 
 	// Domain modules
 	...createPresetsApi(apiClient.getClient()),

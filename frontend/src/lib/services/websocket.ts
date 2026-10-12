@@ -16,8 +16,8 @@ export class WebSocketService extends BaseWebSocket {
 	private connectionCallbacks: Set<(connected: boolean) => void> = new Set();
 	private onAuthFailedCallback: (() => void) | null = null;
 
-	constructor(url: string, token: string | null) {
-		super(url, token);
+	constructor(url: string, getToken: () => string | null) {
+		super(url, getToken);
 	}
 
 	// ─── Overrides ────────────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ export class WebSocketService extends BaseWebSocket {
 // (logout + redirect to login) already wired, so every call site reacts the
 // same way to an expired/invalid token instead of going silent.
 export function createGenerationSocket(): WebSocketService {
-	const ws = new WebSocketService(getWsUrl('/ws/generation'), api.getToken());
+	const ws = new WebSocketService(getWsUrl('/ws/generation'), () => api.getToken());
 	ws.onAuthFailed(() => {
 		authStore.expireSession(api.getToken());
 	});

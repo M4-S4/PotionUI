@@ -21,6 +21,7 @@ vi.mock('$lib/services/api/index', () => ({
 		startModelDownload: vi.fn(),
 		// Reached via the auth store, which ModelDetailsModal pulls in.
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		getToken: vi.fn(() => null),
 		getBaseURL: vi.fn(() => 'http://localhost')
 	}

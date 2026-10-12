@@ -47,7 +47,7 @@ function baseRun(overrides: Partial<DirectorRunState> = {}): DirectorRunState {
  *  unsubscribe wrapper, wired the same way routes/generate/+page.svelte
  *  wires `unsubscribeGeneration`. */
 function makeOwner() {
-	const ws = new WebSocketService('ws://test.invalid/ws/generation', null);
+	const ws = new WebSocketService('ws://test.invalid/ws/generation', () => null);
 	const unsubscribe = (generationId: string): void => {
 		releaseSubscription(ws, generationId);
 		ws.unsubscribe(generationId);

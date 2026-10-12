@@ -16,6 +16,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getModelDownloadStatus: vi.fn(),
 		startModelDownload: vi.fn(),
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		getToken: vi.fn(() => null),
 		getBaseURL: vi.fn(() => 'http://localhost')
 	}

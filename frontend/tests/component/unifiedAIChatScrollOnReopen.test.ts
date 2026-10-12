@@ -38,6 +38,7 @@ vi.mock('$lib/services/api/index', () => ({
 		// path), which registers an auth-expiry callback on `api` the moment the
 		// module is first evaluated - not just when a request actually fires.
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		clearAuth: vi.fn()
 	}
 }));

@@ -52,7 +52,7 @@ export abstract class StatefulWebSocket extends BaseWebSocket {
 		/** Only used in log lines ("admin WebSocket connected", "downloader reconnect failed"). */
 		private readonly serviceName: string
 	) {
-		super('', null);
+		super('');
 	}
 
 	connectAsync(): Promise<void> {

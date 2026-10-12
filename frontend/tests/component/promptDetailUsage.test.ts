@@ -19,7 +19,8 @@ vi.mock('$lib/services/api/index', () => ({
 				`/api/media/generations/${generationId}/${filename}?size=${size}`
 		),
 		getModelById: vi.fn().mockResolvedValue({ data: { model: null } }),
-		setOnAuthExpired: vi.fn()
+		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn()
 	}
 }));
 

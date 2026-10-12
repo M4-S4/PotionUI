@@ -18,8 +18,8 @@ export function createAuthProvidersApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async exchangeExternalLoginCode(code: string): Promise<ExternalLoginToken> {
-			const response = await client.post('/api/auth/external/exchange', { code });
+		async exchangeExternalLoginCode(code: string, rememberMe: boolean = false): Promise<ExternalLoginToken> {
+			const response = await client.post('/api/auth/external/exchange', { code, remember_me: rememberMe });
 			return response.data;
 		}
 	};

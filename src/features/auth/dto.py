@@ -58,6 +58,7 @@ class LoginProviderResponse(BaseModel):
 
 class ExternalLoginExchange(BaseModel):
     code: str
+    remember_me: bool = False
 
 
 class UserResponse(BaseModel):

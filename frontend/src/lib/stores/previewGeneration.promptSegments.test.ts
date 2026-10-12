@@ -12,6 +12,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getToken: vi.fn(() => null),
 		// See previewGeneration.reset.test.ts — createGenerationSocket() touches authStore on import.
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		generatePreviews: (...args: unknown[]) => generatePreviews(...args)
 	}
 }));

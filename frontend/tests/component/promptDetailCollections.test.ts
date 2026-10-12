@@ -6,7 +6,8 @@ vi.mock('$lib/services/api/index', () => ({
 		getGenerationImageURL: vi.fn(() => ''),
 		getGenerationThumbnailURL: vi.fn(() => ''),
 		getModelById: vi.fn().mockResolvedValue({ data: { model: null } }),
-		setOnAuthExpired: vi.fn()
+		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn()
 	}
 }));
 

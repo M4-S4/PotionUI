@@ -33,7 +33,7 @@ export abstract class BaseWebSocket {
 
 	constructor(
 		protected readonly url: string,
-		protected token: string | null
+		protected readonly getToken: () => string | null = () => null
 	) {}
 
 	// ─── Public API ──────────────────────────────────────────────────────────
@@ -148,9 +148,8 @@ export abstract class BaseWebSocket {
 	// ─── Helpers ─────────────────────────────────────────────────────────────
 
 	protected buildWsUrl(): string {
-		return this.token
-			? `${this.url}?token=${encodeURIComponent(this.token)}`
-			: this.url;
+		const token = this.getToken();
+		return token ? `${this.url}?token=${encodeURIComponent(token)}` : this.url;
 	}
 
 	protected send(data: unknown): void {

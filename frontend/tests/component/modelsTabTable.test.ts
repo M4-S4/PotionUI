@@ -16,6 +16,7 @@ const mockGetModelAssignmentSummary = vi.fn();
 vi.mock('$lib/services/api/index', () => ({
 	api: {
 		setOnAuthExpired: () => {},
+		setOnTokenRefreshed: () => {},
 		getToken: () => null,
 		getModels: (...args: unknown[]) => mockGetModels(...args),
 		getModelTypes: (...args: unknown[]) => mockGetModelTypes(...args),

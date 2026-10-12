@@ -7,7 +7,8 @@ vi.mock('$lib/services/api/index', () => ({
 		getClient: () => ({ get: mockGet }),
 		getBaseURL: () => '',
 		getToken: () => null,
-		setOnAuthExpired: vi.fn()
+		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn()
 	}
 }));
 vi.mock('$lib/components/plugins/PluginDistHost.svelte', () => ({ default: () => null }));

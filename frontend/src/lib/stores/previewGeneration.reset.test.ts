@@ -11,7 +11,8 @@ vi.mock('$lib/services/api/index', () => ({
 		// $lib/services/websocket, which imports the authStore singleton -
 		// its module-level `api.setOnAuthExpired(...)` registration runs on
 		// import even though this file never triggers a login.
-		setOnAuthExpired: vi.fn()
+		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn()
 	}
 }));
 

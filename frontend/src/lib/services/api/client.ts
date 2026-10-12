@@ -12,6 +12,7 @@ export class APIClient {
 	private client: AxiosInstance;
 	private token: string | null = null;
 	private onAuthExpiredCallback: ((requestToken: string | null) => void) | null = null;
+	private onTokenRefreshedCallback: ((previousToken: string, nextToken: string) => void) | null = null;
 
 	constructor(baseURL: string = '') {
 		this.client = axios.create({
@@ -44,7 +45,10 @@ export class APIClient {
 
 		// Handle 401 responses (expired/invalid tokens)
 		this.client.interceptors.response.use(
-			(response) => response,
+			(response) => {
+				this.adoptRefreshedToken(response.headers?.['x-refreshed-token'], response.config?.headers?.Authorization);
+				return response;
+			},
 			(error) => {
 				if (
 					error.response?.status === 401 &&
@@ -64,6 +68,14 @@ export class APIClient {
 		storage.set('auth_token', token);
 	}
 
+	private adoptRefreshedToken(refreshed: unknown, requestAuthorization: unknown): void {
+		if (typeof refreshed !== 'string' || !refreshed) return;
+		const previous = this.token;
+		if (!previous || bearerTokenOf(requestAuthorization) !== previous) return;
+		this.setAuthHeader(refreshed);
+		this.onTokenRefreshedCallback?.(previous, refreshed);
+	}
+
 	getToken(): string | null {
 		return this.token;
 	}
@@ -76,6 +88,10 @@ export class APIClient {
 
 	setOnAuthExpired(callback: (requestToken: string | null) => void): void {
 		this.onAuthExpiredCallback = callback;
+	}
+
+	setOnTokenRefreshed(callback: (previousToken: string, nextToken: string) => void): void {
+		this.onTokenRefreshedCallback = callback;
 	}
 
 	// Lets callers built before setOnAuthExpired runs (e.g. domain modules

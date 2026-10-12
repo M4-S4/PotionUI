@@ -38,6 +38,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getPresetModes: vi.fn(),
 		getToken: vi.fn(() => null),
 		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn(),
 		generatePreviews: vi.fn().mockResolvedValue({
 			success: true,
 			data: { started: 1, generations: [{ generation_id: 'gen-1' }] }

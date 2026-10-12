@@ -31,7 +31,7 @@ class NotificationsWebSocketService extends BaseWebSocket {
 
 	constructor() {
 		// URL + token are resolved dynamically in buildWsUrl (token can change on login).
-		super('', null);
+		super('');
 	}
 
 	protected override buildWsUrl(): string {

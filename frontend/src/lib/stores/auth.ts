@@ -16,6 +16,7 @@ import {
 	isSwitching,
 	needsReloadForIdentity,
 	removeAccount,
+	replaceAccountToken,
 	syncActive
 } from '$lib/stores/accounts';
 
@@ -49,6 +50,13 @@ function extractApiErrorMessage(error: any): string | undefined {
 	if (typeof detail === 'string') return detail;
 	if (detail && typeof detail.message === 'string') return detail.message;
 	return error?.message;
+}
+
+const INIT_RETRY_BASE_MS = 1000;
+const INIT_RETRY_MAX_MS = 15000;
+
+function isUnauthorized(error: any): boolean {
+	return error?.response?.status === 401;
 }
 
 export function applyIdentityGuard(userId: string): void {
@@ -89,8 +97,45 @@ function createAuthStore() {
 
 	api.setOnAuthExpired((requestToken) => expireSession(requestToken));
 
+	api.setOnTokenRefreshed((previousToken, nextToken) => {
+		replaceAccountToken(previousToken, nextToken);
+		update((state) => (state.token === previousToken ? { ...state, token: nextToken } : state));
+	});
+
 	function hardNavigate(path: string) {
 		if (typeof location !== 'undefined') location.assign(path);
+	}
+
+	async function loadUserOnInit() {
+		let delay = INIT_RETRY_BASE_MS;
+		for (let current = api.getToken(); current; current = api.getToken()) {
+			try {
+				const response = await api.getCurrentUser();
+				if (response.success && response.data) {
+					applyIdentityGuard(response.data.id);
+					syncActive(response.data, api.getToken() ?? current);
+					if (needsReloadForIdentity() && typeof location !== 'undefined') {
+						hardNavigate(location.pathname + location.search);
+						return;
+					}
+					update((state) => ({
+						...state,
+						user: response.data ?? null,
+						loading: false
+					}));
+					return;
+				}
+				logger.error('Unexpected user info response on init:', response);
+			} catch (err) {
+				if (isUnauthorized(err)) {
+					update((state) => (state.loading ? { ...state, loading: false } : state));
+					return;
+				}
+				logger.error('Failed to fetch user info on init:', err);
+			}
+			await new Promise((resolve) => setTimeout(resolve, delay));
+			delay = Math.min(delay * 2, INIT_RETRY_MAX_MS);
+		}
 	}
 
 	const registryActive = activeAccount(currentRegistry());
@@ -104,32 +149,7 @@ function createAuthStore() {
 			loading: true
 		}));
 
-		api.getCurrentUser()
-			.then((response) => {
-				if (response.success && response.data) {
-					applyIdentityGuard(response.data.id);
-					syncActive(response.data, token);
-					if (needsReloadForIdentity() && typeof location !== 'undefined') {
-						hardNavigate(location.pathname + location.search);
-						return;
-					}
-					update((state) => ({
-						...state,
-						user: response.data ?? null,
-						loading: false
-					}));
-				} else {
-					storage.remove('auth_token');
-					api.clearAuth();
-					update((state) => ({ ...state, isAuthenticated: false, loading: false }));
-				}
-			})
-			.catch((err) => {
-				logger.error('Failed to fetch user info on init:', err);
-				storage.remove('auth_token');
-				api.clearAuth();
-				update((state) => ({ ...state, isAuthenticated: false, loading: false }));
-			});
+		void loadUserOnInit();
 	} else {
 		if (registryActive?.expired) storage.remove('auth_token');
 		update((state) => ({ ...state, loading: false }));

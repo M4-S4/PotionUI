@@ -438,6 +438,36 @@ describe('expiry and pruning', () => {
 		expect(accounts.currentRegistry().accounts.map((a) => a.userId)).toEqual(['alice']);
 		expect(localStorage.getItem(`${TABS_STORAGE_KEY}::bob`)).toBeNull();
 	});
+
+	it('replaceAccountToken keeps an active account alive past the lifetime of its old token', async () => {
+		const nowSeconds = Math.floor(NOW / 1000);
+		const shortLived = jwt(nowSeconds + 5);
+		const renewed = jwt(nowSeconds + 7200);
+		seedRegistry('alice', [{ id: 'alice', token: shortLived }, { id: 'bob' }]);
+		const accounts = await loadAccounts();
+
+		accounts.replaceAccountToken(shortLived, renewed);
+		accounts.refreshExpiry(NOW + 6000);
+
+		const alice = accounts.currentRegistry().accounts.find((a) => a.userId === 'alice');
+		expect(alice?.token).toBe(renewed);
+		expect(alice?.expired).toBe(false);
+		expect(accounts.currentRegistry().activeId).toBe('alice');
+		expect(localStorage.getItem('auth_token')).toBe(renewed);
+		expect(JSON.parse(localStorage.getItem(ACCOUNTS_STORAGE_KEY)!).accounts[0].token).toBe(renewed);
+	});
+
+	it('replaceAccountToken ignores a token no account holds and an account already flagged expired', async () => {
+		const lapsed = jwt(Math.floor(NOW / 1000) - 60);
+		seedRegistry('alice', [{ id: 'alice' }, { id: 'bob', token: lapsed }]);
+		const accounts = await loadAccounts();
+		const before = JSON.stringify(accounts.currentRegistry());
+
+		accounts.replaceAccountToken('unknown', jwt(Math.floor(NOW / 1000) + 7200));
+		accounts.replaceAccountToken(lapsed, jwt(Math.floor(NOW / 1000) + 7200));
+
+		expect(JSON.stringify(accounts.currentRegistry())).toBe(before);
+	});
 });
 
 describe('cross tab', () => {
@@ -535,7 +565,7 @@ describe('adding accounts', () => {
 		expect(apiMock.api.getCurrentUser).toHaveBeenCalledTimes(1);
 	});
 
-	it('treats signing in again as an expired account as a refresh, not a duplicate', async () => {
+	it('switches to an expired account that signs in again, not a duplicate', async () => {
 		seedRegistry('alice', [{ id: 'alice' }, { id: 'bob', expired: true, expiredAt: NOW - 1000, token: 'dead' }]);
 		apiMock.state.header = tokenFor('alice');
 		respondByToken({ alice: user('alice'), bob: user('bob') });
@@ -546,8 +576,9 @@ describe('adding accounts', () => {
 		expect(outcome).toEqual({ status: 'refreshed', username: 'bob' });
 		const bob = accounts.currentRegistry().accounts.find((a) => a.userId === 'bob');
 		expect(bob).toMatchObject({ expired: false, token: tokenFor('bob') });
-		expect(accounts.currentRegistry().activeId).toBe('alice');
-		expect(apiMock.api.setAuthHeader).toHaveBeenLastCalledWith(tokenFor('alice'));
+		expect(accounts.currentRegistry().activeId).toBe('bob');
+		expect(apiMock.api.setAuthHeader).toHaveBeenLastCalledWith(tokenFor('bob'));
+		expect(location.assign).toHaveBeenCalledWith('/generate');
 	});
 
 	it('refuses a sixth account and restores the current one', async () => {

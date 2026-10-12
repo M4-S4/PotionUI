@@ -2,7 +2,7 @@
 JWT token management utilities.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from jose import JWTError, jwt
@@ -42,20 +42,31 @@ class TokenCodec:
         """
         to_encode = data.copy()
 
+        issued_at = datetime.now(timezone.utc)
         if expires_delta:
-            expire = datetime.utcnow() + expires_delta
+            expire = issued_at + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(
+            expire = issued_at + timedelta(
                 minutes=self._config.access_token_expire_minutes
             )
 
-        to_encode.update({"exp": expire})
+        to_encode.update({"exp": expire, "iat": int(issued_at.timestamp())})
         encoded_jwt = jwt.encode(
             to_encode,
             self._config.secret_key,
             algorithm=self._config.algorithm
         )
         return encoded_jwt
+
+    def decode_claims(self, token: str) -> Optional[dict]:
+        try:
+            return jwt.decode(
+                token,
+                self._config.secret_key,
+                algorithms=[self._config.algorithm]
+            )
+        except JWTError:
+            return None
 
     def decode_token(self, token: str) -> Optional[TokenData]:
         """

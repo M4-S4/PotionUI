@@ -69,6 +69,7 @@
 	});
 
 	function continueWithProvider(provider: LoginProvider) {
+		storage.set('remember_me', String(rememberMe));
 		let path = provider.start_path;
 		if (addMode) {
 			try {

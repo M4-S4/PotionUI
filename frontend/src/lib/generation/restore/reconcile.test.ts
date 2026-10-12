@@ -576,7 +576,7 @@ describe('reconcileTabGenerations', () => {
 	it('subscribes a still-running id at most once across two reconcile passes against the SAME socket, through the real WebSocketService', async () => {
 		const tabId = defaultTabId();
 		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
-		const ws = new WebSocketService('ws://test.invalid/ws/generation', null);
+		const ws = new WebSocketService('ws://test.invalid/ws/generation', () => null);
 		const received: unknown[] = [];
 		const handleGenerationMessage = (message: unknown) => received.push(message);
 		const onSubscribe = (generationId: string) => {
@@ -608,7 +608,7 @@ describe('reconcileTabGenerations', () => {
 	it('subscribes on a NEW socket after an SPA navigate-away-and-back, even though the tab still has the old routing entry', async () => {
 		const tabId = defaultTabId();
 		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
-		const oldSocket = new WebSocketService('ws://test.invalid/ws/generation', null);
+		const oldSocket = new WebSocketService('ws://test.invalid/ws/generation', () => null);
 
 		const fake = createFakeApi();
 		fake.scriptStatus(
@@ -628,7 +628,7 @@ describe('reconcileTabGenerations', () => {
 		// BRAND NEW WebSocketService (createGenerationSocket()) while the
 		// module-scope tabs store -- and 'gen-1's routing entry in it --
 		// survives untouched.
-		const newSocket = new WebSocketService('ws://test.invalid/ws/generation', null);
+		const newSocket = new WebSocketService('ws://test.invalid/ws/generation', () => null);
 		await reconcileTabGenerations(tabId, fake.api, tabsStore, {
 			subscriptionOwner: newSocket,
 			onSubscribe: (id) => newSocket.subscribe(id, () => {})
@@ -647,7 +647,7 @@ describe('reconcileTabGenerations', () => {
 	it('a generation subscribed at fresh submission is not re-subscribed by the first reconcile pass that finds it still running (no duplicate delivery)', async () => {
 		const tabId = defaultTabId();
 		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
-		const ws = new WebSocketService('ws://test.invalid/ws/generation', null);
+		const ws = new WebSocketService('ws://test.invalid/ws/generation', () => null);
 		const received: unknown[] = [];
 		const handleGenerationMessage = (message: unknown) => received.push(message);
 

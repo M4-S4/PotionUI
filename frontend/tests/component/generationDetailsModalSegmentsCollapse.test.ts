@@ -18,7 +18,8 @@ vi.mock('$lib/services/api/index', () => ({
 		getTags: vi.fn().mockResolvedValue({ success: true, data: { tags: [] } }),
 		getBaseURL: vi.fn(() => ''),
 		getToken: vi.fn(() => null),
-		setOnAuthExpired: vi.fn()
+		setOnAuthExpired: vi.fn(),
+		setOnTokenRefreshed: vi.fn()
 	}
 }));
 

@@ -266,6 +266,15 @@ class Auth:
 
         return user, access_token
 
+    def mint_token(self, user: User, remember_me: bool = False) -> str:
+        expires_delta = None
+        if remember_me:
+            expires_delta = timedelta(days=self.config.remember_me_token_expire_days)
+        return self.tokens.create_access_token(
+            data={"sub": user.username, "user_id": user.id},
+            expires_delta=expires_delta
+        )
+
     def issue_session(
         self,
         user: User,
@@ -274,14 +283,7 @@ class Auth:
     ) -> str:
         self.users.update_last_login(user.id)
 
-        expires_delta = None
-        if remember_me:
-            expires_delta = timedelta(days=self.config.remember_me_token_expire_days)
-
-        access_token = self.tokens.create_access_token(
-            data={"sub": user.username, "user_id": user.id},
-            expires_delta=expires_delta
-        )
+        access_token = self.mint_token(user, remember_me=remember_me)
 
         self._execute_hook(
             AUTH_HOOKS.after_login,

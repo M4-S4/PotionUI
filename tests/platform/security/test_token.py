@@ -137,3 +137,33 @@ class TestTokenCodec:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestTokenIssuedAt:
+    @pytest.fixture
+    def token_codec(self):
+        config = Mock(spec=AuthConfig)
+        config.secret_key = "test-secret-key-for-testing"
+        config.algorithm = "HS256"
+        config.access_token_expire_minutes = 60
+        return TokenCodec(config)
+
+    def test_tokens_carry_an_integer_issued_at(self, token_codec):
+        token = token_codec.create_access_token({"sub": "testuser", "user_id": "test-123"})
+
+        claims = token_codec.decode_claims(token)
+        assert isinstance(claims["iat"], int)
+        assert abs(claims["iat"] - datetime.now().timestamp()) < 5
+
+    def test_the_lifetime_is_expiry_minus_issued_at(self, token_codec):
+        token = token_codec.create_access_token(
+            {"sub": "testuser", "user_id": "test-123"}, timedelta(days=30)
+        )
+
+        claims = token_codec.decode_claims(token)
+        assert claims["exp"] - claims["iat"] == 30 * 24 * 3600
+
+    def test_decode_claims_rejects_a_tampered_token(self, token_codec):
+        token = token_codec.create_access_token({"sub": "testuser", "user_id": "test-123"})
+
+        assert token_codec.decode_claims(token[:-3] + "abc") is None

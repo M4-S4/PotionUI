@@ -183,6 +183,10 @@ class AuthController(BaseController):
             )
 
         self.exchange_limiter.reset(limiter_key)
+        if payload.remember_me:
+            user = self.auth.get_user_from_token(access_token)
+            if user is not None:
+                access_token = self.auth.mint_token(user, remember_me=True)
         return Token(access_token=access_token)
 
     async def get_me(self, current_user: User) -> APIResponse:
