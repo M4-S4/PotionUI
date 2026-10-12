@@ -287,7 +287,8 @@ sit in a collapsed "Technical details" section on the plugin's page.
 A manifest's `settings:` list renders as the plugin's form in **Admin → Plugins → Settings**.
 Each entry has `name`, `type` (`string`, `number`, `boolean`), `label`, and optionally
 `description`, `required`, `default` and `is_secret` (encrypted at rest, masked in every
-response, rendered as a password field).
+response, rendered as a password field). A `boolean` setting reaches the plugin as the string
+`true` or `false`.
 
 An entry with `type: info` renders as a notice instead of an input and is never stored.
 Use it when the plugin depends on something configured elsewhere:

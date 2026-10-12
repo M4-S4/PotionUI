@@ -9,6 +9,7 @@ Core names no provider. See docs/providers.md.
 """
 
 import asyncio
+import json
 import logging
 from typing import Any, Dict, List, Optional, Type
 
@@ -525,7 +526,10 @@ class ProviderRegistry:
             for key, value in settings.items():
                 is_secret = key in secret_keys
                 # Convert value to string for storage
-                str_value = str(value) if value is not None else ""
+                if isinstance(value, bool):
+                    str_value = json.dumps(value)
+                else:
+                    str_value = str(value) if value is not None else ""
                 self._plugin_repo.set_plugin_setting(
                     plugin_id=plugin_id,
                     setting_key=key,

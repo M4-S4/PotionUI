@@ -501,6 +501,28 @@ def test_update_settings_serializes_complex_types(
         assert isinstance(value, str)
 
 
+def test_update_settings_stores_booleans_as_json_literals(
+    mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_setting
+):
+    """Test that update_plugin_settings stores booleans as true/false, not Python's True/False"""
+    manifest = Mock()
+    manifest.settings = []
+    mock_plugin_registry.get_plugin.return_value = manifest
+    mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
+    mock_plugin_repo.set_plugin_setting.return_value = sample_plugin_setting
+
+    operations.update_plugin_settings(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+        {"flag": False, "other": True, "name": "civitai"},
+    )
+
+    stored = {
+        call.kwargs["setting_key"]: call.kwargs["setting_value"]
+        for call in mock_plugin_repo.set_plugin_setting.call_args_list
+    }
+    assert stored == {"flag": "false", "other": "true", "name": "civitai"}
+
+
 def test_update_settings_not_found_raises(mock_plugin_repo, mock_plugin_registry):
     """Test that update_plugin_settings raises ValueError when plugin not found"""
     # Arrange
