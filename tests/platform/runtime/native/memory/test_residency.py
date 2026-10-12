@@ -1222,3 +1222,31 @@ def test_orphan_release_reclaims_host_memory_after_its_weights_are_freed(monkeyp
 
     assert done.wait(2.0)
     assert events == ["weights_freed", "trim", "empty_pinned"]
+
+
+def test_orphan_reclaim_uses_the_functions_bound_when_the_model_was_released(monkeypatch):
+    import threading
+
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
+
+    done = threading.Event()
+    bound_calls = []
+    later_calls = []
+
+    def _bound_empty():
+        bound_calls.append(1)
+        done.set()
+
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: None)
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", _bound_empty)
+    monkeypatch.setattr(residency, "_ORPHAN_RECLAIM_DELAY_S", 0.2)
+
+    model = object.__new__(type("_Model", (), {}))
+    residency.GpuResidencyRegistry().mark_orphaned(model)
+    del model
+
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: later_calls.append(1))
+
+    assert done.wait(2.0)
+    assert bound_calls == [1]
+    assert later_calls == []

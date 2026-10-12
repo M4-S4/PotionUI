@@ -40,13 +40,11 @@ _BYTES_PER_GB = 1024 ** 3
 _ORPHAN_RECLAIM_DELAY_S = 1.0
 
 
-def _reclaim_host_after_orphan_release() -> None:
+def _reclaim_host_after_orphan_release(
+    trim_host_allocator: Callable[[], None],
+    empty_pinned_host_cache: Callable[[], None],
+) -> None:
     try:
-        from src.platform.runtime.model_lifecycle.lifecycle import (
-            empty_pinned_host_cache,
-            trim_host_allocator,
-        )
-
         trim_host_allocator()
         empty_pinned_host_cache()
         logger.info(
@@ -255,7 +253,20 @@ class GpuResidencyRegistry:
                 entry.orphaned = True
 
         def _on_finally_released() -> None:
-            timer = threading.Timer(_ORPHAN_RECLAIM_DELAY_S, _reclaim_host_after_orphan_release)
+            try:
+                from src.platform.runtime.model_lifecycle.lifecycle import (
+                    empty_pinned_host_cache,
+                    trim_host_allocator,
+                )
+            except Exception:
+                logger.debug("residency: post-orphan-release reclaim unavailable", exc_info=True)
+                return
+
+            timer = threading.Timer(
+                _ORPHAN_RECLAIM_DELAY_S,
+                _reclaim_host_after_orphan_release,
+                args=(trim_host_allocator, empty_pinned_host_cache),
+            )
             timer.daemon = True
             timer.start()
 
