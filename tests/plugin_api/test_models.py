@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from src.features.models.records import Model
 from src.plugin_api.models import (
     get_model_provider_info,
     model_for_path,
@@ -90,16 +91,35 @@ def test_resolve_model_file_delegates_to_the_locator():
     locator.path_for_model.assert_called_once_with("model-1")
 
 
-def test_model_for_path_returns_a_dict_when_found():
-    model = Mock(to_dict=Mock(return_value={"id": "model-1"}))
-    locator = Mock(model_for_path=Mock(return_value=model))
+def _catalog_model():
+    return Model(
+        id="model-1", filename="a.safetensors", model_type="checkpoint", sha256="b" * 64, file_size=42,
+        location={"root": "/depot", "path": "checkpoints/a.safetensors"}, prompting_guidance="admin notes",
+    )
+
+
+def test_model_for_path_returns_the_non_admin_dict_when_found():
+    locator = Mock(model_for_path=Mock(return_value=_catalog_model()))
     container = SimpleNamespace(model_locator=locator)
 
     with patch("src.plugin_api.models.get_container", return_value=container):
         result = model_for_path("/depot/checkpoints/a.safetensors")
 
-    assert result == {"id": "model-1"}
-    model.to_dict.assert_called_once_with(include_providers=False)
+    assert result["id"] == "model-1"
+    assert result["filename"] == "a.safetensors"
+    assert not {"location", "file_size", "sha256", "prompting_guidance"} & result.keys()
+    locator.model_for_path.assert_called_once_with("/depot/checkpoints/a.safetensors")
+
+
+def test_model_for_path_hands_the_operational_fields_to_an_admin_caller_only():
+    locator = Mock(model_for_path=Mock(return_value=_catalog_model()))
+    container = SimpleNamespace(model_locator=locator)
+
+    with patch("src.plugin_api.models.get_container", return_value=container):
+        result = model_for_path("/depot/checkpoints/a.safetensors", admin=True)
+
+    assert result["sha256"] == "b" * 64
+    assert result["location"] == {"root": "/depot", "path": "checkpoints/a.safetensors"}
 
 
 def test_model_for_path_returns_none_when_unresolvable():

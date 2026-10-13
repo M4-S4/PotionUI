@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.features.models.attributes.well_known import WellKnownModelAttribute as WellKnownModelMetadataField
+from src.features.models.exceptions import (
+    InvalidModelMetadataException,
+    ModelAlreadyAssignedException,
+    ModelAssignmentException,
+    ModelNotFoundException,
+    ProviderFetchException,
+)
 from src.platform.filesystem.model_types import MODEL_DIRECTORY_ALIASES, MODEL_TYPES, type_for_folder_name
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.runtime.model_headers import (
@@ -33,6 +40,15 @@ __all__ = [
     "model_write_dir",
     "resolve_model_file",
     "model_for_path",
+    "model_for_sha256",
+    "visible_model_ids",
+    "assign_model_to_user",
+    "update_model_metadata",
+    "run_provider_fetch",
+    "InvalidModelMetadataException",
+    "ModelAssignmentException",
+    "ModelNotFoundException",
+    "ProviderFetchException",
     "MODEL_DIRECTORY_ALIASES",
     "type_for_folder_name",
     "MODEL_TYPES",
@@ -76,9 +92,12 @@ def resolve_model_file(model_id: str) -> Path:
     return get_container().model_locator.path_for_model(model_id)
 
 
-def model_for_path(path: str) -> Optional[Dict[str, Any]]:
+def model_for_path(path: str, *, admin: bool = False) -> Optional[Dict[str, Any]]:
+    """The catalog model at `path`, or None. `admin=True` adds the operational
+    fields (location, file size, hash ...) for a caller that has checked the user
+    is an admin; never hand them to a regular user."""
     model = get_container().model_locator.model_for_path(path)
-    return model.to_dict(include_providers=False) if model is not None else None
+    return model.to_dict(include_providers=False, admin=admin) if model is not None else None
 
 
 def get_model_provider_info(model_id: str, provider: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -97,3 +116,62 @@ def get_model_provider_info(model_id: str, provider: Optional[str] = None) -> Op
         "provider_version_id": info.provider_version_id,
         "model_name": info.name,
     }
+
+
+def model_for_sha256(sha256: str, *, admin: bool = False) -> Optional[Dict[str, Any]]:
+    """The catalog model with this SHA256 (any case), as `model_for_path` returns
+    it, or None. Unscoped: check `visible_model_ids` before showing it to a
+    non-admin, and `admin=True` only for a caller that has checked the user is one."""
+    if not sha256:
+        return None
+    model = get_container().model_repository.get_by_sha256(sha256.strip().lower(), include_providers=False)
+    return model.to_dict(include_providers=False, admin=admin) if model is not None else None
+
+
+def visible_model_ids(user_id: str) -> List[str]:
+    """Ids of the models assigned to `user_id`, directly or through their groups."""
+    if not user_id:
+        return []
+    return list(get_container().model_repository.get_available_model_ids_for_user(user_id))
+
+
+def assign_model_to_user(model_id: str, user_id: str) -> bool:
+    """Make a catalog model visible to one user. True when newly assigned, False
+    when it already was; `ModelAssignmentException` when a hook blocks it or the
+    model or the user is unknown."""
+    try:
+        get_container().model_index_manager.assignments.assign_model_to_user(model_id, user_id)
+    except ModelAlreadyAssignedException:
+        return False
+    return True
+
+
+def update_model_metadata(model_id: str, values: Dict[str, Any]) -> Dict[str, Any]:
+    """Set some of a model's shared attribute values, keeping the others; returns
+    the values afterwards. `InvalidModelMetadataException` for a key or value the
+    type's definitions refuse, `ModelNotFoundException` for an unknown model."""
+    container = get_container()
+    model = container.model_repository.get_by_id(model_id, include_providers=False, include_tags=False)
+    if model is None:
+        raise ModelNotFoundException(f"Model '{model_id}' not found")
+    current = dict(model.model_metadata or {})
+    merged = {**current, **dict(values)}
+    if merged == current:
+        return current
+    container.model_index_manager.metadata.update_model_metadata(model_id, merged)
+    return merged
+
+
+async def run_provider_fetch(provider: str, model_ids: List[str]) -> Dict[str, Any]:
+    """Fill the named models' empty description, triggers, tags and previews from
+    a marketplace provider; returns `{"successful", "failed", "errors"}`. Nothing
+    is fetched for an empty `model_ids`. `ProviderFetchException` for a provider
+    that is unknown or not initialised, or when a `model_index.before_fetch_info`
+    handler vetoes the fetch."""
+    wanted = [model_id for model_id in model_ids if model_id]
+    if not wanted:
+        return {"successful": 0, "failed": 0, "errors": []}
+    fetcher = get_container().model_index_manager.provider_info
+    fetcher.fetch_provider_info(provider, model_ids=wanted)
+    summary = await fetcher.run_provider_fetch(provider, model_ids=wanted)
+    return dict(summary) if isinstance(summary, dict) else {"successful": 0, "failed": len(wanted), "errors": []}

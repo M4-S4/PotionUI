@@ -155,6 +155,7 @@ class DownloadQueue:
             backend_model_indexer=self.backend_model_indexer,
             resolver=self.resolver,
             local_model_indexer=self.local_model_indexer,
+            plugin_registry=self.plugins,
         )
         self._worker_loop = self._persistent_loop.ensure_running()
         await self._call_on_worker(self.worker.start())

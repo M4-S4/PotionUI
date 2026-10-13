@@ -213,8 +213,37 @@ from src.plugin_api.limits import (
     LimitEvents,
     LimitExceeded,
     LimitKind,
+    LimitStatus,
     MeasureContext,
     Usage,
+    limit_status,
+)
+
+# Queueing downloads and following them.
+from src.plugin_api.downloads import (
+    DownloadNotFoundException,
+    DownloadQueueException,
+    UnsafeFilenameException,
+    get_download,
+    queue_model_download,
+)
+
+# User groups and the content policy that applies to a user.
+from src.plugin_api.groups import (
+    assign_models_to_group,
+    effective_content_policy,
+    get_user_groups,
+    group_member_ids,
+    list_groups,
+)
+
+# Notifying users.
+from src.plugin_api.notifications import (
+    DuplicateNotificationTypeError,
+    NotificationTypeRegistry,
+    NotificationTypeSpec,
+    notify,
+    register_notification_types,
 )
 
 from src.plugin_api.setup import SetupCheck, SetupCheckContext, SetupCheckResult
@@ -231,13 +260,22 @@ from src.plugin_api.phrasebook import (
 # Model metadata field identifiers, and a model's marketplace provider link.
 from src.plugin_api.models import (
     MODEL_DIRECTORY_ALIASES,
+    InvalidModelMetadataException,
+    ModelAssignmentException,
+    ModelNotFoundException,
+    ProviderFetchException,
     WellKnownModelMetadataField,
+    assign_model_to_user,
     get_model_provider_info,
     model_for_path,
+    model_for_sha256,
     model_type_dirs,
     model_write_dir,
     resolve_model_file,
+    run_provider_fetch,
     type_for_folder_name,
+    update_model_metadata,
+    visible_model_ids,
 )
 
 # Contributing a step algorithm or a sigma schedule to the native engine.
@@ -268,8 +306,28 @@ __all__ = [
     "LimitEvents",
     "LimitExceeded",
     "LimitKind",
+    "LimitStatus",
     "MeasureContext",
     "Usage",
+    "limit_status",
+    # Downloads
+    "DownloadNotFoundException",
+    "DownloadQueueException",
+    "UnsafeFilenameException",
+    "get_download",
+    "queue_model_download",
+    # User groups and content policy
+    "assign_models_to_group",
+    "effective_content_policy",
+    "get_user_groups",
+    "group_member_ids",
+    "list_groups",
+    # Notifications
+    "DuplicateNotificationTypeError",
+    "NotificationTypeRegistry",
+    "NotificationTypeSpec",
+    "notify",
+    "register_notification_types",
     # Identity
     "AccountType",
     "ExternalLoginError",
@@ -426,15 +484,24 @@ __all__ = [
     "BatchPreview",
     "PhrasebookBatchContext",
     "PhrasebookBatchOperation",
-    # Model metadata fields, and a model's marketplace provider link
+    # Model metadata fields, a model's marketplace provider link, and acting on catalog models
     "WellKnownModelMetadataField",
     "get_model_provider_info",
     "MODEL_DIRECTORY_ALIASES",
     "model_for_path",
+    "model_for_sha256",
     "model_type_dirs",
     "model_write_dir",
     "resolve_model_file",
     "type_for_folder_name",
+    "visible_model_ids",
+    "assign_model_to_user",
+    "update_model_metadata",
+    "run_provider_fetch",
+    "InvalidModelMetadataException",
+    "ModelAssignmentException",
+    "ModelNotFoundException",
+    "ProviderFetchException",
     "SetupCheck",
     "SetupCheckContext",
     "SetupCheckResult",
