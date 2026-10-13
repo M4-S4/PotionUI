@@ -40,7 +40,7 @@
  * otherwise deterministic: no timestamps, dates or random ids are emitted,
  * and entry/outfile names are derived from the component name, not a hash.
  */
-import { readFileSync, existsSync, readdirSync, statSync, unlinkSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, statSync, lstatSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
 import { createRequire } from 'module';
@@ -72,9 +72,14 @@ const PAGE_RUNES_OVERRIDES = {};
 
 const DEBUG_BUILD = process.argv.includes('--debug') || process.env.PLUGIN_BUILD === 'debug';
 
-const BUILD_OPTIONS = DEBUG_BUILD
-	? { minify: false, sourcemap: true, legalComments: 'eof' }
-	: { minify: true, sourcemap: false, legalComments: 'eof' };
+const BUILD_OPTIONS = {
+	legalComments: 'eof',
+	...(DEBUG_BUILD ? { minify: false, sourcemap: true } : { minify: true, sourcemap: false })
+};
+
+function buildOptions(plugin) {
+	return { ...BUILD_OPTIONS, preserveSymlinks: lstatSync(plugin.dir).isSymbolicLink() };
+}
 
 /** A release build doesn't emit a `.map`, but esbuild never cleans an outdir - a
  * `.map` left over from a prior debug build (or from before this policy existed)
@@ -157,7 +162,7 @@ async function buildPagePlugin(plugin, srcDir, distDir) {
 			})
 		],
 		external: [],
-		...BUILD_OPTIONS
+		...buildOptions(plugin)
 	});
 	removeStaleMap(outfile);
 
@@ -198,7 +203,7 @@ async function buildComponentPlugin(plugin, srcDir, distDir, skip = new Set()) {
 			})
 		],
 		external: [],
-		...BUILD_OPTIONS,
+		...buildOptions(plugin),
 		target: 'es2020',
 		platform: 'browser'
 	});
