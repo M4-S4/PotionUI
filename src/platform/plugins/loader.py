@@ -542,24 +542,12 @@ class PluginLoader:
             self._ensure_parent_packages(package_name, module_path, manifest.plugin_dir)
 
             # Load the module
-            spec = importlib.util.spec_from_file_location(
-                module_name,
-                module_file,
-                submodule_search_locations=[str(manifest.plugin_dir)]
-            )
+            spec = importlib.util.spec_from_file_location(module_name, module_file)
             if spec is None or spec.loader is None:
                 logger.error(f"Failed to create module spec for {module_file}")
                 return None
 
             module = importlib.util.module_from_spec(spec)
-
-            # Set __package__ to enable relative imports
-            parts = module_path.rsplit('.', 1)
-            if len(parts) > 1:
-                module.__package__ = f"{package_name}.{parts[0]}"
-            else:
-                module.__package__ = package_name
-
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
 

@@ -1,8 +1,10 @@
 """Tests for the plugin loader"""
 
+import sys
 import unittest
 import tempfile
 import shutil
+import warnings
 from pathlib import Path
 
 from src.platform.plugins.loader import PluginLoader, PluginManifest
@@ -47,6 +49,13 @@ class TestPluginLoader(unittest.TestCase):
             yaml.dump(manifest_data, f)
 
         return plugin_dir
+
+    def _forget_plugin_modules(self, package_name: str, plugin_dir: Path) -> None:
+        """Helper to drop what loading a plugin left in sys.modules and sys.path"""
+        for name in [n for n in sys.modules if n == package_name or n.startswith(f"{package_name}.")]:
+            del sys.modules[name]
+        while str(plugin_dir) in sys.path:
+            sys.path.remove(str(plugin_dir))
 
     def test_discover_no_plugins(self):
         """Test discovering when no plugins exist"""
@@ -397,6 +406,44 @@ def test_function():
         self.assertIsNotNone(module)
         self.assertTrue(hasattr(module, 'test_function'))
         self.assertEqual(module.test_function(), "Hello from plugin")
+
+    def test_load_plugin_module_relative_import_matches_spec_parent(self):
+        """Test that a relative import inside a plugin module raises no __package__ != __spec__.parent warning"""
+        manifest_data = {
+            'id': 'relative-plugin',
+            'name': 'Relative Plugin',
+            'version': '1.0.0',
+            'description': 'Plugin whose module imports a sibling',
+            'author': 'Relative Author',
+            'type': 'full-stack'
+        }
+
+        plugin_dir = self._create_test_plugin(self.marketplace_dir, 'relative-plugin', manifest_data)
+        self.addCleanup(self._forget_plugin_modules, "relative_plugin", plugin_dir)
+
+        module_dir = plugin_dir / "hooks"
+        module_dir.mkdir()
+        (module_dir / "helper.py").write_text("VALUE = 'from the sibling'\n")
+        (module_dir / "handler.py").write_text(
+            "from .helper import VALUE\n"
+            "from . import helper\n"
+            "\n"
+            "def handler():\n"
+            "    return VALUE, helper.VALUE\n"
+        )
+
+        plugins = self.loader.discover_plugins()
+        manifest = plugins[0]
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            warnings.simplefilter("error", ImportWarning)
+            module = self.loader.load_plugin_module(manifest, "hooks.handler")
+
+        self.assertIsNotNone(module)
+        self.assertEqual(module.__package__, module.__spec__.parent)
+        self.assertEqual(module.__package__, "relative_plugin.hooks")
+        self.assertEqual(module.handler(), ("from the sibling", "from the sibling"))
 
     def test_load_hook_handler(self):
         """Test loading a hook handler function"""
