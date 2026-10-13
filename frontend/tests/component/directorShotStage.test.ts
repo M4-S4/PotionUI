@@ -5,7 +5,7 @@
 // global-prompt fallback copy, the keyframe variant's fields, the beat
 // variant's Range row appearing only on a timeline profile, and the
 // Overrides disclosure rendering its Steps/CFG inputs disabled.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import type {
 	VideoDirectorValue,
 	DirectorCapabilities,
@@ -15,6 +15,16 @@ import type {
 } from '../../src/lib/types/videoDirector';
 import type { ConsoleShot } from '../../src/lib/components/video-director/console/consoleModel';
 import type { ConsoleSelection } from '../../src/lib/components/video-director/console/consoleSelection';
+
+vi.mock('$lib/services/api/index', async (importOriginal) => {
+	const original = await importOriginal<typeof import('$lib/services/api/index')>();
+	original.api.getClient = (() => ({
+		get: vi.fn().mockResolvedValue({ data: { data: {} } }),
+		put: vi.fn().mockResolvedValue({ data: { success: true } })
+	})) as never;
+	original.api.getHistoryTools = vi.fn().mockResolvedValue({ success: true, data: [] });
+	return original;
+});
 
 const { default: ShotStage } = await import('../../src/lib/components/video-director/console/ShotStage.svelte');
 const { default: OverridesDisclosure } = await import('../../src/lib/components/video-director/console/OverridesDisclosure.svelte');
