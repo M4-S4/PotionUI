@@ -80,6 +80,7 @@ from vendor.gpl.comfyui.qwen_image21.layers import (
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...memory.residency import effective_free_vram_gb
 from ...cache_identity import identity_usable, tensor_identity
 from .config import QwenImage21Config
 
@@ -258,6 +259,16 @@ class QwenImage21DiT(NativeArchModule):
                tuple(image_slots) if image_slots else (), *ids)
         return cache, key
 
+    def _prefix_kv_fits(self, hidden_states: Tensor, prefix_len: int) -> bool:
+        free_gb = effective_free_vram_gb(hidden_states.device)
+        if free_gb is None:
+            return True
+        itemsize = hidden_states.element_size()
+        inner = self.config.inner_dim
+        entry_bytes = 2 * hidden_states.shape[0] * prefix_len * inner * itemsize * len(self.transformer_blocks)
+        pass_bytes = 4 * hidden_states.shape[0] * hidden_states.shape[1] * inner * self.config.mlp_ratio * itemsize
+        return free_gb * 1024 ** 3 >= entry_bytes + pass_bytes
+
     def _control_tokens(self, x: Tensor, timestep: Tensor, control_context: Tensor | None,
                         scale: float | None, sigma_range=None) -> tuple[Tensor, float] | None:
         if control_context is None:
@@ -320,7 +331,8 @@ class QwenImage21DiT(NativeArchModule):
                         return step_cache.record_skip()
             hidden_out = target
         else:
-            capture = prefix_key is not None and prefix_len > 0
+            capture = (prefix_key is not None and prefix_len > 0
+                       and self._prefix_kv_fits(hidden_states, prefix_len))
             captured_kvs = [] if capture else None
             injection = {}
             stream = None

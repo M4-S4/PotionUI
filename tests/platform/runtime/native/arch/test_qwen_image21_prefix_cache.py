@@ -204,3 +204,66 @@ def test_entry_is_released_when_the_run_cache_is_cleared():
         assert len(cache) == 1
     assert len(cache) == 0
     assert m.run_cache is None
+
+
+def _free_gb(monkeypatch, gb):
+    monkeypatch.setattr(
+        "src.platform.runtime.native.arch.qwen_image21.model.effective_free_vram_gb", lambda _device: gb)
+
+
+def _prefix_run(m, x, context, kwargs):
+    seen = []
+    handle = m.transformer_blocks[0].register_forward_pre_hook(lambda _m, inp: seen.append(inp[0].shape[1]))
+    try:
+        with _cached(m) as cache:
+            outs = _run(m, x, context, steps=(0.9, 0.5), **kwargs)
+            entries = len(cache)
+    finally:
+        handle.remove()
+    return seen, entries, outs
+
+
+def test_prefix_kv_is_not_captured_when_free_vram_cannot_hold_it(monkeypatch):
+    torch.manual_seed(3)
+    m = _build_ready(TINY)
+    x = torch.randn(1, 8, 4, 4)
+    context = torch.randn(1, 6, 12)
+    kwargs = {"ref_latents": [torch.randn(1, 8, 2, 2), torch.randn(1, 8, 2, 2)], "image_slots": [2, 4]}
+    expected = _run(m, x, context, steps=(0.9, 0.5), **kwargs)
+
+    _free_gb(monkeypatch, 0.0)
+    seen, entries, outs = _prefix_run(m, x, context, kwargs)
+
+    assert seen == [30, 30]
+    assert entries == 0
+    _assert_close_seq(expected, outs)
+
+
+def test_prefix_kv_is_captured_when_free_vram_holds_it(monkeypatch):
+    torch.manual_seed(3)
+    m = _build_ready(TINY)
+    x = torch.randn(1, 8, 4, 4)
+    context = torch.randn(1, 6, 12)
+    kwargs = {"ref_latents": [torch.randn(1, 8, 2, 2), torch.randn(1, 8, 2, 2)], "image_slots": [2, 4]}
+
+    _free_gb(monkeypatch, 64.0)
+    seen, entries, _ = _prefix_run(m, x, context, kwargs)
+
+    assert seen == [30, 16]
+    assert entries == 1
+
+
+def test_prefix_kv_capture_threshold_is_the_cache_plus_one_full_pass(monkeypatch):
+    m = _build_ready(TINY)
+    x = torch.randn(1, 8, 4, 4)
+    context = torch.randn(1, 6, 12)
+    kwargs = {"ref_latents": [torch.randn(1, 8, 2, 2)], "image_slots": [2]}
+    n, prefix = 6 + 4 + 16, 10
+    entry = 2 * prefix * 128 * 4 * 2
+    full_pass = 4 * n * 128 * 3 * 4
+    need_gb = (entry + full_pass) / 1024 ** 3
+
+    _free_gb(monkeypatch, need_gb * 0.99)
+    assert _prefix_run(m, x, context, kwargs)[1] == 0
+    _free_gb(monkeypatch, need_gb * 1.01)
+    assert _prefix_run(m, x, context, kwargs)[1] == 1
