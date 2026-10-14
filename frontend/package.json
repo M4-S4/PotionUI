@@ -42,7 +42,8 @@
     "three": "^0.183.0"
   },
   "overrides": {
-    "cookie": "^0.7.0"
+    "cookie": "^0.7.0",
+    "postcss-selector-parser": "^7.1.6"
   },
   "type": "module"
 }
