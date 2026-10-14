@@ -97,7 +97,7 @@ def update_plugin_settings(
     # Update each setting
     for key, value in settings.items():
         # Serialize value for storage
-        if isinstance(value, (dict, list)):
+        if isinstance(value, (bool, dict, list)):
             value_str = json.dumps(value)
         else:
             value_str = str(value)

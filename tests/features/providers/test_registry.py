@@ -368,6 +368,27 @@ class TestProviderRegistry(unittest.TestCase):
         self.assertIn('mock', service._initialized_providers)
 
     @patch('src.features.providers.registry.PluginRepository')
+    def test_update_provider_settings_stores_booleans_as_json_literals(self, mock_plugin_repo):
+        """A boolean is stored as true/false, not Python's True/False; other values with str(), None as ""."""
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+        service._providers['mock'] = MockProvider()
+        mock_plugin_repo.return_value.get_plugin_settings.return_value = []
+
+        async def run_test():
+            return await service.update_provider_settings(
+                'mock', {'download_media': False, 'verify': True, 'max_media_files': 5, 'api_key': None}, user_id='u1'
+            )
+
+        self.assertTrue(asyncio.run(run_test()))
+        stored = {
+            call.kwargs['setting_key']: call.kwargs['setting_value']
+            for call in mock_plugin_repo.return_value.set_plugin_setting.call_args_list
+        }
+        self.assertEqual(stored, {'download_media': 'false', 'verify': 'true', 'max_media_files': '5', 'api_key': ''})
+
+    @patch('src.features.providers.registry.PluginRepository')
     def test_reinitialize_provider_unknown_id(self, mock_plugin_repo):
         """An unknown provider id reinitializes to False."""
         from src.features.providers.registry import ProviderRegistry

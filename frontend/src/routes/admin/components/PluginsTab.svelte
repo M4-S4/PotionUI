@@ -30,6 +30,7 @@
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { pluginDetailTabsFor, isPluginDetailTab, hasHiddenAdminTabs, ADMIN_PLUGIN_TABS_HOOK, type PluginDetailTabId } from './pluginDetailTabs';
+	import { pluginSettingFormValues } from './pluginSettingValues';
 	import { resolveCategory, pluginTypeLabel } from '$lib/plugins/categories';
 	import { PLUGIN_SECTIONS, pluginSectionFromSearchParams, type PluginSection } from './plugins/pluginSections';
 	import PluginFiltersPopover from './plugins/PluginFiltersPopover.svelte';
@@ -184,11 +185,7 @@
 	}
 
 	function initSettingsValues(detail: Plugin) {
-		const schema = detail.settings_schema || [];
-		const values: Record<string, any> = { ...(detail.settings_values || {}) };
-		for (const s of schema) {
-			if (!(s.name in values) && s.default !== undefined) values[s.name] = s.default;
-		}
+		const values = pluginSettingFormValues(detail.settings_schema, detail.settings_values);
 		settingsValues = values;
 		settingsSnapshot = JSON.stringify(values);
 	}
@@ -516,7 +513,7 @@
 													{/if}
 													{#if schema.type === 'boolean'}
 														<Switch
-															checked={!!settingsValues[schema.name]}
+															checked={settingsValues[schema.name] === true}
 															onchange={(v) => (settingsValues[schema.name] = v)}
 															label={schema.label}
 															id={schema.name}
