@@ -424,7 +424,7 @@ def attach_context_block(conversation_history: List[Dict[str, Any]], block: str)
     conversation_history.append({"role": "user", "content": block})
 
 
-def _atomic_units(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
+def atomic_units(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
     """Group *messages* into the smallest units that must be dropped whole.
 
     An assistant turn that dispatched tool calls is grouped with the ``tool``
@@ -451,11 +451,11 @@ def _atomic_units(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
     return units
 
 
-def _current_turn_anchor(units: List[List[Dict[str, Any]]]) -> Optional[int]:
+def current_turn_anchor(units: List[List[Dict[str, Any]]]) -> Optional[int]:
     """Index of the unit that anchors the current turn: the LAST user-role
     unit in the list.
 
-    A user message is always its own atomic unit — `_atomic_units` only ever
+    A user message is always its own atomic unit — `atomic_units` only ever
     groups an assistant tool-calls message with the `tool` results that
     follow it, never a user message with anything else — so the last unit
     whose sole message has role "user" reliably identifies the turn every
@@ -486,7 +486,7 @@ def _protected_unit_count(units: List[List[Dict[str, Any]]]) -> int:
     fitting.
 
     Protected, in full — everything from the current-turn anchor (see
-    ``_current_turn_anchor``) to the end of the list, plus a system-role
+    ``current_turn_anchor``) to the end of the list, plus a system-role
     message at index 0 when it directly precedes the anchor (``anchor ==
     1``): a caller-prepended system turn (this module never produces one
     itself — every per-turn injection instead folds into the anchor's own
@@ -498,7 +498,7 @@ def _protected_unit_count(units: List[List[Dict[str, Any]]]) -> int:
     """
     if not units:
         return 0
-    anchor = _current_turn_anchor(units)
+    anchor = current_turn_anchor(units)
     if anchor is None:
         return 1
     protected_from = anchor
@@ -516,7 +516,7 @@ def fit_messages(
     """Keep whole tool-call/result groups from the tail while they fit
     *available_tokens*, dropping the oldest first. Never mutates *messages*.
     """
-    units = _atomic_units(messages)
+    units = atomic_units(messages)
     if not units:
         return TrimResult([], 0, 0, True, 0, True, kept_units=[], protected_count=0)
 
@@ -668,7 +668,7 @@ def enforce_budget(
             final_fits = fallback_trim.fits
 
     final_messages = [m for unit in final_units for m in unit]
-    all_units = _atomic_units(messages)
+    all_units = atomic_units(messages)
     total_messages = sum(len(u) for u in all_units)
     final_message_count = sum(len(u) for u in final_units)
     total_groups = len(all_units)

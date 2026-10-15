@@ -13,7 +13,7 @@ import pytest
 
 from src.features.chat.runtime import ChatRuntime
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
-from src.features.chat.dto import MessageResponse, ToolApprovalRequest
+from src.features.chat.dto import MessageResponse, ToolResolveRequest
 from src.features.chat.routes import ChatController
 from src.features.chat.turns import ChatTurnRegistry, TurnAlreadyRunningError
 from src.platform.security.user import User
@@ -750,30 +750,29 @@ class TestPersistenceSurvivesDisconnect:
 
 class TestApprovalAcrossConnections:
     @pytest.mark.asyncio
-    async def test_approval_works_with_no_active_turn(self):
-        """Approving a pending tool is a plain POST — it must not depend on the
-        original stream still being connected, nor on an active turn existing."""
+    async def test_resolve_works_with_no_active_turn(self):
         manager = Mock()
         manager.get_session.return_value = Mock(id="s1")
-        manager.approve_tool_execution = AsyncMock(return_value={
-            "result": {"success": True, "data": "done", "error": None},
-            "assistant_message": {"id": "a2", "role": "assistant", "content": "Removed it."},
+        manager.resolve_tool_execution = AsyncMock(return_value={
+            "status": "approved",
+            "execution": {"tool_name": "remove_stuff", "approval_status": "approved"},
+            "message_id": "m1",
+            "tool_index": 0,
         })
 
         registry = ChatTurnRegistry()
         controller = ChatController(chat_runtime=manager, turn_registry=registry)
 
-        # No turn was ever started for this session.
         assert registry.active("s1") is None
 
         user = User(id="u1", username="u", email="e@x.com", password_hash="h", account_type="USER")
-        result = await controller.approve_tool(
-            "s1", ToolApprovalRequest(message_id="m1", tool_index=0, approved=True), user,
+        result = await controller.resolve_tool(
+            "s1", ToolResolveRequest(message_id="m1", tool_index=0, approved=True), user,
         )
 
         assert result.success is True
-        manager.approve_tool_execution.assert_awaited_once()
-        assert result.data["assistant_message"]["id"] == "a2"
+        manager.resolve_tool_execution.assert_awaited_once()
+        assert result.data["status"] == "approved"
 
 
 class TestTurnErrorDisclosure:

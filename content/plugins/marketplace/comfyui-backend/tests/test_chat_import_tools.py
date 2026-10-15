@@ -288,7 +288,7 @@ def test_execute_confirmed_stamps_the_proposal_turn_context_not_model_supplied_k
     parameter schema - there is no `draft_id` a model could echo through it -
     but a malformed/forged call passing one anyway must still be ignored: the
     stamped value always comes from `context.session_metadata`, which
-    `approve_tool_execution` rebuilds from the message's own persisted
+    `resolve_tool_execution` rebuilds from the message's own persisted
     `context_metadata` (see `ToolCallDispatcher`), never from the tool
     arguments themselves."""
     tool = ProposeFormChangesTool()

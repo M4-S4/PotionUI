@@ -105,20 +105,35 @@ describe('applyToolEnd', () => {
 		expect(out[1].tool_executions![0].result.success).toBe(false);
 	});
 
-	it('appends a pending-approval execution entry', () => {
+	it('marks the running execution pending in place instead of appending a duplicate', () => {
 		const started = applyToolStart(fixture(), { tool_name: 'update_form_settings' });
 		const out = applyToolEnd(started, {
 			tool_name: 'update_form_settings',
-			pending_approval: true,
+			approval_status: 'pending',
 			arguments: { field: 'steps' }
 		});
 		const execs = out[1].tool_executions!;
-		expect(execs).toHaveLength(2);
-		expect(execs[1]).toMatchObject({
+		expect(execs).toHaveLength(1);
+		expect(execs[0]).toMatchObject({
 			tool_name: 'update_form_settings',
-			pending_approval: true,
-			rejected: false
+			status: 'done',
+			approval_status: 'pending',
+			arguments: { field: 'steps' }
 		});
+	});
+
+	it('appends a pending entry when no running execution matches', () => {
+		const out = applyToolEnd(fixture(), { tool_name: 'start_generation', approval_status: 'pending' });
+		const execs = out[1].tool_executions!;
+		expect(execs).toHaveLength(1);
+		expect(execs[0]).toMatchObject({ tool_name: 'start_generation', approval_status: 'pending', preview: null });
+	});
+
+	it('flags a skipped sibling call', () => {
+		const started = applyToolStart(fixture(), { tool_name: 'read_form' });
+		const out = applyToolEnd(started, { tool_name: 'read_form', success: false, skipped: true });
+		expect(out[1].tool_executions![0]).toMatchObject({ skipped: true, status: 'done' });
+		expect(out[1].tool_executions![0].approval_status).toBeUndefined();
 	});
 
 	it('accumulates sources onto the last assistant message', () => {
@@ -133,16 +148,16 @@ describe('applyToolEnd', () => {
 		const preview = { action: 'Remove', target: 'from category camera', items: ['a', 'b'] };
 		const out = applyToolEnd(started, {
 			tool_name: 'remove_phrasebook_values',
-			pending_approval: true,
+			approval_status: 'pending',
 			preview
 		});
-		expect(out[1].tool_executions![1].preview).toEqual(preview);
+		expect(out[1].tool_executions![0].preview).toEqual(preview);
 	});
 
 	it('defaults the pending entry preview to null when none is sent', () => {
 		const started = applyToolStart(fixture(), { tool_name: 'update_form_settings' });
-		const out = applyToolEnd(started, { tool_name: 'update_form_settings', pending_approval: true });
-		expect(out[1].tool_executions![1].preview).toBeNull();
+		const out = applyToolEnd(started, { tool_name: 'update_form_settings', approval_status: 'pending' });
+		expect(out[1].tool_executions![0].preview).toBeNull();
 	});
 });
 
@@ -370,6 +385,46 @@ describe('applyDone', () => {
 			metadata: { foo: 'bar' }
 		});
 		expect(out[1].sources).toEqual([{ title: 's' }]);
+	});
+
+	it('reconciles an earlier message from resolved_message', () => {
+		const pendingExec = {
+			tool_name: 'start_generation',
+			arguments: {},
+			result: { success: true, data: '' },
+			duration_ms: 0,
+			approval_status: 'pending' as const
+		};
+		const msgs: UnifiedChatMessageData[] = [
+			{ id: 'a0', role: 'assistant', content: 'proposal', timestamp: 1, tool_executions: [pendingExec] },
+			{ role: 'user', content: 'no, make it blue', timestamp: 2 },
+			{ role: 'assistant', content: '', timestamp: 3, isStreaming: true }
+		];
+		const out = applyDone(msgs, {
+			user_message: { id: 'u1' },
+			assistant_message: { id: 'a1', content: 'ok' },
+			resolved_message: {
+				id: 'a0',
+				tool_executions: [{ ...pendingExec, approval_status: 'rejected', approval_reason: 'no, make it blue' }]
+			}
+		});
+		expect(out[0].tool_executions![0]).toMatchObject({
+			approval_status: 'rejected',
+			approval_reason: 'no, make it blue'
+		});
+		expect(out[0].content).toBe('proposal');
+		expect(out[1].id).toBe('u1');
+		expect(out[2].id).toBe('a1');
+	});
+
+	it('leaves the preceding assistant message alone on a continuation done', () => {
+		const msgs: UnifiedChatMessageData[] = [
+			{ id: 'a0', role: 'assistant', content: 'proposal', timestamp: 1 },
+			{ role: 'assistant', content: '', timestamp: 2, isStreaming: true }
+		];
+		const out = applyDone(msgs, { assistant_message: { id: 'a1', content: 'Done.' } });
+		expect(out[0]).toEqual(msgs[0]);
+		expect(out[1]).toMatchObject({ id: 'a1', content: 'Done.', isStreaming: false });
 	});
 
 	it('falls back to streamed content when the payload has none', () => {

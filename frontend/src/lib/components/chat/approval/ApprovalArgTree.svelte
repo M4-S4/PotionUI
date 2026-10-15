@@ -35,7 +35,7 @@
 		<div class="py-0.5">
 			<button
 				type="button"
-				class="flex items-center gap-1.5 text-left font-mono text-xs text-fg-subtle hover:text-fg-muted transition-colors"
+				class="flex items-center gap-1.5 text-left font-mono text-sm text-fg-subtle hover:text-fg-muted transition-colors"
 				aria-expanded={node.open}
 				on:click={() => toggleOpen(node)}
 			>
@@ -62,18 +62,18 @@
 								{#if node.children.length > 1}
 									<button
 										type="button"
-										class="mt-0.5 text-2xs font-semibold text-signal hover:text-signal/80 transition-colors"
+										class="mt-0.5 text-sm font-semibold text-signal hover:text-signal/80 transition-colors"
 										on:click={() => toggleItems(node)}
 									>
 										Show less
 									</button>
 								{/if}
 							{:else}
-								<div class="font-mono text-xs text-fg-disabled py-0.5">{node.preview}</div>
+								<div class="font-mono text-sm text-fg-disabled py-0.5">{node.preview}</div>
 								{#if node.children.length > 1}
 									<button
 										type="button"
-										class="mt-0.5 text-2xs font-semibold text-signal hover:text-signal/80 transition-colors"
+										class="mt-0.5 text-sm font-semibold text-signal hover:text-signal/80 transition-colors"
 										on:click={() => toggleItems(node)}
 									>
 										+{node.children.length - 1} more {node.key}
@@ -88,7 +88,7 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="py-0.5 flex items-start gap-2 font-mono text-xs">
+		<div class="py-0.5 flex items-start gap-2 font-mono text-sm">
 			<span class="text-fg-subtle flex-shrink-0 min-w-[7rem]">{node.key}</span>
 			<span class="break-words {valueClass(node)}">{node.display}</span>
 		</div>

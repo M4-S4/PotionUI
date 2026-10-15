@@ -25,7 +25,7 @@ from src.features.chat.dto import (
     MemoryWriteRequest,
     PromptFeedbackRequest,
     SendMessageRequest,
-    ToolApprovalRequest,
+    ToolResolveRequest,
     UpdateSessionRequest,
 )
 from src.features.chat import (
@@ -42,6 +42,8 @@ from src.features.chat.context_builder import MEMORY_MAX_CONTENT_LEN, MEMORY_MAX
 from src.features.chat.exceptions import (
     AdminOnlyModeException,
     ContextBudgetExceededException,
+    ContinuationConflictException,
+    ToolExecutionPendingException,
     UnknownChatModeException,
 )
 from src.features.chat.turns import ChatTurn, ChatTurnRegistry, TurnAlreadyRunningError
@@ -254,6 +256,12 @@ class ChatController(BaseController):
         user: User
     ) -> APIResponse:
         """Send a message and get AI response."""
+        if request.continue_from is not None:
+            self.error_response(
+                error="continuation_requires_stream",
+                message="A turn can only be continued through the streaming endpoint",
+                status_code=400,
+            )
         try:
             session = self.chat_runtime.get_session(session_id, user.id)
             self._require_mode_access(session.mode, user)
@@ -336,6 +344,7 @@ class ChatController(BaseController):
                         context_metadata=request.context_metadata,
                         resources=[r.uri for r in request.resources] if request.resources else None,
                         is_admin=user.account_type == AccountType.ADMIN,
+                        continue_from=request.continue_from.model_dump() if request.continue_from else None,
                     ):
                         yield event
                 except AdminOnlyModeException as e:
@@ -352,6 +361,12 @@ class ChatController(BaseController):
                     yield {"event": "error", "data": {"error": "unknown_mode", "message": str(e)}}
                 except (ContextBudgetExceededException, context_budget.ContextBudgetExceededError) as e:
                     yield {"event": "error", "data": {"error": "context_budget_exceeded", "message": str(e)}}
+                except ToolExecutionPendingException as e:
+                    yield {"event": "error", "data": {"error": "tool_execution_pending", "message": str(e)}}
+                except ContinuationConflictException as e:
+                    yield {"event": "error", "data": {"error": "continuation_conflict", "message": str(e)}}
+                except MessageCreationFailedException as e:
+                    yield {"event": "error", "data": {"error": "message_creation_failed", "message": str(e)}}
                 except Exception as e:
                     logger.exception(f"Error in streaming: {e}")
                     yield {"event": "error", "data": {"error": "stream_error", "message": failure_detail(e, user.account_type == AccountType.ADMIN)}}
@@ -402,6 +417,8 @@ class ChatController(BaseController):
         The turn runs to completion (and persists) even if this SSE connection
         drops; the client can reattach via ``reattach_stream``.
         """
+        if request.continue_from is not None:
+            self._check_continuation(session_id, request, user)
         try:
             turn = self.turn_registry.start(
                 session_id=session_id,
@@ -418,6 +435,20 @@ class ChatController(BaseController):
             return self._sse_response(busy())
 
         return self._sse_response(turn.stream())
+
+    def _check_continuation(self, session_id: str, request: SendMessageRequest, user: User) -> None:
+        try:
+            self.chat_runtime.check_continuation(session_id, user.id, request.continue_from.model_dump())
+        except SessionNotFoundException:
+            self.error_response(error="session_not_found", message="Session not found", status_code=404)
+        except AccessDeniedException:
+            self.error_response(error="access_denied", message="Access denied", status_code=403)
+        except ToolExecutionPendingException as e:
+            self.error_response(error="tool_execution_pending", message=str(e), status_code=409)
+        except ContinuationConflictException as e:
+            self.error_response(error="continuation_conflict", message=str(e), status_code=409)
+        except MessageCreationFailedException as e:
+            self.error_response(error="invalid_continuation", message=str(e), status_code=400)
 
     async def reattach_stream(
         self, session_id: str, user: User, after_seq: Optional[int] = None
@@ -642,20 +673,23 @@ class ChatController(BaseController):
             ]
         })
 
-    async def approve_tool(
+    async def resolve_tool(
         self,
         session_id: str,
-        request: ToolApprovalRequest,
+        request: ToolResolveRequest,
         user: User,
     ) -> APIResponse:
-        """Approve or reject a pending tool execution."""
         try:
-            result = await self.chat_runtime.approve_tool_execution(
+            result = await self.chat_runtime.resolve_tool_execution(
                 session_id=session_id,
                 user_id=user.id,
                 message_id=request.message_id,
                 tool_index=request.tool_index,
                 approved=request.approved,
+                reason=request.reason,
+                context_metadata=request.context_metadata,
+                force=request.force,
+                is_admin=user.account_type == AccountType.ADMIN,
             )
             return self.success_response(data=result)
         except SessionNotFoundException as e:
@@ -670,13 +704,13 @@ class ChatController(BaseController):
             )
         except MessageCreationFailedException as e:
             return self.error_api_response(
-                error="tool_approval_failed",
+                error="tool_resolve_failed",
                 message=str(e),
             )
         except Exception as e:
-            logger.exception(f"Error approving tool execution: {e}")
+            logger.exception(f"Error resolving tool execution: {e}")
             return self.error_api_response(
-                error="tool_approval_failed",
+                error="tool_resolve_failed",
                 message=failure_detail(e, user.account_type == AccountType.ADMIN),
             )
 
@@ -1056,14 +1090,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Record an approve/reject verdict on an enhancement-proposed prompt."""
         return await controller.prompt_feedback(session_id, message_id, request, current_user)
 
-    @router.post("/sessions/{session_id}/tools/approve", response_model=APIResponse, summary="Approve or reject a pending tool execution")
-    async def approve_tool_execution(
+    @router.post("/sessions/{session_id}/tools/resolve", response_model=APIResponse, summary="Resolve a pending tool execution")
+    async def resolve_tool_execution(
         session_id: str,
-        request: ToolApprovalRequest,
+        request: ToolResolveRequest,
         current_user: User = Depends(get_current_active_user)
     ):
-        """Approve or reject a pending tool execution."""
-        return await controller.approve_tool(session_id, request, current_user)
+        """Approve or reject a pending tool execution, or retry a failed one."""
+        return await controller.resolve_tool(session_id, request, current_user)
 
     @router.get("/memory", response_model=APIResponse, summary="List LLM memory notes")
     async def list_memory_notes(

@@ -54,18 +54,25 @@ class ResourceRefRequest(BaseModel):
     uri: str
 
 
+class ContinueFromRequest(BaseModel):
+    message_id: str
+    tool_index: int = Field(..., ge=0)
+
+
 class SendMessageRequest(BaseModel):
     """Request model for sending a chat message"""
     content: str
     image_data: Optional[str] = None  # Base64 encoded image
     context_metadata: Optional[Dict[str, Any]] = None  # model_id, preset_path, etc.
     resources: Optional[List[ResourceRefRequest]] = None  # @resource refs, resolved at send time
+    continue_from: Optional[ContinueFromRequest] = None
 
 
 class SendMessageResponse(BaseModel):
     """Response model for sending a chat message"""
     user_message: MessageResponse
     assistant_message: MessageResponse
+    resolved_message: Optional[Dict[str, Any]] = None
 
 
 class UpdateSessionRequest(BaseModel):
@@ -78,11 +85,13 @@ class AdminBulkDeleteSessionsRequest(BaseModel):
     session_ids: List[str] = Field(..., min_length=1, max_length=1000)
 
 
-class ToolApprovalRequest(BaseModel):
-    """Request model for approving or rejecting a pending tool execution"""
+class ToolResolveRequest(BaseModel):
     message_id: str
-    tool_index: int
+    tool_index: int = Field(..., ge=0)
     approved: bool
+    reason: Optional[str] = Field(None, max_length=2000)
+    context_metadata: Optional[Dict[str, Any]] = None
+    force: bool = False
 
 
 class PromptFeedbackRequest(BaseModel):

@@ -47,6 +47,40 @@ Tools panel). A tool the mode gains later — a restart with a new builtin, a pl
 enabled — is offered automatically unless its name is in `disabled_tools`. Tools from
 other modes are never visible.
 
+## Tool approval
+
+A tool with `requires_approval = True` returns a preview from `execute()`. The turn
+pauses on the first such call: its execution record gets `approval_status: "pending"`,
+and every later call in the same batch is recorded as `skipped` with a "Not run:
+waiting for approval" result, so each tool call the model made has an answer.
+
+1. **Resolve.** `POST /api/chat/sessions/{id}/tools/resolve` with
+   `{message_id, tool_index, approved, reason?, context_metadata?, force?}`. Approving
+   runs `execute_confirmed()` once and records `approved`, or `failed` with the real
+   error (a failed call can be approved again to retry). Rejecting records `rejected`
+   with the reason. A second resolve of the same call returns `already_resolved` and
+   runs nothing. When `context_metadata` is sent and the preview's before-values no
+   longer match the form, it returns `stale` and leaves the call pending, unless
+   `force` is set. Resolve never calls the LLM.
+2. **Continue.** `POST .../messages/stream` with `continue_from: {message_id,
+   tool_index}` and empty `content`. This is an ordinary streamed send: the same
+   context build, history budget, pre-chat actions and tracing, except that no user
+   message is stored. It returns 409 while the call is still pending, or when that
+   message has already been continued.
+
+Every assistant row stores `metadata.tool_transcript`: the call/result rounds the model
+saw. History replays it as native `assistant(tool_calls)` / `tool` messages and trims
+whole rounds only, so a continuation sees its own calls and the resolved result. The
+round budget (20) counts across the user turn and its continuations, and a call that
+repeats an already-approved call (same tool, same arguments) in that chain answers
+"Already applied earlier in this turn." instead of pausing again.
+
+Sending a normal message while a call is pending rejects it, with the message as the
+reason. The `done` event then carries `resolved_message: {id, tool_executions}`.
+
+MCP clients (`src/features/mcp/protocol.py`) run `execute_confirmed()` directly; they
+have no approval step.
+
 ## Conversation titles
 
 After the first user/assistant exchange the backend asks the session's own LLM for a

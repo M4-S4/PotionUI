@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { refusalMessage } from '$lib/plans/refusal';
 	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
-	import { logger } from '$lib/utils/logger';
-	import { parseServerDate } from '$lib/utils/relativeTime';
+	import { getErrorMessage, logger } from '$lib/utils/logger';
 	import { onDestroy, tick } from 'svelte';
 	import { browser } from '$app/environment';
 	import { scopedStorage } from '$lib/stores/identityScopedStorage';
@@ -33,16 +32,25 @@
 	import ChatHistoryView from '$lib/components/chat/ChatHistoryView.svelte';
 	import { authStore } from '$lib/stores/auth';
 	import ChatInput from '$lib/components/chat/ChatInput.svelte';
-	import ApprovalDock from '$lib/components/chat/ApprovalDock.svelte';
 	import QuestionDock from '$lib/components/chat/QuestionDock.svelte';
 	import ChatContextStrip from '$lib/components/chat/ChatContextStrip.svelte';
 	import { deriveContextStripModel, deriveTabSwitchDivider } from '$lib/chat/contextStrip';
 	import ChatThinkingBubble from '$lib/components/chat/ChatThinkingBubble.svelte';
-	import { deriveApprovalQueue } from '$lib/chat/approvalQueue';
+	import {
+		actionToolLabel,
+		continuationErrorText,
+		latestPendingExecution,
+		markExecutionRejected,
+		redoRequestText,
+		replaceExecution,
+		type ActionDecision,
+		type ActionResolveOutcome
+	} from '$lib/chat/actionCard';
 	import { deriveQuestionQueue, dismissedQuestions } from '$lib/chat/questionQueue';
 	import type {
 		UnifiedChatMessageData as ChatMessageData,
-		ResourceChipData
+		ResourceChipData,
+		ToolExecution
 	} from '$lib/types/chat';
 	import type { Segment } from '$lib/types/segments';
 	import { buildVariablesSnapshot } from '$lib/utils/variableSnapshot';
@@ -136,7 +144,7 @@
 	// `currentMode` (see loadAllData, which resolves it once for a conversation
 	// that's still fresh).
 	$: currentPageMode = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
-	$: pendingApprovalQueue = deriveApprovalQueue(messages);
+	$: pendingAction = latestPendingExecution(messages);
 	$: pendingQuestionQueue = deriveQuestionQueue(messages, $dismissedQuestions);
 
 	// UI state
@@ -861,6 +869,7 @@
 		sessionLoadRequestId += 1;
 		if (stripFlashTimer) clearTimeout(stripFlashTimer);
 		if (pinnedScrollHandle !== null) cancelFrame(pinnedScrollHandle);
+		pendingCardObserver?.disconnect();
 	});
 
 	async function handleCommand(command: string): Promise<boolean> {
@@ -934,6 +943,57 @@
 		await sendMessage(instruction, { resourceRefs, attachedResources });
 	}
 
+	function buildContextMetadata(): Record<string, any> {
+		const tab = contextTab;
+		const activeSegments: Segment[] = videoDirectorActive ? [] : tab?.promptSegments || [];
+		const negativeSegments: Segment[] = videoDirectorActive ? [] : tab?.negativePromptSegments || [];
+		const mapSegment = (seg: Segment, i: number, negative: boolean) => ({
+			index: i,
+			id: seg.id,
+			content: seg.content,
+			name: seg.name || seg.title || null,
+			type: seg.type || 'content',
+			enabled: isSegmentEnabled(seg),
+			...(seg.prefix ? { prefix: seg.prefix } : {}),
+			...(seg.suffix ? { suffix: seg.suffix } : {}),
+			...(seg.template ? { template: seg.template } : {}),
+			...(negative ? { negative: true } : {})
+		});
+		const generatePageActive = isGeneratePageContext(currentPageMode);
+		const generationPresetActive = isGenerationPresetContext(currentMode);
+		const contextMetadata: Record<string, any> = {
+			segments: [
+				...activeSegments.map((seg, i) => mapSegment(seg, i, false)),
+				...negativeSegments.map((seg, i) => mapSegment(seg, activeSegments.length + i, true))
+			],
+			form_state: {
+				preset: generationPresetActive ? tab?.selectedPreset || null : null,
+				tab_id: generatePageActive ? tab?.id ?? null : null,
+				session_id: chatFormSessionId(tab, currentMode),
+				mode: tab?.selectedMode || null,
+				variant: tab?.selectedVariant || null,
+				form_data: generatePageActive ? tab?.formData || {} : {},
+				variables: buildVariablesSnapshot(tab?.variables, tab?.variableRolls),
+				video_director: videoDirectorActive
+					? {
+							active: true,
+							doc: normalizeDirectorValue(tab?.videoDirector, videoDirectorCaps!),
+							capabilities: videoDirectorCapsRaw
+						}
+					: { active: false, doc: null, capabilities: null },
+				music_director: musicDirectorActive
+					? {
+							active: true,
+							doc: normalizeMusicDirectorValue(tab?.musicDirector, musicDirectorCaps!),
+							capabilities: musicDirectorCapsRaw
+						}
+					: { active: false, doc: null, capabilities: null }
+			}
+		};
+		Object.assign(contextMetadata, collectProvidedContext());
+		return contextMetadata;
+	}
+
 	/**
 	 * Send `instruction` as a user turn through the same streaming pipeline
 	 * `handleSend` drives — factored out so a programmatic send (answering a
@@ -1004,78 +1064,10 @@
 		const disabledToolsPayload = $chatSession.disabledTools;
 
 		function buildPayload(): SendMessagePayload {
-			// Build context_metadata so LLM tools have access to form state.
-			// In Video Director mode "segment #N" means a shot (get_video_director),
-			// not a global prompt segment, so the global segments never go out as
-			// the chat's `segments` context — get_current_segments/PROMPT STATE stay
-			// unavailable and can't compete with that meaning. tab.videoDirector.
-			// global_prompt_segments is still read directly by handleApplySegmentAction
-			// (old transcripts can still apply an update_segment card).
-			const tab = contextTab;
-			const activeSegments: Segment[] = videoDirectorActive ? [] : tab?.promptSegments || [];
-			const negativeSegments: Segment[] = videoDirectorActive
-				? []
-				: tab?.negativePromptSegments || [];
-			const mapSegment = (seg: Segment, i: number, negative: boolean) => ({
-				index: i,
-				id: seg.id,
-				content: seg.content,
-				name: seg.name || seg.title || null,
-				type: seg.type || 'content',
-				enabled: isSegmentEnabled(seg),
-				...(seg.prefix ? { prefix: seg.prefix } : {}),
-				...(seg.suffix ? { suffix: seg.suffix } : {}),
-				...(seg.template ? { template: seg.template } : {}),
-				...(negative ? { negative: true } : {})
-			});
-			// The shared Generate-page tab store (`tab`, above) describes whatever
-			// tab happens to be pinned/active there regardless of which page this
-			// chat is actually open on. `preset` follows the CHAT SESSION's own
-			// mode (see isGenerationPresetContext) so a generation-mode session
-			// stays tied to the Generate tab's active preset even when opened
-			// from History — the backend scopes memory reflection to it.
-			// `form_data` is live form content, so it stays gated on the page
-			// itself (see isGeneratePageContext): only meaningful while the chat
-			// is actually open on the Generate page.
-			const generatePageActive = isGeneratePageContext(currentPageMode);
-			const generationPresetActive = isGenerationPresetContext(currentMode);
-			const contextMetadata: Record<string, any> = {
-				segments: [
-					...activeSegments.map((seg, i) => mapSegment(seg, i, false)),
-					...negativeSegments.map((seg, i) => mapSegment(seg, activeSegments.length + i, true))
-				],
-				form_state: {
-					preset: generationPresetActive ? tab?.selectedPreset || null : null,
-					tab_id: generatePageActive ? tab?.id ?? null : null,
-					session_id: chatFormSessionId(tab, currentMode),
-					mode: tab?.selectedMode || null,
-					variant: tab?.selectedVariant || null,
-					form_data: generatePageActive ? tab?.formData || {} : {},
-					variables: buildVariablesSnapshot(tab?.variables, tab?.variableRolls),
-					video_director: videoDirectorActive
-						? {
-								active: true,
-								doc: normalizeDirectorValue(tab?.videoDirector, videoDirectorCaps!),
-								capabilities: videoDirectorCapsRaw
-							}
-						: { active: false, doc: null, capabilities: null },
-					music_director: musicDirectorActive
-						? {
-								active: true,
-								doc: normalizeMusicDirectorValue(tab?.musicDirector, musicDirectorCaps!),
-								capabilities: musicDirectorCapsRaw
-							}
-						: { active: false, doc: null, capabilities: null }
-				}
-			};
-			// Include image URL so backend can store it for chat history display
+			const contextMetadata = buildContextMetadata();
 			if (effectiveImageData?.url) {
 				contextMetadata.image_url = effectiveImageData.url;
 			}
-			// Plugin-contributed context (window.__potionui.chat.provideContext),
-			// keyed by the provider's own key - never touches segments/form_state.
-			Object.assign(contextMetadata, collectProvidedContext());
-
 			return {
 				content: instruction,
 				imageData: effectiveImageData?.relative_path || effectiveImageData?.path || undefined,
@@ -1083,6 +1075,11 @@
 				resources: resourceRefs,
 				timeoutSeconds: selectedConfig?.timeout
 			};
+		}
+
+		const pendingRef = latestPendingExecution($chatSession.messages);
+		if (pendingRef) {
+			chatSession.updateMessages((msgs) => markExecutionRejected(msgs, pendingRef, instruction));
 		}
 
 		await turnControllerSendMessage(buildTurnControllerDeps(), {
@@ -1224,102 +1221,149 @@
 		}
 	}
 
-	function handleToolApprovalResolved(data: {
-		messageId: string;
-		index: number;
-		approved: boolean;
-		updatedExecution: import('$lib/types/chat').ToolExecution;
-		assistantMessage: any | null;
-	}) {
-		// Reflect the resolved execution on the originating message.
-		chatSession.updateMessages((msgs) =>
-			msgs.map((m) => {
-				if (m.id !== data.messageId) return m;
-				const execs = (m.tool_executions || []).map((te, i) =>
-					i === data.index ? data.updatedExecution : te
-				);
-				return { ...m, tool_executions: execs };
+	async function handleResolveAction(
+		messageId: string,
+		index: number,
+		decision: ActionDecision
+	): Promise<ActionResolveOutcome> {
+		const id = $chatSession.sessionId;
+		if (!id) throw new Error('This conversation is not saved yet.');
+		if ($chatSession.isGenerating) throw new Error('Wait for the current reply to finish.');
+		setActionError(messageId, index, null);
+		const response = await api.resolveToolExecution(id, {
+			message_id: messageId,
+			tool_index: index,
+			approved: decision.approved,
+			...(decision.reason ? { reason: decision.reason } : {}),
+			...(decision.force ? { force: true } : {}),
+			context_metadata: buildContextMetadata()
+		});
+		if (!response.success || !response.data) {
+			throw new Error(response.message || response.error || 'Could not resolve this action.');
+		}
+		const { status, execution } = response.data;
+		if ($chatSession.sessionId !== id || status === 'stale') return { status };
+		chatSession.updateMessages((msgs) => replaceExecution(msgs, messageId, index, execution));
+		if (status === 'already_resolved') return { status };
+		const note = status === 'approved' ? await applyApprovedExecution(execution) : null;
+		if (!$chatSession.isGenerating && $chatSession.sessionId === id) {
+			void continueAfterResolve(messageId, index);
+		}
+		return { status, note };
+	}
+
+	async function applyApprovedExecution(execution: ToolExecution): Promise<string | null> {
+		window.dispatchEvent(
+			new CustomEvent('potionui:tool-approved', {
+				detail: { tool_name: execution.tool_name, result: execution.result }
 			})
 		);
-
-		// An approved tool's result may carry an action the frontend must apply
-		// (form field changes, Video Director ops, a prompt-relay timeline) —
-		// same subtractive gate as every other AI-initiated mutation (enableTools).
-		// A plugin-registered handler may report back a ToolAppliedOutcome
-		// (see pageContext.ts) when what it narrated to the model doesn't match
-		// what actually landed - e.g. a proposal built for a page state the
-		// plugin has since moved on from. The backend's own narration below
-		// (data.assistantMessage) is generated before the plugin ever runs, so
-		// it can say "done" even when the outcome here is stale/partial; that
-		// case is shown in place of the backend's narration instead.
-		let toolOutcome: ReturnType<typeof dispatchToolApplied> | null = null;
-		if (data.approved && enableTools) {
-			try {
-				const resultData = JSON.parse(data.updatedExecution.result?.data || '');
-				// A plugin-registered handler (window.__potionui.chat.onToolApplied)
-				// for this tool name takes over entirely - skip the hardcoded
-				// core actions below so a plugin tool's result isn't misread as
-				// one of these.
-				toolOutcome = dispatchToolApplied(data.updatedExecution.tool_name, resultData);
-				if (!toolOutcome) {
-					if (resultData.action === 'apply_form_changes') {
-						handleFormChangesApplied(resultData.applied_changes);
-					}
-					if (resultData.action === 'apply_music_director_ops') {
-						handleMusicDirectorApplied(resultData.operations);
-					}
-					if (resultData.action === 'set_prompt_relay') {
-						handlePromptRelaySet(resultData);
-					}
-					if (resultData.action === 'apply_segment_updates') {
-						handleSegmentUpdatesApplied(resultData.updates);
-					}
-					if (resultData.action === 'apply_variable_changes') {
-						handleVariableChangesApplied(resultData.operations);
-					}
+		if (!enableTools) return null;
+		let resultData: any;
+		try {
+			resultData = JSON.parse(execution.result?.data || '');
+		} catch {
+			return null;
+		}
+		try {
+			const outcome = dispatchToolApplied(execution.tool_name, resultData);
+			if (outcome) {
+				if (typeof outcome === 'object' && (outcome.status === 'stale' || outcome.status === 'partial')) {
+					return outcome.message || 'Only part of this change could be applied.';
 				}
-			} catch {
-				/* result not JSON — nothing to apply */
+				return null;
 			}
+			if (resultData.action === 'apply_form_changes') handleFormChangesApplied(resultData.applied_changes);
+			if (resultData.action === 'apply_music_director_ops') handleMusicDirectorApplied(resultData.operations);
+			if (resultData.action === 'set_prompt_relay') handlePromptRelaySet(resultData);
+			if (resultData.action === 'apply_segment_updates') await handleSegmentUpdatesApplied(resultData.updates);
+			if (resultData.action === 'apply_variable_changes') handleVariableChangesApplied(resultData.operations);
+			return null;
+		} catch (err) {
+			logger.error('Failed to apply the approved change:', err);
+			return getErrorMessage(err, 'The change was approved but could not be applied here.');
 		}
+	}
 
-		const unappliedOutcome =
-			toolOutcome && typeof toolOutcome === 'object' && (toolOutcome.status === 'stale' || toolOutcome.status === 'partial')
-				? toolOutcome
-				: null;
+	let actionErrors: Record<string, string> = {};
 
-		// Append the assistant's continuation (what it did / that it declined).
-		const am = data.assistantMessage;
-		if (am) {
-			const metadata = am.metadata || {};
-			const toolExecs = metadata.tool_executions || am.tool_executions || [];
-			// The backend narrates deterministically from the tool's own
-			// success/failure, which it decided before the plugin above ever
-			// ran - an unapplied/partial outcome overrides that narration
-			// rather than letting the user read "done" for a change that
-			// didn't (fully) land.
-			const content = unappliedOutcome?.message || am.content || '';
-			const hasContent = !!(content && content.trim());
-			if (!hasContent && toolExecs.length === 0) {
-				// Never render a dead-end blank bubble; the backend narrates
-				// approve/deny outcomes deterministically, so this only guards
-				// against a malformed response slipping through.
-				return;
+	function setActionError(messageId: string, index: number, message: string | null) {
+		const key = `${messageId}:${index}`;
+		if (message) {
+			actionErrors = { ...actionErrors, [key]: message };
+		} else if (key in actionErrors) {
+			const { [key]: _removed, ...rest } = actionErrors;
+			actionErrors = rest;
+		}
+	}
+
+	async function continueAfterResolve(messageId: string, index: number) {
+		if (!selectedConfigId) return;
+		await turnControllerSendMessage(buildTurnControllerDeps(), {
+			instruction: '',
+			recoveryAnchorMessageId: messageId,
+			onRejected: (rejection) => setActionError(messageId, index, continuationErrorText(rejection)),
+			buildPayload: () => ({
+				content: '',
+				contextMetadata: buildContextMetadata(),
+				continueFrom: { message_id: messageId, tool_index: index },
+				timeoutSeconds: selectedConfig?.timeout
+			}),
+			createSessionPayload: {
+				llm_config_id: selectedConfigId || undefined,
+				mode: $chatSession.mode,
+				tools_enabled: enableTools
+			},
+			onSettled: () => {
+				inputRef?.focus();
 			}
-			chatSession.addMessage({
-				id: am.id,
-				role: am.role || 'assistant',
-				content,
-				timestamp: am.created_at ? (parseServerDate(am.created_at)?.getTime() ?? Date.now()) : Date.now(),
-				tokens_used: am.tokens_used,
-				prompt_tokens: am.prompt_tokens,
-				completion_tokens: am.completion_tokens,
-				tool_executions: toolExecs,
-				sources: toolExecs.flatMap((te: any) => te.result?.sources || []),
-				metadata
-			});
-			tick().then(scrollToBottom);
-		}
+		});
+	}
+
+	function handleAskRedo(execution: ToolExecution | undefined) {
+		if (!execution) return;
+		void sendMessage(redoRequestText(actionToolLabel(execution.tool_name, $chatModes.toolsCatalog)));
+	}
+
+	let pendingCardVisible = true;
+	let pendingCardObserver: IntersectionObserver | null = null;
+	let observedPendingCard: Element | null = null;
+
+	function pendingCardElement(): HTMLElement | null {
+		if (!pendingAction || !messagesContainerRef) return null;
+		return messagesContainerRef.querySelector<HTMLElement>(
+			`[data-action-key="${pendingAction.messageId}:${pendingAction.index}"]`
+		);
+	}
+
+	async function syncPendingCardObserver() {
+		await tick();
+		if (destroyed) return;
+		const node = pendingCardElement();
+		if (node === observedPendingCard) return;
+		pendingCardObserver?.disconnect();
+		pendingCardObserver = null;
+		observedPendingCard = node;
+		pendingCardVisible = true;
+		if (!node || typeof IntersectionObserver === 'undefined') return;
+		pendingCardObserver = new IntersectionObserver(
+			(entries) => {
+				const entry = entries[entries.length - 1];
+				if (entry) pendingCardVisible = entry.isIntersecting;
+			},
+			{ root: messagesContainerRef ?? null }
+		);
+		pendingCardObserver.observe(node);
+	}
+
+	$: messages, pendingAction, browser && void syncPendingCardObserver();
+
+	function jumpToPendingAction() {
+		const node = pendingCardElement();
+		if (!node) return;
+		const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+		node.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+		node.focus({ preventScroll: true });
 	}
 
 	async function handleSegmentUpdatesApplied(
@@ -1763,6 +1807,12 @@
 							promptResources={chatResources.specs}
 							resourceFieldLabels={chatResources.fieldLabels}
 							resourceFormValues={contextTab?.formData ?? {}}
+							actionsLocked={isGenerating}
+							{actionErrors}
+							onResolveAction={message.id
+								? (index, decision) => handleResolveAction(message.id!, index, decision)
+								: undefined}
+							onAskRedo={(index) => handleAskRedo(message.tool_executions?.[index])}
 						/>
 					{/if}
 					<!-- Tab-switch divider: same idiom as a date divider, not a system
@@ -1811,15 +1861,19 @@
 			</div>
 		</div>
 
-		<!-- Approval dock: docked above the composer whenever a tool execution is
-		     pending approval. Ranks above the question dock — approvals gate side
-		     effects, questions are optional, so questions only surface once this
-		     queue drains (see the `:else if` below). -->
-		{#if pendingApprovalQueue.length > 0}
+		{#if pendingAction && !pendingCardVisible}
 			<div class="chat-overlay-col">
-				<ApprovalDock {messages} sessionId={sessionId || ''} onResolved={handleToolApprovalResolved} />
+				<div class="action-jump-row">
+					<button type="button" class="action-jump" data-testid="action-jump" on:click={jumpToPendingAction}>
+						<span class="action-jump-dot" aria-hidden="true"></span>1 action waiting for approval<span
+							class="action-kbd"
+							aria-hidden="true">↓</span
+						>
+					</button>
+				</div>
 			</div>
-		{:else if pendingQuestionQueue.length > 0}
+		{/if}
+		{#if !pendingAction && pendingQuestionQueue.length > 0}
 			<QuestionDock {messages} onAnswerQuestion={(text) => sendMessage(text)} />
 		{/if}
 
@@ -1861,8 +1915,8 @@
 			mode={currentMode}
 			formData={contextTab?.formData || {}}
 			{loraSelections}
-			disabled={isGenerating || llmConfigs.length === 0 || pendingApprovalQueue.length > 0}
-			approvalsPending={pendingApprovalQueue.length > 0}
+			disabled={isGenerating || llmConfigs.length === 0}
+			actionPending={!!pendingAction}
 			{isGenerating}
 			{supportsVision}
 			{formImageEntries}

@@ -8,7 +8,14 @@ import type {
 	SendChatMessageResponse
 } from '$lib/types/api';
 import type { PreChatAction } from '$lib/types/llm';
-import type { ChatMode, ChatToolInfo, MemoryNote, ResourceSuggestion } from '$lib/types/chat';
+import type {
+	ChatMode,
+	ChatToolInfo,
+	MemoryNote,
+	ResourceSuggestion,
+	ToolResolveRequest,
+	ToolResolveResponse
+} from '$lib/types/chat';
 
 /** The chat SSE stream's own terminal event types — the ones that mean the
  * turn is genuinely over (answered, failed, or found already-finished on
@@ -106,6 +113,32 @@ async function readSseStream(
 			incompleteStream: true as const
 		});
 	}
+}
+
+export interface StreamRejectionError extends Error {
+	httpStatus: number;
+	code?: string;
+}
+
+export function isStreamRejection(err: unknown): err is StreamRejectionError {
+	return err instanceof Error && typeof (err as Partial<StreamRejectionError>).httpStatus === 'number';
+}
+
+async function streamRejection(response: Response): Promise<StreamRejectionError> {
+	let code: string | undefined;
+	let message: string | undefined;
+	try {
+		const body = await response.json();
+		const detail = body?.detail && typeof body.detail === 'object' ? body.detail : body;
+		code = typeof detail?.error === 'string' ? detail.error : undefined;
+		message = typeof detail?.message === 'string' ? detail.message : undefined;
+	} catch {
+		message = undefined;
+	}
+	return Object.assign(new Error(message || `HTTP ${response.status}: ${response.statusText}`), {
+		httpStatus: response.status,
+		code
+	});
 }
 
 export function createChatApi(client: AxiosInstance, getToken: () => string | null, getBaseURL: () => string, onAuthExpired?: () => void) {
@@ -210,6 +243,7 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 				imageData?: string;
 				contextMetadata?: Record<string, any>;
 				resources?: Array<{ uri: string }>;
+				continueFrom?: { message_id: string; tool_index: number };
 			},
 			onEvent?: (event: { type: string; data: any }) => void | Promise<void>
 		): Promise<void> {
@@ -231,7 +265,8 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 						content: options.content,
 						image_data: options.imageData || undefined,
 						context_metadata: options.contextMetadata || undefined,
-						resources: options.resources?.length ? options.resources : undefined
+						resources: options.resources?.length ? options.resources : undefined,
+						continue_from: options.continueFrom || undefined
 					})
 				}
 			);
@@ -242,7 +277,7 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 			}
 
 			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+				throw await streamRejection(response);
 			}
 
 			await readSseStream(response, onEvent);
@@ -323,14 +358,11 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 			return response.data;
 		},
 
-		async approveToolExecution(
+		async resolveToolExecution(
 			sessionId: string,
-			data: { message_id: string; tool_index: number; approved: boolean }
-		): Promise<any> {
-			const response = await client.post(
-				`/api/chat/sessions/${sessionId}/tools/approve`,
-				data
-			);
+			data: ToolResolveRequest
+		): Promise<APIResponse<ToolResolveResponse>> {
+			const response = await client.post(`/api/chat/sessions/${sessionId}/tools/resolve`, data);
 			return response.data;
 		},
 

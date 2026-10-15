@@ -37,6 +37,16 @@ describe('buildApprovalDiff', () => {
 		expect(buildApprovalDiff(execution('{not json'))).toBeNull();
 	});
 
+	it('reads the confirmed applied_changes shape after approval', () => {
+		const data = JSON.stringify({
+			action: 'apply_form_changes',
+			applied_changes: [{ field_name: 'steps', old_value: 36, new_value: 24, reason: '' }]
+		});
+		expect(buildApprovalDiff(execution(data))).toEqual([
+			{ field: 'steps', oldValue: '36', newValue: '24', reason: '' }
+		]);
+	});
+
 	it('returns null for an empty proposed_changes array', () => {
 		expect(buildApprovalDiff(execution(JSON.stringify({ proposed_changes: [] })))).toBeNull();
 	});

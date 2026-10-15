@@ -317,6 +317,7 @@ class ChatRuntime:
         context_metadata: Optional[Dict[str, Any]] = None,
         resources: Optional[List[str]] = None,
         is_admin: bool = False,
+        continue_from: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         return self._conversation.send_message_stream(
             session_id=session_id,
@@ -326,6 +327,7 @@ class ChatRuntime:
             context_metadata=context_metadata,
             resources=resources,
             is_admin=is_admin,
+            continue_from=continue_from,
         )
 
     async def record_prompt_feedback(
@@ -348,21 +350,34 @@ class ChatRuntime:
 
     # --- Tool Approval Operations ---
 
-    async def approve_tool_execution(
+    async def resolve_tool_execution(
         self,
         session_id: str,
         user_id: str,
         message_id: str,
         tool_index: int,
         approved: bool,
+        reason: Optional[str] = None,
+        context_metadata: Optional[Dict[str, Any]] = None,
+        force: bool = False,
+        is_admin: bool = False,
     ) -> Dict[str, Any]:
-        return await self._tools.approve_tool_execution(
+        return await self._tools.resolve_tool_execution(
             session_id=session_id,
             user_id=user_id,
             message_id=message_id,
             tool_index=tool_index,
             approved=approved,
+            reason=reason,
+            context_metadata=context_metadata,
+            force=force,
+            is_admin=is_admin,
         )
+
+    def check_continuation(self, session_id: str, user_id: str, continue_from: Dict[str, Any]) -> None:
+        session = self._get_session_or_raise(session_id)
+        self._verify_ownership(session, user_id)
+        self._tools.continuation(session_id, continue_from)
 
     # --- Admin session-debug viewer ---
     # Cross-user session listing and LLM call-trace inspection, gated at the
