@@ -602,3 +602,77 @@ def test_denoise_finite_conditioning_is_unaffected():
         seed_noise=torch.zeros_like(latents),
     )
     assert torch.isfinite(out).all()
+
+
+def _flow_map_run(**kwargs):
+    seen = []
+
+    def model_forward(x, sigma, cond):
+        seen.append((float(sigma.reshape(-1)[0]), cond["flow_map_target"].clone()))
+        return torch.full_like(x, 0.5)
+
+    out = denoise(
+        model_forward,
+        torch.zeros(1, 4, 2, 2),
+        cond={"context": 1},
+        uncond={"context": 0},
+        sampler_name="euler",
+        sampling_settings={"shift": 6.93, "guidance": "flow_map"},
+        guidance_scale=3.5,
+        seed_noise=torch.zeros(1, 4, 2, 2),
+        **kwargs,
+    )
+    return out, seen
+
+
+def test_flow_map_mode_hands_the_model_the_real_next_sigma():
+    from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
+
+    out, seen = _flow_map_run(steps=40)
+    sigmas = build_sigmas(40, shift=6.93)
+    assert len(seen) == 40
+    for i, (sigma, target) in enumerate(seen):
+        assert sigma == pytest.approx(float(sigmas[i]), abs=1e-6)
+        assert float(target[0]) == pytest.approx(float(sigmas[i + 1]), abs=1e-6)
+    assert torch.allclose(out, torch.full_like(out, -0.5), atol=1e-5)
+
+
+def test_flow_map_mode_follows_a_truncated_schedule():
+    from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
+
+    _, seen = _flow_map_run(steps=10, denoise_strength=0.5)
+    sigmas = build_sigmas(10, shift=6.93, denoise=0.5)
+    assert len(seen) == len(sigmas) - 1
+    for i, (_, target) in enumerate(seen):
+        assert float(target[0]) == pytest.approx(float(sigmas[i + 1]), abs=1e-6)
+
+
+def test_flow_map_mode_with_resume_uses_global_step_targets():
+    from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
+
+    _, seen = _flow_map_run(steps=8, resume=(3, torch.zeros(1, 4, 2, 2)))
+    sigmas = build_sigmas(8, shift=6.93)
+    assert len(seen) == 5
+    for offset, (_, target) in enumerate(seen):
+        assert float(target[0]) == pytest.approx(float(sigmas[3 + offset + 1]), abs=1e-6)
+
+
+def test_flow_map_mode_rejects_a_sampler_that_leaves_the_schedule():
+    with pytest.raises(ValueError, match="euler"):
+        denoise(
+            lambda x, sigma, cond: torch.zeros_like(x),
+            torch.zeros(1, 4, 2, 2),
+            cond={},
+            uncond=None,
+            steps=4,
+            sampler_name="euler_restart",
+            sampler_options={"restart_count": 1},
+            sampling_settings={"shift": 6.93, "guidance": "flow_map"},
+            guidance_scale=1.0,
+            seed_noise=torch.zeros(1, 4, 2, 2),
+        )
+
+
+def test_make_guidance_flow_map_needs_sigmas():
+    with pytest.raises(ValueError, match="sigma"):
+        _make_guidance({"guidance": "flow_map"}, 1.0)

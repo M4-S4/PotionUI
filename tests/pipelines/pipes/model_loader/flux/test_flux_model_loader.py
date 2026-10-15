@@ -14,6 +14,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import torch
+from safetensors.torch import save_file
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes._shared.generation.loader_helpers import (
@@ -86,7 +88,7 @@ def _fake_engine(monkeypatch):
     def _fake_load(self, path, kind, **kwargs):
         counts[kind] = counts.get(kind, 0) + 1
         # A real wrapper, not a stand-in: the loaders revise its weight identity.
-        return NativeModel(kind, _FakeModule(), spec=None, estimated_vram_gb=1.0)
+        return NativeModel(kind, _FakeModule(), spec=SimpleNamespace(family="flux"), estimated_vram_gb=1.0)
 
     monkeypatch.setattr(NativeEngineLoader, "load", _fake_load)
     return counts
@@ -186,6 +188,24 @@ def test_bundle_carries_the_te_cache_key():
     _ = out.output["text_encoder"].encoder
     te_key = next(k for k, _ in models.calls if k.startswith("native/te/"))
     assert out.output["model"].te_cache_key == te_key
+
+
+def test_flux3_checkpoint_is_refused_from_the_header_before_any_load(tmp_path, _fake_engine):
+    path = tmp_path / "flux3.safetensors"
+    save_file({"model.diffusion_model.early_stream_modulations.image.lin.weight": torch.zeros(1)}, str(path))
+    cfg = _config()
+    cfg["diffusion_model"] = {"file_path": str(path), "name": "flux3"}
+    with pytest.raises(ValueError, match="FLUX 3 preset"):
+        _run(ModelLoaderFluxPipe(config=cfg))
+    assert _fake_engine["diffusion_model"] == 0
+
+
+def test_a_flux_checkpoint_header_passes_the_guard(tmp_path):
+    path = tmp_path / "flux.safetensors"
+    save_file({"double_blocks.0.img_attn.norm.key_norm.scale": torch.zeros(1)}, str(path))
+    cfg = _config()
+    cfg["diffusion_model"] = {"file_path": str(path), "name": "flux"}
+    _run(ModelLoaderFluxPipe(config=cfg))
 
 
 def test_missing_component_raises():

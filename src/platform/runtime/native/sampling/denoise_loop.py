@@ -34,7 +34,7 @@ import math
 
 import torch
 
-from .cfg import EmbeddedGuidance, GuidanceStrategy, NoCFG, SkipLayerGuidance, TrueCFG
+from .cfg import EmbeddedGuidance, FlowMapGuidance, GuidanceStrategy, NoCFG, SkipLayerGuidance, TrueCFG
 from .flow_schedule import build_sigmas
 from .registry import sampler_registry
 from .hooks import with_numerics_watchdog
@@ -130,6 +130,7 @@ def _make_guidance(
     guidance_scale,
     cfg_zero_star: bool = True,
     zero_init_steps: int = 0,
+    sigmas=None,
 ) -> GuidanceStrategy:
     """Pick a guidance strategy from ``sampling_settings['guidance']``.
 
@@ -161,6 +162,10 @@ def _make_guidance(
             apg_norm_threshold=sampling_settings.get("apg_norm_threshold", 0.0),
             apg_momentum=sampling_settings.get("apg_momentum", 0.0),
         )
+    elif mode == "flow_map":
+        if sigmas is None:
+            raise ValueError("flow_map guidance needs the run's sigma schedule")
+        strategy = FlowMapGuidance(sigmas)
     elif mode in (None, "none"):
         strategy = NoCFG()
     else:
@@ -409,7 +414,7 @@ def denoise(
             )
         guidance = guidance_override
     else:
-        guidance = _make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps)
+        guidance = _make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps, sigmas=sigmas)
 
     cache_set = StepCacheSet(step_cache_options) if step_cache_options else None
     if cache_set is not None and cache_set.enabled:

@@ -90,6 +90,8 @@ KLEIN_LAYERS = (9, 18, 27)
 # decoder layer i-1, i.e. this tuple with `capture="output"`.
 KREA2_LAYERS = (1, 4, 7, 10, 13, 16, 19, 22, 25, 28, 31, 34)
 
+FLUX3_LAYERS = (3, 7, 11, 15, 19, 23, 27, 31)
+
 # Qwen3-VL's interleaved m-RoPE T/H/W split (HF Qwen/Qwen3-VL-4B-Instruct
 # config.json `text_config.rope_scaling.mrope_section`; sums to head_dim//2=64
 # for head_dim=128). Distinct from Qwen2.5-VL's ROPE_DIMS (qwen_vl_vision.py) —
@@ -496,7 +498,10 @@ class _Qwen3Transformer(nn.Module):
                 f"Qwen3 needs layers {sorted(only)} but this checkpoint has only {n}."
             )
         collected: list[torch.Tensor] = []
+        last = max(only) if capture == "output" and only else n
         for i, layer in enumerate(self.layers):
+            if i > last:
+                break
             if capture == "input" and i in only:
                 collected.append(x.unsqueeze(1))
             x = layer(x, cos, sin, mask)
@@ -831,6 +836,41 @@ class ZImageTextEncoder(NativeTextEncoder):
 
     def _tokenize_weighted(self, prompt: str):
         return self.tokenizer.tokenize_with_weights(prompt, device=self._device)
+
+
+class Flux3TextEncoder(NativeTextEncoder):
+    role = "flux3_qwen3vl"
+
+    def __init__(self, module: Qwen3Model, tokenizer, variant: str = "flux3_qwen3vl",
+                 device: str | torch.device = "cpu") -> None:
+        self.module = module
+        self.tokenizer = tokenizer
+        self.role = variant
+        self._device = torch.device(device)
+
+    def to(self, device: str | torch.device) -> "Flux3TextEncoder":
+        self._device = torch.device(device)
+        _module_to(self.module, device)
+        return self
+
+    def unload(self) -> None:
+        _module_unload(self.module)
+
+    @torch.inference_mode()
+    def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:
+        if len(texts) != 1:
+            raise ValueError(f"Flux3TextEncoder encodes one prompt per call, got {len(texts)}")
+        ids, mask = self.tokenizer(texts, device=self._device)
+        return self._encode_ids(ids, mask)
+
+    def _encode_ids(self, ids, mask) -> dict[str, torch.Tensor]:
+        positions = (mask.long().cumsum(-1) - 1).masked_fill(mask == 0, 1)[0]
+        stacked = self.module(
+            ids, attention_mask=mask, layers_to_extract=FLUX3_LAYERS, capture="output",
+            position_ids=positions[None].expand(3, -1),
+        )
+        context = stacked.movedim(1, 2).reshape(stacked.shape[0], stacked.shape[2], -1)
+        return {"context": context, "attention_mask": None}
 
 
 def _find_pad_run(token_ids: list[int], pad_token_id: int, start: int) -> tuple[int, int]:

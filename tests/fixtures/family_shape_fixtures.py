@@ -16,6 +16,16 @@ FAMILY_KEYS: dict[str, tuple[str, ...]] = {
         "double_stream_modulation_img.lin.weight",
         "img_in.weight",
     ),
+    "flux3": (
+        "early_stream_modulations.image.lin.weight",
+        "content_mode_blocks.image.0.q_proj.weight",
+        "txt_in.weight",
+        "emb_in.image.weight",
+        "txt_mode_blocks.0.q_proj.weight",
+        "single_blocks.0.q_proj.weight",
+        "single_blocks.0.mlp_out.weight",
+        "single_blocks.0.norm.query_norm.scale",
+    ),
     "krea2": (
         "txtfusion.projector.weight",
         "first.weight",
@@ -158,6 +168,7 @@ FAMILY_KEYS: dict[str, tuple[str, ...]] = {
 EXPECTED_FAMILY: dict[str, tuple[str, str | None]] = {
     "flux1": ("flux", "flux1"),
     "flux2": ("flux", "flux2"),
+    "flux3": ("flux3", "flux3_klein_base"),
     "krea2": ("krea2", None),
     "qwen_image21": ("qwen_image21", None),
     "qwen_image": ("qwen_image", None),

@@ -303,19 +303,15 @@ def detect_vae_config(sd: dict[str, torch.Tensor]) -> dict | None:
     in_channels = int(conv_in.shape[1])
     out_channels = int(conv_out.shape[0])
 
-    has_quant_conv = "quant_conv.weight" in sd
+    has_quant_conv = "quant_conv.weight" in sd or "encoder.quant_conv.weight" in sd
     has_batchnorm = any(k.startswith("bn.") for k in sd)
     is_diffusers = any(k.startswith("decoder.mid_block.") for k in sd)
 
     # latent channels come from the decoder input convolution.
     latent_channels = int(sd["decoder.conv_in.weight"].shape[1])
 
-    if is_diffusers or has_quant_conv or has_batchnorm:
-        vae_type = "flux2_ae"
-        key_layout = "diffusers"
-    else:
-        vae_type = "flux_ae"
-        key_layout = "ldm"
+    vae_type = "flux2_ae" if is_diffusers or has_quant_conv or has_batchnorm else "flux_ae"
+    key_layout = "diffusers" if is_diffusers else "ldm"
 
     config = {
         "vae_type": vae_type,

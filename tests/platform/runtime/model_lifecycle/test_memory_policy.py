@@ -79,6 +79,11 @@ class TestShouldUseCpuOffload:
         assert MemoryPolicy(20.0).should_use_cpu_offload("flux2") is True
         assert MemoryPolicy(20.0).should_use_cpu_offload("flux_klein") is True
 
+    def test_flux3_is_sized_as_an_11_5_gb_dit(self):
+        assert MemoryPolicy(16.0).should_use_cpu_offload("flux3") is True
+        assert MemoryPolicy(24.0).should_use_cpu_offload("flux3") is False
+        assert MemoryPolicy(23.0).should_use_cpu_offload("flux3") is False
+
 
 class TestTierSnapshots:
     """Snapshot the full decision set at representative VRAM budgets."""

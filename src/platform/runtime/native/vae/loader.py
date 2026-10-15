@@ -51,7 +51,7 @@ from ..io.state_dict_utils import strip_prefix
 from .ae_2d import AutoEncoder2D
 from .causal_3d import AutoEncoderCausal3D
 from .causal_3d_v2 import AutoEncoderCausal3D_2_2
-from .key_convert import convert_vae_state_dict
+from .key_convert import convert_vae_state_dict, hoist_nested_quant_convs
 from .ltx_audio import LTXAudioAutoencoder, LTXVocoder, LTXVocoderAMP
 from .ltx_causal_video import LTXCausalVideoVAE
 from .ltx_diffusion_video import LTXDiffusionVideoVAE
@@ -115,6 +115,8 @@ def load_vae(
 
     if config["key_layout"] == "diffusers":
         sd = convert_vae_state_dict(sd)
+    else:
+        sd = hoist_nested_quant_convs(sd)
 
     module = AutoEncoder2D.from_config(config, operations)
     spec = _VaeSpec(family="vae", variant=config["vae_type"])
