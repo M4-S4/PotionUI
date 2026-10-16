@@ -19,6 +19,10 @@ export function fitToolbar({ available, gap, order, collapseOrder, widths }: Too
 	return order.filter((key) => hidden.has(key));
 }
 
+export function isOutOfFlow(child: HTMLElement): boolean {
+	return child.offsetParent === null && getComputedStyle(child).position === 'fixed';
+}
+
 export function fixedChildWidth(offsetWidth: number, shrinkMin: number | null): number {
 	return shrinkMin === null ? offsetWidth : Math.min(offsetWidth, shrinkMin);
 }
@@ -58,7 +62,7 @@ export function toolbarFit(node: HTMLElement, initial: ToolbarFitParams) {
 				observer?.observe(child);
 			} else if (child.matches(MORE)) {
 				moreWidth = child.offsetWidth || MORE_FALLBACK_WIDTH;
-			} else if (!child.classList.contains('toolbar-spacer') && child.offsetParent !== null) {
+			} else if (!child.classList.contains('toolbar-spacer') && !isOutOfFlow(child)) {
 				const shrink = Number.parseFloat(child.dataset[SHRINK] ?? '');
 				fixed += fixedChildWidth(child.offsetWidth, Number.isFinite(shrink) ? shrink : null);
 				fixedCount += 1;

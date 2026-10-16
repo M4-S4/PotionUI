@@ -1,5 +1,6 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { fitToolbar, fixedChildWidth } from './toolbarFit';
+import { fitToolbar, fixedChildWidth, isOutOfFlow } from './toolbarFit';
 
 describe('fixedChildWidth', () => {
 	it('counts a shrinkable child at its minimum instead of its natural width', () => {
@@ -33,5 +34,16 @@ describe('fitToolbar with a wide prompt picker', () => {
 		const natural = fitToolbar({ available: room(320), gap, order, collapseOrder, widths });
 		const shrunk = fitToolbar({ available: room(fixedChildWidth(320, 132)), gap, order, collapseOrder, widths });
 		expect(shrunk.length).toBeLessThanOrEqual(natural.length);
+	});
+});
+
+describe('isOutOfFlow', () => {
+	it('flags only fixed-position children, even where offsetParent is always null', () => {
+		const fixed = document.createElement('div');
+		fixed.style.position = 'fixed';
+		const normal = document.createElement('div');
+		document.body.append(fixed, normal);
+		expect(isOutOfFlow(fixed)).toBe(true);
+		expect(isOutOfFlow(normal)).toBe(false);
 	});
 });

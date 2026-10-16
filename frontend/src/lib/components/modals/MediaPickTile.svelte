@@ -4,6 +4,7 @@
 
 	export let label: string;
 	export let sublabel: string = '';
+	export let fileName: string = '';
 	export let checked: boolean;
 	export let disabled: boolean = false;
 	export let disabledReason: string = '';
@@ -24,6 +25,7 @@
 			type="button"
 			class="w-full aspect-video flex items-center justify-center cursor-pointer"
 			aria-label={`Preview ${label}`}
+			data-file={fileName || label}
 			on:click={onPreview}
 		>
 			<slot />
@@ -40,6 +42,7 @@
 				{checked}
 				{disabled}
 				aria-label={`Select ${label}`}
+				data-file={fileName || label}
 				aria-describedby={disabled && disabledReason ? reasonId : undefined}
 				on:change={onToggle}
 			/>

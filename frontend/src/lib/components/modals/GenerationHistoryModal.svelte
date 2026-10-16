@@ -597,6 +597,7 @@
 							<MediaPickTile
 								label={tile.label}
 								sublabel={tile.sublabel}
+								fileName={picked.filename ?? ''}
 								checked={$selection.includes(picked.key)}
 								disabled={!allowed}
 								disabledReason={constraintMessage}
