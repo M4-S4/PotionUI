@@ -83,9 +83,11 @@ export interface PluginChatApi {
 	 */
 	declareMode: typeof declareMode;
 	/**
-	 * Run `handler` with the result of an approved/confirmed tool call named
-	 * `toolName`, before any core hardcoded handling for that tool (which is
-	 * skipped once a handler is registered). Returns an unregister function.
+	 * Run `handler` with the JSON result of a tool call named `toolName`,
+	 * whether the user approved it or it ran without approval, before any
+	 * core hardcoded handling for that tool (which is skipped once a handler
+	 * is registered). Each result is delivered once. Returns an unregister
+	 * function.
 	 */
 	onToolApplied: typeof onToolApplied;
 	open(): void;
