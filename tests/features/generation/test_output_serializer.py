@@ -137,6 +137,22 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertEqual(result['current_step_num'], 1)
         self.assertEqual(result['total_steps'], 3)
 
+    def test_serialize_progress_output_from_sampler_step_carries_step_counts(self):
+        from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
+        emitted = []
+        ProgressEmitter(emitted.append, title="generator").step(3, 8, state="TXT2IMG")
+
+        result = self.mapper.serialize_output(emitted[0])
+
+        self.assertEqual(result['current_step_num'], 3)
+        self.assertEqual(result['total_steps'], 8)
+
+    def test_serialize_progress_output_omits_step_counts_when_unset(self):
+        result = self.mapper.serialize_output(ProgressGenerationOutput(state="Loading model"))
+
+        self.assertNotIn('current_step_num', result)
+        self.assertNotIn('total_steps', result)
+
     def test_serialize_progress_output_carries_segment_id_when_present(self):
         """Video Director: a multi-segment chain/window generation's progress
         names the segment it belongs to (see

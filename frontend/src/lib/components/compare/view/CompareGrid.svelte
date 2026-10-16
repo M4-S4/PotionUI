@@ -170,7 +170,7 @@
 		>
 			<div
 				bind:clientHeight={cornerHeight}
-				class="sticky left-0 -top-3 z-20 -mt-3 flex flex-col justify-end bg-canvas pb-1 pt-3 font-mono text-xs uppercase leading-5 tracking-[0.07em] text-fg-subtle"
+				class="sticky -left-3 -top-3 z-20 -ml-3 -mt-3 flex flex-col justify-end bg-canvas pb-1 pl-3 pt-3 font-mono text-xs uppercase leading-5 tracking-[0.07em] text-fg-subtle"
 			>
 				<span><span class="text-signal">X</span> {grid.config.x?.label ?? ''}</span>
 				{#if grid.config.y}
@@ -188,7 +188,7 @@
 
 			{#each { length: grid.rows } as _, y (y)}
 				<div
-					class="sticky left-0 z-10 flex items-center justify-end bg-canvas pr-2 text-right font-mono text-xs uppercase tracking-[0.07em] text-fg-muted"
+					class="sticky -left-3 z-10 -ml-3 flex items-center justify-end bg-canvas pl-3 pr-2 text-right font-mono text-xs uppercase tracking-[0.07em] text-fg-muted"
 					data-testid="compare-y-label"
 				>
 					{grid.config.y ? axisValueLabel(grid.config.y, y) : ''}

@@ -41,6 +41,8 @@ class ProgressEmitter:
             icon=icon,
             progress=Progress(current=current, max=total),
             segment_id=segment_id,
+            current_step_num=current,
+            total_steps=total,
         ))
 
     def state(self, message: str, icon: Optional[Icon] = None) -> None:

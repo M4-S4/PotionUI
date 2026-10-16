@@ -8,7 +8,7 @@
 	import GridDetailsCard from './GridDetailsCard.svelte';
 	import GridMiniMap from './GridMiniMap.svelte';
 	import {
-		axisFieldLabel,
+		configAxisLabel,
 		axisTag,
 		cellFormPatch,
 		cellFormPatchSummary,
@@ -214,7 +214,7 @@
 				<div class="divide-y divide-line">
 					{#each Object.entries(cell.axisValues) as [field, value] (field)}
 						<div class="flex items-center justify-between px-3 py-2">
-							<span class="font-mono text-xs uppercase tracking-wider text-fg-disabled">{axisFieldLabel(field)}</span>
+							<span class="font-mono text-xs uppercase tracking-wider text-fg-disabled">{configAxisLabel(field, grid.config)}</span>
 							<span class="font-mono text-xs text-fg" class:tabular-nums={field === 'seed'}>{value}</span>
 						</div>
 					{/each}

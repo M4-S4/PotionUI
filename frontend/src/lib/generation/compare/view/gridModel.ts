@@ -124,6 +124,16 @@ export function axisFieldLabel(field: string): string {
 	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+export function axisLabel(axis: { field: string; label?: string | null }): string {
+	const label = axis.label?.trim();
+	return axis.field !== PROMPT_AXIS_FIELD && label ? label : axisFieldLabel(axis.field);
+}
+
+export function configAxisLabel(field: string, config: Pick<ActiveGrid['config'], 'x' | 'y'>): string {
+	const axis = config.x?.field === field ? config.x : config.y?.field === field ? config.y : null;
+	return axisLabel(axis ?? { field });
+}
+
 export function withAxisParams(
 	params: Record<string, unknown>,
 	tags: Record<string, string>,

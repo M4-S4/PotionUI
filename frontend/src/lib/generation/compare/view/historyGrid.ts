@@ -1,5 +1,5 @@
 import type { GenerationHistoryItem } from '$lib/types/history';
-import { axisFieldLabel } from './gridModel';
+import { axisLabel } from './gridModel';
 
 type GridFields = Pick<GenerationHistoryItem, 'grid' | 'grid_id' | 'grid_x' | 'grid_y' | 'axis_values'>;
 
@@ -27,10 +27,12 @@ export interface StackInfo {
 
 export function stackInfo(item: GridFields): StackInfo | null {
 	if (!item.grid) return null;
-	const fields = Object.keys(item.axis_values ?? {});
+	const axes: Array<{ field: string; label?: string }> = item.grid.axes?.length
+		? item.grid.axes
+		: Object.keys(item.axis_values ?? {}).map((field) => ({ field }));
 	const total = item.grid.cell_count;
 	return {
-		title: fields.map(axisFieldLabel).join(' × '),
+		title: axes.map(axisLabel).join(' × '),
 		count: `${total} ${total === 1 ? 'cell' : 'cells'}`
 	};
 }

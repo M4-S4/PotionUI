@@ -9,18 +9,22 @@ failure), which used to trigger a second, redundant notification out of
 `notify_completion`'s FAILED branch.
 """
 
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
+
+from src.features.generation.records import Generation
 
 from src.features.generation.failure import GenerationFailure
 from src.features.generation.notifier import GenerationNotifier
 from src.features.generation.status_tracker import GenerationState
 
 
-def _record(state: GenerationState, error: str = None, preset_id: str = "preset-1"):
+def _record(state: GenerationState, error: str = None, preset_id: str = "preset-1", grid_id: str = None):
     record = Mock()
     record.state = state
     record.error = error
     record.preset_id = preset_id
+    record.grid_id = grid_id
     return record
 
 
@@ -176,3 +180,134 @@ class TestNotifyFailure:
         )
 
         assert shared_manager.call_count == 1
+
+
+def _cell(gen_id: str, x: int, status: str) -> Generation:
+    return Generation(id=gen_id, user_id="user-1", preset_id="preset-1", form_data={}, status=status, grid_id="grid-1", grid_x=x, grid_y=0)
+
+
+class _Grids:
+    def __init__(self, cell_count: int, cells):
+        self.cell_count = cell_count
+        self.rows = list(cells)
+
+    def get(self, grid_id):
+        return SimpleNamespace(id=grid_id, cell_count=self.cell_count)
+
+    def cells(self, grid_id):
+        return list(self.rows)
+
+
+class TestGridCompletion:
+    def _finish(self, notifier, gen_id, state=GenerationState.COMPLETED):
+        notifier.notify_completion(gen_id, _record(state, grid_id="grid-1"), _generation(), duration=1.0)
+
+    def test_grid_raises_one_notification_after_the_last_cell(self):
+        manager = Mock()
+        grids = _Grids(3, [_cell("a", 0, "completed"), _cell("b", 1, "running"), _cell("c", 2, "pending")])
+        notifier = GenerationNotifier(notification_manager=manager, grids=grids)
+
+        self._finish(notifier, "a")
+        grids.rows[1] = _cell("b", 1, "completed")
+        self._finish(notifier, "b")
+        manager.assert_not_called()
+
+        grids.rows[2] = _cell("c", 2, "completed")
+        self._finish(notifier, "c")
+        self._finish(notifier, "c")
+
+        manager.assert_called_once()
+        kwargs = manager.call_args.kwargs
+        assert kwargs["type"] == "generation.completed"
+        assert kwargs["level"] == "success"
+        assert kwargs["message"] == "3 of 3 cells done."
+        assert kwargs["metadata"]["grid_id"] == "grid-1"
+        assert "generation_id" not in kwargs["metadata"]
+
+    def test_failed_last_cell_still_closes_the_grid(self):
+        manager = Mock()
+        grids = _Grids(2, [_cell("a", 0, "completed"), _cell("b", 1, "failed")])
+        notifier = GenerationNotifier(notification_manager=manager, grids=grids)
+
+        self._finish(notifier, "b", GenerationState.FAILED)
+
+        kwargs = manager.call_args.kwargs
+        assert kwargs["level"] == "warning"
+        assert kwargs["message"] == "1 of 2 cells done, 1 failed."
+        assert kwargs["metadata"]["failed"] == 1
+
+    def test_unsubmitted_cells_keep_the_grid_open(self):
+        manager = Mock()
+        notifier = GenerationNotifier(notification_manager=manager, grids=_Grids(3, [_cell("a", 0, "completed")]))
+
+        self._finish(notifier, "a")
+
+        manager.assert_not_called()
+
+    def test_retried_cell_uses_its_latest_row_and_announces_again(self):
+        manager = Mock()
+        grids = _Grids(2, [_cell("01A", 0, "completed"), _cell("01B", 1, "failed")])
+        notifier = GenerationNotifier(notification_manager=manager, grids=grids)
+        self._finish(notifier, "01B", GenerationState.FAILED)
+
+        grids.rows.append(_cell("01C", 1, "running"))
+        self._finish(notifier, "01A")
+        assert manager.call_count == 1
+
+        grids.rows[2] = _cell("01C", 1, "completed")
+        self._finish(notifier, "01C")
+
+        assert manager.call_count == 2
+        assert manager.call_args.kwargs["message"] == "2 of 2 cells done."
+
+    def test_all_failed_grid_reports_the_failure_once(self):
+        manager = Mock()
+        cells = [_cell(f"0{x}", x, "failed") for x in range(4)]
+        notifier = GenerationNotifier(notification_manager=manager, grids=_Grids(4, cells))
+
+        self._finish(notifier, "03", GenerationState.FAILED)
+        self._finish(notifier, "03", GenerationState.FAILED)
+
+        manager.assert_called_once()
+        kwargs = manager.call_args.kwargs
+        assert kwargs["level"] == "error"
+        assert kwargs["type"] == "generation.failed"
+        assert kwargs["message"] == "0 of 4 cells done, 4 failed."
+
+    def test_all_cancelled_grid_stays_silent(self):
+        manager = Mock()
+        notifier = GenerationNotifier(notification_manager=manager, grids=_Grids(1, [_cell("a", 0, "cancelled")]))
+
+        self._finish(notifier, "a")
+
+        manager.assert_not_called()
+
+    def test_grid_cell_failure_sends_no_per_cell_notification_and_closes_the_grid(self):
+        manager = Mock()
+        global_manager = Mock()
+        grids = _Grids(2, [_cell("a", 0, "completed"), _cell("b", 1, "failed")])
+        notifier = GenerationNotifier(notification_manager=manager, grids=grids)
+
+        with patch(
+            "src.platform.plugins.runtime_registries.get_global_notification_manager",
+            return_value=global_manager,
+        ):
+            notifier.notify_failure("b", "user-1", _failure(), grid_id="grid-1", preset_id="preset-1")
+
+        global_manager.assert_not_called()
+        manager.assert_called_once()
+        assert manager.call_args.kwargs["message"] == "1 of 2 cells done, 1 failed."
+
+    def test_announced_runs_are_bounded(self):
+        from src.features.generation.notifier import ANNOUNCED_GRIDS_CAP
+        manager = Mock()
+        grids = _Grids(1, [])
+        notifier = GenerationNotifier(notification_manager=manager, grids=grids)
+
+        for n in range(ANNOUNCED_GRIDS_CAP + 5):
+            grids.rows = [_cell(f"{n:04d}", 0, "completed")]
+            self._finish(notifier, f"{n:04d}")
+
+        assert manager.call_count == ANNOUNCED_GRIDS_CAP + 5
+        assert len(notifier._announced_grids) == ANNOUNCED_GRIDS_CAP
+        assert ("grid-1", ("0000",)) not in notifier._announced_grids

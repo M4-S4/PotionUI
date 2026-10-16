@@ -35,7 +35,14 @@ class GridRecord:
         return self.cols * self.rows
 
     def summary(self) -> Dict[str, Any]:
-        return {"id": self.id, "cols": self.cols, "rows": self.rows, "cell_count": self.cell_count}
+        axes = [self.x_axis] + ([self.y_axis] if self.y_axis is not None else [])
+        return {
+            "id": self.id,
+            "cols": self.cols,
+            "rows": self.rows,
+            "cell_count": self.cell_count,
+            "axes": [{"field": axis.field, "label": axis.label} for axis in axes],
+        }
 
     @classmethod
     def from_row(cls, row) -> "GridRecord":
