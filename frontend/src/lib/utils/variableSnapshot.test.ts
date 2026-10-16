@@ -88,10 +88,10 @@ describe('buildVariablesSnapshot', () => {
 		expect(entry.lastRoll).toBeUndefined();
 	});
 
-	it('caps the number of variables at 24', () => {
+	it('does not cap the number of variables', () => {
 		const vars: VariablesMap = {};
 		for (let i = 0; i < 40; i++) vars[`v${i}`] = { type: 'text', value: String(i) };
-		expect(buildVariablesSnapshot(vars).length).toBe(24);
+		expect(buildVariablesSnapshot(vars).length).toBe(40);
 	});
 
 	it('caps options at 12', () => {

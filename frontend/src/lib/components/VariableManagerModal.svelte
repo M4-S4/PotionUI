@@ -443,6 +443,7 @@
 				<div class="min-h-0 flex-1 overflow-y-auto p-1.5 max-md:max-h-[50vh]" role="listbox" aria-label="Variables">
 					{#each visibleRows as row (row.key)}
 						{@const error = nameErrorByKey.get(row.key) ?? null}
+						{@const used = usageCounts[row.name.trim()] ?? 0}
 						<button
 							type="button"
 							role="option"
@@ -452,7 +453,16 @@
 								: 'border-transparent hover:bg-surface-2'}"
 							on:click={() => selectRow(row.key)}
 						>
-							<span class="truncate font-mono text-sm {error ? 'text-danger' : 'text-fg'}">{row.name ? `$${row.name}` : 'unnamed'}</span>
+							<span class="flex min-w-0 items-center gap-1.5">
+								<span class="truncate font-mono text-sm {error ? 'text-danger' : 'text-fg'}">{row.name ? `$${row.name}` : 'unnamed'}</span>
+								{#if used > 0}
+									<Tooltip text={`Used in the prompt · ${used}`}>
+										<span class="inline-flex flex-shrink-0 text-success" role="img" aria-label={`Used in the prompt ${used} ${used === 1 ? 'time' : 'times'}`} data-testid="variable-used-tick">
+											<Icon name="check" className="h-3.5 w-3.5" strokeWidth={3} />
+										</span>
+									</Tooltip>
+								{/if}
+							</span>
 							<span class="truncate font-mono text-xs tabular-nums text-fg-subtle">{rowMeta(row)}</span>
 						</button>
 					{:else}

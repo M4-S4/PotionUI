@@ -142,14 +142,13 @@ class TestExecuteErrors:
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_rejects_batch_exceeding_variable_cap(self):
+    async def test_accepts_more_than_24_variables(self):
         existing = [text_var(f"v{i}", "x") for i in range(24)]
         ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
         result = await ManagePromptVariablesTool().execute(
             ctx, operations=[set_op("one_more", type="text", value="y")]
         )
-        assert result.success is False
-        assert "24" in result.error
+        assert result.success is True
 
 
 # ---------------------------------------------------------------------------
@@ -345,13 +344,13 @@ class TestExecuteConfirmed:
         assert payload["operations"][0]["name"] == "mood"
 
     @pytest.mark.asyncio
-    async def test_cap_breach_rejected_on_confirm_too(self):
+    async def test_confirm_accepts_more_than_24_variables(self):
         existing = [text_var(f"v{i}", "x") for i in range(24)]
         ctx = make_context(session_metadata={"form_state": make_form_state(existing)})
         result = await ManagePromptVariablesTool().execute_confirmed(
             ctx, operations=[set_op("one_more", type="text", value="y")]
         )
-        assert result.success is False
+        assert result.success is True
 
 
 # ---------------------------------------------------------------------------

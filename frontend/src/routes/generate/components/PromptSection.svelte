@@ -12,7 +12,7 @@
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { PresetStyle } from '$lib/types/api';
 	import { appliedStyleTag, applyStyleToPrompt, clearStyle } from '$lib/prompt/styleSegments';
-	import { countUsagesByName } from '$lib/utils/promptVariables';
+	import { countUsagesInSegments } from '$lib/utils/promptVariables';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import PromptPicker from '$lib/components/PromptPicker.svelte';
 	import { Alert, Button } from '$lib/components/ui';
@@ -126,7 +126,7 @@
 
 	const variableCount = $derived(Object.keys(variables).length);
 	const usageCounts = $derived(
-		countUsagesByName([...promptSegments, ...negativePromptSegments].map((segment) => segment.content))
+		countUsagesInSegments(promptSegments, negativePromptSegments)
 	);
 	const appliedStyleTagValue = $derived(appliedStyleTag(promptSegments));
 	const appliedStyleId = $derived(

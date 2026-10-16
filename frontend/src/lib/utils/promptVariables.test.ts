@@ -9,7 +9,8 @@ import {
 	findUndefinedVariableUsages,
 	parseVariableUsageTokens,
 	countVariableUsages,
-	countUsagesByName
+	countUsagesByName,
+	countUsagesInSegments
 } from './promptVariables';
 
 describe('isValidVariableName', () => {
@@ -196,5 +197,15 @@ describe('countUsagesByName', () => {
 
 	it('returns an empty map when no usages exist', () => {
 		expect(countUsagesByName(['plain', ''])).toEqual({});
+	});
+});
+
+describe('countUsagesInSegments', () => {
+	it('sums usages across several segment lists', () => {
+		expect(countUsagesInSegments([{ content: '${a}' }], [{ content: '${a} ${b}' }])).toEqual({ a: 2, b: 1 });
+	});
+
+	it('returns an empty map for empty lists', () => {
+		expect(countUsagesInSegments([], [])).toEqual({});
 	});
 });

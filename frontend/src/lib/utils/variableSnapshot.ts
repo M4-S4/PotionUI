@@ -27,7 +27,6 @@ import {
 
 // Payload discipline for the small (26B) chat model — kept identical to the
 // backend caps in src/platform/resources/prompt_variables.py.
-const MAX_VARIABLES = 24;
 const MAX_OPTIONS = 12;
 const MAX_VALUE_CHARS = 80;
 
@@ -82,7 +81,6 @@ export function buildVariablesSnapshot(
 	const out: VariableSnapshotEntry[] = [];
 
 	for (const [name, stored] of Object.entries(variables)) {
-		if (out.length >= MAX_VARIABLES) break;
 		if (!name.trim()) continue;
 		const def = normalizeVariableDef(stored);
 

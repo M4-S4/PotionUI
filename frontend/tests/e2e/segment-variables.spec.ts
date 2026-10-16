@@ -52,6 +52,30 @@ async function openVariableManager(page: Page): Promise<Locator> {
 	return modal;
 }
 
+async function openVariableManagerResponsive(page: Page): Promise<Locator> {
+	const sheet = page.getByRole('dialog', { name: 'Prompt', exact: true });
+	const pill = page.getByRole('button', { name: 'Prompt', exact: true });
+	if ((await pill.count()) > 0 && (await pill.first().isVisible())) {
+		await pill.first().click();
+		await expect(sheet).toBeVisible();
+	}
+	await page.locator('[data-toolbar-action="variables"] button').first().click();
+	const modal = page.getByRole('dialog').filter({ hasText: 'Prompt variables' });
+	await expect(modal).toBeVisible({ timeout: 10000 });
+	return modal;
+}
+
+async function settleAnimations(page: Page) {
+	await page.evaluate(() =>
+		Promise.all(
+			document
+				.getAnimations()
+				.filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+				.map((animation) => animation.finished.catch(() => undefined))
+		)
+	);
+}
+
 async function defineChoice(modal: Locator, name: string, options: string[], first: boolean) {
 	if (!first) await modal.getByRole('button', { name: 'Add variable' }).click();
 	await modal.getByLabel('Variable name').fill(name);
@@ -128,6 +152,38 @@ test.describe('segment variables', () => {
 		expect(positive).toContain('${mood-2}');
 		expect(Object.keys(sent.variables)).toEqual(expect.arrayContaining(['mood', 'mood-2']));
 		await screenshot(page, JOURNEY, 'independent-usages');
+	});
+
+	test('manager shows a used tick once the variable is typed into the prompt', async ({ page }) => {
+		const modal = await openVariableManager(page);
+		await defineChoice(modal, 'mood', ['calm', 'tense', 'wild'], true);
+		await expect(modal.getByTestId('variable-used-tick')).toHaveCount(0);
+		await closeManager(page, modal);
+
+		await typeTwoUsages(page, 'mood');
+
+		for (const [width, height] of [
+			[1440, 960],
+			[390, 844]
+		]) {
+			await page.setViewportSize({ width, height });
+			const reopened = await openVariableManagerResponsive(page);
+			const tick = reopened.getByTestId('variable-used-tick');
+			await expect(tick).toHaveCount(1);
+			await expect(tick).toHaveAttribute('aria-label', /Used in the prompt 2 times/);
+			await settleAnimations(page);
+			if (width >= 1024) {
+				await tick.hover();
+				await expect(page.getByText('Used in the prompt · 2')).toBeVisible();
+			}
+			await screenshot(page, JOURNEY, `used-tick-${width}`);
+			await closeManager(page, reopened);
+			const promptSheet = page.getByRole('dialog', { name: 'Prompt', exact: true });
+			if (await promptSheet.isVisible()) {
+				await promptSheet.getByRole('button', { name: 'Done' }).click();
+				await expect(promptSheet).toBeHidden();
+			}
+		}
 	});
 
 	test('Linked sends a single shared name', async ({ page }) => {

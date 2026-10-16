@@ -145,6 +145,10 @@ export function countUsagesByName(texts: string[]): Record<string, number> {
 	return counts;
 }
 
+export function countUsagesInSegments(...lists: ReadonlyArray<ReadonlyArray<{ content: string }>>): Record<string, number> {
+	return countUsagesByName(lists.flatMap((list) => list.map((segment) => segment.content)));
+}
+
 /** Every `${name}` usage in `text`, in order of first appearance, deduped. */
 export function extractVariableUsages(text: string): string[] {
 	const seen = new Set<string>();
