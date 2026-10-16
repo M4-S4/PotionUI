@@ -89,6 +89,7 @@ from src.plugin_api.backends import (
     InProcessBackend,
     ModelListingNotSupported,
     deduplicate,
+    list_backends,
 )
 
 # Provisioning rented GPU compute.
@@ -381,6 +382,7 @@ __all__ = [
     "InProcessBackend",
     "ModelListingNotSupported",
     "deduplicate",
+    "list_backends",
     # Compute provisioning
     "COMPUTE_HOOKS",
     "ComputeFieldDescriptorV1",

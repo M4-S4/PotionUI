@@ -1,6 +1,6 @@
 import uuid
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Dict, Any, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
@@ -49,6 +49,23 @@ def _redacted_backend_dump(backend) -> Dict[str, Any]:
         data[f"has_{name}"] = present
     data["configured"] = backend.is_configured()
     return data
+
+
+def serialize_backend(backend, default_ids: Dict[str, str]) -> Dict[str, Any]:
+    """A backend config as the backends API returns it: secrets redacted, plus
+    whether it is its engine's default and its quick actions."""
+    data = _redacted_backend_dump(backend)
+    data["is_default"] = default_ids.get(backend.engine) == backend.id
+    data["quick_actions"] = backend.quick_actions()
+    return data
+
+
+def enabled_backends_payload(backend_config_store) -> List[Dict[str, Any]]:
+    """What `GET /api/backends/enabled` returns: every enabled backend,
+    highest priority first, serialized by `serialize_backend`."""
+    backends = backend_config_store.get_enabled_backends()
+    default_ids = backend_config_store.get_default_backend_ids()
+    return [serialize_backend(b, default_ids) for b in backends]
 
 
 def _cuda_allocated_gb() -> float:
@@ -150,10 +167,7 @@ class BackendController(BaseController):
         """Serialize a backend config, adding the persisted per-engine default flag."""
         if default_ids is None:
             default_ids = self.backend_config_store.get_default_backend_ids()
-        data = _redacted_backend_dump(backend)
-        data["is_default"] = default_ids.get(backend.engine) == backend.id
-        data["quick_actions"] = backend.quick_actions()
-        return data
+        return serialize_backend(backend, default_ids)
 
     async def list_backends(self) -> APIResponse:
         """List all configured backends"""
@@ -174,10 +188,7 @@ class BackendController(BaseController):
     async def get_enabled_backends(self) -> APIResponse:
         """Get all enabled backends sorted by priority"""
         try:
-            backends = self.backend_config_store.get_enabled_backends()
-            default_ids = self.backend_config_store.get_default_backend_ids()
-            backend_data = [self._serialize(b, default_ids) for b in backends]
-            return self.success_response(data=backend_data)
+            return self.success_response(data=enabled_backends_payload(self.backend_config_store))
         except HTTPException:
             raise
         except Exception as e:
