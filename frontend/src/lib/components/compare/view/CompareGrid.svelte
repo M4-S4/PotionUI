@@ -13,6 +13,7 @@
 		gridTemplateColumns,
 		gridTitle,
 		axisHeaderLabel,
+		workbenchFitHeight,
 		queueOrdinals,
 		retryableCount,
 		CELL_GAP,
@@ -44,6 +45,7 @@
 
 	let contentBox = $state<DOMRectReadOnly | undefined>();
 	let cornerHeight = $state(0);
+	let viewportHeight = $state(typeof window === 'undefined' ? 0 : window.innerHeight);
 	let imageAspect = $state(1);
 	let aspectLocked = $state(false);
 	let videoUrls = $state<Record<string, string>>({});
@@ -58,9 +60,12 @@
 		computeCellSize(
 			contentBox?.width ?? 0,
 			grid.cols,
-			overview
-				? { height: contentBox?.height ?? 0, rows: grid.rows, aspect, header: Math.max(0, cornerHeight - SCROLLER_PADDING) }
-				: undefined
+			{
+				height: overview ? (contentBox?.height ?? 0) : workbenchFitHeight(viewportHeight),
+				rows: grid.rows,
+				aspect,
+				header: Math.max(0, cornerHeight - SCROLLER_PADDING)
+			}
 		)
 	);
 	let hasPlayable = $derived(
@@ -98,6 +103,8 @@
 		imageAspect = next;
 	}
 </script>
+
+<svelte:window bind:innerHeight={viewportHeight} />
 
 <section
 	class="flex min-h-0 w-full min-w-0 max-w-full flex-col rounded-lg border border-line bg-surface-1"

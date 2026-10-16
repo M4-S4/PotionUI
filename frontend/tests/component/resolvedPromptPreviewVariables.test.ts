@@ -70,6 +70,22 @@ describe('Resolved prompt row and variables', () => {
 		expect(mounted.target.textContent).toContain('re-rolls per image');
 	});
 
+	it('hints in the collapsed row that a per-image or shuffled variable varies', () => {
+		const perImage: VariablesMap = { mood: choice(['calm', 'wild'], 'per-image') };
+		mounted = mount({ prompt: 'a ${mood} sea', variables: perImage });
+		expect(mounted.target.querySelector('[data-testid="resolved-row-note"]')?.textContent?.trim()).toBe('mood re-rolls per image');
+		mounted.destroy();
+		const shuffled: VariablesMap = { mood: choice(['calm', 'wild'], 'shuffle') };
+		mounted = mount({ prompt: 'a ${mood} sea', variables: shuffled });
+		expect(mounted.target.querySelector('[data-testid="resolved-row-note"]')?.textContent?.trim()).toBe('mood shuffles each generation');
+	});
+
+	it('shows no row hint for a pinned variable or one the prompt does not use', () => {
+		const pinned: VariablesMap = { mood: choice(['calm', 'wild'], 'pin', 0), other: choice(['x', 'y'], 'per-image') };
+		mounted = mount({ prompt: 'a ${mood} sea', variables: pinned });
+		expect(mounted.target.querySelector('[data-testid="resolved-row-note"]')).toBeNull();
+	});
+
 	it('does not note variables the prompt does not use', async () => {
 		const variables: VariablesMap = { mood: choice(['calm', 'wild'], 'shuffle') };
 		mounted = mount({ prompt: 'plain text', variables });

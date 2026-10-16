@@ -136,7 +136,7 @@
 <button
 	bind:this={triggerEl}
 	type="button"
-	class="inline-flex h-6 min-w-0 max-w-[16rem] flex-shrink items-center gap-1.5 rounded border px-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal
+	class="inline-flex h-6 min-w-0 max-w-[16rem] items-center gap-1.5 overflow-hidden whitespace-nowrap rounded border px-2 text-sm {multiple ? 'flex-shrink' : 'flex-shrink-0'} transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal
 		{activeOverflows
 		? 'border-danger/40 bg-danger/10 text-danger'
 		: open
@@ -155,7 +155,7 @@
 			<span class="min-w-0 truncate {activeOverflows ? '' : 'text-fg-subtle'}">{activeTitle}</span>
 		{/if}
 	{:else}
-		<span class="text-fg-subtle">1 prompt</span>
+		<span class="flex-shrink-0 whitespace-nowrap text-fg-subtle">1 prompt</span>
 	{/if}
 	<Icon name="chevron-down" className="h-3 w-3 flex-shrink-0 transition-transform {open ? 'rotate-180' : ''}" />
 </button>

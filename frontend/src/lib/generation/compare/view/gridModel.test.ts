@@ -14,6 +14,7 @@ import {
 	cellTabUpdates,
 	computeCellSize,
 	axisHeaderLabel,
+	workbenchFitHeight,
 	MIN_FIT_CELL,
 	cellProgressLabel,
 	createCellTimer,
@@ -122,6 +123,29 @@ describe('geometry and labels', () => {
 		expect(size).toBeLessThan(MIN_CELL);
 		expect(size).toBeGreaterThanOrEqual(MIN_FIT_CELL);
 		expect(header + 2 * (size + CELL_GAP)).toBeLessThanOrEqual(height);
+	});
+
+	it('fits a 2x2 grid in the live workbench of the capture viewport (1536x864) with three panes and a folded form', () => {
+		const height = workbenchFitHeight(864);
+		expect(height).toBe(Math.floor(864 * 0.7) - 24);
+		const paneContentWidth = 740;
+		const header = 58;
+		const { size } = computeCellSize(paneContentWidth, 2, { height, rows: 2, aspect: 1, header });
+		expect(size).toBeLessThan(MAX_CELL);
+		expect(header + 2 * (size + CELL_GAP)).toBeLessThanOrEqual(height);
+		const unfitted = computeCellSize(paneContentWidth, 2).size;
+		expect(header + 2 * (unfitted + CELL_GAP)).toBeGreaterThan(height);
+	});
+
+	it('gives no height fit before the viewport is known', () => {
+		expect(workbenchFitHeight(0)).toBe(0);
+		expect(computeCellSize(940, 2, { height: workbenchFitHeight(0), rows: 2, aspect: 1 }).size).toBe(computeCellSize(940, 2).size);
+	});
+
+	it('titles the grid with short axis labels', () => {
+		const long = (label: string) => ({ ...sampler, label });
+		expect(gridTitle({ x: long('Steps (0 = checkpoint default)'), y: long('CFG Scale (0 = checkpoint default)') })).toBe('Steps × CFG Scale');
+		expect(gridTitle({ x: long('Steps (0 = checkpoint default)'), y: null })).toBe('Steps');
 	});
 
 	it('shortens axis headers by dropping the trailing parenthetical', () => {

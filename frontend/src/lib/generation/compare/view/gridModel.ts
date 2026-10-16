@@ -28,8 +28,8 @@ export function axisValueLabel(axis: CompareAxis | null, index: number): string 
 }
 
 export function gridTitle(config: Pick<ActiveGrid['config'], 'x' | 'y'>): string {
-	if (config.x && config.y) return `${config.x.label} × ${config.y.label}`;
-	return config.x?.label ?? '';
+	if (config.x && config.y) return `${axisHeaderLabel(config.x.label)} × ${axisHeaderLabel(config.y.label)}`;
+	return axisHeaderLabel(config.x?.label);
 }
 
 export function gridDimensions(grid: Pick<ActiveGrid, 'cols' | 'rows'>): string {
@@ -257,6 +257,13 @@ export function axisHeaderLabel(label: string | null | undefined): string {
 	const text = (label ?? '').trim();
 	const short = text.replace(/\s*\([^)]*\)\s*$/, '').trim();
 	return short || text;
+}
+
+export const WORKBENCH_MAX_VIEWPORT_SHARE = 0.7;
+
+export function workbenchFitHeight(viewportHeight: number): number {
+	if (!(viewportHeight > 0)) return 0;
+	return Math.max(0, Math.floor(viewportHeight * WORKBENCH_MAX_VIEWPORT_SHARE) - 2 * SCROLLER_PADDING);
 }
 
 export function gridTemplateColumns(cols: number, size: number): string {
