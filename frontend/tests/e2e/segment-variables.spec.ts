@@ -47,7 +47,7 @@ async function openVariableManager(page: Page): Promise<Locator> {
 		await button.waitFor({ state: 'visible', timeout: 10000 });
 	}
 	await button.click();
-	const modal = page.getByRole('dialog').filter({ hasText: 'Prompt variables' });
+	const modal = page.getByRole('dialog', { name: 'Prompt variables', exact: true });
 	await expect(modal).toBeVisible({ timeout: 10000 });
 	return modal;
 }
@@ -60,7 +60,7 @@ async function openVariableManagerResponsive(page: Page): Promise<Locator> {
 		await expect(sheet).toBeVisible();
 	}
 	await page.locator('[data-toolbar-action="variables"] button').first().click();
-	const modal = page.getByRole('dialog').filter({ hasText: 'Prompt variables' });
+	const modal = page.getByRole('dialog', { name: 'Prompt variables', exact: true });
 	await expect(modal).toBeVisible({ timeout: 10000 });
 	return modal;
 }
