@@ -25,6 +25,7 @@
 	} from '$lib/generation/compare/compareStore.svelte';
 	import { limits, limitsMeta } from '$lib/plans/store';
 	import { gridFraction } from '$lib/generation/compare/view/gridModel';
+	import { compareStatusLine } from '$lib/generation/compare/compareSummary';
 	import CompareDrawer from './compare/CompareDrawer.svelte';
 
 	const dispatch = createEventDispatcher();
@@ -561,7 +562,7 @@
 						<span class="font-mono tabular-nums uppercase" data-compare-status>
 							{markState === 'disabled' && effectiveDisabledReason
 								? effectiveDisabledReason
-								: `${compareSummary.count} ${compareSummary.count === 1 ? 'cell' : 'cells'} · ${compareSummary.estimate}`}
+								: compareStatusLine(compareSummary.count, compareSummary.estimate)}
 						</span>
 					{:else if batchLine}
 						{#if markState === 'disabled' && disabledReason && !batchLine.over}

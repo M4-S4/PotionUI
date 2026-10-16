@@ -12,6 +12,7 @@
 		gridProgress,
 		gridTemplateColumns,
 		gridTitle,
+		axisHeaderLabel,
 		queueOrdinals,
 		retryableCount,
 		CELL_GAP,
@@ -172,9 +173,9 @@
 				bind:clientHeight={cornerHeight}
 				class="sticky -left-3 -top-3 z-20 -ml-3 -mt-3 flex flex-col justify-end bg-canvas pb-1 pl-3 pt-3 font-mono text-xs uppercase leading-5 tracking-[0.07em] text-fg-subtle"
 			>
-				<span><span class="text-signal">X</span> {grid.config.x?.label ?? ''}</span>
+				<span class="block min-w-0 truncate"><span class="text-signal">X</span> {axisHeaderLabel(grid.config.x?.label)}</span>
 				{#if grid.config.y}
-					<span><span class="text-signal">Y</span> {grid.config.y.label}</span>
+					<span class="block min-w-0 truncate"><span class="text-signal">Y</span> {axisHeaderLabel(grid.config.y.label)}</span>
 				{/if}
 			</div>
 			{#each { length: grid.cols } as _, x (x)}

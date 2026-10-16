@@ -146,7 +146,7 @@ function conditionValue(condition: Condition): unknown {
 	return condition.value;
 }
 
-function reasonFor(
+export function lockReason(
 	field: RawField,
 	data: Record<string, unknown>,
 	labels: Map<string, RawField>
@@ -234,7 +234,7 @@ export function buildAxisCandidates(
 		const hidden = live.visible === false;
 		const locked = live.disabled === true && field.disabled !== true;
 		let unavailableReason: string | null = null;
-		if (hidden || locked) unavailableReason = reasonFor(field, formData, labels) ?? (hidden ? 'Hidden right now' : 'Set by another field');
+		if (hidden || locked) unavailableReason = lockReason(field, formData, labels) ?? (hidden ? 'Hidden right now' : 'Set by another field');
 		else if (probe.editor === null) unavailableReason = 'Not comparable';
 		const bounds = numberBounds(type, live);
 		const cfg = (live.configuration ?? {}) as Record<string, unknown>;

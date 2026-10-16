@@ -13,6 +13,8 @@ import {
 	cellFormPatchSummary,
 	cellTabUpdates,
 	computeCellSize,
+	axisHeaderLabel,
+	MIN_FIT_CELL,
 	cellProgressLabel,
 	createCellTimer,
 	gridFraction,
@@ -104,13 +106,30 @@ describe('geometry and labels', () => {
 		const fitted = computeCellSize(1500, 3, { height: 500, rows: 2, aspect: 1 });
 		expect(fitted.size).toBeLessThan(wide);
 		expect(44 + 2 * (fitted.size + CELL_GAP)).toBeLessThanOrEqual(500);
-		expect(computeCellSize(1500, 3, { height: 100, rows: 2, aspect: 1 }).size).toBe(MIN_CELL);
+		expect(computeCellSize(1500, 3, { height: 100, rows: 2, aspect: 1 }).size).toBe(MIN_FIT_CELL);
 	});
 
 	it('leaves room for a measured header taller than the default when fitting rows', () => {
 		const tallHeader = computeCellSize(1500, 3, { height: 600, rows: 2, aspect: 1, header: 84 });
 		expect(84 + 2 * (tallHeader.size + CELL_GAP)).toBeLessThanOrEqual(600);
 		expect(tallHeader.size).toBeLessThan(computeCellSize(1500, 3, { height: 600, rows: 2, aspect: 1 }).size);
+	});
+
+	it('shrinks a small grid below the scroll minimum so both rows stay on screen', () => {
+		const height = 300;
+		const header = 60;
+		const { size } = computeCellSize(1100, 2, { height, rows: 2, aspect: 1, header });
+		expect(size).toBeLessThan(MIN_CELL);
+		expect(size).toBeGreaterThanOrEqual(MIN_FIT_CELL);
+		expect(header + 2 * (size + CELL_GAP)).toBeLessThanOrEqual(height);
+	});
+
+	it('shortens axis headers by dropping the trailing parenthetical', () => {
+		expect(axisHeaderLabel('Steps (0 = checkpoint default)')).toBe('Steps');
+		expect(axisHeaderLabel('CFG scale (0 = checkpoint default)')).toBe('CFG scale');
+		expect(axisHeaderLabel('Sampler')).toBe('Sampler');
+		expect(axisHeaderLabel('(only)')).toBe('(only)');
+		expect(axisHeaderLabel(undefined)).toBe('');
 	});
 
 	it('fills the width with equal cells when the grid fits', () => {

@@ -226,6 +226,7 @@ export interface CellSize {
 export const CELL_GAP = 12;
 export const LABEL_COLUMN = 96;
 export const MIN_CELL = 112;
+export const MIN_FIT_CELL = 72;
 export const MAX_CELL = 320;
 
 export const HEADER_HEIGHT = 44;
@@ -247,9 +248,15 @@ export function computeCellSize(containerWidth: number, cols: number, heightFit?
 	if (heightFit && heightFit.height > 0 && heightFit.rows > 0 && heightFit.aspect > 0) {
 		const header = heightFit.header && heightFit.header > 0 ? heightFit.header : HEADER_HEIGHT;
 		const rowHeight = (heightFit.height - header - CELL_GAP * heightFit.rows) / heightFit.rows;
-		size = Math.max(MIN_CELL, Math.min(size, Math.floor(rowHeight * heightFit.aspect)));
+		size = Math.max(MIN_FIT_CELL, Math.min(size, Math.floor(rowHeight * heightFit.aspect)));
 	}
 	return { size, scrolls: false };
+}
+
+export function axisHeaderLabel(label: string | null | undefined): string {
+	const text = (label ?? '').trim();
+	const short = text.replace(/\s*\([^)]*\)\s*$/, '').trim();
+	return short || text;
 }
 
 export function gridTemplateColumns(cols: number, size: number): string {

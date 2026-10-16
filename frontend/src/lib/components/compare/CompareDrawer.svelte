@@ -142,9 +142,9 @@
 			</div>
 		{:else if summary.overCap}
 			<div class="mt-1 text-xs text-danger" data-testid="compare-overcap">{summary.disabledReason}</div>
-		{:else if summary.count > 0}
+		{:else if summary.count > 0 && summary.estimate !== '-'}
 			<div class="mt-0.5 text-xs text-fg-muted" data-testid="compare-estimate">
-				{summary.estimate}{summary.estimate === '-' ? '' : ' on this backend'}
+				{summary.estimate} on this backend
 			</div>
 		{/if}
 	</div>

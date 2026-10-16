@@ -10,6 +10,11 @@ export type CompareSummary = {
 	disabledReason: string | null;
 };
 
+export function compareStatusLine(count: number, estimate: string): string {
+	const cells = `${count} ${count === 1 ? 'cell' : 'cells'}`;
+	return estimate && estimate !== '-' ? `${cells} · ${estimate}` : cells;
+}
+
 export function deriveCompareSummary(input: {
 	count: number;
 	perCellMs: number | null;
