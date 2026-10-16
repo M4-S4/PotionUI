@@ -55,7 +55,7 @@ def _names(pipes):
 
 def test_modes_and_display_name(flux3_template):
     assert list(flux3_template.modes.keys()) == ["txt2img", "edit"]
-    assert flux3_template.name == "FLUX 3 (experimental)"
+    assert flux3_template.name == "FLUX 3 Klein (experimental)"
 
 
 def test_pipe_names_are_the_flux3_family(flux3_template):
