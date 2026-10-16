@@ -8,6 +8,7 @@
 	import { getRegistry } from '$lib/plugin-api/componentRegistry';
 	import { PageHeader, PageTitle } from '$lib/components/ui';
 	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
+	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -101,6 +102,7 @@
 		}
 		pluginInstance = null;
 		unmountFn = null;
+		releaseAllKeyboardHolds();
 	}
 
 	async function loadPlugin(id: string) {
