@@ -30,11 +30,13 @@ button { cursor: pointer; }
 
 .composer.plain .composer-toolbar { padding-left: 0; padding-right: 0; border-bottom: 0; }
 
-.composer-title { font-size: 13px; font-weight: 600; }
+.composer-title { font-size: 13px; font-weight: 600; flex: none; white-space: nowrap; }
 
 .composer-title.negative { color: rgb(var(--danger)); }
 
-.composer-count { color: rgb(var(--fg-subtle)); font: 400 12px "IBM Plex Mono"; font-variant-numeric: tabular-nums; }
+.composer-count { color: rgb(var(--fg-subtle)); font: 400 12px "IBM Plex Mono"; font-variant-numeric: tabular-nums; flex: none; white-space: nowrap; }
+
+.composer-toolbar [data-toolbar-more] { flex: none; }
 
 .toolbar-spacer { flex: 1; }
 .toolbar-slot { display: inline-flex; flex: none; }

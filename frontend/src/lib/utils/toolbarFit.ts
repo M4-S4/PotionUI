@@ -19,6 +19,10 @@ export function fitToolbar({ available, gap, order, collapseOrder, widths }: Too
 	return order.filter((key) => hidden.has(key));
 }
 
+export function fixedChildWidth(offsetWidth: number, shrinkMin: number | null): number {
+	return shrinkMin === null ? offsetWidth : Math.min(offsetWidth, shrinkMin);
+}
+
 export interface ToolbarFitParams {
 	order: string[];
 	collapseOrder: string[];
@@ -27,6 +31,7 @@ export interface ToolbarFitParams {
 
 const SLOT = '[data-toolbar-action]';
 const MORE = '[data-toolbar-more]';
+const SHRINK = 'toolbarShrink';
 const MORE_FALLBACK_WIDTH = 28;
 
 export function toolbarFit(node: HTMLElement, initial: ToolbarFitParams) {
@@ -53,8 +58,9 @@ export function toolbarFit(node: HTMLElement, initial: ToolbarFitParams) {
 				observer?.observe(child);
 			} else if (child.matches(MORE)) {
 				moreWidth = child.offsetWidth || MORE_FALLBACK_WIDTH;
-			} else if (!child.classList.contains('toolbar-spacer')) {
-				fixed += child.offsetWidth;
+			} else if (!child.classList.contains('toolbar-spacer') && child.offsetParent !== null) {
+				const shrink = Number.parseFloat(child.dataset[SHRINK] ?? '');
+				fixed += fixedChildWidth(child.offsetWidth, Number.isFinite(shrink) ? shrink : null);
 				fixedCount += 1;
 			}
 		}

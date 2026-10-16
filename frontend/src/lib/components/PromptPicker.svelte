@@ -136,7 +136,7 @@
 <button
 	bind:this={triggerEl}
 	type="button"
-	class="inline-flex h-6 max-w-[16rem] items-center gap-1.5 rounded border px-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal
+	class="inline-flex h-6 min-w-0 max-w-[16rem] flex-shrink items-center gap-1.5 rounded border px-2 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal
 		{activeOverflows
 		? 'border-danger/40 bg-danger/10 text-danger'
 		: open
@@ -147,6 +147,7 @@
 	aria-label={multiple ? `Prompt ${active + 1} of ${count}` : 'Prompts'}
 	onclick={toggle}
 	data-prompt-picker
+	data-toolbar-shrink="132"
 >
 	{#if multiple}
 		<span class="flex-shrink-0 font-mono tabular-nums">Prompt {active + 1} of {count}</span>
