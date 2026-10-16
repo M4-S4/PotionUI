@@ -242,6 +242,7 @@ export interface ChatToolInfo {
 	hint: string;
 	requires_approval?: boolean;
 	mode?: string | null;
+	modes?: string[] | null;
 	icon?: string | null;
 	label?: string | null;
 	group?: string | null;

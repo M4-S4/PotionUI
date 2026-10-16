@@ -2,6 +2,7 @@
 	import { slide } from 'svelte/transition';
 	import type { ToolExecution, TraceStep, TraceStepName } from '$lib/types/chat';
 	import { hydrateTraceSteps, formatContextLedgerSummary, sumMemoryDropped } from '$lib/utils/chatStream';
+	import { toolsStepLabel } from '$lib/chat/traceLabels';
 	import ChatToolRun from './ChatToolRun.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -68,8 +69,7 @@
 					? `Preparing (${(detail.actions || []).join(', ')})`
 					: 'Preparing…';
 			case 'tools': {
-				const withheldCount = Object.keys(detail.withheld || {}).length;
-				return (detail.offered || []).length === 0 ? 'Tools off' : `Tools: ${withheldCount} unavailable`;
+				return toolsStepLabel(detail);
 			}
 			case 'thinking':
 				return 'Thinking…';

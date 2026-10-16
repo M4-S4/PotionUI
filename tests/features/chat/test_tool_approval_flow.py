@@ -1,4 +1,5 @@
 import asyncio
+from src.features.chat.reply_contract import approval_continuation_message
 import copy
 import json
 from types import SimpleNamespace
@@ -271,6 +272,23 @@ class TestResolve:
         assert round_["results"] == [{"tool_call_id": "c1", "content": json.dumps({"applied": 2})}]
 
     @pytest.mark.asyncio
+    async def test_continuation_asks_for_a_one_sentence_confirmation(self, chat_db):
+        from src.features.chat.reply_contract import APPROVAL_CONTINUATION_NOTE
+
+        tool = _SetValueTool()
+        manager, _repo, session_id, llm, message_id, _events = await _paused(tool)
+        first_system = llm.calls[0]["system"]
+
+        await _resolve(manager, session_id, message_id)
+        await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
+
+        assert llm.calls[-1]["system"] == first_system
+        assert APPROVAL_CONTINUATION_NOTE not in json.dumps(llm.calls[0]["messages"])
+        last = llm.calls[-1]["messages"][-1]
+        assert last["role"] == "user"
+        assert APPROVAL_CONTINUATION_NOTE in last["content"]
+
+    @pytest.mark.asyncio
     async def test_failure_reaches_continuation(self, chat_db):
         tool = _SetValueTool(fail_times=5)
         manager, _repo, session_id, llm, message_id, _events = await _paused(tool)
@@ -357,6 +375,7 @@ class TestContinuation:
                 "role": "tool", "tool_call_id": "c2", "name": "echo",
                 "content": "Not run: waiting for approval of set_value. Call it again if still needed.",
             },
+            approval_continuation_message(),
         ]
 
         reply = _done(events)["assistant_message"]

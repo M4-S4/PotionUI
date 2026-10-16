@@ -32,7 +32,7 @@ from src.features.chat.exceptions import (
 from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
 from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
-from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE
+from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE, approval_continuation_message
 from src.features.chat.tool_transcript import tool_metadata
 from src.features.llm import context_budget, trace_collector
 from src.features.llm.trace_repository import chat_call_trace_repository
@@ -584,6 +584,8 @@ class ConversationRunner:
         self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
+        if continuation is not None:
+            conversation_history.append(approval_continuation_message())
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
         budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)

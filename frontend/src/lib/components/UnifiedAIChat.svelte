@@ -93,6 +93,7 @@
 		loadDisabledTools,
 		saveDisabledTools
 	} from '$lib/utils/chatConfig';
+	import { startersForMode } from '$lib/chat/modeStarters';
 	import { loadHistoryRailCollapsed, saveHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
 	import { getPresetPromptResources, type PresetPromptResourcesResult } from '$lib/utils/presetPromptResourcesCache';
 	import type { ResourceTokenContext } from '$lib/utils/promptResourceTokens';
@@ -110,33 +111,11 @@
 	// transcript); loadEarlier() pages further back in the same size steps.
 	const TRANSCRIPT_TAIL = 60;
 
-	// Empty-state suggestion cards: clicking one hands its prompt straight to
-	// the composer (copy and icons ported verbatim from the mock's .suggestions).
-	const EMPTY_STATE_SUGGESTIONS = [
-		{
-			title: 'Explore art directions',
-			sub: 'Three distinct approaches from the current image',
-			prompt: 'Give me three art directions for the current image.',
-			icon: 'i-sparkles'
-		},
-		{
-			title: 'Review my settings',
-			sub: 'Find quality, speed, or composition improvements',
-			prompt: 'Review my current settings and suggest improvements.',
-			icon: 'i-sliders'
-		},
-		{
-			title: 'Refine this prompt',
-			sub: 'Improve composition, detail, and lighting',
-			prompt: 'Rewrite my prompt with stronger composition and lighting.',
-			icon: 'i-wand'
-		}
-	];
-
 	// Conversation state lives in the chatSession store (survives panel close)
 	$: sessionId = $chatSession.sessionId;
 	$: messages = $chatSession.messages;
 	$: currentMode = $chatSession.mode;
+	$: starters = startersForMode(currentMode);
 	$: isGenerating = $chatSession.isGenerating;
 	// What a brand-new conversation would resolve to right now — used only to
 	// tell the user a locked conversation's mode has fallen behind the page
@@ -1843,7 +1822,7 @@
 					<h2>What are we making?</h2>
 					<p>I can see your active workspace and help shape prompts, settings, and creative direction.</p>
 					<div class="suggestions">
-						{#each EMPTY_STATE_SUGGESTIONS as suggestion (suggestion.title)}
+						{#each starters as suggestion (suggestion.title)}
 							<button
 								type="button"
 								class="suggestion"

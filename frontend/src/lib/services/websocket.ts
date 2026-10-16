@@ -48,7 +48,8 @@ export class WebSocketService extends BaseWebSocket {
 		if (
 			wsMessage.type === 'connection_established' ||
 			wsMessage.type === 'heartbeat' ||
-			wsMessage.type === 'pong'
+			wsMessage.type === 'pong' ||
+			wsMessage.type === 'status_update'
 		) {
 			return;
 		}

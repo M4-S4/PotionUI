@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
+const warn = vi.hoisted(() => vi.fn());
+vi.mock('$lib/utils/logger', () => ({ logger: { warn, error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 vi.mock('$lib/stores/auth', () => ({ authStore: { expireSession: vi.fn() } }));
 const tokenRef = vi.hoisted(() => ({ current: null as string | null }));
 vi.mock('$lib/services/api/index', () => ({ api: { getToken: () => tokenRef.current } }));
@@ -70,3 +72,22 @@ describe('generation socket reconnect', () => {
 	});
 });
 
+
+describe('generation socket message routing', () => {
+	function deliver(message: Record<string, unknown>): void {
+		const ws = createGenerationSocket();
+		(ws as unknown as { onMessage(m: unknown): void }).onMessage(message);
+	}
+
+	beforeEach(() => warn.mockClear());
+
+	it('ignores the id-less status snapshot without warning', () => {
+		deliver({ type: 'status_update', data: { id: 'g1', status: 'running' } });
+		expect(warn).not.toHaveBeenCalled();
+	});
+
+	it('still warns about other messages that carry no generation id', () => {
+		deliver({ type: 'gallery_update', data: {} });
+		expect(warn).toHaveBeenCalledWith('Message gallery_update has no generation_id');
+	});
+});
