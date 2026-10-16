@@ -45,6 +45,7 @@
 	import MediaDropzone from './MediaDropzone.svelte';
 	import MediaFieldEditors from './MediaFieldEditors.svelte';
 	import MediaFieldPickers from './MediaFieldPickers.svelte';
+	import { historyTileLabel, type PickedMedia } from '$lib/components/modals/mediaPickerSelection';
 	import MediaInspector from './MediaInspector.svelte';
 	import MediaStrip from './MediaStrip.svelte';
 	import MediaRow from './MediaRow.svelte';
@@ -523,9 +524,47 @@
 		.flatMap((group) => group.items.map((entry) => ({ group, entry })))
 		.find((found) => found.entry.flatIndex === selected);
 
+	function handleHistoryConfirm(items: PickedMedia[]) {
+		if (!name) {
+			showHistoryModal = false;
+			return;
+		}
+		if (!multiple) {
+			const first = items.find((picked) => picked.file && picked.generation);
+			if (first) handleGeneration(first.generation, first.file);
+			else showHistoryModal = false;
+			return;
+		}
+		const accepted: Item[] = [];
+		for (const picked of items) {
+			if (!picked.file || !picked.generation) continue;
+			const pick = pickFromGeneration(picked.file, historyTileLabel(picked.generation, picked.file).label);
+			const verdict = evaluateCandidate(
+				pick.candidate,
+				limits,
+				summarizeContents([...multiItems, ...accepted], (item) => kindOfMediaItem(item as Item), itemDuration),
+				{ fieldName: name }
+			);
+			if (!verdict.accepted) {
+				rejection = {
+					reasons: verdict.reasons,
+					detail: `${accepted.length} of ${items.length} added. ${describeCandidate(pick.candidate)}`
+				};
+				break;
+			}
+			accepted.push(pick.item as Item);
+		}
+		if (accepted.length > 0) {
+			if (accepted.length === items.length) rejection = null;
+			selected = multiItems.length + accepted.length - 1;
+			onChange(name, [...multiItems, ...accepted]);
+		}
+		showHistoryModal = false;
+	}
+
 	function handleGeneration(generation: any, file: any) {
 		if (!file) return;
-		const pick = pickFromGeneration(file);
+		const pick = pickFromGeneration(file, historyTileLabel(generation, file).label);
 		if (!admit(pick.candidate)) return;
 
 		if (multiple) {
@@ -906,6 +945,8 @@
 	onHistoryClose={() => (showHistoryModal = false)}
 	onLibraryClose={() => (showUploadLibraryModal = false)}
 	onHistorySelect={handleGeneration}
+	historyMultiple={multiple}
+	onHistoryConfirm={handleHistoryConfirm}
 	onLibrarySelect={handleSelectFromUpload}
 />
 
