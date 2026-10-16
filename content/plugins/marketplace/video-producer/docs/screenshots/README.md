@@ -58,3 +58,15 @@ They show the starter project "Aube sur le port" that the plugin opens on: five 
 | [starter-mixer-dark](starter-mixer-dark.jpg) / [light](starter-mixer-light.jpg) | Console with the default dialogue, music, ambience and sound-effects strips and the buses; no sound in the project. |
 | [starter-storyboard-generated-dark](starter-storyboard-generated-dark.jpg) / [light](starter-storyboard-generated-light.jpg) | After "Générer la sélection" in draft quality and the simulated generation (about four seconds): shot 1 has two draft takes whose thumbnails are drawn procedurally (a numbered gradient marked "Simulé"), the project reads "Modifié", and the Production bar reports "2 prises prêtes". |
 | [starter-inspector-takes-dark](starter-inspector-takes-dark.jpg) / [light](starter-inspector-takes-light.jpg) | The same state with shot 1 selected and the inspector on the "Prises" tab: takes A and B, with the "Passer en final" action and the estimate for two more drafts. |
+
+## Project persistence
+
+`open-window.png`, `version-history.png` and `media-import.png` show the plugin alone, with no prototype next to them: the prototype has no saved projects. Each image joins the dark theme (left) and the light theme (right) of the English interface. They are 1:1 crops of 1440 x 900 captures (no reduction), kept as PNG: 1440 x 450 for the Open window, 1440 x 540 for the version history and 720 x 450 for the media panel.
+
+The project is "Dawn at the harbour" with two other saved projects ("Alpine trailer", "Sketchbook"); modification times are spaced out so that the relative times and the version dates read differently.
+
+| Image | What it shows |
+|---|---|
+| [open-window](open-window.png) | File > Open…: the saved projects, most recently modified first, each with its name, relative modification time, shot count and running time. A "Current" badge marks the open project, which has no delete button. "Alpine trailer" is selected (signal frame), so "Open" is enabled; the trash icon asks for a confirmation from the host before deleting; "New project" creates an empty project. |
+| [version-history](version-history.png) | File > Version history…: the seven versions of the open project, latest first, each with its date and time to the second, shot count and optional label. "Current" marks the version in the editor, version 6 reads "Restored from version 3", and version 4 is selected, so "Restore" is enabled. |
+| [media-import](media-import.png) | The Media panel after File > Import files…, which opened the host library picker: a video and an image are listed with their thumbnail, the real duration ("4.0 s") and the "Library" origin badge. |
