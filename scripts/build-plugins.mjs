@@ -96,7 +96,14 @@ function discoverPlugins(pluginIdFilter) {
 		if (!existsSync(root)) continue;
 		for (const name of readdirSync(root)) {
 			const pluginDir = join(root, name);
-			if (!statSync(pluginDir).isDirectory()) continue;
+			let isDirectory;
+			try {
+				isDirectory = statSync(pluginDir).isDirectory();
+			} catch (error) {
+				console.warn(`skipping ${pluginDir}: ${error.code ?? error.message}`);
+				continue;
+			}
+			if (!isDirectory) continue;
 			const manifestPath = join(pluginDir, 'manifest.yml');
 			const frontendSrc = join(pluginDir, 'frontend', 'src');
 			if (!existsSync(manifestPath) || !existsSync(frontendSrc)) continue;
