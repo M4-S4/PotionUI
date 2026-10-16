@@ -3,6 +3,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.features.generation.policy import GenerationPolicy
+from src.features.generation.prompt_text import prompt_contains_params, prompt_contains_sql, prompt_texts
 from src.features.models.attributes.records import ModelAttributeDefinition
 from src.features.models.attributes.well_known import WellKnownModelAttribute
 from src.features.organize.evaluator import NEGATED_TEXT, as_list
@@ -98,26 +99,6 @@ def aspect_of(width: Any, height: Any) -> Optional[str]:
     if abs(width - height) * SQUARE_TOLERANCE <= max(width, height):
         return "square"
     return "landscape" if width > height else "portrait"
-
-
-def prompt_texts(form_data: Any) -> List[str]:
-    found: List[str] = []
-
-    def walk(node: Any) -> None:
-        if isinstance(node, dict):
-            for key, value in node.items():
-                lowered = str(key).lower()
-                if isinstance(value, str):
-                    if "prompt" in lowered and "negative" not in lowered:
-                        found.append(value)
-                else:
-                    walk(value)
-        elif isinstance(node, (list, tuple)):
-            for value in node:
-                walk(value)
-
-    walk(form_data)
-    return found
 
 
 def _sizes(item: OrganizeItem) -> List[Dict[str, int]]:
@@ -250,18 +231,11 @@ def _duration_sql(operator: str, value: Any, alias: str) -> SqlResult:
 def _prompt_sql(operator: str, value: Any, alias: str) -> SqlResult:
     if alias != "g" or not isinstance(value, str) or not value:
         return None
-    def column_matches(column: str) -> str:
-        return (
-            f"CASE WHEN json_valid({column}) THEN EXISTS (SELECT 1 FROM json_tree({column}) jt "
-            "WHERE jt.type = 'text' AND LOWER(jt.key) LIKE '%prompt%' AND LOWER(jt.key) NOT LIKE '%negative%' "
-            "AND instr(LOWER(jt.value), LOWER(?)) > 0) ELSE 0 END"
-        )
-
-    exists = f"{column_matches('g.form_data')} OR {column_matches('g.prompt_state')}"
+    exists = prompt_contains_sql(alias)
     if operator == "contains":
-        return f"({exists})", [value, value]
+        return f"({exists})", prompt_contains_params(value)
     if operator == "not_contains":
-        return f"NOT ({exists})", [value, value]
+        return f"NOT ({exists})", prompt_contains_params(value)
     return None
 
 

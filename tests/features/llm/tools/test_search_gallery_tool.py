@@ -234,3 +234,28 @@ class TestTextFallback:
 
         assert result.success is False
         assert "vision embedder" in result.error
+
+
+class TestPromptStatePrompt:
+    def test_prompt_text_falls_back_to_prompt_state_and_skips_negative(self):
+        text = SearchGalleryTool._prompt_text(
+            {"steps": 20}, {"prompt": "a   lighthouse", "negativePrompt": "blurry"}
+        )
+        assert text == "a lighthouse"
+
+    def test_prompt_text_is_none_when_only_negative_prompt_exists(self):
+        assert SearchGalleryTool._prompt_text({"negative_prompt": "blurry"}, {"negativePrompt": "x"}) is None
+
+    @pytest.mark.asyncio
+    async def test_text_results_surface_prompt_state_prompt(self):
+        manager = make_manager()
+        manager.vision_embedder.is_available.return_value = False
+        gen = {"id": "gen-1", "form_data": {"steps": 20}, "prompt_state": {"prompt": "a red fox"},
+               "created_at": "2026-10-05T00:00:00Z",
+               "files": [{"id": "f1", "file_path": "g/f1.png", "file_type": "IMAGE", "is_final": True}]}
+        history = make_history({"fox": [gen]})
+        context = ToolContext(user_id="user-1", media_indexer=manager, generation_history_facade=history)
+
+        result = await SearchGalleryTool().execute(context, queries=["fox"])
+
+        assert json.loads(result.data)["results"][0]["matches"][0]["prompt"] == "a red fox"

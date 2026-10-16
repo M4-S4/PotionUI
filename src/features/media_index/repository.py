@@ -17,7 +17,7 @@ _QUEUE_ITEM_SELECT = """
            f.user_id AS file_user_id,
            (SELECT gf.generation_id FROM generation_files gf
             WHERE gf.file_id = q.file_id LIMIT 1) AS generation_id,
-           (SELECT json_extract(g.form_data, '$.prompt') FROM generation_files gf
+           (SELECT COALESCE(NULLIF(json_extract(g.form_data, '$.prompt'), ''), json_extract(g.prompt_state, '$.prompt')) FROM generation_files gf
             JOIN generations g ON g.id = gf.generation_id
             WHERE gf.file_id = q.file_id LIMIT 1) AS prompt_text
     FROM media_index_queue q

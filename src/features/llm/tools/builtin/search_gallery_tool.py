@@ -5,6 +5,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from src.features.generation.prompt_text import prompt_texts
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.errors import unexpected
 
@@ -150,9 +151,11 @@ class SearchGalleryTool(BaseTool):
         return (finals or usable or [None])[0]
 
     @staticmethod
-    def _prompt_text(form_data: Any) -> Optional[str]:
-        prompt = form_data.get("prompt") if isinstance(form_data, dict) else None
-        if not isinstance(prompt, str) or not prompt.strip():
+    def _prompt_text(form_data: Any, prompt_state: Any = None) -> Optional[str]:
+        prompt = next(
+            (t for t in prompt_texts(form_data) + prompt_texts(prompt_state) if t.strip()), None
+        )
+        if prompt is None:
             return None
         text = " ".join(prompt.split())
         return text[:160] + ("..." if len(text) > 160 else "")
@@ -179,7 +182,7 @@ class SearchGalleryTool(BaseTool):
                     "media_type": picked.get("file_type"),
                     "path": picked.get("file_path"),
                     "thumbnail": picked.get("thumbnail_medium") or picked.get("file_path"),
-                    "prompt": self._prompt_text(generation.get("form_data")),
+                    "prompt": self._prompt_text(generation.get("form_data"), generation.get("prompt_state")),
                     "created_at": generation.get("created_at"),
                 }
                 matches.append({k: v for k, v in entry.items() if v is not None})
