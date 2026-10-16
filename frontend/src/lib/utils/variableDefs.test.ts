@@ -20,6 +20,7 @@ import {
 	type ChoiceVariableDef,
 	MAX_INDEPENDENT_USAGES,
 	isVariableLinked,
+	usagesShareRoll,
 	isWhenTarget,
 	usageRollKey,
 	numberVariableUsages,
@@ -662,5 +663,91 @@ describe('mergeVariableRolls', () => {
 	it('keeps earlier rolls of plain names that were not rolled again', () => {
 		const merged = mergeVariableRolls({ hair: roll('a') }, { mood: roll('x') });
 		expect(merged.hair.value).toBe('a');
+	});
+});
+
+function mulberry32(seed: number) {
+	let a = seed >>> 0;
+	return () => {
+		a = (a + 0x6d2b79f5) >>> 0;
+		let t = a;
+		t = Math.imul(t ^ (t >>> 15), t | 1);
+		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+	};
+}
+
+describe('independent usages roll separately', () => {
+	const options = ['moonlight', 'sunrise', 'candle', 'neon'];
+	const variables: VariablesMap = { light: createChoiceVariable(options) };
+
+	function rollPair(seed: number) {
+		const { prompts, usageCounts } = applyIndependentUsages(
+			[{ positive: 'a room, ${light} and ${light}', negative: '' }],
+			variables
+		);
+		const { wireMap } = buildVariablesForSubmit(variables, { random: mulberry32(seed), usageCounts });
+		return { prompt: prompts[0].positive, first: wireMap['light'], second: wireMap['light-2'] };
+	}
+
+	it('rewrites the second usage to its own roll key and rolls both', () => {
+		const { prompt, first, second } = rollPair(1);
+		expect(prompt).toBe('a room, ${light} and ${light-2}');
+		expect(options).toContain(first);
+		expect(options).toContain(second);
+	});
+
+	it('does not give both usages the same value across many seeds', () => {
+		let same = 0;
+		const seen = new Set<string>();
+		const runs = 600;
+		for (let seed = 1; seed <= runs; seed++) {
+			const { first, second } = rollPair(seed);
+			if (first === second) same++;
+			seen.add(`${first}|${second}`);
+		}
+		expect(same).toBeGreaterThan(0);
+		expect(same).toBeLessThan(runs * 0.4);
+		expect(seen.size).toBeGreaterThanOrEqual(options.length * options.length - 2);
+	});
+
+	it('keeps usage rolls separate for several images that share one Generate', () => {
+		const { prompts, usageCounts } = applyIndependentUsages(
+			[
+				{ positive: '${light} ${light}', negative: '' },
+				{ positive: '${light} ${light}', negative: '' }
+			],
+			variables
+		);
+		expect(prompts[1].positive).toBe('${light} ${light-2}');
+		let differing = 0;
+		for (let seed = 1; seed <= 200; seed++) {
+			const { wireMap } = buildVariablesForSubmit(variables, { random: mulberry32(seed), usageCounts });
+			if (wireMap['light'] !== wireMap['light-2']) differing++;
+		}
+		expect(differing).toBeGreaterThan(100);
+	});
+
+	it('linked usages share one roll', () => {
+		const linked: VariablesMap = { light: { ...createChoiceVariable(options), linked: true } };
+		const { prompts, usageCounts } = applyIndependentUsages([{ positive: '${light} ${light}', negative: '' }], linked);
+		expect(prompts[0].positive).toBe('${light} ${light}');
+		for (let seed = 1; seed <= 50; seed++) {
+			const { wireMap } = buildVariablesForSubmit(linked, { random: mulberry32(seed), usageCounts });
+			expect(wireMap['light-2']).toBeUndefined();
+		}
+	});
+});
+
+describe('usagesShareRoll', () => {
+	it('is false for per-image (the server rolls every usage on its own) and independent shuffle', () => {
+		expect(usagesShareRoll('a', { a: moods({ mode: 'per-image' }) })).toBe(false);
+		expect(usagesShareRoll('a', { a: moods() })).toBe(false);
+	});
+
+	it('is true for linked shuffle, pin and text', () => {
+		expect(usagesShareRoll('a', { a: moods({ linked: true }) })).toBe(true);
+		expect(usagesShareRoll('a', { a: moods({ mode: 'pin', pinnedIndex: 0 }) })).toBe(true);
+		expect(usagesShareRoll('a', { a: createTextVariable('x') })).toBe(true);
 	});
 });

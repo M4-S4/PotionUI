@@ -4,6 +4,7 @@
 	import ConfirmFooter from './modals/ConfirmFooter.svelte';
 	import { createConfirmSettlementGate, getConfirmKeyboardAction } from './modals/confirmKeyboard';
 	import { Button } from '$lib/components/ui';
+	import autosize from '$lib/actions/autosize';
 	import Icon from './Icon.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import VariableConditionChip from './VariableConditionChip.svelte';
@@ -24,6 +25,7 @@
 		eligibleOptions,
 		buildVariablesForSubmit,
 		isVariableLinked,
+		usagesShareRoll,
 		isWhenTarget,
 		type ChoiceVariableMode,
 		type VariableDef,
@@ -67,7 +69,6 @@
 	let selectedKey: string | null = null;
 	let listQuery = '';
 	let mobileView: 'list' | 'detail' = 'list';
-	let focusedOption: string | null = null;
 	let previousOpen = false;
 	let nextKey = 0;
 	let openedWith: VariablesMap = {};
@@ -416,7 +417,7 @@
 	<div class="space-y-3 p-4 sm:p-6">
 		<p class="text-xs text-fg-subtle">
 			Defined here, used in any segment as <code class="rounded bg-surface-2 px-1 py-0.5 font-mono text-xs text-fg">${'{'}name{'}'}</code>.
-			A <span class="text-fg">Choice</span> variable picks a new option each time you click Generate — same idea as an
+			A <span class="text-fg">Choice</span> variable picks a new option each time you click Generate — same idea as a
 			phrasebook chip's shuffle. Shared by every segment of this tab, for the life of the session.
 		</p>
 
@@ -597,9 +598,9 @@
 												<button
 													type="button"
 													role="radio"
-													aria-checked={isVariableLinked(row.name.trim(), liveVariables) === choice.linked}
+													aria-checked={usagesShareRoll(row.name.trim(), liveVariables) === choice.linked}
 													disabled={usagesLocked}
-													class="rounded px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 {isVariableLinked(row.name.trim(), liveVariables) === choice.linked
+													class="rounded px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 {usagesShareRoll(row.name.trim(), liveVariables) === choice.linked
 														? 'bg-surface-1 text-fg shadow-raised'
 														: 'text-fg-muted hover:text-fg'}"
 													on:click={() => setLinked(row.key, choice.linked)}
@@ -616,7 +617,7 @@
 									{:else if row.def.mode === 'pin'}
 										Always uses the pinned option; pick it with the radio on the left.
 									{:else if row.def.mode === 'per-image'}
-										Rolls independently for every image. Check the result card to see what each image got.
+										Rolls again for every image, and every usage rolls on its own, so usages can't be linked in this mode. Check the result card to see what each image got.
 									{:else if isVariableLinked(row.name.trim(), liveVariables)}
 										Every usage shares one roll per generation.
 									{:else}
@@ -651,12 +652,11 @@
 												<span class="mt-1.5 w-5 flex-shrink-0 text-right font-mono text-xs tabular-nums text-fg-subtle">{index + 1}</span>
 											{/if}
 											<textarea
+												use:autosize={optionText(option)}
 												class="input min-w-0 flex-1 resize-none py-1 text-sm leading-5"
-												rows={focusedOption === `${row.key}:${index}` ? 4 : 2}
+												rows="2"
 												placeholder={`option ${index + 1}`}
 												value={optionText(option)}
-												on:focus={() => (focusedOption = `${row.key}:${index}`)}
-												on:blur={() => (focusedOption = null)}
 												on:input={(e) => updateOptionText(row.key, index, e.currentTarget.value)}
 												aria-label={`Option ${index + 1}`}
 											></textarea>

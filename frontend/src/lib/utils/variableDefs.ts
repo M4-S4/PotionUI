@@ -247,6 +247,12 @@ export function isVariableLinked(name: string, variables: VariablesMap): boolean
 	return def.linked === true || isWhenTarget(name, variables);
 }
 
+export function usagesShareRoll(name: string, variables: VariablesMap): boolean {
+	const def = normalizeVariableDef(variables[name]);
+	if (def.type === 'choice' && def.mode === 'per-image') return false;
+	return isVariableLinked(name, variables);
+}
+
 export function usageRollKey(name: string, ordinal: number): string {
 	const capped = Math.min(Math.max(Math.trunc(ordinal), 1), MAX_INDEPENDENT_USAGES);
 	return capped === 1 ? name : `${name}-${capped}`;

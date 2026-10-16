@@ -204,3 +204,21 @@ class TestTransformHook:
         registry = FakePluginRegistry()
         expand_prompts("cat", "", count=1, base_seed=1, plugin_registry=registry)
         assert PROMPT_HOOKS.transform == "prompt.transform"
+
+
+def test_per_image_variable_rolls_every_usage_separately_within_one_image():
+    expanded = expand_prompts(
+        "${light} and ${light}", "", count=300, base_seed=7, variables={"light": "{a|b|c|d}"}
+    )
+
+    pairs = [tuple(item.positive.split(" and ")) for item in expanded]
+    same = sum(1 for first, second in pairs if first == second)
+
+    assert 0 < same < len(pairs) * 0.4
+    assert len(set(pairs)) >= 14
+
+
+def test_per_image_variable_changes_between_images():
+    expanded = expand_prompts("${light}", "", count=60, base_seed=3, variables={"light": "{a|b|c|d}"})
+
+    assert len({item.positive for item in expanded}) == 4
