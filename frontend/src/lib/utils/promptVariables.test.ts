@@ -8,7 +8,8 @@ import {
 	extractVariableUsages,
 	findUndefinedVariableUsages,
 	parseVariableUsageTokens,
-	countVariableUsages
+	countVariableUsages,
+	countUsagesByName
 } from './promptVariables';
 
 describe('isValidVariableName', () => {
@@ -185,5 +186,15 @@ describe('countVariableUsages', () => {
 
 	it('counts multiple distinct variables', () => {
 		expect(countVariableUsages('${a} ${b} ${c}')).toBe(3);
+	});
+});
+
+describe('countUsagesByName', () => {
+	it('counts every occurrence per name across texts', () => {
+		expect(countUsagesByName(['a ${mood} b ${mood}', '${hair} ${mood}', 'none'])).toEqual({ mood: 3, hair: 1 });
+	});
+
+	it('returns an empty map when no usages exist', () => {
+		expect(countUsagesByName(['plain', ''])).toEqual({});
 	});
 });

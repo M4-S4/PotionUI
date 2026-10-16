@@ -12,6 +12,7 @@
 		SegmentTemplate
 	} from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import { segmentUsageNumbers } from '$lib/utils/variableUsageNumbering';
 	import { mergeVariables } from '$lib/utils/variablesTransfer';
 	import { toolbarFit } from '$lib/utils/toolbarFit';
 	import { toasts } from '$lib/stores/toast';
@@ -105,6 +106,8 @@
 	export let titleExtra: import('svelte').Snippet | undefined = undefined;
 
 	$: paired = negativeSegments !== undefined;
+
+	$: usageNumbering = segmentUsageNumbers(segments, negativeSegments || []);
 	// aria-label for the sections role="list" — kept stable independent of the
 	// visible header copy below.
 	$: mainLabel = label || (isNegative ? 'Negative segments' : 'Positive segments');
@@ -502,6 +505,7 @@
 					{placeholder}
 					{variables}
 					{variableRolls}
+					variableUsageNumbers={usageNumbering[index] || []}
 					{onVariableDefChange}
 					{onOpenVariableManager}
 					{activeTriggerWords}
@@ -755,6 +759,7 @@
 						placeholder="What should never appear… (# for phrasebook)"
 						{variables}
 						{variableRolls}
+						variableUsageNumbers={usageNumbering[segments.length + index] || []}
 						{onVariableDefChange}
 						{onOpenVariableManager}
 						{activeTriggerWords}

@@ -5,8 +5,13 @@
 		type ChoiceVariableMode,
 		type VariableDef,
 		type StoredVariableDef,
-		type VariableRoll
+		type VariableRoll,
+		type VariablesMap,
+		isVariableLinked,
+		isWhenTarget,
+		usageRollKey
 	} from '$lib/utils/variableDefs';
+	import { filterOptionIndices, showOptionFilter } from '$lib/utils/variableOptionList';
 	import Icon from './Icon.svelte';
 	import InlinePopoverChip from './InlinePopoverChip.svelte';
 	import { chipIndicatorColorForName } from './chipIndicatorColors';
@@ -44,7 +49,10 @@
 	export let definition: StoredVariableDef | undefined = undefined;
 	/** This tab's last roll for this variable (shuffle mode only) — run state,
 	 *  read fresh each render, never mutated here. */
-	export let roll: VariableRoll | undefined = undefined;
+	export let rolls: Record<string, VariableRoll> = {};
+	export let variables: VariablesMap = {};
+	export let usage: { ordinal: number; total: number } = { ordinal: 1, total: 1 };
+	export let onLinkedChange: ((linked: boolean) => void) | undefined = undefined;
 	export let disabled: boolean = false;
 	export let onModeChange: ((mode: ChoiceVariableMode, pinnedIndex: number | null) => void) | undefined = undefined;
 	export let onCreate: (() => void) | undefined = undefined;
@@ -55,10 +63,29 @@
 	// prompt-segments-concept.html, additive alongside the default look.
 	export let variant: 'default' | 'segment-composer' = 'default';
 
-	let open = false;
+	export let startOpen: boolean = false;
+	export let onOpenChange: ((open: boolean) => void) | undefined = undefined;
+
+	let open = startOpen;
+	$: onOpenChange?.(open);
+
+	let roll: VariableRoll | undefined;
+	let filterQuery = '';
+	let expanded: Record<number, boolean> = {};
 
 	let def: VariableDef | null;
 	$: def = definition !== undefined ? normalizeVariableDef(definition) : null;
+	$: linked = def?.type === 'choice' && isVariableLinked(name, variables);
+	$: whenTarget = def?.type === 'choice' && isWhenTarget(name, variables);
+	$: multiUsage = usage.total > 1;
+	$: roll = rolls[usageRollKey(name, linked ? 1 : usage.ordinal)];
+	$: optionTexts = def?.type === 'choice' ? def.options.map((o) => optionText(o)) : [];
+	$: visibleIndices = filterOptionIndices(optionTexts, filterQuery);
+	$: usagesLockReason = whenTarget
+		? 'Other options depend on this variable, so every usage shares one roll.'
+		: def?.type === 'choice' && def.mode !== 'shuffle'
+			? 'Pin and Per image apply to every usage.'
+			: '';
 	$: isUndefined = def === null;
 	$: isShuffleWithRoll = def?.type === 'choice' && def.mode === 'shuffle' && !!roll;
 	$: isEmptyRoll = def?.type === 'choice' && def.mode === 'shuffle' && !!roll && roll.value === '';
@@ -80,6 +107,17 @@
 		// nothing pinned yet defaults to the first option.
 		const pinnedIndex = mode === 'pin' ? (def.pinnedIndex ?? 0) : def.pinnedIndex;
 		onModeChange?.(mode, pinnedIndex);
+	}
+
+	function handleOptionClick(index: number) {
+		expanded = { ...expanded, [index]: !expanded[index] };
+		if (def?.type === 'choice' && def.mode === 'pin') onModeChange?.('pin', index);
+	}
+
+	function isCurrentOption(index: number): boolean {
+		if (!def || def.type !== 'choice') return false;
+		if (def.mode === 'pin') return def.pinnedIndex === index;
+		return def.mode === 'shuffle' && roll?.optionIndex === index;
 	}
 
 	function handlePinnedIndexChange(raw: string) {
@@ -142,28 +180,14 @@
 		{/if}
 		{#if def?.type === 'choice' && def.mode !== 'shuffle'}
 			<span class="chip-state">{def.mode === 'pin' ? 'Pinned' : 'Per image'}</span>
+		{:else if def?.type === 'choice' && multiUsage}
+			<span class="chip-state">{linked ? `Linked ${usage.total}` : `${usage.ordinal}/${usage.total}`}</span>
 		{/if}
 	{/snippet}
 
 	{#snippet popover()}
 		{#if variant === 'segment-composer' && !isUndefined && def}
 			{#if def.type === 'choice'}
-				<div class="section-label">Definition preview</div>
-				<div class="option-list">
-					{#each def.options as option, index (index)}
-						<div class="option-row">
-							<span class="dot"></span>
-							<strong>{optionText(option) || `Option ${index + 1}`}</strong>
-							<span>
-								{def.mode === 'pin' && def.pinnedIndex === index
-									? 'Current'
-									: def.mode === 'shuffle' && roll?.optionIndex === index
-										? 'Current'
-										: 'Option'}
-							</span>
-						</div>
-					{/each}
-				</div>
 				<div class="behavior">
 					<div class="section-label">Value behavior</div>
 					<div class="segmented">
@@ -173,26 +197,80 @@
 					</div>
 					<p class="helper">
 						{#if def.mode === 'shuffle'}
-							Rolls once when Generate is clicked and uses that value everywhere.
+							Rolls when Generate is clicked.
 						{:else if def.mode === 'pin'}
-							Always uses the pinned option below, everywhere ${'{'}{name}{'}'} is used.
+							Always uses the pinned option, everywhere ${'{'}{name}{'}'} is used.
 						{:else}
-							Rolls independently for every image — check the result card to see what each image got.
+							Rolls independently for every image. Check the result card to see what each image got.
 						{/if}
 					</p>
-					{#if def.mode === 'pin'}
-						<select
-							class="field"
-							style="margin-top: 6px"
-							value={def.pinnedIndex ?? 0}
-							on:change={(e) => handlePinnedIndexChange(e.currentTarget.value)}
-							aria-label={`Which option to use for ${name}`}
-						>
-							{#each def.options as option, index (index)}
-								<option value={index}>{optionText(option) || `Option ${index + 1}`}</option>
-							{/each}
-						</select>
+				</div>
+				{#if multiUsage || whenTarget}
+					<div class="behavior">
+						<div class="section-label">Usages · {usage.ordinal}/{usage.total}</div>
+						<div class="segmented two">
+							<button
+								type="button"
+								class="behavior-button"
+								class:active={!linked}
+								disabled={!!usagesLockReason}
+								on:click={() => onLinkedChange?.(false)}>Independent</button
+							>
+							<button
+								type="button"
+								class="behavior-button"
+								class:active={linked}
+								disabled={!!usagesLockReason}
+								on:click={() => onLinkedChange?.(true)}>Linked</button
+							>
+						</div>
+						<p class="helper">
+							{#if usagesLockReason}
+								{usagesLockReason}
+							{:else if linked}
+								All {usage.total} usages share one roll.
+							{:else}
+								Each usage rolls its own value.
+							{/if}
+						</p>
+					</div>
+				{/if}
+				<div class="behavior">
+					<div class="section-label">
+						{def.mode === 'pin' ? 'Pinned option' : 'Options'} · {def.options.length}
+					</div>
+					{#if showOptionFilter(def.options.length)}
+						<label class="option-filter">
+							<Icon name="search" className="h-3.5 w-3.5 flex-shrink-0" />
+							<input type="text" placeholder="Filter options" bind:value={filterQuery} aria-label={`Filter options of ${name}`} />
+							{#if filterQuery.trim()}
+								<span class="count">{visibleIndices.length} of {def.options.length}</span>
+							{/if}
+						</label>
 					{/if}
+					<div class="option-list" role={def.mode === 'pin' ? 'radiogroup' : 'list'} aria-label={`Options of ${name}`}>
+						{#each visibleIndices as index (index)}
+							<button
+								type="button"
+								class="option-row"
+								class:current={isCurrentOption(index)}
+								class:expanded={expanded[index]}
+								role={def.mode === 'pin' ? 'radio' : undefined}
+								aria-checked={def.mode === 'pin' ? isCurrentOption(index) : undefined}
+								on:click={() => handleOptionClick(index)}
+							>
+								{#if def.mode === 'pin'}
+									<span class="option-radio"></span>
+								{:else}
+									<span class="option-index">{index + 1}</span>
+								{/if}
+								<span class="option-text">{optionTexts[index] || `Option ${index + 1}`}</span>
+								<span class="option-tag">{isCurrentOption(index) ? (def.mode === 'pin' ? 'pinned' : 'rolled') : ''}</span>
+							</button>
+						{:else}
+							<div class="option-empty">No options match.</div>
+						{/each}
+					</div>
 				</div>
 			{:else}
 				<div class="section-label">Value</div>

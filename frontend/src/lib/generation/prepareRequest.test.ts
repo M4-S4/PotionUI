@@ -391,3 +391,39 @@ describe('prepareRequestFromSession', () => {
 		expect(result).toEqual({ ok: false, code: 'no_prompt', reason: null });
 	});
 });
+
+describe('prepareRequest independent variable usages', () => {
+	const mood = {
+		type: 'choice',
+		mode: 'shuffle',
+		pinnedIndex: null,
+		options: ['calm', 'wild', 'dark']
+	};
+
+	it('sends rewritten text and per-usage rolls but keeps the original text in segments and prompt_state', () => {
+		const segments = [{ id: 's1', content: '${mood} then ${mood}' }];
+		const tab = baseTab({
+			prompt: '${mood} then ${mood}',
+			negativePrompt: '${mood}',
+			promptSegments: segments,
+			variables: { mood }
+		});
+		const result = prepare(tab, { random: sequence(0, 0.5, 0.99) });
+		if (!result.ok) throw new Error('expected ok');
+		expect(result.request.prompts?.[0].positive).toBe('${mood} then ${mood-2}');
+		expect(result.request.prompts?.[0].negative).toBe('${mood-3}');
+		expect(result.request.variables).toEqual({ mood: 'calm', 'mood-2': 'wild', 'mood-3': 'dark' });
+		expect(Object.keys(result.variableRolls).sort()).toEqual(['mood', 'mood-2', 'mood-3']);
+		expect(result.request.prompt_state?.prompt).toBe('${mood} then ${mood}');
+		expect(result.request.prompt_state?.promptSegments).toEqual(segments);
+		expect(result.request.segments?.[0].text).toBe('${mood} then ${mood}');
+	});
+
+	it('leaves a linked variable untouched on the wire', () => {
+		const tab = baseTab({ prompt: '${mood} ${mood}', variables: { mood: { ...mood, linked: true } } });
+		const result = prepare(tab, { random: sequence(0.5) });
+		if (!result.ok) throw new Error('expected ok');
+		expect(result.request.prompts?.[0].positive).toBe('${mood} ${mood}');
+		expect(result.request.variables).toEqual({ mood: 'wild' });
+	});
+});

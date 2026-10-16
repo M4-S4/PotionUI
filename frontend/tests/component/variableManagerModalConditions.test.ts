@@ -30,12 +30,6 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-function inputWithValue(value: string): HTMLInputElement {
-	const input = Array.from(document.querySelectorAll<HTMLInputElement>('input')).find((i) => i.value === value);
-	if (!input) throw new Error(`no input with value "${value}"`);
-	return input;
-}
-
 function buttonByLabel(label: string): HTMLButtonElement {
 	const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
 		(b) => b.getAttribute('aria-label') === label
@@ -61,6 +55,12 @@ describe('VariableManagerModal condition editing', () => {
 			latest = e.detail;
 		});
 
+		const danceRow = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((b) =>
+			b.textContent?.includes('$dance')
+		);
+		danceRow?.click();
+		await tick();
+
 		buttonByLabel('Set condition for this option of dance').click();
 		await tick();
 		buttonByLabel('Condition on $music').click();
@@ -75,9 +75,20 @@ describe('VariableManagerModal condition editing', () => {
 
 		expect(document.body.textContent).toContain('after');
 		expect(document.body.textContent).toContain('$music');
+
+		Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'))
+			.find((b) => b.textContent?.includes('$music'))
+			?.click();
+		await tick();
 		expect(document.body.textContent).toContain('used by');
 		expect(document.body.textContent).toContain('$dance');
+		Array.from(document.querySelectorAll<HTMLButtonElement>('[role="option"]'))
+			.find((b) => b.textContent?.includes('$dance'))
+			?.click();
+		await tick();
 
-		expect(inputWithValue('breaking')).toBeTruthy();
+		expect(
+			Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea')).some((t) => t.value === 'breaking')
+		).toBe(true);
 	});
 });

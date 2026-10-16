@@ -18,6 +18,13 @@ import {
 	isOptionEligible,
 	eligibleOptions,
 	type ChoiceVariableDef,
+	MAX_INDEPENDENT_USAGES,
+	isVariableLinked,
+	isWhenTarget,
+	usageRollKey,
+	numberVariableUsages,
+	applyIndependentUsages,
+	mergeVariableRolls,
 	type LegacyChoiceVariableDef,
 	type VariablesMap
 } from './variableDefs';
@@ -529,5 +536,131 @@ describe('buildVariablesForSubmit — conditions', () => {
 		const { wireMap, rolls } = buildVariablesForSubmit(variables, { random: () => 0 });
 		expect(wireMap.dance).toBe('freestyle');
 		expect(rolls.dance?.eligible).toBe(1);
+	});
+});
+
+function seq(...values: number[]) {
+	let index = 0;
+	return () => values[index++ % values.length];
+}
+
+const moods = (extra: Partial<ChoiceVariableDef> = {}): ChoiceVariableDef => ({
+	...createChoiceVariable(['calm', 'wild', 'dark']),
+	...extra
+});
+
+describe('independent variable usages', () => {
+	it('usageRollKey keeps the bare name for usage 1 and suffixes the rest', () => {
+		expect(usageRollKey('mood', 1)).toBe('mood');
+		expect(usageRollKey('mood', 2)).toBe('mood-2');
+	});
+
+	it('usageRollKey shares usage 16 for every usage beyond the cap', () => {
+		expect(usageRollKey('mood', MAX_INDEPENDENT_USAGES)).toBe('mood-16');
+		expect(usageRollKey('mood', 40)).toBe('mood-16');
+	});
+
+	it('numberVariableUsages numbers across texts in order with global totals', () => {
+		const out = numberVariableUsages(['${a} x ${b} ${a}', 'n ${a}']);
+		expect(out[0].map((u) => [u.name, u.ordinal, u.total])).toEqual([
+			['a', 1, 3],
+			['b', 1, 1],
+			['a', 2, 3]
+		]);
+		expect(out[1].map((u) => [u.name, u.ordinal, u.total])).toEqual([['a', 3, 3]]);
+	});
+
+	it('two usages of a shuffle variable roll independently', () => {
+		const variables: VariablesMap = { mood: moods() };
+		const { wireMap, rolls } = buildVariablesForSubmit(variables, {
+			random: seq(0, 0.5, 0.99),
+			usageCounts: { mood: 3 }
+		});
+		expect(wireMap).toEqual({ mood: 'calm', 'mood-2': 'wild', 'mood-3': 'dark' });
+		expect(rolls['mood-2'].value).toBe('wild');
+		expect(rolls.mood.value).toBe('calm');
+	});
+
+	it('a linked variable shares one roll across usages', () => {
+		const variables: VariablesMap = { mood: moods({ linked: true }) };
+		const { wireMap } = buildVariablesForSubmit(variables, { random: seq(0.5, 0), usageCounts: { mood: 3 } });
+		expect(wireMap).toEqual({ mood: 'wild' });
+	});
+
+	it('a when-target is forced linked even when the flag is off', () => {
+		const variables: VariablesMap = {
+			mood: moods(),
+			prop: createChoiceVariable([{ text: 'sword', when: { var: 'mood', values: ['wild'] } }, 'cup'])
+		};
+		expect(isWhenTarget('mood', variables)).toBe(true);
+		expect(isVariableLinked('mood', variables)).toBe(true);
+		const { wireMap } = buildVariablesForSubmit(variables, { random: seq(0.5, 0), usageCounts: { mood: 3 } });
+		expect(Object.keys(wireMap).filter((k) => k.startsWith('mood'))).toEqual(['mood']);
+	});
+
+	it('pin, per-image and text variables count as linked', () => {
+		const variables: VariablesMap = {
+			a: moods({ mode: 'pin', pinnedIndex: 0 }),
+			b: moods({ mode: 'per-image' }),
+			c: createTextVariable('x'),
+			d: moods()
+		};
+		expect(['a', 'b', 'c', 'd'].map((n) => isVariableLinked(n, variables))).toEqual([true, true, true, false]);
+	});
+
+	it('usages beyond the cap share the last independent roll', () => {
+		const variables: VariablesMap = { mood: moods() };
+		const { wireMap } = buildVariablesForSubmit(variables, { random: seq(0), usageCounts: { mood: 40 } });
+		expect(Object.keys(wireMap)).toHaveLength(MAX_INDEPENDENT_USAGES);
+		expect(wireMap['mood-16']).toBeDefined();
+		expect(wireMap['mood-17']).toBeUndefined();
+	});
+
+	it('applyIndependentUsages rewrites usage k>1 across positive then negative', () => {
+		const variables: VariablesMap = { mood: moods(), tone: moods({ linked: true }) };
+		const { prompts, usageCounts } = applyIndependentUsages(
+			[{ positive: '${mood} and ${mood} ${tone} ${tone}', negative: '${mood}' }],
+			variables
+		);
+		expect(prompts[0].positive).toBe('${mood} and ${mood-2} ${tone} ${tone}');
+		expect(prompts[0].negative).toBe('${mood-3}');
+		expect(usageCounts).toEqual({ mood: 3 });
+	});
+
+	it('applyIndependentUsages numbers each batch prompt on its own and keeps the max count', () => {
+		const variables: VariablesMap = { mood: moods() };
+		const { prompts, usageCounts } = applyIndependentUsages(
+			[
+				{ positive: '${mood} ${mood}', negative: '' },
+				{ positive: '${mood} ${mood} ${mood}', negative: '' }
+			],
+			variables
+		);
+		expect(prompts[0].positive).toBe('${mood} ${mood-2}');
+		expect(prompts[1].positive).toBe('${mood} ${mood-2} ${mood-3}');
+		expect(usageCounts.mood).toBe(3);
+	});
+
+	it('normalizeVariableDef keeps linked only when true', () => {
+		expect(normalizeVariableDef(moods({ linked: true }))).toMatchObject({ linked: true });
+		expect('linked' in normalizeVariableDef(moods())).toBe(false);
+	});
+});
+
+describe('mergeVariableRolls', () => {
+	const roll = (value: string) => ({ optionIndex: 0, value, rolledAt: 1 });
+
+	it('drops usage rolls from an earlier run that the new run did not produce', () => {
+		const merged = mergeVariableRolls(
+			{ mood: roll('a'), 'mood-2': roll('b'), 'mood-3': roll('c') },
+			{ mood: roll('x'), 'mood-2': roll('y') }
+		);
+		expect(Object.keys(merged).sort()).toEqual(['mood', 'mood-2']);
+		expect(merged['mood-2'].value).toBe('y');
+	});
+
+	it('keeps earlier rolls of plain names that were not rolled again', () => {
+		const merged = mergeVariableRolls({ hair: roll('a') }, { mood: roll('x') });
+		expect(merged.hair.value).toBe('a');
 	});
 });

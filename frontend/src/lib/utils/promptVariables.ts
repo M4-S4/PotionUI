@@ -135,6 +135,16 @@ export function countVariableUsages(text: string): number {
 	return parseVariableUsageTokens(text).filter((t) => t.type === 'variable').length;
 }
 
+export function countUsagesByName(texts: string[]): Record<string, number> {
+	const counts: Record<string, number> = {};
+	for (const text of texts) {
+		for (const token of parseVariableUsageTokens(text)) {
+			if (token.type === 'variable') counts[token.name] = (counts[token.name] ?? 0) + 1;
+		}
+	}
+	return counts;
+}
+
 /** Every `${name}` usage in `text`, in order of first appearance, deduped. */
 export function extractVariableUsages(text: string): string[] {
 	const seen = new Set<string>();

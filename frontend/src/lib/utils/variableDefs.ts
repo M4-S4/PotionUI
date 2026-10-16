@@ -11,6 +11,7 @@
 //   - `per-image` — ships `{a|b|c}`, the backend rolls independently per image.
 
 import { serializeGroup, type ChoiceGroupSpec } from './choiceGroups';
+import { parseVariableUsageTokens } from './promptVariables';
 
 export interface TextVariableDef {
 	type: 'text';
@@ -43,6 +44,7 @@ export interface ChoiceVariableDef {
 	 *  binds one value per name per generation, shared by every `${name}` in
 	 *  the prompt, so "pin one option" can only mean pinning the definition. */
 	pinnedIndex: number | null;
+	linked?: boolean;
 }
 
 export type VariableDef = TextVariableDef | ChoiceVariableDef;
@@ -161,7 +163,9 @@ export function normalizeVariableDef(stored: StoredVariableDef | undefined): Var
 				? 'pin'
 				: 'shuffle';
 
-	return { type: 'choice', options: stored.options, mode, pinnedIndex: stored.pinnedIndex ?? null };
+	const def: ChoiceVariableDef = { type: 'choice', options: stored.options, mode, pinnedIndex: stored.pinnedIndex ?? null };
+	if ('linked' in stored && stored.linked) def.linked = true;
+	return def;
 }
 
 export function createTextVariable(value: string = ''): TextVariableDef {
@@ -231,6 +235,91 @@ export function rollChoiceOption(
 	return { index: pick, value: optionText(def.options[pick]) };
 }
 
+export const MAX_INDEPENDENT_USAGES = 16;
+
+export function isWhenTarget(name: string, variables: VariablesMap): boolean {
+	return dependents(name, variables, false).length > 0;
+}
+
+export function isVariableLinked(name: string, variables: VariablesMap): boolean {
+	const def = normalizeVariableDef(variables[name]);
+	if (def.type !== 'choice' || def.mode !== 'shuffle') return true;
+	return def.linked === true || isWhenTarget(name, variables);
+}
+
+export function usageRollKey(name: string, ordinal: number): string {
+	const capped = Math.min(Math.max(Math.trunc(ordinal), 1), MAX_INDEPENDENT_USAGES);
+	return capped === 1 ? name : `${name}-${capped}`;
+}
+
+export function mergeVariableRolls(
+	previous: Record<string, VariableRoll> | undefined,
+	next: Record<string, VariableRoll>
+): Record<string, VariableRoll> {
+	const kept = Object.entries(previous ?? {}).filter(([key]) => !/-\d+$/.test(key) || key in next);
+	return { ...Object.fromEntries(kept), ...next };
+}
+
+export interface VariableUsageNumber {
+	name: string;
+	ordinal: number;
+	total: number;
+}
+
+export function numberVariableUsages(texts: string[]): VariableUsageNumber[][] {
+	const seen: Record<string, number> = {};
+	const perText = texts.map((text) =>
+		parseVariableUsageTokens(text)
+			.filter((token) => token.type === 'variable')
+			.map((token) => {
+				const name = (token as { name: string }).name;
+				seen[name] = (seen[name] ?? 0) + 1;
+				return { name, ordinal: seen[name], total: 0 };
+			})
+	);
+	for (const usages of perText) for (const usage of usages) usage.total = seen[usage.name];
+	return perText;
+}
+
+export function orderedPromptTexts(prompt: { positive: string; negative: string }): string[] {
+	return [prompt.positive, prompt.negative];
+}
+
+export interface IndependentUsagesResult<P extends { positive: string; negative: string }> {
+	prompts: P[];
+	usageCounts: Record<string, number>;
+}
+
+export function applyIndependentUsages<P extends { positive: string; negative: string }>(
+	prompts: P[],
+	variables: VariablesMap | undefined
+): IndependentUsagesResult<P> {
+	const usageCounts: Record<string, number> = {};
+	if (!variables) return { prompts, usageCounts };
+
+	const rewritten = prompts.map((prompt) => {
+		const texts = orderedPromptTexts(prompt);
+		const numbered = numberVariableUsages(texts);
+		const out = texts.map((text, index) => {
+			let result = '';
+			let cursor = 0;
+			const usages = numbered[index];
+			let next = 0;
+			for (const token of parseVariableUsageTokens(text)) {
+				if (token.type !== 'variable') continue;
+				const usage = usages[next++];
+				if (isVariableLinked(usage.name, variables)) continue;
+				usageCounts[usage.name] = Math.max(usageCounts[usage.name] ?? 1, usage.total);
+				result += text.slice(cursor, token.start) + `\${${usageRollKey(usage.name, usage.ordinal)}}`;
+				cursor = token.end;
+			}
+			return result + text.slice(cursor);
+		});
+		return { ...prompt, positive: out[0], negative: out[1] };
+	});
+	return { prompts: rewritten, usageCounts };
+}
+
 export interface VariablesSubmitResult {
 	/** The `Record<string, string>` for `GenerationRequest.variables` — every
 	 *  entry normalized, resolved per its mode, and serialized. Entries that
@@ -251,6 +340,7 @@ export interface VariablesForSubmitOptions {
 	random?: () => number;
 	/** Injectable for deterministic tests; defaults to `Date.now`. */
 	now?: () => number;
+	usageCounts?: Record<string, number>;
 }
 
 /**
@@ -297,17 +387,23 @@ export function buildVariablesForSubmit(
 				continue;
 			}
 
-			const pick = eligibleEntries[Math.floor(random() * eligibleEntries.length)];
-			wireMap[name] = pick.text;
-			resolved[name] = pick.text;
-			const roll: VariableRoll = { optionIndex: pick.index, value: pick.text, rolledAt: now() };
-			if (hasConditions) {
-				roll.eligible = eligibleEntries.length;
-				roll.total = validEntries.length;
-				const when = optionWhen(pick.option);
-				if (when) roll.because = { var: when.var, value: resolved[when.var] ?? '' };
+			const usages = isVariableLinked(name, variables)
+				? 1
+				: Math.min(Math.max(options.usageCounts?.[name] ?? 1, 1), MAX_INDEPENDENT_USAGES);
+			for (let ordinal = 1; ordinal <= usages; ordinal++) {
+				const pick = eligibleEntries[Math.floor(random() * eligibleEntries.length)];
+				const key = usageRollKey(name, ordinal);
+				wireMap[key] = pick.text;
+				if (ordinal === 1) resolved[name] = pick.text;
+				const roll: VariableRoll = { optionIndex: pick.index, value: pick.text, rolledAt: now() };
+				if (hasConditions) {
+					roll.eligible = eligibleEntries.length;
+					roll.total = validEntries.length;
+					const when = optionWhen(pick.option);
+					if (when) roll.because = { var: when.var, value: resolved[when.var] ?? '' };
+				}
+				rolls[key] = roll;
 			}
-			rolls[name] = roll;
 			continue;
 		}
 
