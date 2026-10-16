@@ -57,6 +57,7 @@ from src.features.cloud.contracts import (
     spec_problems,
     valid_specs,
 )
+from src.features.cloud.director import DirectorEstimateError
 from src.features.cloud.http import CloudHttp, HttpResponse, default_error_mapper, parse_retry_after
 from src.features.cloud.inline import decode_inline, encode_media
 from src.features.cloud.rate_limit import TokenBucket
@@ -82,6 +83,7 @@ __all__ = [
     "CloudResult",
     "CloudStatus",
     "Clock",
+    "DirectorEstimateError",
     "EXTRA_PARAM_PREFIX",
     "HttpResponse",
     "JobState",
@@ -168,8 +170,9 @@ def estimate_cloud_cost(
     `POST /api/cloud/models/{model_id}/estimate` answers it. Costs are shown
     to administrators only: anyone else, or no user, gets `PermissionError`.
     Each shot is `{"task", "params"}`, as in the route's body. Shots the route
-    would refuse raise `ValueError`, and a model that is not an enabled cloud
-    model raises `ModelNotFoundException`."""
+    would refuse raise `ValueError` (`DirectorEstimateError` when the
+    estimator refuses them), and a model that is not an enabled cloud model
+    raises `ModelNotFoundException`."""
     if getattr(user, "account_type", None) != AccountType.ADMIN:
         raise PermissionError("Only an administrator can see what a cloud run costs")
     from src.features.cloud.dto import DirectorEstimateRequest
