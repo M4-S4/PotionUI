@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
 	import Icon from '../Icon.svelte';
-	import { INSIDE_TOOLTIP_CONTEXT_KEY } from '../tooltipContext';
+	import Tooltip from '../Tooltip.svelte';
+	import IconButton from './IconButton.svelte';
+	import { INSIDE_TOOLTIP_CONTEXT_KEY, tooltipDescription } from '../tooltipContext';
 
 	type Size = 'xs' | 'sm' | 'md';
 	type Variant = 'ghost' | 'secondary';
@@ -17,6 +19,8 @@
 		onclick,
 		ariaExpanded,
 		ariaPressed,
+		tooltip,
+		kbd,
 		class: className = ''
 	}: {
 		icon: string;
@@ -29,6 +33,8 @@
 		onclick?: (e: MouseEvent) => void;
 		ariaExpanded?: boolean;
 		ariaPressed?: boolean;
+		tooltip?: string;
+		kbd?: string | string[];
 		class?: string;
 	} = $props();
 
@@ -37,6 +43,8 @@
 	// A wrapping Tooltip already shows `label`; keeping the native title too
 	// renders two tooltips side by side.
 	const insideTooltip = getContext<boolean | undefined>(INSIDE_TOOLTIP_CONTEXT_KEY) === true;
+	const describedBy = tooltipDescription();
+	let ownTooltip = $derived(tooltip !== undefined || kbd !== undefined);
 
 	const sizeClasses: Record<Size, string> = {
 		xs: 'min-w-6 min-h-6 p-1',
@@ -60,24 +68,43 @@
 	);
 </script>
 
-<button
-	type="button"
-	class={classes}
-	aria-label={label}
-	aria-expanded={ariaExpanded}
-	aria-pressed={ariaPressed}
-	aria-busy={loading}
-	title={insideTooltip ? undefined : label}
-	disabled={isDisabled}
-	{onclick}
->
-	{#if loading}
-		<span
-			class="{iconSizeClasses[
-				size
-			]} rounded-full border-2 border-line-strong border-t-current animate-spin"
-		></span>
-	{:else}
-		<Icon name={icon} className={iconSizeClasses[size]} />
-	{/if}
-</button>
+{#if ownTooltip}
+	<Tooltip text={tooltip ?? label} {kbd}>
+		<IconButton
+			{icon}
+			{label}
+			{size}
+			{variant}
+			{active}
+			{loading}
+			{disabled}
+			{onclick}
+			{ariaExpanded}
+			{ariaPressed}
+			class={className}
+		/>
+	</Tooltip>
+{:else}
+	<button
+		type="button"
+		class={classes}
+		aria-label={label}
+		aria-expanded={ariaExpanded}
+		aria-pressed={ariaPressed}
+		aria-busy={loading}
+		aria-describedby={$describedBy}
+		title={insideTooltip ? undefined : label}
+		disabled={isDisabled}
+		{onclick}
+	>
+		{#if loading}
+			<span
+				class="{iconSizeClasses[
+					size
+				]} rounded-full border-2 border-line-strong border-t-current animate-spin"
+			></span>
+		{:else}
+			<Icon name={icon} className={iconSizeClasses[size]} />
+		{/if}
+	</button>
+{/if}
