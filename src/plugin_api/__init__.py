@@ -92,6 +92,8 @@ from src.plugin_api.backends import (
     list_backends,
 )
 
+from src.plugin_api.cloud import estimate_cloud_cost
+
 # Provisioning rented GPU compute.
 from src.plugin_api.compute import (
     COMPUTE_HOOKS,
@@ -385,6 +387,7 @@ __all__ = [
     "ModelListingNotSupported",
     "deduplicate",
     "list_backends",
+    "estimate_cloud_cost",
     # Compute provisioning
     "COMPUTE_HOOKS",
     "ComputeFieldDescriptorV1",
