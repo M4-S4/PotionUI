@@ -203,13 +203,6 @@ def disable_plugin(
     if not plugin:
         raise ValueError(f"Plugin '{plugin_id}' not found")
 
-    # Execute lifecycle disable hooks before unregistering
-    registry.hook_chain.execute(
-        PLUGIN_LIFECYCLE_HOOKS.disable,
-        initial_data={"plugin_id": plugin_id}
-    )
-
-    # Disable in registry (unregisters hooks)
     success = registry.disable_plugin(plugin_id)
     if not success:
         _notify_plugin_lifecycle(

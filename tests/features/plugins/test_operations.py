@@ -147,7 +147,6 @@ def test_enable_plugin_fires_enable_then_boot_then_ready(mock_plugin_repo, mock_
 
 
 def test_disable_plugin_does_not_fire_boot(mock_plugin_repo, mock_plugin_registry, sample_plugin):
-    """Disabling is unchanged - `disable` only, no boot."""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
     mock_plugin_registry.disable_plugin.return_value = True
@@ -160,8 +159,8 @@ def test_disable_plugin_does_not_fire_boot(mock_plugin_repo, mock_plugin_registr
 
     # Assert
     mock_plugin_registry.run_boot_hook.assert_not_called()
-    mock_plugin_registry.hook_chain.execute.assert_called_once()
-    assert mock_plugin_registry.hook_chain.execute.call_args[0][0] == "plugin.lifecycle.disable"
+    mock_plugin_registry.hook_chain.execute.assert_not_called()
+    mock_plugin_registry.disable_plugin.assert_called_once_with("test-plugin-1")
 
 
 def test_enable_plugin_not_found_raises(mock_plugin_repo, mock_plugin_registry):
@@ -365,6 +364,7 @@ def test_delete_plugin_disables_if_enabled(mock_plugin_repo, mock_plugin_registr
     # Assert
     assert result == "Test Plugin"
     mock_plugin_registry.disable_plugin.assert_called_once_with("test-plugin-1")
+    mock_plugin_registry.hook_chain.execute.assert_not_called()
     mock_plugin_repo.delete_plugin.assert_called_once_with("test-plugin-1")
 
 
@@ -381,6 +381,20 @@ def test_delete_plugin_not_found_raises(mock_plugin_repo, mock_plugin_registry):
 
 
 # ========== scan_plugins Tests ==========
+
+def test_a_rescan_that_re_enables_a_changed_plugin_fires_boot_then_ready(mock_plugin_repo, mock_plugin_registry):
+    from src.features.plugins.operations.scan import _apply_reconciled_state
+
+    mock_plugin_registry.get_plugin_state.return_value = PluginState.ENABLED
+    changes = PluginDiscoveryChanges(changed=["test-plugin-1"])
+    order = Mock()
+    order.attach_mock(mock_plugin_registry.run_boot_hook, "boot")
+    order.attach_mock(mock_plugin_registry.run_ready_hook, "ready")
+
+    _apply_reconciled_state(mock_plugin_repo, mock_plugin_registry, changes, {})
+
+    assert [c[0] for c in order.mock_calls] == ["boot", "ready"]
+
 
 def test_scan_plugins_discovers_new(mock_plugin_repo, mock_plugin_registry, sample_plugin_manifest):
     """Test that scan_plugins discovers new plugins"""

@@ -210,7 +210,7 @@ hooks:
 | `plugin.lifecycle.boot` | Once per process, for every enabled plugin — at startup, and right after `enable` when a plugin is enabled at runtime |
 | `plugin.lifecycle.ready` | Once per process, for every enabled plugin, once the event loop is running and generations a previous process left unfinished have been marked failed — and right after `boot` when a plugin is enabled at runtime |
 | `plugin.lifecycle.enable` | Only on the disabled → enabled transition, **never** at boot |
-| `plugin.lifecycle.disable` | On the enabled → disabled transition, before the plugin's hooks are unregistered |
+| `plugin.lifecycle.disable` | Exactly once whenever an enabled plugin is torn down: admin disable, uninstall, reload, a rescan that replaces its changed manifest or finds its folder gone, or a mount failure. Fires before the plugin's hooks are unregistered, and never for a plugin that never reached enabled |
 
 A backend hook entry also accepts `remote: true` (default `false`). Set it on a
 hook whose handler must run inside a Remote Native worker's execution of the
@@ -244,6 +244,12 @@ handler there must check `plugin_id` before assuming the event is about itself.
 A handler that raises is logged and skipped: one plugin's failing `boot` cannot abort
 startup, block another plugin's `boot`, or fail the enable that triggered it. None of the
 hooks can block the transition they report.
+
+Because the registry owns the teardown signal, a plugin that starts background work in `ready`
+can cancel it in `disable` and rely on it: the same teardown fires `disable` on a reload or a
+rescan that swaps in a changed manifest, and the replacement copy receives `boot` and `ready`
+again. The handler runs while the registry lock is held (reentrant), so it may call back
+into the registry.
 
 `ready` is for work that needs the running application rather than just the process:
 reconciling the plugin's own records against generation state after a restart, or starting

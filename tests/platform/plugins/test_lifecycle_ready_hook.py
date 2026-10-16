@@ -147,6 +147,198 @@ class TestPluginReadyHook(unittest.TestCase):
         self.assertEqual([n for n in between if n not in ("info", "get_running_loop")], [])
 
 
+class TestPluginTeardownDisableHook(unittest.TestCase):
+
+    _create_plugin = TestPluginReadyHook._create_plugin
+    _events = TestPluginReadyHook._events
+
+    def setUp(self):
+        self.temp_dir = Path(tempfile.mkdtemp())
+        self.marketplace_dir = self.temp_dir / "marketplace"
+        self.local_dir = self.temp_dir / "local"
+        self.marketplace_dir.mkdir()
+        self.local_dir.mkdir()
+        self.log_file = self.temp_dir / "ready.log"
+        self.registry = PluginRegistry(str(self.marketplace_dir), str(self.local_dir))
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir)
+
+    def _enabled(self, plugin_id="plugin-a", **kwargs):
+        self._create_plugin(plugin_id, events=("ready", "disable"), **kwargs)
+        self.registry.discover_plugins()
+        self.assertTrue(self.registry.enable_plugin(plugin_id))
+
+    def _bump_manifest(self, plugin_id):
+        path = self.marketplace_dir / plugin_id / "manifest.yml"
+        manifest = yaml.safe_load(path.read_text())
+        manifest["version"] = "2.0.0"
+        path.write_text(yaml.dump(manifest))
+
+    def _count(self, event, plugin_id="plugin-a"):
+        return self._events().count(f"{plugin_id}:{event}:{plugin_id}")
+
+    def test_disabling_an_enabled_plugin_fires_disable_once(self):
+        self._enabled()
+
+        self.assertTrue(self.registry.disable_plugin("plugin-a"))
+
+        self.assertEqual(self._count("disable"), 1)
+
+    def test_disabling_again_or_a_never_enabled_plugin_fires_nothing(self):
+        self._create_plugin("plugin-never", events=("ready", "disable"))
+        self.registry.discover_plugins()
+        self.assertTrue(self.registry.disable_plugin("plugin-never"))
+        self._enabled()
+        self.registry.disable_plugin("plugin-a")
+        self.registry.disable_plugin("plugin-a")
+
+        self.assertEqual(self._count("disable", "plugin-never"), 0)
+        self.assertEqual(self._count("disable"), 1)
+
+    def test_a_failed_enable_never_fires_disable(self):
+        self._enabled("plugin-b")
+        self._create_plugin("plugin-a", events=("ready", "disable"))
+        (self.marketplace_dir / "plugin-a" / "hooks.py").write_text("def broken(:\n")
+        self.registry.discover_plugins()
+
+        self.assertFalse(self.registry.enable_plugin("plugin-a"))
+
+        self.assertEqual(self._events(), [])
+
+    def test_reload_fires_disable_once_and_the_new_copy_gets_ready_again(self):
+        self._enabled()
+        self.registry.run_ready_hooks()
+
+        self.assertTrue(self.registry.reload_plugin("plugin-a"))
+
+        self.assertEqual(self._count("disable"), 1)
+        self.assertEqual(self._count("ready"), 2)
+
+    def test_reload_runs_boot_then_ready_after_the_re_enable(self):
+        self._enabled()
+        self.registry.run_ready_hooks()
+        order = []
+        real_boot, real_ready = self.registry.run_boot_hook, self.registry.run_ready_hook
+        with patch.object(self.registry, "run_boot_hook", side_effect=lambda pid: (order.append("boot"), real_boot(pid))), \
+                patch.object(self.registry, "run_ready_hook", side_effect=lambda pid: (order.append("ready"), real_ready(pid))):
+            self.assertTrue(self.registry.reload_plugin("plugin-a"))
+
+        self.assertEqual(order, ["boot", "ready"])
+
+    def test_a_reload_whose_re_enable_fails_fires_disable_once_and_no_boot_or_ready(self):
+        self._enabled()
+        self.registry.run_ready_hooks()
+        (self.marketplace_dir / "plugin-a" / "hooks.py").write_text("def broken(:\n")
+        with patch.object(self.registry, "run_boot_hook") as boot, \
+                patch.object(self.registry, "run_ready_hook") as ready:
+            self.assertFalse(self.registry.reload_plugin("plugin-a"))
+
+        boot.assert_not_called()
+        ready.assert_not_called()
+        self.assertEqual(self._count("disable"), 1)
+        self.assertEqual(self._count("ready"), 1)
+
+    def test_a_changed_manifest_fires_disable_once_and_ready_can_fire_again(self):
+        self._enabled()
+        self.registry.run_ready_hooks()
+
+        self._bump_manifest("plugin-a")
+        changes = self.registry.discover_plugins()
+        self.registry.run_ready_hook("plugin-a")
+
+        self.assertEqual(changes.changed, ["plugin-a"])
+        self.assertEqual(self._count("disable"), 1)
+        self.assertEqual(self._count("ready"), 2)
+
+    def test_an_unchanged_rescan_fires_nothing(self):
+        self._enabled()
+        self.registry.run_ready_hooks()
+
+        self.registry.discover_plugins()
+        self.registry.run_ready_hook("plugin-a")
+
+        self.assertEqual(self._count("disable"), 0)
+        self.assertEqual(self._count("ready"), 1)
+
+    def test_a_changed_manifest_of_a_disabled_plugin_fires_nothing_more(self):
+        self._enabled()
+        self.registry.disable_plugin("plugin-a")
+
+        self._bump_manifest("plugin-a")
+        self.registry.discover_plugins()
+
+        self.assertEqual(self._count("disable"), 1)
+
+    def test_a_vanished_plugin_fires_disable_once(self):
+        self._enabled()
+
+        shutil.rmtree(self.marketplace_dir / "plugin-a")
+        self.registry.discover_plugins()
+
+        self.assertEqual(self._count("disable"), 1)
+
+    def test_a_mount_failure_teardown_fires_disable_once(self):
+        self._enabled()
+
+        self.assertTrue(self.registry.fail_enabled_plugin("plugin-a", "mount failed"))
+
+        self.assertEqual(self._count("disable"), 1)
+
+    def test_the_broadcast_reaches_other_plugins(self):
+        self._enabled("plugin-a")
+        self._enabled("plugin-b")
+
+        self.registry.disable_plugin("plugin-a")
+
+        self.assertEqual(self._count("disable", "plugin-a"), 1)
+        self.assertEqual(self._count("disable", "plugin-b"), 0)
+        self.assertEqual(self._events().count("plugin-b:disable:plugin-a"), 1)
+
+    def test_a_failing_handler_does_not_abort_the_teardown(self):
+        self._enabled(failing=True)
+
+        self.assertTrue(self.registry.disable_plugin("plugin-a"))
+
+        self.assertEqual(self._count("disable"), 1)
+        self.assertEqual(self.registry.get_plugins_for_hook("plugin.lifecycle.disable"), [])
+
+    def test_a_handler_calling_back_into_the_registry_does_not_deadlock(self):
+        self._enabled()
+        self._enabled("plugin-b")
+        seen = []
+
+        def handler(context):
+            if context.get("plugin_id") == "plugin-a":
+                seen.append(self.registry.disable_plugin("plugin-b"))
+            return context
+
+        self.registry.hook_chain.register("plugin.lifecycle.disable", "watcher", handler)
+        self._bump_manifest("plugin-a")
+        worker = threading.Thread(target=self.registry.discover_plugins, daemon=True)
+        worker.start()
+        worker.join(timeout=10)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(seen, [True])
+
+    def test_a_loop_started_on_ready_and_cancelled_on_disable_never_doubles(self):
+        self._enabled()
+        self.registry.run_ready_hooks()
+
+        def alive():
+            events = self._events()
+            return events.count("plugin-a:ready:plugin-a") - events.count("plugin-a:disable:plugin-a")
+
+        self.assertEqual(alive(), 1)
+        self._bump_manifest("plugin-a")
+        self.registry.discover_plugins()
+        self.registry.run_ready_hook("plugin-a")
+        self.assertEqual(alive(), 1)
+        self.registry.reload_plugin("plugin-a")
+        self.assertEqual(alive(), 1)
+
+
 class TestAppLoopAccess(unittest.TestCase):
 
     def setUp(self):
