@@ -1,3 +1,5 @@
+from typing import Any, Dict, Mapping, Optional, Sequence
+
 from src.features.cloud.clock import Clock, MonotonicClock
 from src.features.cloud.contracts import (
     CANONICAL_PARAMS,
@@ -55,11 +57,14 @@ from src.features.cloud.contracts import (
     spec_problems,
     valid_specs,
 )
+from src.features.cloud.director import DirectorEstimateError
 from src.features.cloud.http import CloudHttp, HttpResponse, default_error_mapper, parse_retry_after
 from src.features.cloud.inline import decode_inline, encode_media
 from src.features.cloud.rate_limit import TokenBucket
 from src.features.cloud.redaction import redact_headers, redact_url, scrub_text
 from src.features.cloud.registration import register_cloud_provider
+from src.platform.plugins.runtime_registries import get_container
+from src.platform.security.user import AccountType
 
 __all__ = [
     "CLOUD_BLOCKS",
@@ -78,6 +83,7 @@ __all__ = [
     "CloudResult",
     "CloudStatus",
     "Clock",
+    "DirectorEstimateError",
     "EXTRA_PARAM_PREFIX",
     "HttpResponse",
     "JobState",
@@ -121,6 +127,7 @@ __all__ = [
     "decode_inline",
     "default_error_mapper",
     "encode_media",
+    "estimate_cloud_cost",
     "is_canonical_param",
     "load_catalog_file",
     "parse_retry_after",
@@ -154,3 +161,22 @@ CLOUD_BLOCKS = (
     "models/upscale_image.yml",
     "models/upscale_video.yml",
 )
+
+
+def estimate_cloud_cost(
+    user, model_id: str, shots: Sequence[Mapping[str, Any]], driver: Optional[str] = None
+) -> Dict[str, Any]:
+    """What a run of shots on an enabled cloud model would cost, as
+    `POST /api/cloud/models/{model_id}/estimate` answers it. Costs are shown
+    to administrators only: anyone else, or no user, gets `PermissionError`.
+    Each shot is `{"task", "params"}`, as in the route's body. Shots the route
+    would refuse raise `ValueError` (`DirectorEstimateError` when the
+    estimator refuses them), and a model that is not an enabled cloud model
+    raises `ModelNotFoundException`."""
+    if getattr(user, "account_type", None) != AccountType.ADMIN:
+        raise PermissionError("Only an administrator can see what a cloud run costs")
+    from src.features.cloud.dto import DirectorEstimateRequest
+    from src.features.cloud.routes import estimate_cost
+
+    request = DirectorEstimateRequest.model_validate({"shots": list(shots), "driver": driver})
+    return estimate_cost(get_container().cloud_capabilities, model_id, request)

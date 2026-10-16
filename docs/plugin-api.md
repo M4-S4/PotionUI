@@ -46,22 +46,31 @@ time, in someone else's installation.
 
 ## What's importable
 
-Every name below can be imported directly from `src.plugin_api`. They are also grouped
-into modules (`src.plugin_api.providers`, `.chat`, `.backends`, …) if you prefer to
-import from those — the names are identical, so it is purely a matter of taste.
+Every name below can be imported from the module in its row (`src.plugin_api.providers`,
+`.chat`, `.backends`, …), and almost every one directly from `src.plugin_api` as well: it is
+the same object either way, so it is purely a matter of taste. The exceptions exist only in
+their module: the cloud provider kit (every name of `.cloud` and `.cloud_testing` except
+`estimate_cloud_cost` and `DirectorEstimateError`), `aiohttp_connector` and `client_ssl_context`
+(`.providers`), `ProvisionProgress`, `ProgressReporter`, `COMPUTE_STATES`, `STATE_*` and
+`STAGE_*` (`.compute`), `MODEL_TYPES`, `HeaderView`, `TensorInfo`, `FamilyMatch` and
+`model_classifier_registry` (`.models`), `compare`, `FACT_KINDS`, `OPERATOR_LABELS`,
+`CONFIG_FIELD_KINDS`, `FACT_TRIGGERS`, `SQL_ALIASES` and `SUBJECTS` (`.organize`), `Refusal`,
+`RefusalContext`, `AdmissionRequest` and `LimitEventsView` (`.limits`), and `GuidanceStrategy`
+and `run_hooks` (`.sampling`). `src.plugin_api.__all__` is the exact list of names the package
+itself exports.
 
 | Group | Module | Exports |
 |---|---|---|
 | **Identity** — who is calling, and signing them in | `.identity` | `User`, `AccountType`, `get_current_active_user`, `get_user` (a user by id, or `None`, for background work that acts as a known user), `register_login_provider`, `unregister_login_provider`, `sign_in_external`, `ExternalSession`, `ExternalLoginError` |
 | **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_app_loop`, `run_on_app_loop`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo`, `aiohttp_connector`, `client_ssl_context` |
-| **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
-| **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
-| **Cloud** — contributing a hosted-model provider | `.cloud`, `.cloud_testing` | `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
-| **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
+| **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `ToolApprovalPreview`, `PreChatAction` |
+| **Backends** — contributing an engine, and reading the enabled ones | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate`, `list_backends()` (every enabled backend, highest priority first: what `GET /api/backends/enabled` returns for it, plus `execution_device` (`"this_host_gpu"`, `"no_gpu"`, `"remote"` or `"unestablished"`), `max_concurrent_runs` and `vram_total_gb` / `vram_free_gb`; the VRAM is known only for a local native backend on the GPU this process monitors and is `None` otherwise; a backend that is enabled but not running reports `"unestablished"` and a `None` capacity) |
+| **Cloud** — contributing a hosted-model provider, and pricing a run | `.cloud`, `.cloud_testing` | `estimate_cloud_cost(user, model_id, shots, driver=None)` (what a run of shots on an enabled cloud model would cost, the answer of `POST /api/cloud/models/{model_id}/estimate`; administrators only, `PermissionError` for anyone else), `DirectorEstimateError` (a `ValueError`: the shots it cannot price), `register_cloud_provider`, `CloudProvider`, `CloudBackendConfig`, `CloudHttp`, `CloudModelSpec`, `ParamSpec`, `MediaInputSpec`, `PriceLine`, `CloudRequest`, `CloudJob`, `CloudStatus`, `CloudResult`, `CloudArtifact`, `CloudCost`, `CloudHealth`, `CloudError`, `LocalMedia`, `CANONICAL_PARAMS`, `MEDIA_ROLES`, `TASK_KINDS`, `CLOUD_BLOCKS`, `spec_problems`, `valid_specs`, `load_catalog_file`, `encode_media`, `decode_inline`, `default_error_mapper`, and (from `.cloud_testing`) `FakeCloudProvider`, `FakeCloudConfig`, `FakeBehaviour`, `FakeClock`, `ContractCase`, `run_contract`, `CONTRACT_CHECKS`, `fake_director_specs`, `fake_video_bytes`, `TINY_PNG`, `bind_plugin_backend` |
+| **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `TextGenerationOutput`, `TextArtifactAction`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
-| **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`; `None` when not installed), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False)` (puts a resolved image, from `resolve_media_ref`, into a single-shot Video Director document as its `first` or `last` frame, keeping the rest of the document; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot; raises `DirectorBindingError` with a `code`) |
-| **Generation** — submitting, following and reading generations | `.generation` | `submit_generation`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict` |
+| **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair`, `PresetMedia`, `GalleryItem`, `lint_preset_dir`, `PRESET_MEDIA_MAX_BYTES` and `PRESET_COVER_VIDEO_MAX_BYTES` (the byte budgets the preset linter warns above for any preset media file and for a video cover), `downscale_and_save_webp`, `describe_preset` (an installed preset's name, `vars` and modes, each with its default form and every form's fields as `type` + `required` + `multi`, plus its `engine`, `category` and `requires` (the `requires:` block of its `preset.yml`, e.g. `{"min_vram_gb": 12, "recommended_vram_gb": 16}`, or `None`); `None` when not installed), `list_presets(user)` (a `PresetDescription` for each preset installed by an admin that `user` may run, in the order of `GET /api/presets`: the presets assigned to them directly or through a group, every installed preset for an administrator; `PermissionError` without a user), `PresetDescription`, `ModeDescription`, `FieldDescription`, `bind_director_media(request, role, media, segment_id=None, promote=False)` (puts a resolved image, from `resolve_media_ref`, into a single-shot Video Director document as its `first` or `last` frame, keeping the rest of the document; with `promote=True` a first frame turns a text-only shot into a start-image shot and a last frame turns a start-image shot into a first-and-last shot; raises `DirectorBindingError` with a `code`) |
+| **Generation** — submitting, previewing, following and reading generations | `.generation` | `submit_generation`, `preview_memory`, `cancel_generation`, `generation_state`, `list_generation_files`, `resolve_media_ref`, `get_session_snapshot`, `GenerationRequest`, `MediaRefError`, `SessionNotFoundError`, `IdempotencyKeyConflict`, and the errors `submit_generation` and `preview_memory` let through so you can catch them by type: `FormBindingError` (a `ValueError`: the form does not bind), `FormNotFoundException` (no form of that name), `NoBackendForEngineError` and `NoEligibleBackendError` (both `RuntimeError`: no backend can run the request) |
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel`, `probe_video` (a `VideoProbe` from ffprobe, or `None`), `transcode_video(src, dest, TranscodeSpec(...), max_bytes=None)` (ffmpeg re-encode to webm VP9 or mp4 H.264: constant frame rate, even dimensions, no audio unless `keep_audio`; steps down a quality ladder to fit `max_bytes`; raises `VideoTranscodeError`, or `FfmpegUnavailableError` before writing anything when ffmpeg is missing), `find_ffmpeg`, `TranscodeSpec`, `VideoProbe` |
@@ -473,6 +482,14 @@ listed in `CLOUD_BLOCKS`. `cloud_testing` provides a scripted `FakeCloudProvider
 kit (`ContractCase`, `run_contract`) to run against recorded fixtures. The full contract, the test
 kit and a step-by-step example are in [Cloud Models](cloud-models.md#writing-a-provider-plugin).
 
+To price a run before brewing it, `estimate_cloud_cost(user, model_id, shots, driver=None)` gives
+the answer of `POST /api/cloud/models/{model_id}/estimate`: `shots` is the route's list of
+`{"task", "params"}` (1 to 64 shots), and the result carries `model_id`, `slug`, `known`,
+`total_usd`, `shots`, `shot_count`, `source` and `message`. Costs are shown to administrators only
+(see [Cloud Models](cloud-models.md#costs)), so any other user, or no user, gets `PermissionError`.
+Shots the route would refuse raise `ValueError` (`DirectorEstimateError` when the estimator
+refuses them), and a model that is not an enabled cloud model raises `ModelNotFoundException`.
+
 ## Showing admins the next setup step
 
 A plugin that needs more than the enable switch (a backend with an API key, models turned on,
@@ -584,9 +601,19 @@ knowing your plugin exists:
   isn't reachable through any route prefix, e.g. an admin-only setup wizard). The most
   recently declared mode wins if more than one is active; unregistering restores
   route-based resolution.
-- `onToolApplied(toolName, handler)` — runs `handler` with the parsed result of an
-  approved/confirmed call to `toolName`, before (and instead of) any core hardcoded
-  handling for that tool name.
+- `onToolApplied(toolName, handler)` — runs `handler` with the result of each call to
+  `toolName` in the conversation (its `data`, decoded from JSON): a tool that needs approval
+  once the user approves it, any other tool once the assistant's reply that ran it has
+  arrived. For an approved tool it runs before (and instead of) any core hardcoded handling
+  for that tool name. See "When `onToolApplied` runs" below.
+- `open()`, `close()`, `toggle()` — open, close or flip the global chat panel, the same
+  panel the sidebar button and the keyboard shortcut drive. Pair them with
+  `declareMode`/`provideContext` to open the assistant already focused on your page, for
+  example from an "Ask the assistant" button.
+- `isOpen()` — whether the panel is open right now.
+
+`open`, `close`, `toggle` and `isOpen` are absent on hosts that predate them; call them as
+`window.__potionui.chat.open?.()`.
 
 ```js
 const unregisterContext = window.__potionui.chat.provideContext('comfyui_import_wizard', () => ({
@@ -597,12 +624,49 @@ const unregisterMode = window.__potionui.chat.declareMode('comfyui-import-wizard
 const unregisterTool = window.__potionui.chat.onToolApplied('import_comfyui_workflow', (result) => {
   applyImportedWorkflow(result.workflow);
 });
+askButton.onclick = () => window.__potionui.chat.open();
 
 // on unmount:
 unregisterContext();
 unregisterMode();
 unregisterTool();
 ```
+
+**When `onToolApplied` runs.** A tool declared with `requires_approval` reaches the handler
+when the user approves it; a rejected call never does. Any other tool reaches it when the
+assistant's reply that ran it is final: at the end of the streamed answer, when the app
+recovers a reply whose stream was cut, in the non-streaming fallback, and for the tools the
+assistant runs while it carries on after an approval. Such a call reaches the handler only
+when it succeeded and its `data` is JSON: a tool that returns plain text, a failed call and a
+call still waiting for approval are not passed on. Nothing reaches the handler while the
+user has switched the assistant's tools off (Tools OFF in the composer).
+
+Each call reaches the handler at most once. A call is identified by its assistant message and
+its position in that message, so a reply that arrives twice (live, then again when the app
+recovers it after a dropped connection) does not run the handler again, and an approved call
+is never run a second time as an unapproved one. Opening an earlier conversation from the
+chat history does not replay its tool results, and a handler registered after a result
+arrived does not receive it.
+
+The handler may return `{status, message?}` with `status` one of `'applied'`, `'stale'`,
+`'partial'` or `'noop'`. When it reports `'stale'` or `'partial'` with a `message`, the chat
+shows that message in place of the assistant's narration for that reply, the same way it
+does for an approved tool; when one reply ran several such calls, the last message wins. It
+changes what is shown, not the stored conversation. A handler that throws is logged, and the
+reply's other calls still reach their handlers.
+
+```js
+const unregisterShot = window.__potionui.chat.onToolApplied('video_producer_add_shot', (result) => {
+  if (result.project_id !== currentProjectId) {
+    return { status: 'stale', message: 'That shot belongs to another project; it was not added here.' };
+  }
+  timeline.insertShot(result.shot);
+  return { status: 'applied' };
+});
+```
+
+On a host that predates this, only approved calls reach the handler, and nothing on
+`window.__potionui` tells the two apart.
 
 ## Contributing automation templates
 
@@ -1712,9 +1776,16 @@ HTTP API enforces for that user: anything that is not theirs is reported as not 
 forbidden (administrators may reach anything), and a content-restricted user only sees what the
 history API would show them.
 
+To offer a user only what they can run, list it with `list_presets(user)` (from `.presets`): the
+same assignment rule `submit_generation` checks, with each preset's modes, fields, engine and
+hardware guidance. It differs from `GET /api/presets` for administrators: that route lists only the
+presets assigned to the admin, or with `include_uninstalled=true` every preset on disk, while
+`list_presets` gives an administrator every installed preset.
+
 | Function | Does |
 |---|---|
-| `await submit_generation(user, request)` | Same path as `POST /api/generations/start`: routing, form binding, cloud and content policy. Returns `{generation_id, status, queue_position}` and raises what the route turns into HTTP errors. With `request.idempotency_key` set, submitting the same key again returns the first submission instead of starting another (see below) |
+| `await submit_generation(user, request)` | Same path as `POST /api/generations/start`: routing, form binding, cloud and content policy. Returns `{generation_id, status, queue_position}` and raises what the route turns into HTTP errors. With `request.idempotency_key` set, submitting the same key again returns the first submission instead of starting another (see below). Before the request is routed or an idempotency key looked up, a preset that is not assigned to the user, directly or through one of their groups, raises `PermissionError` (administrators may use any preset): the rule the chat assistant's tools apply. An unknown preset id raises the same error, so it does not reveal which presets exist |
+| `await preview_memory(user, request)` | Same path as `POST /api/generations/memory-preview`: binds the form and picks the backend as a submit would, then returns `{estimate, coverage, device, budget, backend}` without queueing anything, running a hook or loading a model. Raises what the route turns into HTTP errors: `ValueError` for an unknown preset, `FormBindingError` (a `ValueError`) for a form that does not bind, `FormNotFoundException` for an unknown `form_name`, `NoBackendForEngineError` or `NoEligibleBackendError` (both `RuntimeError`) when no backend can run it. Like the route, it does not check the preset's assignment |
 | `await cancel_generation(user, generation_id)` | Cancels one generation; returns whether anything was cancelled |
 | `generation_state(user, generation_id)` | The live status record, or the stored row once the process no longer tracks it |
 | `list_generation_files(user, generation_id, final_only=True)` | The generation's files in canonical order, each with its `index` in the unfiltered list (the `file_index` of a `<field>__origin` link). `final_only` leaves out intermediate and derived files |
@@ -1768,6 +1839,55 @@ It returns `{ok: true, request, variableRolls, submittedPromptTemplate, shuffled
 is a message when there is one. Chip shuffles and shuffled variables are resolved in the call, so
 each call is a fresh roll. Submit the request with `submit_generation` (or
 `POST /api/generations/start`); the server still binds and checks it like any other request.
+
+### Following a generation's progress
+
+A plugin frontend follows a running generation with
+`window.__potionui.generation.subscribe(generationId, handler)`. It returns an unsubscribe
+function; call it when the generation is over or when your page unmounts.
+
+Read the generation's current state with `GET /api/generations/{id}/status` before you
+subscribe: events start when you subscribe and what happened before is not replayed. An
+unknown id, or one that belongs to another user, produces no event at all, not even an error.
+
+```js
+const unsubscribe = window.__potionui.generation.subscribe(generationId, (event) => {
+  if (event.type === 'generation_status') {
+    showProgress(event.message, event.progress);
+    return;
+  }
+  unsubscribe();
+  if (event.type === 'generation_complete') loadResults(generationId);
+  else if (event.type === 'generation_error') showError(event.data?.message ?? event.message);
+  else showCancelled();
+});
+```
+
+`handler` receives only these four events, and only for `generationId`:
+
+| `event.type` | What it carries |
+| --- | --- |
+| `generation_status` | Progress while it runs: `generation_id`, `status` (`'running'`), `progress` (a number, or `null` while the stage has no fraction), `message`, `current_step`. |
+| `generation_complete` | `data`: the generation's status record (`data.id`, `data.status`, ...). Read the files with `list_generation_files` or the history API. |
+| `generation_error` | The failure: `data.generation_id` and `data.message`, or the same fields at the top level, depending on where it failed. |
+| `generation_cancelled` | `data`: the generation's status record. |
+
+Other messages of the generation socket (previews, artifacts, timers, the subscription
+acknowledgement or a subscription error) are not passed on. The server only streams a
+user's own generations; administrators may follow any.
+
+All plugin subscriptions share one connection to the app's generation websocket
+(`/ws/generation`), opened on the first `subscribe` and closed when the last subscriber
+unsubscribes, so subscribing to many generations does not open many sockets. The core pages
+(Generate, History) keep their own connections, which plugins cannot reach. The socket
+reconnects on its own after a drop and subscribes to every followed generation again. The
+generation protocol has no unsubscribe message: `unsubscribe()` stops calling your handler,
+and the server stops sending once the shared connection closes. A handler that throws is
+logged and does not stop the other handlers.
+
+`subscribe` is absent on hosts that predate it; feature-detect it with
+`window.__potionui.generation.subscribe?.(...)` and fall back to polling
+`GET /api/generations/{id}/status` if you need to.
 
 ## Driving native-engine generation directly
 
@@ -1904,6 +2024,87 @@ itself part of this same layering system: inside a `PluginModal`, or inside an e
 using `layers.overlayLayer` as described above. Mounting it into a plain, unlayered
 `<div>` risks its own picker rendering under whatever else happens to be open.
 
+## Calling your plugin's backend from its page
+
+A plugin page (a `pages:` entry) is mounted by the host with `mountPlugin(el, props)`, or, when
+the module has no `mountPlugin`, as a Svelte component whose props are the same. The props are:
+
+- `pluginId`, `route` — your plugin's id and the page's route.
+- `api` — the HTTP client described below.
+- `user` — the signed-in user.
+- `navigate(path)` — moves the app to `path` without reloading it.
+- `hostComponents` — the same registry as `window.__potionui.components`.
+- `headerActions`, `setHeaderTitleHidden`, `setHeaderHidden` — see "Using the page header from
+  a plugin page" below.
+
+`api` is bound to your plugin. Paths are relative to your plugin's routes, which live under
+`/api/plugins/<plugin id>` (so `api.get('/projects')` calls `GET /api/plugins/<plugin id>/projects`).
+Every call sends the user's token as `Authorization: Bearer …` and the app's cookies
+(`credentials: 'include'`), so your routes can depend on the usual authenticated user.
+
+| Method | Sends | Resolves with |
+| --- | --- | --- |
+| `get(path)` | `GET` | the parsed JSON body, whatever the status |
+| `post(path, data)`, `put(path, data)` | `POST`/`PUT` with `data` as JSON | the parsed JSON body, whatever the status |
+| `delete(path)` | `DELETE` | the parsed JSON body, whatever the status |
+| `uploadFile(path, formData)` | `POST` with a `FormData` body (multipart) | the parsed JSON body, whatever the status |
+| `fetchFromApp(path)` | `GET` on an app route, `path` taken from the site root (`/api/backends`) | the parsed JSON body, whatever the status |
+| `request(method, path, data?)` | any method; `data`, when given, as JSON | the parsed body: JSON, or the text when it is not JSON, or `null` for a `204` or an empty body. Throws on an error status |
+| `patch(path, data)` | `request('PATCH', path, data)` | as `request` |
+| `fetchRaw(path, init?)` | `fetch` with your `init`, the token added to its headers and cookies included | the `Response` itself, for binary bodies, ranges or streaming. Never throws on a status |
+| `download(path, filename?)` | `GET` through `fetchRaw`, then saves the body as a file | once the browser has been asked to save it. Throws on an error status |
+| `getToken()` | — | the current token, or `null`; for a WebSocket you open yourself (a browser WebSocket cannot send headers, so pass it as `?token=`) |
+
+**Errors.** The first six methods do not look at the HTTP status: they resolve with the parsed
+JSON of any response, error responses included, and reject only when the body is not JSON
+(a `SyntaxError`, for example on an HTML error page from a proxy) or the network fails (a
+`TypeError`). They keep that behaviour because existing plugins read errors out of the body.
+For new code, prefer `request` and `patch`, which throw an `Error` for any status outside
+200–299 with:
+
+- `status` — the HTTP status;
+- `body` — the parsed body (JSON, text, or `null`);
+- `detail` — `body.detail` when the body has one (what FastAPI's `HTTPException` sends),
+  otherwise `undefined`;
+- `message` — `detail` when it is a string, `detail.message` when it is an object with a
+  message, otherwise `Request failed with status <status>`.
+
+A network failure rejects with the browser's own `TypeError`, as with the other methods.
+
+```js
+export function mountPlugin(el, { api }) {
+  async function rename(id, name) {
+    try {
+      await api.patch(`/projects/${id}`, { name });
+    } catch (err) {
+      if (err.status === 409) showConflict(err.message);
+      else throw err;
+    }
+  }
+
+  async function exportCut(id, name) {
+    await api.download(`/projects/${id}/export.fcpxml`, `${name}.fcpxml`);
+  }
+
+  async function showThumbnail(img, renderId) {
+    const res = await api.fetchRaw(`/renders/${renderId}/thumbnail`);
+    if (res.ok) img.src = URL.createObjectURL(await res.blob());
+  }
+  // ...
+}
+```
+
+**Downloads.** `download` fetches the file with the token, turns it into a `Blob`, clicks a
+hidden `<a download>` and removes it; the object URL is revoked a second later. The file is
+named after `filename`, else after the response's `Content-Disposition` (`filename*=UTF-8''…`
+or `filename="…"`), else after the last segment of `path`. The whole body is held in memory
+before it is saved, which suits exports and documents rather than very large media files. A
+plain `<a href>` to your route would not work, since a link cannot carry the `Authorization`
+header.
+
+`request`, `patch`, `fetchRaw` and `download` are absent on hosts that predate them; check
+`if (api.request)` before relying on them.
+
 ## Using the page header from a plugin page
 
 A plugin page is mounted under the app's page header (the plugin's icon and label). The
@@ -1921,6 +2122,43 @@ props passed to `mountPlugin` include three header hooks:
 
 Both setters reset whenever the page is loaded again, and are absent on hosts that predate
 them, so call them as `setHeaderTitleHidden?.(true)`.
+
+## Keyboard shortcuts on a plugin page
+
+The app's global shortcuts (listed in the Keyboard Shortcuts dialog) listen on the whole
+document. They already ignore unmodified keys typed into an input, a textarea, a select or a
+contenteditable element, so an ordinary plugin form needs nothing. A plugin page that
+handles plain keys itself, such as a timeline that uses Space, the arrow keys or letters,
+turns the global shortcuts off while it is on screen:
+
+```js
+const releaseKeyboard = window.__potionui.keyboard.suppress();
+
+// on unmount:
+releaseKeyboard(); // or: window.__potionui.keyboard.resume();
+```
+
+- `suppress()` turns the global shortcuts off and returns a function that undoes this one
+  call. That function works once; calling it again does nothing.
+- `resume()` undoes one earlier `suppress()`. A `resume()` with nothing to undo does nothing.
+
+Suppressions are counted: the shortcuts come back when every `suppress()` has been matched by
+a `resume()` or by its own returned function, so two components of a page can each suppress
+and resume without switching the other's suppression off. Plugin suppressions are kept apart
+from the app's own (the paint editor, the Keyboard Shortcuts dialog): the app resuming its
+shortcuts does not cancel yours, and yours do not cancel the app's.
+
+When a plugin page is left, or replaced by another plugin's page, the host calls
+`unmountPlugin` and then drops every plugin suppression still held. A page that throws while
+unmounting, that has no `unmountPlugin`, or that forgets to resume therefore cannot leave the
+app without shortcuts. A function returned by `suppress()` before that point does nothing
+afterwards, so a late call from the old page cannot cancel the next page's suppression.
+Navigating between sub-paths of the same plugin page keeps the plugin mounted and keeps its
+suppressions. This cleanup is done by the plugin page host only: a component mounted through
+a plugin slot on another page must resume on its own unmount.
+
+The keyboard API is absent on hosts that predate it; call it as
+`window.__potionui.keyboard?.suppress()`.
 
 ## Using the app's UI components and Tailwind in a plugin frontend
 
@@ -1976,6 +2214,82 @@ local) and in `content/plugins/sdk/` are scanned by the app's Tailwind build, so
 token classes (`bg-surface-2`, `text-fg-muted`, `border-line`, ...) and arbitrary values work
 in plugin markup. Rebuild the app frontend after adding new classes; the plugin's own `dist/`
 carries no Tailwind CSS. Use the token classes only, as in the app.
+
+The distribution image (`docker/Dockerfile`) builds the app frontend with the plugin sources of
+the repository it is built from: `content/plugins/sdk/` and every
+`content/plugins/*/*/frontend/src/`, at the paths the Tailwind config scans. The classes those
+plugins use are therefore in the image's CSS. That covers the plugins present in the build
+context, including `content/plugins/local/` when you build the image yourself from a checkout
+that has one (the published images have none, since `local/` is not committed). A plugin added
+to an instance afterwards, from the marketplace or by copying it into a container, is not
+scanned: a class that the app and the bundled plugins do not already use only works once the
+app frontend is rebuilt, by rebuilding the image or by running `npm run build` in `frontend/`
+on a bare-metal install.
+
+### Adding your own icons
+
+Every host component that takes an icon name (`Icon`, `Button`, `IconButton`, the items of
+`SegmentedControl`, ...) looks the name up in the app's icon library. A plugin adds its own
+icons with `window.__potionui.registerIcon(name, paths)`:
+
+```js
+window.__potionui.registerIcon('vp-clapperboard', [
+  'M4 11v8a1 1 0 001 1h14a1 1 0 001-1v-8H4z',
+  'M4 11l1.5-6 15 3.5-.9 2.5'
+]);
+```
+
+`paths` is the `d` attribute of one `<path>` (a string) or of several (an array), drawn
+like the app's own icons: a 24×24 view box, stroked with `currentColor`, no fill.
+
+`registerIcon` returns `true` when the icon was added. It returns `false` and changes nothing
+when the name already exists, whether it is one of the app's icons or one a plugin
+registered earlier, or when the name or the paths are empty: a plugin can never replace an
+icon the app or another plugin relies on. Prefix your names with your plugin's id to stay
+clear of names the app may add later.
+
+An icon can be registered at any time: an `Icon` already on screen under that name (showing
+the first letter of the name as its fallback) redraws itself with the new paths. The
+registration lasts until the page is reloaded, so register your icons when your plugin
+starts, for example at the top of `mountPlugin`.
+
+`registerIcon` is absent on hosts that predate it; call it as
+`window.__potionui.registerIcon?.(...)`.
+
+### Icon buttons with a tooltip
+
+Each `HostUi` is its own Svelte root, so a host `IconButton` mounted inside a host `Tooltip`
+through two `HostUi` does not know it is inside one: it keeps its native `title`, and the user
+gets two tooltips. Give the tooltip to the `IconButton` itself instead:
+
+```svelte
+<HostUi
+  name="IconButton"
+  props={{ icon: 'film', label: 'Render', tooltip: 'Render the selected take', kbd: ['Shift', 'R'], onclick: render }}
+/>
+```
+
+- `tooltip` — the tooltip text. When only `kbd` is given, the text is `label`.
+- `kbd` — a keyboard shortcut shown in the tooltip, as one string (`'Ctrl+K'`) or one string
+  per key (`['Shift', 'R']`). It is only displayed: handling the keys is up to your page (see
+  "Keyboard shortcuts on a plugin page").
+
+With either prop, the button renders the host `Tooltip` around itself and has no native
+`title`; `label` stays its accessible name (`aria-label`). The tooltip wraps the button in
+two `inline-flex` elements; `class` still applies to the button. Without these props an
+`IconButton` renders as before: a native `title` equal to `label`, or none when it sits
+inside a `Tooltip` of the same Svelte tree.
+
+**Tooltip on keyboard focus.** A `Tooltip`, including the one of an `IconButton`, also opens
+when its trigger receives keyboard focus, at once, and closes when the focus leaves the
+trigger. Following the browser's own `:focus-visible` rule, a mouse click does not open it,
+nor does focus moved by a script right after a click; hovering works as before. While it is
+open, the tooltip has `role="tooltip"` and an `id`, and a host `Button` or `IconButton`
+inside it gets `aria-describedby` pointing to it, so a screen reader reads the text and the
+shortcut after the button's name. Any other element inside a `Tooltip` (a `<button>` or an
+input of your own) shows the tooltip on focus but is not linked to it, since its `id` is not
+exposed: give such an element an accessible name that carries what matters, or use
+`IconButton` with `tooltip`.
 
 ### A list page like History and Models
 

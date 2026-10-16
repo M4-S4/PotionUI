@@ -10,11 +10,14 @@ Import from the package itself - every name below is available directly:
     from src.plugin_api import User, AccountType, get_current_active_user
     from src.plugin_api import BaseTool, ToolContext, ToolResult
 
-The capability modules (`src.plugin_api.providers`, `.chat`, `.backends`,
-`.compute`, `.pipes`, `.native`, `.hooks`, `.storage`, `.presets`, `.forms`,
-`.identity`, `.limits`, `.media`, `.organize`, `.phrasebook`, `.recipes`, `.sampling`) are the same
-names, grouped, and each one's docstring explains what it is for. Import from
-whichever reads better.
+The capability modules (`src.plugin_api.automation`, `.backends`, `.chat`,
+`.cloud`, `.cloud_testing`, `.compute`, `.downloads`, `.filters`, `.generation`,
+`.groups`, `.hooks`, `.identity`, `.limits`, `.media`, `.models`, `.native`,
+`.notifications`, `.organize`, `.phrasebook`, `.pipes`, `.presets`, `.prompts`,
+`.providers`, `.recipes`, `.sampling`, `.setup`, `.storage`) group the same
+names, and each one's docstring explains what it is for. Import from whichever
+reads better. A few specialised names live only in their module, the cloud
+provider kit among them; `__all__` below is the exact list available here.
 
 If you need something the application can do but this module does not expose,
 that is a gap in the API - ask for it to be added rather than importing around
@@ -47,10 +50,12 @@ from src.plugin_api.hooks import (
     HookSpec,
     ModelLifecycle,
     PluginRegistry,
+    get_app_loop,
     get_container,
     get_global_plugin_registry,
     get_global_tool_registry,
     hooks_registry,
+    run_on_app_loop,
 )
 
 # Talking to a model marketplace.
@@ -75,6 +80,7 @@ from src.plugin_api.providers import (
 from src.plugin_api.chat import (
     BaseTool,
     PreChatAction,
+    ToolApprovalPreview,
     ToolContext,
     ToolResult,
     ToolSource,
@@ -89,7 +95,10 @@ from src.plugin_api.backends import (
     InProcessBackend,
     ModelListingNotSupported,
     deduplicate,
+    list_backends,
 )
+
+from src.plugin_api.cloud import DirectorEstimateError, estimate_cloud_cost
 
 # Provisioning rented GPU compute.
 from src.plugin_api.compute import (
@@ -148,8 +157,26 @@ from src.plugin_api.presets import (
     describe_preset,
     downscale_and_save_webp,
     lint_preset_dir,
+    list_presets,
     preset_operations,
     PromptPair,
+)
+
+from src.plugin_api.generation import (
+    FormBindingError,
+    FormNotFoundException,
+    IdempotencyKeyConflict,
+    MediaRefError,
+    NoBackendForEngineError,
+    NoEligibleBackendError,
+    SessionNotFoundError,
+    cancel_generation,
+    generation_state,
+    get_session_snapshot,
+    list_generation_files,
+    preview_memory,
+    resolve_media_ref,
+    submit_generation,
 )
 
 # Keeping data. `db` is deliberately absent here - see __getattr__ below.
@@ -348,10 +375,12 @@ __all__ = [
     "HookSpec",
     "ModelLifecycle",
     "PluginRegistry",
+    "get_app_loop",
     "get_container",
     "get_global_plugin_registry",
     "get_global_tool_registry",
     "hooks_registry",
+    "run_on_app_loop",
     # Providers
     "MarketplaceProviderBase",
     "ModelInfo",
@@ -370,6 +399,7 @@ __all__ = [
     # Chat
     "BaseTool",
     "PreChatAction",
+    "ToolApprovalPreview",
     "ToolContext",
     "ToolResult",
     "ToolSource",
@@ -381,6 +411,9 @@ __all__ = [
     "InProcessBackend",
     "ModelListingNotSupported",
     "deduplicate",
+    "list_backends",
+    "DirectorEstimateError",
+    "estimate_cloud_cost",
     # Compute provisioning
     "COMPUTE_HOOKS",
     "ComputeFieldDescriptorV1",
@@ -438,8 +471,23 @@ __all__ = [
     "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",
+    "list_presets",
     "preset_operations",
     "PromptPair",
+    "FormBindingError",
+    "FormNotFoundException",
+    "IdempotencyKeyConflict",
+    "MediaRefError",
+    "NoBackendForEngineError",
+    "NoEligibleBackendError",
+    "SessionNotFoundError",
+    "cancel_generation",
+    "generation_state",
+    "get_session_snapshot",
+    "list_generation_files",
+    "preview_memory",
+    "resolve_media_ref",
+    "submit_generation",
     # Storage
     "PluginRepository",
     "SettingRepository",

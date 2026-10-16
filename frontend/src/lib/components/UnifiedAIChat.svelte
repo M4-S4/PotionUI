@@ -19,7 +19,14 @@
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
 	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
-	import { declaredMode, collectProvidedContext, dispatchToolApplied } from '$lib/chat/pageContext';
+	import {
+		declaredMode,
+		collectProvidedContext,
+		dispatchToolApplied,
+		dispatchToolResult,
+		dispatchExecutedToolResults,
+		toolResultId
+	} from '$lib/chat/pageContext';
 	import {
 		chatFormSessionId,
 		isGeneratePageContext,
@@ -715,8 +722,16 @@
 			},
 			onAnswered: () => {
 				selectedImageData = null;
-			}
+			},
+			onAssistantFinalized: handleAssistantFinalized
 		};
+	}
+
+	function handleAssistantFinalized(message: ChatMessageData) {
+		if (!enableTools || !message.id) return;
+		const replacement = dispatchExecutedToolResults(message)?.message;
+		if (!replacement) return;
+		chatSession.updateMessages((msgs) => msgs.map((m) => (m.id === message.id ? { ...m, content: replacement } : m)));
 	}
 
 	async function loadSession(id: string) {
@@ -1255,13 +1270,18 @@
 		let toolOutcome: ReturnType<typeof dispatchToolApplied> | null = null;
 		if (data.approved && enableTools) {
 			try {
-				const resultData = JSON.parse(data.updatedExecution.result?.data || '');
+				const dispatched = dispatchToolResult(
+					toolResultId(data.messageId, data.index),
+					data.updatedExecution.tool_name,
+					data.updatedExecution.result?.data
+				);
+				const resultData = dispatched?.data as any;
 				// A plugin-registered handler (window.__potionui.chat.onToolApplied)
 				// for this tool name takes over entirely - skip the hardcoded
 				// core actions below so a plugin tool's result isn't misread as
 				// one of these.
-				toolOutcome = dispatchToolApplied(data.updatedExecution.tool_name, resultData);
-				if (!toolOutcome) {
+				toolOutcome = dispatched?.outcome ?? null;
+				if (dispatched && !toolOutcome) {
 					if (resultData.action === 'apply_form_changes') {
 						handleFormChangesApplied(resultData.applied_changes);
 					}
@@ -1293,12 +1313,15 @@
 		if (am) {
 			const metadata = am.metadata || {};
 			const toolExecs = metadata.tool_executions || am.tool_executions || [];
+			const continuationOutcome = enableTools
+				? dispatchExecutedToolResults({ id: am.id, tool_executions: toolExecs })
+				: null;
 			// The backend narrates deterministically from the tool's own
 			// success/failure, which it decided before the plugin above ever
 			// ran - an unapplied/partial outcome overrides that narration
 			// rather than letting the user read "done" for a change that
 			// didn't (fully) land.
-			const content = unappliedOutcome?.message || am.content || '';
+			const content = unappliedOutcome?.message || continuationOutcome?.message || am.content || '';
 			const hasContent = !!(content && content.trim());
 			if (!hasContent && toolExecs.length === 0) {
 				// Never render a dead-end blank bubble; the backend narrates

@@ -1,19 +1,27 @@
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
+from src.features.backends.backend_registry import NoBackendForEngineError
+from src.features.forms.binding import FormBindingError
+from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException, IdempotencyKeyConflict
 from src.features.generation.file_repository import file_repo
 from src.features.generation.policy import GenerationPolicy
+from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.generation.state_lookup import GenerationStateView, resolve_generation_state
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
+    "FormBindingError",
+    "FormNotFoundException",
     "GenerationNotFoundException",
     "GenerationRequest",
     "IdempotencyKeyConflict",
     "HistoryMediaRef",
     "LibraryMediaRef",
     "MediaRefError",
+    "NoBackendForEngineError",
+    "NoEligibleBackendError",
     "ResolvedMedia",
     "SessionNotFoundError",
     "SubmittedGeneration",
@@ -21,6 +29,7 @@ __all__ = [
     "generation_state",
     "get_session_snapshot",
     "list_generation_files",
+    "preview_memory",
     "resolve_media_ref",
     "submit_generation",
 ]
@@ -79,6 +88,14 @@ def _require_access(container, user, generation_id: str) -> GenerationStateView:
     return state
 
 
+def _require_visible_preset(container, user, preset_id: str) -> None:
+    if not preset_id or GenerationPolicy.is_admin(user):
+        return
+    available = container.preset_collaborators.db_repo.get_available_preset_ids_for_user(user.id) or []
+    if preset_id not in available:
+        raise PermissionError(f"Preset '{preset_id}' is not available to this user")
+
+
 async def submit_generation(
     user, request: Union[GenerationRequest, Dict[str, Any]]
 ) -> SubmittedGeneration:
@@ -86,13 +103,26 @@ async def submit_generation(
         raise PermissionError("A user is required to submit a generation")
     if not isinstance(request, GenerationRequest):
         request = GenerationRequest.model_validate(request)
-    result = await get_container().generation_orchestrator.start_generation(request, user.id)
+    container = get_container()
+    _require_visible_preset(container, user, request.preset_id)
+    result = await container.generation_orchestrator.start_generation(request, user.id)
     status = result.get("status")
     return {
         "generation_id": result["generation_id"],
         "status": status.get("status") if isinstance(status, dict) else status,
         "queue_position": result.get("queue_position"),
     }
+
+
+async def preview_memory(user, request: Union[GenerationRequest, Dict[str, Any]]) -> Dict[str, Any]:
+    """Estimate the GPU memory `request` would need without starting it, as
+    `POST /api/generations/memory-preview` does: `{estimate, coverage, device,
+    budget, backend}`. Raises what that route turns into HTTP errors."""
+    if user is None:
+        raise PermissionError("A user is required to preview a generation")
+    if not isinstance(request, GenerationRequest):
+        request = GenerationRequest.model_validate(request)
+    return await get_container().generation_orchestrator.preview_memory(request, user.id)
 
 
 async def cancel_generation(user, generation_id: str) -> bool:
