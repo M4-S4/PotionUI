@@ -153,6 +153,8 @@ from src.plugin_api.presets import (
     PromptPair,
 )
 
+from src.plugin_api.generation import preview_memory
+
 # Keeping data. `db` is deliberately absent here - see __getattr__ below.
 from src.plugin_api.storage import (
     PluginRepository,
@@ -442,6 +444,7 @@ __all__ = [
     "lint_preset_dir",
     "preset_operations",
     "PromptPair",
+    "preview_memory",
     # Storage
     "PluginRepository",
     "SettingRepository",

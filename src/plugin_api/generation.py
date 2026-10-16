@@ -21,6 +21,7 @@ __all__ = [
     "generation_state",
     "get_session_snapshot",
     "list_generation_files",
+    "preview_memory",
     "resolve_media_ref",
     "submit_generation",
 ]
@@ -79,6 +80,14 @@ def _require_access(container, user, generation_id: str) -> GenerationStateView:
     return state
 
 
+def _require_visible_preset(container, user, preset_id: str) -> None:
+    if not preset_id or GenerationPolicy.is_admin(user):
+        return
+    available = container.preset_collaborators.db_repo.get_available_preset_ids_for_user(user.id) or []
+    if preset_id not in available:
+        raise PermissionError(f"Preset '{preset_id}' is not available to this user")
+
+
 async def submit_generation(
     user, request: Union[GenerationRequest, Dict[str, Any]]
 ) -> SubmittedGeneration:
@@ -86,13 +95,26 @@ async def submit_generation(
         raise PermissionError("A user is required to submit a generation")
     if not isinstance(request, GenerationRequest):
         request = GenerationRequest.model_validate(request)
-    result = await get_container().generation_orchestrator.start_generation(request, user.id)
+    container = get_container()
+    _require_visible_preset(container, user, request.preset_id)
+    result = await container.generation_orchestrator.start_generation(request, user.id)
     status = result.get("status")
     return {
         "generation_id": result["generation_id"],
         "status": status.get("status") if isinstance(status, dict) else status,
         "queue_position": result.get("queue_position"),
     }
+
+
+async def preview_memory(user, request: Union[GenerationRequest, Dict[str, Any]]) -> Dict[str, Any]:
+    """Estimate the GPU memory `request` would need without starting it, as
+    `POST /api/generations/memory-preview` does: `{estimate, coverage, device,
+    budget, backend}`. Raises what that route turns into HTTP errors."""
+    if user is None:
+        raise PermissionError("A user is required to preview a generation")
+    if not isinstance(request, GenerationRequest):
+        request = GenerationRequest.model_validate(request)
+    return await get_container().generation_orchestrator.preview_memory(request, user.id)
 
 
 async def cancel_generation(user, generation_id: str) -> bool:
