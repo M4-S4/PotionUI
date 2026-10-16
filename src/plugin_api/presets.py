@@ -6,6 +6,10 @@ preset it wants to run. `src.features.presets.operations` and the
 `src.features.presets.collaborators`) hold the rest of the preset business
 logic (install/assign/configure), for a plugin that needs more than a lookup.
 
+`describe_preset` reads one preset's modes, fields, engine, category and
+hardware guidance; `list_presets(user)` describes every installed preset that
+user may run.
+
 To actually generate, build a `GenerationRequest` - the preset, the mode, the
 `PromptPair`s and the form data its fields expect - and hand it to the generation
 orchestrator from the container:
@@ -62,6 +66,7 @@ from src.features.presets.style_previews import downscale_and_save_webp
 from src.features.presets.templates import default_form_name
 from src.features.video_director.binding import DirectorBindingError, bind_director_media
 from src.platform.plugins.runtime_registries import get_container
+from src.platform.security.user import AccountType
 
 __all__ = [
     "DirectorBindingError",
@@ -83,6 +88,7 @@ __all__ = [
     "describe_preset",
     "downscale_and_save_webp",
     "lint_preset_dir",
+    "list_presets",
     "preset_operations",
     "PromptPair",
 ]
@@ -130,6 +136,9 @@ class PresetDescription:
     name: str
     vars: Dict[str, Any] = field(default_factory=dict)
     modes: Dict[str, ModeDescription] = field(default_factory=dict)
+    engine: Optional[str] = None
+    category: Optional[str] = None
+    requires: Optional[Dict[str, Any]] = None
 
 
 def _describe_fields(fields: Iterable[Any], out: Dict[str, FieldDescription]) -> None:
@@ -148,6 +157,35 @@ def describe_preset(preset_id: str) -> Optional[PresetDescription]:
     template = get_container().file_preset_repository.find_preset_by_id(preset_id)
     if template is None:
         return None
+    return _describe(template)
+
+
+def list_presets(user) -> List[PresetDescription]:
+    """The installed presets `user` may run, in the order `GET /api/presets`
+    lists them, each described like `describe_preset`. A user gets the presets
+    assigned to them directly or through one of their groups, as
+    `submit_generation` checks; an administrator gets every installed preset.
+    `PermissionError` without a user."""
+    if user is None:
+        raise PermissionError("A user is required to list presets")
+    container = get_container()
+    db_repo = container.preset_collaborators.db_repo
+    if getattr(user, "account_type", None) == AccountType.ADMIN:
+        visible = {preset.preset_id for preset in db_repo.get_all_installed_presets()}
+    else:
+        visible = set(db_repo.get_available_preset_ids_for_user(user.id) or [])
+    files = container.file_preset_repository
+    listed = []
+    for entry in files.list_all_presets():
+        if entry["id"] not in visible:
+            continue
+        template = files.find_preset_by_id(entry["id"])
+        if template is not None:
+            listed.append(_describe(template))
+    return listed
+
+
+def _describe(template) -> PresetDescription:
     modes = {}
     for mode_name, mode in (template.modes or {}).items():
         forms = {}
@@ -161,4 +199,7 @@ def describe_preset(preset_id: str) -> Optional[PresetDescription]:
         name=template.name,
         vars=copy.deepcopy(template.vars or {}),
         modes=modes,
+        engine=template.engine,
+        category=template.category,
+        requires=copy.deepcopy(template.requires),
     )
