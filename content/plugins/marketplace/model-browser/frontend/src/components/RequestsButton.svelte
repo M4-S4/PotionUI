@@ -1,10 +1,11 @@
 <script>
 	import { onMount } from 'svelte';
 	import Icon from './Icon.svelte';
+	import Tip from './Tip.svelte';
 	import RequestsPanel from './RequestsPanel.svelte';
 	import { canDecide, fetchBadgeCount, initialBadgeCount } from '../lib/requests.js';
 
-	let { api, me, sourceLabel = (id) => id } = $props();
+	let { api, me, sourceLabel = (id) => id, onChanged = null } = $props();
 
 	const startingCount = () => initialBadgeCount(me);
 	let count = $state(startingCount());
@@ -48,12 +49,17 @@
 		<Icon name="inbox" class="h-3.5 w-3.5 text-fg-subtle" />
 		<span>Requests</span>
 		{#if count > 0}
-			<span class="rounded-full bg-signal/10 px-1.5 font-mono text-2xs tabular-nums text-signal" title={countText} aria-hidden="true">{count}</span>
+			<Tip text={countText}>
+				<span class="rounded-full bg-signal/10 px-1.5 font-mono text-xs tabular-nums text-signal" aria-hidden="true">{count}</span>
+			</Tip>
 			<span class="sr-only">({countText})</span>
 		{/if}
 	</button>
 </div>
 
 {#if open}
-	<RequestsPanel {api} {me} {count} {sourceLabel} opener={button} onClose={() => (open = false)} onChanged={refreshCount} />
+	<RequestsPanel {api} {me} {count} {sourceLabel} opener={button} onClose={() => (open = false)} onChanged={() => {
+		refreshCount();
+		onChanged?.();
+	}} />
 {/if}

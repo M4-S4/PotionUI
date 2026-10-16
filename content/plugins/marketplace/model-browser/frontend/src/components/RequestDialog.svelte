@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import HostUi from '../../../../../sdk/HostUi.svelte';
 	import Icon from './Icon.svelte';
+	import Tip from './Tip.svelte';
 	import LicenceBox from './LicenceBox.svelte';
 	import {
 		MAX_NOTE_LENGTH,
@@ -10,7 +11,8 @@
 		createToast,
 		initialRequestForm,
 		requestFormProblems,
-		requestWarnings
+		requestWarnings,
+		suggestedModelType
 	} from '../lib/requests.js';
 	import { allowedTypes } from '../lib/capabilities.js';
 	import { baseName, canSubmit } from '../lib/downloadForm.js';
@@ -21,7 +23,7 @@
 
 	const uid = $props.id();
 	let mounted = $state(false);
-	const startingForm = () => initialRequestForm(me, target.detail);
+	const startingForm = () => initialRequestForm(me, target.detail, target.file);
 	let form = $state(startingForm());
 	let busy = $state(false);
 	let serverError = $state.raw(null);
@@ -29,7 +31,8 @@
 	const detail = $derived(target.detail);
 	const version = $derived(target.version);
 	const file = $derived(target.file);
-	const choice = $derived(allowedTypes(me, detail.mb_type, { purpose: 'request' }));
+	const suggestion = $derived(suggestedModelType(detail, file));
+	const choice = $derived(allowedTypes(me, suggestion, { purpose: 'request' }));
 	const problems = $derived(requestFormProblems(form, { me, detail, file }));
 	const ready = $derived(canSubmit(problems) && !busy);
 	const warnings = $derived(requestWarnings({ detail, version, file }));
@@ -37,10 +40,10 @@
 	const fileMeta = $derived([file.format, file.precision].filter(Boolean).join(' · '));
 	const typeError = $derived(form.modelType && problems.modelType ? problems.modelType : null);
 	const typeHelp = $derived(
-		detail.mb_type
+		suggestion
 			? choice.suggestionAllowed
-				? `Suggested by the source: ${modelTypeLabel(detail.mb_type)}. The admin may change it.`
-				: `The source suggests ${modelTypeLabel(detail.mb_type)}, which your permissions do not let you ask for: choose another type`
+				? `Suggested by the source: ${modelTypeLabel(suggestion)}. The admin may change it.`
+				: `The source suggests ${modelTypeLabel(suggestion)}, which your permissions do not let you ask for: choose another type`
 			: `The source's type (${detail.type || 'unknown'}) has no PotionUI equivalent: choose the closest one, the admin may change it`
 	);
 	const noteHelp = $derived(`${form.note.length}/${MAX_NOTE_LENGTH} · Why you need it, or anything the admin should know`);
@@ -95,7 +98,9 @@
 	<form class="flex min-h-0 flex-1 flex-col" novalidate onsubmit={submit}>
 		<header class="flex items-start gap-3 border-b border-line px-5 py-4">
 			<div class="min-w-0 flex-1">
-				<h2 id="{uid}-title" class="truncate text-lg font-semibold text-fg" title={file.name}>Request {baseName(file.name)}</h2>
+				<Tip text={file.name} wrapperClass="min-w-0 flex">
+					<h2 id="{uid}-title" class="truncate text-lg font-semibold text-fg">Request {baseName(file.name)}</h2>
+				</Tip>
 				<p class="mt-0.5 truncate text-xs text-fg-muted">
 					{[detail.name, version.name, sizeText].filter(Boolean).join(' · ')}
 				</p>
@@ -119,24 +124,24 @@
 
 			<dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
 				<div class="min-w-0">
-					<dt class="mb-1 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Model</dt>
+					<dt class="mb-1 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Model</dt>
 					<dd class="break-words text-sm text-fg">{detail.name}</dd>
 				</div>
 				<div class="min-w-0">
-					<dt class="mb-1 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Version</dt>
+					<dt class="mb-1 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Version</dt>
 					<dd class="break-words text-sm text-fg">{version.name || '—'}</dd>
 				</div>
 				<div class="min-w-0 sm:col-span-2">
-					<dt class="mb-1 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">File</dt>
+					<dt class="mb-1 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">File</dt>
 					<dd class="break-all font-mono text-xs text-fg">{file.name}</dd>
 				</div>
 				<div class="min-w-0">
-					<dt class="mb-1 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Size</dt>
+					<dt class="mb-1 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Size</dt>
 					<dd class="font-mono text-sm tabular-nums text-fg">{sizeText || 'Unknown'}</dd>
 				</div>
 				{#if fileMeta}
 					<div class="min-w-0">
-						<dt class="mb-1 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Format</dt>
+						<dt class="mb-1 font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Format</dt>
 						<dd class="text-sm text-fg">{fileMeta}</dd>
 					</div>
 				{/if}

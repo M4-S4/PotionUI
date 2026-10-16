@@ -8,12 +8,13 @@
 	import FilterPopover from './components/FilterPopover.svelte';
 	import NsfwModeControl from './components/NsfwModeControl.svelte';
 	import RequestDialog from './components/RequestDialog.svelte';
+	import Tip from './components/Tip.svelte';
 	import RequestsButton from './components/RequestsButton.svelte';
 	import ResultGrid from './components/ResultGrid.svelte';
 	import { getInstalled, getMe, getNsfwMedia, getSources, searchModels, setNsfwMode } from './lib/client.js';
 	import { can, normalizeMe } from './lib/capabilities.js';
 	import { MODE_LABELS, createRevealCache, effectiveMode, isRevealable, nsfwInfo } from './lib/nsfw.js';
-	import { showsRequests } from './lib/requests.js';
+	import { fetchPendingKeys, showsRequests, withPending } from './lib/requests.js';
 	import {
 		applyInstalled,
 		clearFilters,
@@ -36,7 +37,7 @@
 	} from './lib/search.js';
 	import { scrollParent, toast } from './lib/dom.js';
 
-	let { api, setHeaderHidden } = $props();
+	let { api, setHeaderHidden, replaceUrl = null } = $props();
 
 	const SEARCH_DELAY_MS = 400;
 	const MAX_EMPTY_PAGES = 3;
@@ -58,6 +59,7 @@
 	let tray = $state();
 	let requestsButton = $state();
 	let requestsAsked = $state(false);
+	let pending = $state.raw(new Set());
 	let content = $state();
 
 	let searchSeq = 0;
@@ -153,22 +155,50 @@
 		}
 		query = normalizeState(decodeState(location.search), sources);
 		phase = 'ready';
+		refreshPending();
 		if (query.model) detailItem = { source: query.source, id: query.model };
 		runSearch(true);
+	}
+
+	let writtenUrl = '';
+
+	function setUrl(url) {
+		if (!replaceUrl) {
+			history.replaceState(history.state, '', url);
+			return;
+		}
+		writtenUrl = url;
+		Promise.resolve(replaceUrl(url))
+			.catch(() => {})
+			.finally(() => {
+				if (writtenUrl === url) writtenUrl = '';
+			});
+	}
+
+	function currentUrl() {
+		return writtenUrl || `${location.pathname}${location.search}${location.hash}`;
+	}
+
+	function currentSearch() {
+		const url = currentUrl();
+		const start = url.indexOf('?');
+		if (start < 0) return '';
+		const end = url.indexOf('#', start);
+		return end < 0 ? url.slice(start) : url.slice(start, end);
 	}
 
 	function takeRequestsLink() {
 		if (!alive || location.pathname !== pagePath || !wantsRequestsTab(location.search)) return;
 		const search = withoutRequestsTab(location.search);
-		history.replaceState(history.state, '', `${location.pathname}${search ? `?${search}` : ''}${location.hash}`);
+		setUrl(`${location.pathname}${search ? `?${search}` : ''}${location.hash}`);
 		requestsAsked = true;
 	}
 
 	function writeUrl() {
-		const search = encodeState(query, location.search);
+		const search = encodeState(query, currentSearch());
 		const url = `${location.pathname}${search ? `?${search}` : ''}${location.hash}`;
-		if (url !== `${location.pathname}${location.search}${location.hash}`) {
-			history.replaceState(history.state, '', url);
+		if (url !== currentUrl()) {
+			setUrl(url);
 		}
 	}
 
@@ -308,8 +338,20 @@
 		if (data?.already_installed) installedToken += 1;
 	}
 
-	function onRequestCreated() {
+	async function refreshPending() {
+		if (!can(me, 'request')) return;
+		const keys = await fetchPendingKeys(api);
+		if (alive && keys) pending = keys;
+	}
+
+	function onRequestCreated(data) {
+		if (data?.request) pending = withPending(pending, data.request);
 		requestsButton?.refreshCount?.();
+		refreshPending();
+	}
+
+	function onRequestsChanged() {
+		refreshPending();
 	}
 
 	function sourceLabel(id) {
@@ -361,12 +403,14 @@
 		<HostUi name="LibraryPage" props={pageProps}>
 			<div class="flex min-h-full flex-col" bind:this={content}>
 				<div class="sticky top-0 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-canvas px-4 py-2 sm:px-6">
-					<p class="min-w-[12rem] flex-1 truncate text-xs text-fg-subtle" title={info?.search_help || undefined}>
-						{#if info?.search_help}
-							<span class="sr-only">Search syntax:</span>
-							{info.search_help}
-						{/if}
-					</p>
+					<Tip text={info?.search_help || ""} wrapperClass="min-w-[12rem] flex-1 flex">
+						<p class="min-w-[12rem] flex-1 truncate text-xs text-fg-subtle">
+							{#if info?.search_help}
+								<span class="sr-only">Search syntax:</span>
+								{info.search_help}
+							{/if}
+						</p>
+					</Tip>
 					<div class="ml-auto flex flex-wrap items-center gap-2">
 						<FilterPopover {info} filters={query} count={chips.length} onChange={applyFilters} />
 						<NsfwModeControl {me} busy={modeBusy} onChange={changeMode} />
@@ -374,7 +418,7 @@
 							<DownloadTray bind:this={tray} {api} />
 						{/if}
 						{#if showRequests}
-							<RequestsButton bind:this={requestsButton} {api} {me} {sourceLabel} />
+							<RequestsButton bind:this={requestsButton} {api} {me} {sourceLabel} onChanged={onRequestsChanged} />
 						{/if}
 					</div>
 				</div>
@@ -405,6 +449,7 @@
 						onRetry={() => runSearch(true)}
 						onOpen={openDetail}
 						{revealFor}
+						nsfwMode={effectiveMode(me)}
 					/>
 				</div>
 			</div>
@@ -422,6 +467,7 @@
 		modelId={detailItem.id}
 		item={detailItem}
 		{revealCache}
+		{pending}
 		{reloadToken}
 		{installedToken}
 		onClose={() => closeDetail()}

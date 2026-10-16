@@ -62,9 +62,21 @@ export function sizeProblem(me, sizeBytes, { purpose = 'download' } = {}) {
 		: `This file is ${formatBytes(sizeBytes)}: your permissions allow files of at most ${limitGb} GB`;
 }
 
+const FILE_TYPE_MODEL_TYPES = {
+	vae: 'vae',
+	'text encoder': 'text_encoder',
+	unet: 'unet',
+	lora: 'lora'
+};
+
+export function suggestedModelType(detail, file) {
+	const own = typeof file?.file_type === 'string' ? FILE_TYPE_MODEL_TYPES[file.file_type.trim().toLowerCase()] : undefined;
+	return own || detail?.mb_type || '';
+}
+
 export function initialForm(me, detail, file) {
 	return {
-		modelType: allowedTypes(me, detail?.mb_type).selected,
+		modelType: allowedTypes(me, suggestedModelType(detail, file)).selected,
 		subdir: '',
 		filename: baseName(file?.name),
 		destination: '',

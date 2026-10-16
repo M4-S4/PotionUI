@@ -2,6 +2,7 @@
 	import { tick } from 'svelte';
 	import ActionButton from './ActionButton.svelte';
 	import Icon from './Icon.svelte';
+	import Tip from './Tip.svelte';
 	import Pill from './Pill.svelte';
 	import {
 		MAX_NOTE_LENGTH,
@@ -118,7 +119,7 @@
 
 {#snippet noteBox(label, text)}
 	<div class="rounded border border-line bg-surface-2 px-2.5 py-1.5">
-		<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{label}</p>
+		<p class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">{label}</p>
 		<p class="mt-0.5 whitespace-pre-wrap break-words text-xs text-fg">{text}</p>
 	</div>
 {/snippet}
@@ -141,22 +142,27 @@
 		{/if}
 		<div class="min-w-0 flex-1">
 			<p class="flex min-w-0 items-center gap-1">
-				<span class="truncate text-sm font-medium text-fg" title={title}>{title}</span>
+				<Tip text={title} wrapperClass="min-w-0 flex">
+					<span class="truncate text-sm font-medium text-fg">{title}</span>
+				</Tip>
 				{#if request.snapshot.source_url}
-					<a
-						class="inline-flex flex-shrink-0 items-center rounded p-0.5 text-fg-subtle transition-colors hover:text-fg"
-						href={request.snapshot.source_url}
-						target="_blank"
-						rel="noopener noreferrer"
-						aria-label={`Open ${title} on ${host || 'its source'} (new tab)`}
-						title={`Open on ${host || 'the source'}`}
-					>
-						<Icon name="external-link" class="h-3.5 w-3.5" />
-					</a>
+					<Tip text={`Open on ${host || 'the source'}`}>
+						<a
+							class="inline-flex flex-shrink-0 items-center rounded p-0.5 text-fg-subtle transition-colors hover:text-fg"
+							href={request.snapshot.source_url}
+							target="_blank"
+							rel="noopener noreferrer"
+							aria-label={`Open ${title} on ${host || 'its source'} (new tab)`}
+						>
+							<Icon name="external-link" class="h-3.5 w-3.5" />
+						</a>
+					</Tip>
 				{/if}
 			</p>
 			{#if meta}
-				<p class="truncate font-mono text-2xs text-fg-subtle" title={meta}>{meta}</p>
+				<Tip text={meta} wrapperClass="min-w-0 flex">
+					<p class="truncate font-mono text-xs text-fg-subtle">{meta}</p>
+				</Tip>
 			{/if}
 		</div>
 		<Pill tone={status.tone} title={status.hint || undefined}>{status.label}</Pill>
@@ -177,7 +183,9 @@
 	{/if}
 
 	{#if byline.text}
-		<p class="text-xs text-fg-muted" title={byline.title || undefined}>{byline.text}</p>
+		<Tip text={byline.title || ""}>
+			<p class="text-xs text-fg-muted">{byline.text}</p>
+		</Tip>
 	{/if}
 
 	{#if request.note}
@@ -207,7 +215,7 @@
 						<option value={type}>{modelTypeLabel(type)}</option>
 					{/each}
 				</select>
-				<p class="mt-1 text-2xs text-fg-subtle">{typeHelp}</p>
+				<p class="mt-1 text-xs text-fg-subtle">{typeHelp}</p>
 			</div>
 			<div>
 				<label class="mb-1 block text-xs font-medium text-fg-muted" for="{uid}-approve-note">Note to {who} (optional)</label>

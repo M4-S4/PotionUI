@@ -4,6 +4,7 @@
 	import MediaGallery from './MediaGallery.svelte';
 	import { fileActionInfo } from '../lib/capabilities.js';
 	import { plural } from '../lib/format.js';
+	import { requestKey } from '../lib/requests.js';
 
 	let {
 		detail,
@@ -12,6 +13,7 @@
 		installed,
 		sourceLabel,
 		revealCache,
+		pending = new Set(),
 		onDownload,
 		onRequest,
 		onPreview
@@ -20,6 +22,7 @@
 	const actionFor = $derived((file) =>
 		fileActionInfo(me, detail.source, { type: detail.mb_type ?? null, sizeBytes: file.size_bytes ?? null }, sourceLabel)
 	);
+	const isPending = $derived((file) => pending.has(requestKey(detail.source, detail.id, version?.id, file.id)));
 	const files = $derived(version?.files ?? []);
 	const images = $derived(version?.images ?? []);
 </script>
@@ -34,6 +37,7 @@
 		{installed}
 		gated={detail.gated}
 		{actionFor}
+		{isPending}
 		onDownload={(file, opener) => onDownload?.({ detail, version, file, opener })}
 		onRequest={(file, opener) => onRequest?.({ detail, version, file, opener })}
 	/>

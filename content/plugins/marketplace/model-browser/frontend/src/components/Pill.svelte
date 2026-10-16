@@ -1,4 +1,6 @@
 <script>
+	import Tip from './Tip.svelte';
+
 	let { tone = 'neutral', title = undefined, class: className = '', children } = $props();
 
 	const TONES = {
@@ -11,6 +13,8 @@
 	};
 </script>
 
-<span class="inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0 text-2xs font-medium {TONES[tone] ?? TONES.neutral} {className}" {title}>
-	{@render children?.()}
-</span>
+<Tip text={title} wrapperClass="inline-flex items-center {className}">
+	<span class="inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0 text-xs font-medium {TONES[tone] ?? TONES.neutral} {className}">
+		{@render children?.()}
+	</span>
+</Tip>

@@ -38,6 +38,19 @@ export function isRevealable(image, me) {
 	return !info.locked && effectiveMode(me) === 'blur';
 }
 
+export function modeHint(info) {
+	return (
+		'This setting applies everywhere in PotionUI, including History and the other pages.' +
+		(info.ceiling === 'blur' ? ' Your content policy allows blurred NSFW media at most.' : '')
+	);
+}
+
+export const MASKED_TITLE = 'NSFW model';
+
+export function masksText(item, mode, revealed = false, revealable = false) {
+	return mode === 'blur' && item?.nsfw === true && revealable && !revealed;
+}
+
 export function mediaState(image, revealedUrl) {
 	if (!image) return 'empty';
 	if (image.url || revealedUrl) return 'media';

@@ -203,7 +203,7 @@
 
 				{#if usesParams}
 					<div class="mt-4 space-y-3 border-t border-line pt-4">
-						<p class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle">Download and request parameters</p>
+						<p class="font-mono text-xs font-medium uppercase tracking-[0.07em] text-fg-subtle">Download and request parameters</p>
 
 						<div class="flex flex-col gap-1 sm:flex-row sm:gap-4">
 							<span class="w-32 flex-shrink-0 text-sm text-fg-muted">Sources</span>
@@ -319,7 +319,7 @@
 		{/each}
 
 		<section class="rounded-lg border border-line bg-surface-1 p-4 shadow-raised">
-			<h3 class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle">How the rights of a user's groups combine</h3>
+			<h3 class="font-mono text-xs font-medium uppercase tracking-[0.07em] text-fg-subtle">How the rights of a user's groups combine</h3>
 			<ul class="mt-2 list-disc space-y-1 pl-4 text-xs text-fg-muted">
 				<li>A user gets every right that at least one of their groups grants.</li>
 				<li>

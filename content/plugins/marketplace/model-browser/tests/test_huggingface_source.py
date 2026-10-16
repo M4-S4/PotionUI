@@ -23,6 +23,7 @@ from backend.sources.huggingface import (
     normalize_item,
     parse_query,
     readme_image_url,
+    render_markdown,
     strip_frontmatter,
     weight_files,
 )
@@ -611,6 +612,32 @@ async def test_the_readme_becomes_sanitised_html_without_its_frontmatter():
         assert needle not in lowered
     assert set(re.findall(r"</?([a-z0-9]+)", description)) <= _SANITISED_TAGS
     assert "load_image, make_image_grid" in description
+
+
+def test_an_indented_heading_after_a_rule_is_still_a_heading():
+    readme = "Intro\n\n```\n # kept as code\n```\n\n---\n # Repackaged\nBody text\n"
+
+    markup, _ = render_markdown(readme)
+
+    assert "<h3>Repackaged</h3>" in markup
+    assert "# Repackaged" not in markup
+    assert "<pre><code> # kept as code" in markup
+
+
+def test_an_image_table_leaves_no_captions_behind():
+    readme = (
+        "## Workflows\n\n<table><thead><tr><th>Workflow</th><th>Thumb</th></tr></thead><tbody><tr>"
+        '<td><a href="https://a.b/c.json">Video</a></td>'
+        '<td><a href="https://a.b/c"><img src="https://a.b/x.webp" alt="Video"></a><div>Before</div></td>'
+        "</tr></tbody></table>\n\nText after\n"
+    )
+
+    markup, srcs = render_markdown(readme)
+
+    assert srcs == ["https://a.b/x.webp"]
+    for leftover in ("Thumb", "Before", "Workflow<", "Video"):
+        assert leftover not in markup
+    assert "<p>Text after</p>" in markup
 
 
 async def test_detail_of_a_gated_repo():
@@ -1257,3 +1284,15 @@ def test_the_fixtures_are_the_recorded_shapes():
     assert load("readme_flux_dev_gated")["_status"] == 401
     assert body("model_flux_dev_gated")["gated"] == "auto"
     assert 'rel="next"' in link_header("models_search_lora")
+
+
+def test_an_image_table_with_a_prose_column_keeps_its_text():
+    readme = (
+        "<table><tr><td>Use the workflow below with a very low denoise value to keep the original colours intact.</td>"
+        '<td><img src="https://a.b/x.webp"><div>After</div></td></tr></table>'
+    )
+
+    markup, srcs = render_markdown(readme)
+
+    assert srcs == ["https://a.b/x.webp"]
+    assert "very low denoise value" in markup

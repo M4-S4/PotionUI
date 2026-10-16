@@ -1,6 +1,7 @@
 <script>
 	import Icon from './Icon.svelte';
 	import Pill from './Pill.svelte';
+	import Tip from './Tip.svelte';
 	import { formatBytes } from '../lib/format.js';
 
 	let {
@@ -8,6 +9,7 @@
 		installed = new Map(),
 		gated = false,
 		actionFor = () => ({ action: 'none', reason: '' }),
+		isPending = () => false,
 		onDownload,
 		onRequest
 	} = $props();
@@ -31,16 +33,20 @@
 				<div class="min-w-0 flex-1">
 					<p class="flex min-w-0 items-center gap-1.5">
 						{#if file.primary}
-							<span class="flex-shrink-0 text-warning" title="Primary file">
-								<Icon name="star" class="h-3.5 w-3.5" />
-								<span class="sr-only">Primary file:</span>
-							</span>
+							<Tip text="Primary file">
+								<span class="flex-shrink-0 text-warning">
+									<Icon name="star" class="h-3.5 w-3.5" />
+									<span class="sr-only">Primary file:</span>
+								</span>
+							</Tip>
 						{/if}
-						<span class="truncate font-mono text-xs text-fg" title={file.name}>{file.name}</span>
+						<Tip text={file.name} wrapperClass="min-w-0 inline-flex items-center">
+							<span class="truncate font-mono text-xs text-fg">{file.name}</span>
+						</Tip>
 					</p>
 					<div class="mt-1 flex flex-wrap items-center gap-1.5">
 						{#if meta(file).length > 0}
-							<span class="font-mono text-2xs tabular-nums text-fg-subtle">{meta(file).join(' · ')}</span>
+							<span class="font-mono text-xs tabular-nums text-fg-subtle">{meta(file).join(' · ')}</span>
 						{/if}
 						{#if isInstalled(file)}
 							<Pill tone="success" title="This file is already in your models">
@@ -77,19 +83,31 @@
 							<Icon name="download" class="h-3.5 w-3.5" />
 							Download
 						</button>
-						<span class="text-2xs text-fg-subtle">{info.reason}</span>
+						<span class="text-xs text-fg-subtle">{info.reason}</span>
 					</div>
+				{:else if info.action === 'request' && !isInstalled(file) && isPending(file)}
+					<Tip text="Waiting for an admin to decide. Track it in Requests.">
+						<span
+							class="inline-flex flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded border border-info/25 bg-info/10 px-2.5 py-1 text-xs font-medium text-info"
+							role="status"
+							aria-label={`Requested ${file.name}: waiting for an admin`}
+						>
+							<Icon name="check" class="h-3.5 w-3.5" strokeWidth={2} />
+							Requested
+						</span>
+					</Tip>
 				{:else if info.action === 'request' && !isInstalled(file)}
-					<button
-						type="button"
-						class="inline-flex flex-shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded bg-accent px-2.5 py-1 text-xs font-medium text-accent-contrast transition-colors duration-100 hover:bg-accent-hover active:bg-accent-active"
-						aria-label={`Request ${file.name}`}
-						title="Ask an admin to download this file for you"
-						onclick={(event) => onRequest?.(file, event.currentTarget)}
-					>
-						<Icon name="hand" class="h-3.5 w-3.5" strokeWidth={1.5} />
-						Request
-					</button>
+					<Tip text="Ask an admin to download this file for you">
+						<button
+							type="button"
+							class="inline-flex flex-shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded bg-accent px-2.5 py-1 text-xs font-medium text-accent-contrast transition-colors duration-100 hover:bg-accent-hover active:bg-accent-active"
+							aria-label={`Request ${file.name}`}
+							onclick={(event) => onRequest?.(file, event.currentTarget)}
+						>
+							<Icon name="hand" class="h-3.5 w-3.5" strokeWidth={1.5} />
+							Request
+						</button>
+					</Tip>
 				{:else if info.action === 'request-blocked'}
 					<div class="flex flex-shrink-0 flex-col items-end gap-0.5">
 						<button
@@ -100,7 +118,7 @@
 							<Icon name="hand" class="h-3.5 w-3.5" strokeWidth={1.5} />
 							Request
 						</button>
-						<span class="text-2xs text-fg-subtle">{info.reason}</span>
+						<span class="text-xs text-fg-subtle">{info.reason}</span>
 					</div>
 				{/if}
 			</li>

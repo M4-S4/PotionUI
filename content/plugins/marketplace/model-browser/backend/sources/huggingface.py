@@ -564,7 +564,29 @@ def _plain_render(text: str) -> Tuple[str, List[str]]:
     return markup, [match.group(1) for match in _MARKDOWN_IMAGE.finditer(text)] + _img_srcs(text)
 
 
+_INDENTED_HEADING = re.compile(r"^ {1,3}(#{1,6}(?:[ \t]|$))")
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def _outdent_headings(text: str) -> str:
+    fence: Optional[str] = None
+    lines = []
+    for line in text.splitlines():
+        marker = _FENCE.match(line)
+        if marker:
+            token = marker.group(1)
+            if fence is None:
+                fence = token[0]
+            elif token[0] == fence:
+                fence = None
+        elif fence is None:
+            line = _INDENTED_HEADING.sub(r"\1", line)
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _render(text: str) -> Tuple[str, List[str]]:
+    text = _outdent_headings(text)
     try:
         import markdown2
     except ImportError:

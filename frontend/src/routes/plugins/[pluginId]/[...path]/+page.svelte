@@ -154,6 +154,7 @@
 					api: createPluginApi(id),
 					user: $authStore.user,
 					navigate: (path: string) => goto(path),
+					replaceUrl: (path: string) => goto(path, { replaceState: true, keepFocus: true, noScroll: true }).catch(() => undefined),
 					hostComponents: getRegistry(),
 					headerActions: headerActionsEl,
 					setHeaderTitleHidden: headerControls.setTitleHidden,
@@ -171,6 +172,7 @@
 						api: createPluginApi(id),
 						user: $authStore.user,
 						navigate: (path: string) => goto(path),
+						replaceUrl: (path: string) => goto(path, { replaceState: true, keepFocus: true, noScroll: true }).catch(() => undefined),
 						headerActions: headerActionsEl,
 						setHeaderTitleHidden: headerControls.setTitleHidden,
 						setHeaderHidden: headerControls.setHidden
