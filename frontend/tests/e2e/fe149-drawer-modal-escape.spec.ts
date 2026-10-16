@@ -12,12 +12,6 @@ import { installAndSelectImagePreset } from './presetPreamble';
 // narrow. The fix portals the modal to <body> (frontend/src/lib/actions/portal.ts)
 // so it always sizes against the real viewport, the same as when it's opened
 // from /history.
-//
-// `/api/generations/upload` always writes `preset_id=NULL` (see
-// GenerationHistoryArchive.upload_generations) - there is no public API to
-// scope an uploaded generation to a preset, so the row is patched afterward
-// with a direct sqlite UPDATE against the throwaway instance's own scratch DB,
-// the same technique tests/e2e/marketing/seed.py uses for the same reason.
 
 const JOURNEY = 'fe149-drawer-modal-escape';
 
