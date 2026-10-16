@@ -11,6 +11,8 @@
 	export let onToggle: () => void;
 	export let onPreview: () => void;
 
+	$: accessibleName = fileName && fileName !== label ? `${fileName} (${label})` : label;
+
 	const reasonId = `pick-reason-${Math.random().toString(36).slice(2, 9)}`;
 </script>
 
@@ -24,7 +26,7 @@
 		<button
 			type="button"
 			class="w-full aspect-video flex items-center justify-center cursor-pointer"
-			aria-label={`Preview ${label}`}
+			aria-label={`Preview ${accessibleName}`}
 			data-file={fileName || label}
 			on:click={onPreview}
 		>
@@ -41,7 +43,7 @@
 				class="w-4 h-4 accent-signal"
 				{checked}
 				{disabled}
-				aria-label={`Select ${label}`}
+				aria-label={`Select ${accessibleName}`}
 				data-file={fileName || label}
 				aria-describedby={disabled && disabledReason ? reasonId : undefined}
 				on:change={onToggle}
