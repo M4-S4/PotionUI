@@ -1,10 +1,10 @@
 schema: 1
 id: "01M506YWDFE0W3R42YPDXWRZYW"
-name: "FLUX 3"
+name: "FLUX 3 (experimental)"
 category: "image"
 version: "1.0.0"
 engine: "native"
-tags: ["flux", "flux3", "klein", "local", "edit"]
+tags: ["flux", "flux3", "klein", "local", "edit", "experimental"]
 
 requires:
   recommended_vram_gb: 16

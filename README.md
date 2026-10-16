@@ -392,9 +392,10 @@ The three most recent releases; older history lives in the
 
 ### 0.0.16 — 2026-10-16
 
-- FLUX 3: the native engine runs FLUX 3 Image Klein checkpoints, base and distilled, with their
-  own text encoder and autoencoder; a new FLUX 3 preset does text-to-image and multi-reference
-  edit, and its steps and CFG follow whichever checkpoint is loaded.
+- FLUX 3 (experimental): the native engine runs FLUX 3 Image Klein checkpoints, base and
+  distilled, with their own text encoder and autoencoder; a new FLUX 3 preset does text-to-image
+  and multi-reference edit, and its steps and CFG follow whichever checkpoint is loaded; it is
+  marked experimental until it has had wider testing.
 - Model Browser: a new marketplace plugin lets users browse CivitAI, Hugging Face and OpenModelDB
   from PotionUI and download a model straight into the right folder; admins decide per user group
   who may browse, download, request or approve, from which sources, which model types and up to
