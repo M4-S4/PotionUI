@@ -64,14 +64,14 @@ def test_pipe_names_are_the_flux3_family(flux3_template):
     assert "generator/flux3" in _names(pipes)
 
 
-def test_default_profile_defers_steps_and_cfg_to_the_checkpoint(flux3_template):
+def test_default_profile_is_base_with_concrete_steps_and_cfg(flux3_template):
     cfg = _pipe(_process(flux3_template), "generator/flux3")["config"]
-    assert int(cfg["steps"]) == 0
-    assert float(cfg["guidance"]) == 0.0
+    assert int(cfg["steps"]) == 50
+    assert float(cfg["guidance"]) == 3.5
     assert cfg["sampler"] == "euler"
 
 
-def test_auto_profile_still_encodes_the_negative_prompt(flux3_template):
+def test_default_profile_still_encodes_the_negative_prompt(flux3_template):
     cfg = _pipe(_process(flux3_template), "prompt_encoder")["config"]
     assert float(cfg["guidance_scale"]) == 3.5
 

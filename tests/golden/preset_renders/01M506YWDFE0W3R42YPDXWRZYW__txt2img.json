@@ -168,11 +168,11 @@
             ],
             [
               "cfg",
-              0
+              3.5
             ],
             [
               "steps",
-              0
+              50
             ],
             [
               "sampler",
@@ -203,8 +203,8 @@
     {
       "config": {
         "guidance": {
-          "type": "int",
-          "value": 0
+          "type": "float",
+          "value": 3.5
         },
         "guidance_options.cfg_zero_star": {
           "type": "bool",
@@ -244,7 +244,7 @@
         },
         "steps": {
           "type": "int",
-          "value": 0
+          "value": 50
         }
       },
       "enabled": {

@@ -32,13 +32,12 @@ class GeneratorFlux3Pipe(FlowMatchGeneratorPipe):
     family_tag = "GENERATOR FLUX 3"
 
     MAX_REFERENCES = 10
-    DEFAULT_BASE_GUIDANCE = 3.5
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
         return {
             "mode": "txt2img",
-            "steps": 0,
+            "steps": 50,
             "guidance": 3.5,
             "shift": None,
             "sampler": "euler",
@@ -62,8 +61,8 @@ class GeneratorFlux3Pipe(FlowMatchGeneratorPipe):
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True, choices=["txt2img", "edit"]),
-            PipeConfigSpec("steps", int, 0, "Denoising steps; 0 uses the loaded checkpoint's own default "
-                           "(16 distilled, 50 base)", required=False, min_value=0, max_value=100),
+            PipeConfigSpec("steps", int, 50, "Denoising steps (16 for the distilled checkpoint, 50 for base)",
+                           required=False, min_value=1, max_value=100),
             PipeConfigSpec("guidance", float, 3.5, "True CFG scale for the base checkpoint; ignored by the "
                            "distilled one", required=False, min_value=0.0, max_value=30.0),
             PipeConfigSpec("shift", float, None, "Sigma-shift override (multiplicative); blank uses the "
@@ -114,17 +113,13 @@ class GeneratorFlux3Pipe(FlowMatchGeneratorPipe):
         apply_schedule_settings(ctx, self.config)
         gen: NativeGenerator = ctx.extra["generator"]
         settings = gen.spec.sampling_settings
-        if ctx.extra["steps"] <= 0:
-            ctx.extra["steps"] = int(settings.get("default_steps", 16))
         flow_map = settings.get("guidance") == "flow_map"
         ctx.extra["flow_map"] = flow_map
         if flow_map:
             self._configure_distilled(ctx)
         else:
             ctx.extra["guidance_options"] = {"cfg_zero_star": False, **(ctx.extra.get("guidance_options") or {})}
-            if ctx.extra["guidance"] <= 0.0:
-                ctx.extra["guidance"] = self.DEFAULT_BASE_GUIDANCE
-            elif ctx.extra["guidance"] <= 1.0:
+            if ctx.extra["guidance"] <= 1.0:
                 logger.warning(
                     "[%s] %s is a base checkpoint but guidance is %.2f: it will render without CFG; "
                     "use the Base speed profile (CFG 3.5)", self.family_tag, gen.spec.variant, ctx.extra["guidance"],

@@ -7,7 +7,7 @@ cases:
     tags: ["fast", "needs-model"]
     form:
       prompt: "a stack of ceramic bowls on a kitchen counter, soft daylight"
-      speed_profile: "distilled"
+      speed_profile: "turbo"
       steps: 16
       cfg: 1.0
       sampler: "euler"
@@ -30,7 +30,7 @@ cases:
     tags: ["fast", "needs-model"]
     form:
       prompt: "change the sign text to read \"Coffee\""
-      speed_profile: "distilled"
+      speed_profile: "turbo"
       steps: 16
       cfg: 1.0
       sampler: "euler"

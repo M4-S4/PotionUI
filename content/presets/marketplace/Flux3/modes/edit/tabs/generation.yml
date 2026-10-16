@@ -3,10 +3,11 @@ fields:
     type: "select"
     formula: "speed"
     label: "Speed profile"
-    default: "auto"
+    default: "base"
     configuration:
       options:
-        - { label: "Auto", value: "auto", sub_label: "steps and CFG follow the checkpoint" }
+        - { label: "Turbo", value: "turbo", sub_label: "16 steps, no CFG, distilled checkpoint" }
+        - { label: "Base", value: "base", sub_label: "50 steps, CFG 3.5, Base checkpoint" }
         - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
 
   - type: "section"

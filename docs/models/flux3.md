@@ -37,7 +37,7 @@ The text encoder is Qwen3-VL-4B, encoded one prompt per pass with the hidden sta
 
 ## Presets & modes
 
-The shipped **FLUX 3** preset has `txt2img` and `edit`, with a Distilled, a Base and a Custom speed profile. The pipes (`model_loader/flux3`, `generator/flux3`) pick their behaviour from the loaded checkpoint, not from the profile: a distilled checkpoint ignores CFG and the step cache and refuses any sampler but Euler, a base checkpoint runs two-pass CFG. A Base-sized profile on a distilled checkpoint therefore still runs, and a Distilled profile on a base checkpoint runs without guidance (the log says so).
+The shipped **FLUX 3** preset has `txt2img` and `edit`, with a Turbo (16 steps, no CFG), a Base (50 steps, CFG 3.5, the default) and a Custom speed profile. The pipes (`model_loader/flux3`, `generator/flux3`) pick their behaviour from the loaded checkpoint, not from the profile: a distilled checkpoint ignores CFG and the step cache and refuses any sampler but Euler, a base checkpoint runs two-pass CFG. The profile only sets steps and CFG: a Base profile on a distilled checkpoint still runs, and a Turbo profile on a base checkpoint runs without guidance (the log says so).
 
 `edit` takes 1 to 10 reference images (`generator/flux3/references.py`):
 

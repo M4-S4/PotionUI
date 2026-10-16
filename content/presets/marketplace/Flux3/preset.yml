@@ -24,8 +24,9 @@ configuration:
     description: "Only models with any of these tags appear in the VAE picker."
 
 speed_profiles:
-  auto:   { steps: 0, guidance: 0, sampler: "euler" }
-  custom: { steps: 0, guidance: 0, sampler: "euler" }
+  turbo:  { steps: 16, guidance: 1.0, sampler: "euler" }
+  base:   { steps: 50, guidance: 3.5, sampler: "euler" }
+  custom: { steps: 50, guidance: 3.5, sampler: "euler" }
 
 vars:
   default_shift: 6.93

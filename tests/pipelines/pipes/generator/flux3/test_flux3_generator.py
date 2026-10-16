@@ -123,15 +123,9 @@ def test_modes_are_txt2img_and_edit():
     assert spec.choices == ["txt2img", "edit"]
 
 
-@pytest.mark.parametrize("variant,expected", [("base", 50), ("distilled", 16)])
-def test_unset_steps_come_from_the_loaded_checkpoint(variant, expected):
+@pytest.mark.parametrize("variant", ["base", "distilled"])
+def test_explicit_steps_are_kept_on_either_checkpoint(variant):
     _use(variant)
-    ctx = _pipe(steps=0).build_context(_input())
-    assert ctx.extra["steps"] == expected
-
-
-def test_explicit_steps_are_kept():
-    _use("distilled")
     ctx = _pipe(steps=8).build_context(_input())
     assert ctx.extra["steps"] == 8
 
@@ -144,15 +138,6 @@ def test_base_runs_true_cfg_with_cfg_zero_star_off():
     assert call["guidance_options"] == {"cfg_zero_star": False}
     assert call["conditioning"].uncond is not None
     assert call["steps"] == 50
-
-
-@pytest.mark.parametrize("unset", [0, 0.0])
-def test_base_with_unset_guidance_uses_the_default_cfg(unset, caplog):
-    _use("base")
-    with caplog.at_level(logging.WARNING):
-        _pipe(guidance=unset).process(_input(), lambda o: None)
-    assert _last_call()["cfg_scale"] == 3.5
-    assert not any("without CFG" in r.getMessage() for r in caplog.records)
 
 
 def test_base_lets_the_preset_override_cfg_zero_star():
@@ -176,7 +161,7 @@ def test_base_without_guidance_warns(caplog):
 
 def test_distilled_never_gets_an_unconditional_pass():
     _use("distilled")
-    _pipe(guidance=3.5).process(_input(with_negative=True), lambda o: None)
+    _pipe(guidance=3.5, steps=16).process(_input(with_negative=True), lambda o: None)
     call = _last_call()
     assert call["conditioning"].uncond is None
     assert call["cfg_scale"] == 1.0

@@ -25,7 +25,7 @@ pipeline:
         output: "{{ generation.prompts.first.negative }}"
       pairs: "{{ generation.prompts.pairs }}"
       quantity: "{{ form.quantity }}"
-      guidance_scale: "{{ form.cfg if form.cfg > 0 else 3.5 }}"
+      guidance_scale: "{{ form.cfg }}"
       negative_applied: "{{ generation.negative_applied }}"
 
   - name: "seed_generator"

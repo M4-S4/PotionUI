@@ -874,7 +874,7 @@ Native FLUX 3 Image Klein generator (base: true CFG, distilled: flow-map samplin
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
 | `mode` | `str` | `"txt2img"` | yes | `txt2img`, `edit` | — | — | Generation mode |
-| `steps` | `int` | `0` | no | — | 0 | 100 | Denoising steps; 0 uses the loaded checkpoint's own default (16 distilled, 50 base) |
+| `steps` | `int` | `50` | no | — | 1 | 100 | Denoising steps (16 for the distilled checkpoint, 50 for base) |
 | `guidance` | `float` | `3.5` | no | — | 0.0 | 30.0 | True CFG scale for the base checkpoint; ignored by the distilled one |
 | `shift` | `float` | — | no | — | — | — | Sigma-shift override (multiplicative); blank uses the checkpoint's 6.93 |
 | `sampler` | `str` | `"euler"` | no | — | — | — | Sampler: any key registered on the sampler registry (see GET /api/sampling/catalog); the distilled checkpoint requires euler |
