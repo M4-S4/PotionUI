@@ -125,8 +125,54 @@ async def test_add_preview_carries_text_edit_shape():
     assert result.preview.target == "Fox study"
     assert result.preview.text_blocks == [{"label": "Prompt", "text": "blurry"}]
     fields = {f["label"]: f["value"] for f in result.preview.fields}
+    assert fields["Name"] == "Fox study"
+    assert result.preview.fields[0]["label"] == "Name"
     assert fields["Usage"] == "negative"
     assert fields["Tags"] == "quality"
+
+
+@pytest.mark.asyncio
+async def test_add_preview_has_no_name_field_when_the_user_gave_none():
+    result = await AddPromptTool().execute(make_context(MagicMock()), segments=[{"content": "a fox"}])
+
+    assert "Name" not in {f["label"] for f in result.preview.fields}
+
+
+@pytest.mark.asyncio
+async def test_add_confirmed_result_names_the_saved_prompt(mock_operations):
+    mock_operations.create_prompt = AsyncMock(return_value=make_prompt("saved-1"))
+
+    result = await AddPromptTool().execute_confirmed(
+        make_context(MagicMock(), "owner-1"), name="Study", segments=[{"content": "a fox"}]
+    )
+
+    payload = json.loads(result.data)
+    assert payload["name"] == "Study"
+    assert '"Study"' in payload["message"]
+    assert "saved-1" in payload["message"]
+
+
+@pytest.mark.asyncio
+async def test_edit_confirmed_result_names_the_updated_prompt(mock_operations):
+    existing = make_prompt()
+    prompt_database = MagicMock()
+    prompt_database.repository.get_by_id.return_value = existing
+    mock_operations.replace_prompt = AsyncMock(return_value=existing)
+
+    result = await EditPromptTool().execute_confirmed(
+        make_context(prompt_database), prompt_id="prompt-1", segments=[{"content": "replacement"}]
+    )
+
+    payload = json.loads(result.data)
+    assert payload["name"] == "Study"
+    assert '"Study"' in payload["message"]
+
+
+def test_save_tools_tell_the_model_to_keep_the_users_text_verbatim():
+    for tool in (AddPromptTool(), EditPromptTool()):
+        assert "VERBATIM" in tool.description
+        assert "only when the user asks" in tool.description
+    assert "verbatim" in AddPromptTool().hint
 
 
 @pytest.mark.asyncio

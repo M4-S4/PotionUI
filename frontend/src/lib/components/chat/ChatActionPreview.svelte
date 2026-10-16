@@ -22,7 +22,7 @@
 	const preview = $derived(execution.preview ?? null);
 	const kind = $derived(preview?.kind ?? null);
 	const textBlocks = $derived(kind === 'generation' || kind === 'text_edit' ? (preview?.text_blocks ?? []) : []);
-	const fields = $derived(kind === 'generation' ? (preview?.fields ?? []) : []);
+	const fields = $derived(kind === 'generation' || kind === 'text_edit' ? (preview?.fields ?? []) : []);
 	const rows = $derived(kind === 'timeline' ? (preview?.rows ?? []) : []);
 	const hasTyped = $derived(textBlocks.length > 0 || fields.length > 0 || rows.length > 0);
 	const changeGroups = $derived(hasTyped ? null : buildDirectorChangeGroups(preview));

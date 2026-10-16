@@ -273,6 +273,8 @@ class TestApprovalContinuation:
         from src.features.chat.reply_contract import APPROVAL_CONTINUATION_NOTE
 
         assert "one short sentence" in APPROVAL_CONTINUATION_NOTE
+        assert "last tool result" in APPROVAL_CONTINUATION_NOTE
+        assert "earlier" in APPROVAL_CONTINUATION_NOTE
         assert "OK" in APPROVAL_CONTINUATION_NOTE
 
     def test_it_is_a_trailing_user_context_message(self):

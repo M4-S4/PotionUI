@@ -229,14 +229,17 @@ class AddPromptTool(BaseTool):
     def user_description(self): return "Saves a new prompt composition to your library."
 
     @property
-    def hint(self): return "When the user wants to save a rich, ordered prompt composition"
+    def hint(self): return "When the user wants to save a prompt. Save text the user gave verbatim; compose only when asked"
 
     @property
     def description(self):
         return (
             "Save one detached Prompt: an ordered array of one or more rich segments. "
             "Positive and negative prompts are separate records selected with usage_hint. "
-            "Optionally carries ${name} prompt variables."
+            "Optionally carries ${name} prompt variables. "
+            "When the user supplies the prompt text, save it VERBATIM in one segment: do not add, "
+            "reorder, translate or enrich terms, and do not borrow vocabulary from memory or search "
+            "results. Compose or improve text only when the user asks you to. Use the name the user gave."
         )
 
     @property
@@ -265,6 +268,8 @@ class AddPromptTool(BaseTool):
             return ToolResult(success=False, data="", error=str(exc))
         text = flatten_segments(request.segments)
         fields = []
+        if request.name:
+            fields.append({"label": "Name", "value": request.name})
         if request.usage_hint:
             fields.append({"label": "Usage", "value": request.usage_hint})
         if request.tags:
@@ -292,9 +297,11 @@ class AddPromptTool(BaseTool):
             saved = await operations.create_prompt(
                 context.prompt_database, context.user_id, _prompt_request(**kwargs),
             )
+            saved_name = saved.display_name
             return ToolResult(success=True, data=json.dumps({
                 "action": "add_prompt", "success": True, "prompt_id": saved.id,
-                "message": f"Prompt {saved.id} saved.",
+                "name": saved_name,
+                "message": f'Saved the prompt "{saved_name}" to the library (id {saved.id}).',
             }))
         except Exception as exc:
             logger.error("add_prompt failed: %s", exc)
@@ -321,7 +328,9 @@ class EditPromptTool(BaseTool):
     def description(self):
         return (
             "Replace a Prompt's complete ordered segment array and/or its library name or "
-            "usage hint. Can also replace its ${name} prompt variables."
+            "usage hint. Can also replace its ${name} prompt variables. "
+            "When the user supplies the new text, save it VERBATIM: do not add, reorder or enrich "
+            "terms. Rewrite or improve text only when the user asks you to."
         )
 
     @property
@@ -403,9 +412,13 @@ class EditPromptTool(BaseTool):
             saved = await operations.replace_prompt(
                 context.prompt_database, context.user_id, prompt_id, _prompt_request(existing, **kwargs),
             )
-            return ToolResult(success=bool(saved), data=json.dumps({
-                "action": "edit_prompt", "success": bool(saved), "prompt_id": prompt_id,
-            }), error=None if saved else "Prompt could not be updated")
+            payload = {"action": "edit_prompt", "success": bool(saved), "prompt_id": prompt_id}
+            if saved:
+                payload["name"] = saved.display_name
+                payload["message"] = f'Updated the prompt "{saved.display_name}" in the library.'
+            return ToolResult(
+                success=bool(saved), data=json.dumps(payload), error=None if saved else "Prompt could not be updated"
+            )
         except Exception as exc:
             logger.error("edit_prompt failed: %s", exc)
             return ToolResult(success=False, data="", error=unexpected("edit_prompt", "update", exc, context.is_admin))
