@@ -13,9 +13,14 @@ import {
 
 describe('mediaPickerSelection', () => {
 	it('builds typed keys', () => {
-		expect(historyMediaKey('g', 4)).toBe('g:4');
-		const picked = pickedFromHistoryFile({ id: 'g' } as any, { id: 4, file_type: 'Video/mp4', file_path: 'a/b.mp4' } as any);
-		expect(picked).toMatchObject({ key: 'g:4', mediaType: 'video', filename: 'b.mp4' });
+		expect(historyMediaKey('g', '01JZ8Q4V6M3XKQ5N2B7C9D0E1F')).toBe('g:01JZ8Q4V6M3XKQ5N2B7C9D0E1F');
+		const picked = pickedFromHistoryFile({ id: 'g' } as any, { id: '01JZ8Q4V6M3XKQ5N2B7C9D0E1F', file_type: 'Video/mp4', file_path: 'a/b.mp4' } as any);
+		expect(picked).toMatchObject({
+			key: 'g:01JZ8Q4V6M3XKQ5N2B7C9D0E1F',
+			mediaType: 'video',
+			filename: 'b.mp4',
+			origin: { kind: 'history', generationId: 'g', fileId: '01JZ8Q4V6M3XKQ5N2B7C9D0E1F' }
+		});
 		expect(pickedFromLibraryItem({ id: 'x', filename: 's', original_filename: 'o.png', media_type: 'image' } as any)).toMatchObject({
 			key: 'x',
 			filename: 'o.png',
@@ -37,9 +42,14 @@ describe('mediaPickerSelection', () => {
 		expect(sameKeys(['a', 'b'], ['a', 'b'])).toBe(true);
 		expect(sameKeys(['a'], ['b'])).toBe(false);
 		const known = new Map([['a', { key: 'a' } as any]]);
-		expect(itemsForKeys(['a', 'zz:3'], known, 'history')).toEqual([
+		expect(itemsForKeys(['a', 'zz:01JZ8Q4V6M3XKQ5N2B7C9D0E1F'], known, 'history')).toEqual([
 			{ key: 'a' },
-			{ key: 'zz:3', mediaType: null, filename: null, origin: { kind: 'history', generationId: 'zz', fileId: 3 } }
+			{
+				key: 'zz:01JZ8Q4V6M3XKQ5N2B7C9D0E1F',
+				mediaType: null,
+				filename: null,
+				origin: { kind: 'history', generationId: 'zz', fileId: '01JZ8Q4V6M3XKQ5N2B7C9D0E1F' }
+			}
 		]);
 		expect(itemsForKeys(['q'], known, 'library')[0].origin).toEqual({ kind: 'library', itemId: 'q' });
 	});
