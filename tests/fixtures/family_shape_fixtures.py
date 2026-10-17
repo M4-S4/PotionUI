@@ -26,6 +26,14 @@ FAMILY_KEYS: dict[str, tuple[str, ...]] = {
         "single_blocks.0.mlp_out.weight",
         "single_blocks.0.norm.query_norm.scale",
     ),
+    "moss_image": (
+        "shared_block_modulation.weight",
+        "layers.0.proj.ffn_up_gate.weight",
+        "layers.0.q_norm.weight",
+        "text_embedder.proj.weight",
+        "video_embedder.weight",
+        "time_embedding.0.weight",
+    ),
     "krea2": (
         "txtfusion.projector.weight",
         "first.weight",
@@ -169,6 +177,7 @@ EXPECTED_FAMILY: dict[str, tuple[str, str | None]] = {
     "flux1": ("flux", "flux1"),
     "flux2": ("flux", "flux2"),
     "flux3": ("flux3", "flux3_klein_base"),
+    "moss_image": ("moss_image", None),
     "krea2": ("krea2", None),
     "qwen_image21": ("qwen_image21", None),
     "qwen_image": ("qwen_image", None),

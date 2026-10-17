@@ -10,6 +10,8 @@ KREA2_SIG = "txtfusion.projector.weight"
 FLUX3_SIG = "early_stream_modulations.image.lin.weight"
 FLUX3_SIG2 = "content_mode_blocks.image.0.q_proj.weight"
 FLUX3_FLOW_MAP_SIG = "ref_time_in.in_layer.weight"
+MOSS_IMAGE_SIG = "shared_block_modulation.weight"
+MOSS_IMAGE_SIG2 = "layers.0.proj.ffn_up_gate.weight"
 QWEN_IMAGE_SIG = "transformer_blocks.0.attn.add_q_proj.weight"
 QWEN_IMAGE21_SIG = "modulation.1.weight"
 QWEN_IMAGE21_SIG2 = "txt_in.text_norm.weight"
@@ -56,6 +58,7 @@ TRANSFORMER_EXTRACTABLE_FAMILIES = frozenset(
         "flux",
         "flux3",
         "krea2",
+        "moss_image",
         "qwen_image",
         "qwen_image21",
         "z_image",
@@ -154,6 +157,9 @@ def family_from_keys(keys: Collection[str], shape_of: ShapeOf) -> FamilyMatch | 
 
     if FLUX3_SIG in keys and FLUX3_SIG2 in keys:
         return FamilyMatch("flux3", "flux3_klein" if FLUX3_FLOW_MAP_SIG in keys else "flux3_klein_base")
+
+    if MOSS_IMAGE_SIG in keys and MOSS_IMAGE_SIG2 in keys:
+        return FamilyMatch("moss_image")
 
     if QWEN_IMAGE21_SIG in keys and QWEN_IMAGE21_SIG2 in keys:
         return FamilyMatch("qwen_image21")

@@ -46,6 +46,8 @@ from src.platform.runtime.model_headers.signatures import (
     MINIMAX_MUSIC3_SIG,
     MINIMAX_MUSIC3_SIG2,
     MINIMAX_MUSIC3_SIG3,
+    MOSS_IMAGE_SIG,
+    MOSS_IMAGE_SIG2,
     QWEN_IMAGE21_SIG,
     QWEN_IMAGE21_SIG2,
     QWEN_IMAGE_SIG,
@@ -87,6 +89,9 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
 
     if FLUX3_SIG in sd and FLUX3_SIG2 in sd:
         return _detect_flux3(sd)
+
+    if MOSS_IMAGE_SIG in sd and MOSS_IMAGE_SIG2 in sd:
+        return _detect_moss_image(sd)
 
     if QWEN_IMAGE21_SIG in sd and QWEN_IMAGE21_SIG2 in sd:
         return _detect_qwen_image21(sd)
@@ -309,6 +314,28 @@ def _detect_flux3(sd: dict[str, torch.Tensor]) -> dict:
         "detected flux3 DiT: hidden=%d heads=%d depth=%d/%d ctx=%d flow_map=%s",
         hidden, config["num_heads"], config["depth"], config["depth_single_blocks"],
         config["context_in_dim"], config["flow_map"],
+    )
+    return config
+
+
+def _detect_moss_image(sd: dict[str, torch.Tensor]) -> dict:
+    hidden = int(sd[MOSS_IMAGE_SIG].shape[1])
+    head_dim = int(sd["layers.0.q_norm.weight"].shape[0])
+    config = {
+        "image_model": "moss_image",
+        "hidden_size": hidden,
+        "head_dim": head_dim,
+        "num_heads": hidden // head_dim,
+        "ffn_dim": int(sd[MOSS_IMAGE_SIG2].shape[0]) // 2,
+        "depth": count_blocks(sd, "layers.{}."),
+        "context_in_dim": int(sd["text_embedder.proj.weight"].shape[1]),
+        "in_channels": int(sd["video_embedder.weight"].shape[1]),
+        "freq_dim": int(sd["time_embedding.0.weight"].shape[1]),
+        "rope_base": 10000.0,
+    }
+    logger.debug(
+        "detected moss_image DiT: hidden=%d heads=%d depth=%d ffn=%d ctx=%d",
+        hidden, config["num_heads"], config["depth"], config["ffn_dim"], config["context_in_dim"],
     )
     return config
 

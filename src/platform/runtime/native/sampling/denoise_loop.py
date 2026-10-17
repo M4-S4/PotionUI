@@ -161,6 +161,7 @@ def _make_guidance(
             apg_eta=sampling_settings.get("apg_eta", 1.0),
             apg_norm_threshold=sampling_settings.get("apg_norm_threshold", 0.0),
             apg_momentum=sampling_settings.get("apg_momentum", 0.0),
+            uncond_skip_layers=frozenset(sampling_settings.get("uncond_skip_layers") or ()),
         )
     elif mode == "flow_map":
         if sigmas is None:

@@ -676,3 +676,13 @@ def test_flow_map_mode_rejects_a_sampler_that_leaves_the_schedule():
 def test_make_guidance_flow_map_needs_sigmas():
     with pytest.raises(ValueError, match="sigma"):
         _make_guidance({"guidance": "flow_map"}, 1.0)
+
+
+def test_make_guidance_threads_uncond_skip_layers_into_true_cfg():
+    strat = _make_guidance({"guidance": "cfg", "uncond_skip_layers": [22, 23]}, guidance_scale=3.0)
+    assert strat.uncond_skip_layers == frozenset({22, 23})
+
+
+@pytest.mark.parametrize("settings", [{"guidance": "cfg"}, {"guidance": "cfg", "uncond_skip_layers": []}, {"guidance": "cfg", "uncond_skip_layers": None}])
+def test_make_guidance_defaults_to_no_uncond_skip_layers(settings):
+    assert _make_guidance(settings, guidance_scale=3.0).uncond_skip_layers == frozenset()

@@ -1,0 +1,73 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    formula: "speed"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 50
+        configuration: {min: 1, max: 100, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "base" }
+            then: { set_value: 50, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "sampler"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler"
+            configuration:
+              family: "moss_image"
+              exclude: ["lcm"]
+            reactions:
+              - when: { field: "speed_profile", equals: "base" }
+                then: { set_value: "euler", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+          - name: "schedule"
+            type: "schedule"
+            label: "Schedule"
+            audience: "advanced"
+            default: "moss_grid"
+            configuration:
+              family: "moss_image"
+              exclude: ["manual"]
+            reactions:
+              - when: { field: "speed_profile", equals: "base" }
+                then: { set_value: "moss_grid", set_disabled: false }
+              - when: { field: "speed_profile", equals: "custom" }
+                then: { set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 3.0
+        configuration: {min: 1.0, max: 10.0, step: 0.5}
+        reactions:
+          - when: { field: "speed_profile", equals: "base" }
+            then: { set_value: 3.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "shift"
+        type: "number"
+        label: "Shift (override)"
+        audience: "advanced"
+        configuration: {min: 0.1, max: 20.0, step: 0.05}
+
+      - name: "uncond_layer_skip"
+        type: "checkbox"
+        label: "Negative-branch layer skip"
+        audience: "advanced"
+        default: true
+        ai_hint: "Skips transformer block 22 on the negative pass, the reference setting. Leave it on; turn it off only to compare against plain CFG."
+        configuration:
+          tooltip: "Skips one transformer block on the negative (unconditional) pass, as the reference sampler does. Turn it off for plain CFG."

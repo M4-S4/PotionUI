@@ -424,6 +424,7 @@ this table and the scaffolder can never disagree for long.
 | `maya` | `model_loader/maya` | `generator/maya` | image |
 | `minimax_h3` | `model_loader/minimax_h3` | `generator/video_minimax_h3` | video |
 | `minimax_music3` | `model_loader/minimax_music3` | `generator/audio_minimax_music3` | audio |
+| `moss_image` | `model_loader/moss_image` | `generator/moss_image` | image |
 | `qwen` | `model_loader/qwen` | `generator/qwen` | image |
 | `sdxl` | `checkpoint_loader/sdxl` | `generator/sdxl` | image |
 | `seedvr2` | `model_loader/seedvr2` | `generator/seedvr2` | image/video (upscale) |

@@ -84,6 +84,11 @@ class TestShouldUseCpuOffload:
         assert MemoryPolicy(24.0).should_use_cpu_offload("flux3") is False
         assert MemoryPolicy(23.0).should_use_cpu_offload("flux3") is False
 
+    def test_moss_image_is_sized_as_a_10_5_gb_dit(self):
+        assert MemoryPolicy(16.0).should_use_cpu_offload("moss_image") is True
+        assert MemoryPolicy(24.0).should_use_cpu_offload("moss_image") is False
+        assert MemoryPolicy(21.0).should_use_cpu_offload("moss_image") is False
+
 
 class TestTierSnapshots:
     """Snapshot the full decision set at representative VRAM budgets."""

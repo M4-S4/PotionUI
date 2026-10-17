@@ -448,6 +448,27 @@ def _build_manual_schedule(ctx: ScheduleContext) -> Tensor:
     return _manual_sigmas(ctx.options.get("sigmas"))
 
 
+def _moss_grid(count: int, shift: float, total: int) -> Tensor:
+    lower = shift / (total + shift - 1.0)
+    values = torch.linspace(1.0, lower, count, dtype=torch.float32)
+    return shift * values / (1.0 + (shift - 1.0) * values)
+
+
+def _build_moss_grid_schedule(ctx: ScheduleContext) -> Tensor:
+    total = int(ctx.options.get("num_train_timesteps", 1000))
+    training_shift = float(ctx.options.get("training_shift", 1.0))
+    shift = 5.0 if ctx.shift is None else float(ctx.shift)
+    if ctx.steps < 1 or total < 2 or shift <= 0.0 or training_shift <= 0.0:
+        raise ValueError("moss_grid needs positive steps, shifts and at least two training timesteps")
+    sigmas = _moss_grid(ctx.steps, shift, total)
+    training = _moss_grid(total, training_shift, total).flip(0)
+    upper = torch.searchsorted(training, sigmas).clamp(max=total - 1)
+    lower = (upper - 1).clamp(min=0)
+    nearest = torch.where((sigmas - training[lower]).abs() <= (training[upper] - sigmas).abs(), lower, upper)
+    snapped = torch.unique_consecutive(training[nearest])
+    return torch.cat((snapped, snapped.new_zeros(1)))
+
+
 def _build_ltx_dynamic_schedule(ctx: ScheduleContext) -> Tensor:
     base_shift = float(ctx.options.get("base_shift", 0.95))
     max_shift = float(ctx.options.get("max_shift", 2.05))

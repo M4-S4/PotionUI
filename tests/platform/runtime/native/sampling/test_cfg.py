@@ -843,3 +843,50 @@ def test_flow_map_guidance_rejects_a_sigma_off_the_schedule():
     with pytest.raises(ValueError, match="euler"):
         FlowMapGuidance(sigmas)(model_fn, torch.zeros(1, 2), torch.tensor([0.7]), {}, None, 0)
     assert seen == []
+
+
+def _skip_recording_model():
+    seen = []
+
+    def model_fn(x, sigma, cond):
+        seen.append(cond)
+        return torch.full_like(x, cond["v"])
+
+    return model_fn, seen
+
+
+def test_true_cfg_uncond_skip_layers_ride_only_on_the_uncond_call():
+    model_fn, seen = _skip_recording_model()
+    cfg = TrueCFG(3.0, cfg_zero_star=False, uncond_skip_layers=frozenset({22}))
+    cond, uncond = {"v": 5.0}, {"v": 1.0}
+    out = cfg(model_fn, torch.zeros(2, 4), torch.ones(2), cond, uncond, 0)
+    assert len(seen) == 2
+    assert "skip_layers" not in seen[0]
+    assert seen[1]["skip_layers"] == frozenset({22})
+    assert torch.allclose(out, torch.full((2, 4), 1.0 + 3.0 * (5.0 - 1.0)))
+    assert "skip_layers" not in cond and "skip_layers" not in uncond
+
+
+def test_true_cfg_without_uncond_skip_layers_leaves_the_uncond_dict_untouched():
+    model_fn, seen = _skip_recording_model()
+    cfg = TrueCFG(3.0, cfg_zero_star=False)
+    uncond = {"v": 1.0}
+    cfg(model_fn, torch.zeros(2, 4), torch.ones(2), {"v": 5.0}, uncond, 0)
+    assert seen[1] is uncond
+    assert cfg.uncond_skip_layers == frozenset()
+
+
+def test_true_cfg_at_scale_one_makes_no_uncond_call_so_skip_layers_never_apply():
+    model_fn, seen = _skip_recording_model()
+    cfg = TrueCFG(1.0, cfg_zero_star=False, uncond_skip_layers=frozenset({22}))
+    out = cfg(model_fn, torch.zeros(2, 4), torch.ones(2), {"v": 5.0}, {"v": 1.0}, 0)
+    assert len(seen) == 1
+    assert torch.allclose(out, torch.full((2, 4), 5.0))
+
+
+def test_true_cfg_uncond_skip_layers_feed_the_cfg_zero_star_anchor():
+    model_fn, _ = _skip_recording_model()
+    cfg = TrueCFG(2.0, cfg_zero_star=False, uncond_skip_layers=[3, 4])
+    cfg(model_fn, torch.zeros(1, 4), torch.ones(1), {"v": 2.0}, {"v": 1.0}, 0)
+    assert cfg.uncond_skip_layers == frozenset({3, 4})
+    assert torch.allclose(cfg.last_uncond_v, torch.full((1, 4), 1.0))

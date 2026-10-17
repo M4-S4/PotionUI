@@ -85,6 +85,26 @@ def detect_te_config(sd: dict[str, torch.Tensor]) -> dict | None:
         logger.debug("detected %s: hidden=%d blocks=%d", config["te_type"], config["hidden_size"], config["num_layers"])
         return config
 
+    if "model.embed_tokens.weight" in sd and any(k.endswith(".linear_attn.A_log") for k in sd):
+        emb = sd["model.embed_tokens.weight"]
+        hidden = int(emb.shape[1])
+        if hidden != 4096:
+            return None
+        num_layers = count_blocks(sd, "model.layers.{}.")
+        config.update(
+            te_type="qwen35",
+            variant="qwen35_9b",
+            vocab_size=int(emb.shape[0]),
+            hidden_size=hidden,
+            num_layers=num_layers,
+            layer_types=[
+                "linear_attention" if f"model.layers.{i}.linear_attn.A_log" in sd else "full_attention"
+                for i in range(num_layers)
+            ],
+        )
+        logger.debug("detected qwen35_9b: hidden=%d layers=%d", hidden, num_layers)
+        return config
+
     # --- Gemma4-Unified-12B (LTX-2.5 TE): model.* with the SAME 4-norm block -
     # A flat Gemma4 file also carries `model.embed_tokens.weight` +
     # `model.layers.0.pre_feedforward_layernorm.weight` (Comfy's own flattening

@@ -157,11 +157,7 @@ _DECODE_TILE_VRAM_FRACTION = 0.75
 # Per-generation option-dict keys that ``denoise()`` reads out of
 # ``sampling_settings`` but that don't live on the ModelSpec — surfaced to presets
 # through ``sample()``'s ``guidance_options`` / ``schedule_settings`` and merged in.
-# Whitelisted (not a blanket dict spread) so a preset can't inject arbitrary
-# ModelSpec overrides through these dicts, and so ``slg_*`` is deliberately absent
-# from the image path (no image arch has skip_layers; a silently-inert knob is
-# worse than none — the video pipes merge slg_* themselves).
-_APG_SETTINGS_KEYS = ("apg_eta", "apg_norm_threshold", "apg_momentum")
+_APG_SETTINGS_KEYS = ("apg_eta", "apg_norm_threshold", "apg_momentum", "uncond_skip_layers")
 # `fixed_mu`/`dynamic_shift` let a preset swap a ModelSpec's
 # mu-shift SOURCE per generation -- e.g. Krea-2's turbo ModelSpec pins a fixed
 # mu (distilled-at-mu=1.15); a raw/base checkpoint (same architecture, so no
@@ -2415,6 +2411,9 @@ class NativeGenerator:
             flow_map_target = conditioning.get("flow_map_target")
             if flow_map_target is not None:
                 extra["flow_map_target"] = flow_map_target
+            skip_layers = conditioning.get("skip_layers")
+            if skip_layers:
+                extra["skip_layers"] = skip_layers
             # Krea-2 NAG: the cond dict may carry the negative prompt's
             # raw TE hidden states + NAG params (attached by the generator pipe
             # when nag_scale > 1.0 -- see FlowMatchGeneratorPipe.generate_one).

@@ -8,6 +8,8 @@ from src.platform.runtime.primitives.clip import ConditioningModel
 
 
 class Flux3ClipTextEncoder(SequentialWindowClipTextEncoder):
+    cache_tag = "flux3_te"
+
     def __init__(
         self,
         encoder: Optional[NativeTextEncoder] = None,
@@ -43,7 +45,7 @@ class Flux3ClipTextEncoder(SequentialWindowClipTextEncoder):
             return pos, neg
 
         cache_key = prompt_embed_key(
-            self._model_fingerprint, "flux3_te", prompt, negative_prompt, do_classifier_free_guidance,
+            self._model_fingerprint, self.cache_tag, prompt, negative_prompt, do_classifier_free_guidance,
         )
         return _encode, cache_key
 
