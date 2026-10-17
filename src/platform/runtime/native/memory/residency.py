@@ -34,6 +34,16 @@ import torch
 from src.platform.runtime.vram_cap import apply_vram_cap_bytes
 from src.platform.settings.runtime_flags import runtime_flag
 
+from ..errors import HostMemoryExhaustedError
+from .text_encoder import (
+    TextEncoderFootprint,
+    TextEncoderPlacementSettings,
+    encoder_gb_on_device,
+    text_encoder_footprint,
+    text_encoder_placement_settings,
+)
+from .tiering import ComponentPlacement, plan_text_encoder_placement
+
 logger = logging.getLogger(__name__)
 
 _BYTES_PER_GB = 1024 ** 3
@@ -832,6 +842,21 @@ def _run_text_encode_uncached(
     Both are ``None`` on the no-CUDA-at-all ``cpu-fallback`` mark below (no
     placement gate runs there — there is nothing to report), not a fake
     ``0.0``/silent omission.
+
+    **Partial residency** (``text_encoder_placement``, see
+    ``memory/text_encoder.py``). With the default ``auto``, step 2 re-reads free
+    VRAM after its eviction and applies step 1's own test with step 1's own
+    quantities: ``size_gb + reserve <= free + what the encoder already holds on
+    the device``. An encoder that passes takes the whole move exactly as before;
+    no backend cap and no dequantisation peak enter that test. One that fails is
+    placed like a streamed DiT (``engine.TextEncoderStreaming`` →
+    ``NativeModel.stream_to``), encoded, then torn down at once so the pinned host
+    RAM and the resident share go back before the DiT needs them
+    (``path="streamed"``); the backend's ``gpu_max_vram`` and the dequantisation
+    peak only size its resident share. An OOM retries fully streamed, then falls
+    back to the CPU encode. ``gpu`` keeps the whole move unconditionally (steps
+    1-3 above, unchanged); ``stream`` skips the co-resident attempt and always
+    streams. An encoder that fits follows steps 1-3 exactly as before.
     """
     from src.platform.observability.profiling import get_profiler
 
@@ -856,6 +881,7 @@ def _run_text_encode_uncached(
     size_gb = module_size_gb(encoder)
     reserve = minimum_inference_memory_gb() if reserve_gb is None else reserve_gb
     weights_gb: dict[str, float] = {}
+    settings = text_encoder_placement_settings()
 
     def _move(target: str) -> None:
         encoder.to(target)
@@ -887,7 +913,7 @@ def _run_text_encode_uncached(
     # 1) Co-residency: weights + reserve already fit -> no eviction, no ping-pong.
     free = free_vram_gb(dev)
     needed_gb = size_gb + reserve
-    if free is None or free >= needed_gb:
+    if free is None or (settings.mode != "stream" and free >= needed_gb):
         try:
             result = _attempt_on_gpu()
             get_profiler().mark(
@@ -903,6 +929,14 @@ def _run_text_encode_uncached(
     free = free_vram_gb(dev) or 0.0
     manager.ensure_free(dev, size_gb * _TE_ACTIVATION_FACTOR + reserve, free, exclude=[encoder])
     torch.cuda.empty_cache()
+    if settings.mode != "gpu":
+        te_plan, footprint, live_free = _plan_encode_after_evict(encoder, dev, settings, size_gb, reserve)
+        if te_plan is not None and te_plan.streamed and footprint is not None:
+            return _run_streamed_encode(
+                encoder, dev, encode_fn, te_plan, footprint,
+                size_gb=size_gb, free_gb=live_free, needed_gb=needed_gb,
+                count_fields=count_fields,
+            )
     try:
         result = _attempt_on_gpu()
         get_profiler().mark(
@@ -922,3 +956,100 @@ def _run_text_encode_uncached(
             weights_gb=_weights_gb_by_device(encoder), free_gb=free, needed_gb=needed_gb, **count_fields,
         )
         return encode_fn()
+
+
+def _plan_encode_after_evict(
+    encoder: Any,
+    device: str,
+    settings: TextEncoderPlacementSettings,
+    size_gb: float,
+    reserve_gb: float,
+) -> tuple[ComponentPlacement | None, TextEncoderFootprint | None, float | None]:
+    """Step 2's partial-residency decision, read after the eviction.
+
+    The fit test is step 1's (``size_gb + reserve_gb``, same ``size_gb``)
+    against the freed VRAM plus what the encoder already holds there; the
+    backend cap and the dequantisation peak only size a streamed share.
+    Returns ``(plan, footprint, live_free_gb)``; ``plan`` is ``None`` when the
+    encoder has no measurable module or the device no free-VRAM reading, which
+    keeps the historical whole move.
+    """
+    footprint = text_encoder_footprint(encoder)
+    if footprint is None:
+        return None, None, None
+    live_free = free_vram_gb(device)
+    if live_free is None:
+        return None, footprint, None
+    plan = plan_text_encoder_placement(
+        live_free + encoder_gb_on_device(encoder, device), size_gb,
+        device=device,
+        mode=settings.mode,
+        dequant_peak_gb=footprint.dequant_peak_gb,
+        working_headroom_gb=reserve_gb,
+        resident_cap_gb=settings.vram_budget_gb,
+    )
+    return plan, footprint, live_free
+
+
+def _run_streamed_encode(
+    encoder: Any,
+    device: str,
+    encode_fn: "Callable[[], Any]",
+    te_plan: ComponentPlacement,
+    footprint: TextEncoderFootprint,
+    *,
+    size_gb: float,
+    free_gb: float | None,
+    needed_gb: float,
+    count_fields: dict[str, Any],
+) -> Any:
+    """Encode with ``encoder`` placed with partial residency, then tear it down.
+
+    The encoder's own registry entry (left by an earlier co-resident encode) is
+    dropped first: for this window its VRAM is tracked through the streamed
+    parts, and after the teardown it sits on the CPU. A placement or encode that
+    OOMs is retried fully streamed (budget 0), then encoded on the CPU; so is a
+    streamed share host RAM could not pin (``HostMemoryExhaustedError``), since
+    the CPU encode needs no page-locked copy.
+    """
+    from src.platform.observability.profiling import get_profiler
+    from src.platform.runtime.native.engine import TextEncoderStreaming
+
+    manager = get_residency_registry()
+    manager.note_offloaded(encoder)
+    first_budget = te_plan.stream_budget_gb or 0.0
+    budgets = [first_budget, 0.0] if first_budget > 0.0 else [0.0]
+    for budget in budgets:
+        streaming = TextEncoderStreaming(encoder)
+        try:
+            streaming.apply(device, budget)
+            census = _weights_gb_by_device(encoder)
+            result = encode_fn()
+        except torch.cuda.OutOfMemoryError:
+            logger.warning(
+                "residency: streamed TE encode OOM'd at a %.1fGB resident budget; %s",
+                budget, "streaming every leaf" if budget > 0.0 else "encoding on CPU",
+            )
+            streaming.teardown()
+            torch.cuda.empty_cache()
+            continue
+        except HostMemoryExhaustedError as exc:
+            logger.warning("residency: streamed TE encode refused (%s); encoding on CPU", exc)
+            streaming.teardown()
+            break
+        except BaseException:
+            streaming.teardown()
+            raise
+        streaming.teardown()
+        get_profiler().mark(
+            "te.encode", device=device, size_gb=size_gb, path="streamed",
+            weights_gb=census, free_gb=free_gb, needed_gb=needed_gb,
+            budget_gb=budget, resident_gb=streaming.resident_gb, streamed_gb=streaming.streamed_gb,
+            dequant_peak_gb=footprint.dequant_peak_gb, **count_fields,
+        )
+        return result
+    get_profiler().mark(
+        "te.encode", device="cpu", size_gb=size_gb, path="cpu-fallback",
+        weights_gb=_weights_gb_by_device(encoder), free_gb=free_gb, needed_gb=needed_gb, **count_fields,
+    )
+    return encode_fn()
