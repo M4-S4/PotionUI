@@ -195,22 +195,53 @@ describe('pageContext', () => {
 			expect(scenes).toEqual([{ scene: 2 }]);
 		});
 
-		it('leaves out tools that wait for approval, were rejected, failed, still run or returned text', () => {
+		it('leaves out tools that wait for approval, were rejected, failed, were skipped, still run or returned text', () => {
 			const handler = vi.fn();
 			onToolApplied('save_shot', handler);
 
 			dispatchExecutedToolResults({
 				id: 'm1',
 				tool_executions: [
-					executed('save_shot', { shot: 1 }, { pending_approval: true }),
-					executed('save_shot', { shot: 2 }, { rejected: true }),
-					executed('save_shot', { shot: 3 }, { result: { success: false, data: '{"shot":3}' } }),
-					executed('save_shot', { shot: 4 }, { status: 'running' }),
+					executed('save_shot', { status: 'pending_approval', shot: 1 }, { approval_status: 'pending' }),
+					executed('save_shot', { shot: 2 }, { approval_status: 'rejected' }),
+					executed('save_shot', { shot: 3 }, { approval_status: 'failed' }),
+					executed('save_shot', { shot: 4 }, { skipped: true }),
+					executed('save_shot', { shot: 5 }, { result: { success: false, data: '{"shot":5}' } }),
+					executed('save_shot', { shot: 6 }, { status: 'running' }),
 					executed('save_shot', 'Saved.')
 				]
 			});
 
 			expect(handler).not.toHaveBeenCalled();
+		});
+
+		it('delivers the confirmed result of a tool approved after the message was finalized', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+			const message = {
+				id: 'm1',
+				tool_executions: [executed('save_shot', { status: 'pending_approval', shot: 1 }, { approval_status: 'pending' })]
+			};
+
+			dispatchExecutedToolResults(message);
+			expect(handler).not.toHaveBeenCalled();
+
+			const dispatched = dispatchToolResult(toolResultId('m1', 0), 'save_shot', '{"shot":1,"version":4}');
+			expect(dispatched?.outcome).toBe(true);
+			expect(handler).toHaveBeenCalledTimes(1);
+			expect(handler).toHaveBeenCalledWith({ shot: 1, version: 4 });
+
+			dispatchExecutedToolResults({ id: 'm1', tool_executions: [executed('save_shot', { shot: 1, version: 4 }, { approval_status: 'approved' })] });
+			expect(handler).toHaveBeenCalledTimes(1);
+		});
+
+		it('delivers a tool the host approved before the message was finalized', () => {
+			const handler = vi.fn();
+			onToolApplied('save_shot', handler);
+
+			dispatchExecutedToolResults({ id: 'm1', tool_executions: [executed('save_shot', { shot: 1 }, { approval_status: 'approved' })] });
+
+			expect(handler).toHaveBeenCalledWith({ shot: 1 });
 		});
 
 		it('runs a handler once when the same message is delivered live and then recovered', () => {

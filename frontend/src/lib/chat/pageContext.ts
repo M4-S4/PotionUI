@@ -135,8 +135,8 @@ export interface ExecutedTool {
 	tool_name: string;
 	result?: { success?: boolean; data?: string } | null;
 	status?: string;
-	pending_approval?: boolean;
-	rejected?: boolean;
+	approval_status?: string | null;
+	skipped?: boolean;
 }
 
 export interface MessageWithTools {
@@ -169,11 +169,13 @@ function isUnapplied(outcome: ToolAppliedOutcome | boolean): outcome is ToolAppl
 	return isToolAppliedOutcome(outcome) && (outcome.status === 'stale' || outcome.status === 'partial');
 }
 
-function ranWithoutApproval(execution: ExecutedTool | null | undefined): execution is ExecutedTool {
+const UNDELIVERED_APPROVALS = new Set(['pending', 'rejected', 'failed']);
+
+function deliverable(execution: ExecutedTool | null | undefined): execution is ExecutedTool {
 	return (
 		!!execution &&
-		!execution.pending_approval &&
-		!execution.rejected &&
+		!UNDELIVERED_APPROVALS.has(execution.approval_status ?? '') &&
+		!execution.skipped &&
 		execution.status !== 'running' &&
 		execution.result?.success !== false
 	);
@@ -184,7 +186,7 @@ export function dispatchExecutedToolResults(message: MessageWithTools): ToolAppl
 	if (!messageId) return null;
 	let unapplied: ToolAppliedOutcome | null = null;
 	for (const [index, execution] of (message.tool_executions ?? []).entries()) {
-		if (!ranWithoutApproval(execution)) continue;
+		if (!deliverable(execution)) continue;
 		try {
 			const dispatched = dispatchToolResult(toolResultId(messageId, index), execution.tool_name, execution.result?.data);
 			if (dispatched && isUnapplied(dispatched.outcome)) unapplied = dispatched.outcome;
