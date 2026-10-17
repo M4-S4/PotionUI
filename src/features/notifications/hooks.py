@@ -46,7 +46,9 @@ NOTIFICATION_TYPE_HOOKS = hooks_registry.declare(
         "register": {
             "description": (
                 "Fired once at app startup to let plugins register additional "
-                "notification types on the shared notification_type_registry."
+                "notification types on the shared notification_type_registry, "
+                "and once for a plugin enabled later while the app runs. Types "
+                "stay registered when the plugin is disabled."
             ),
             "payload": {
                 "registry": {

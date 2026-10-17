@@ -22,6 +22,8 @@ REEXPORTS = {
         "submit_generation",
     ],
     "src.plugin_api.backends": ["list_backends"],
+    "src.plugin_api.media": ["extract_frame", "save_user_media"],
+    "src.plugin_api.presets": ["DirectorBindingError", "bind_director_media"],
     "src.plugin_api.cloud": ["DirectorEstimateError", "estimate_cloud_cost"],
     "src.plugin_api.hooks": ["get_app_loop", "run_on_app_loop"],
     "src.plugin_api.chat": ["ToolApprovalPreview"],

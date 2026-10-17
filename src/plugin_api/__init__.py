@@ -201,8 +201,10 @@ from src.plugin_api.media import (
     VideoProbe,
     VideoTranscodeError,
     convert_image_to_base64,
+    extract_frame,
     find_ffmpeg,
     probe_video,
+    save_user_media,
     transcode_video,
 )
 
@@ -505,8 +507,10 @@ __all__ = [
     "TranscodeSpec",
     "VideoProbe",
     "VideoTranscodeError",
+    "extract_frame",
     "find_ffmpeg",
     "probe_video",
+    "save_user_media",
     "transcode_video",
     # Prompt import sources
     "PromptImporter",

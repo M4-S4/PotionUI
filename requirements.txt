@@ -95,6 +95,7 @@ dynamicprompts==0.31.0
 psutil>=6.0.0  # For system monitoring (CPU, RAM)
 python-ulid>=2.7.0  # For ULID generation
 jsonmerge>=1.9.0  # For JSON merging operations
+jsonschema==4.26.0
 watchdog>=4.0.0  # For automation module filesystem triggers
 croniter>=2.0.0  # For automation module cron schedule triggers
 

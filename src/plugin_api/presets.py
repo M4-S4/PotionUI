@@ -44,7 +44,7 @@ See docs/presets.md.
 
 import copy
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from src.features.generation.dto import GenerationRequest, PromptPair
 from src.features.presets.collaborators import PresetCollaborators
@@ -64,9 +64,11 @@ from src.features.presets.requirements.contracts import (
 from src.features.presets.schema import GalleryItem, PresetMedia
 from src.features.presets.style_previews import downscale_and_save_webp
 from src.features.presets.templates import default_form_name
-from src.features.video_director.binding import DirectorBindingError, bind_director_media
+from src.features.video_director.binding import DirectorBindingError
+from src.features.video_director.binding import bind_director_media as _bind_director_media
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.security.user import AccountType
+from src.platform.util.path_resolution import apply_preset_mode_overlay
 
 __all__ = [
     "DirectorBindingError",
@@ -115,6 +117,52 @@ def lint_preset_dir(path: str) -> Tuple[List[str], List[str]]:
     errors = [str(issue) for issue in issues if issue.level == "error"]
     warnings = [str(issue) for issue in issues if issue.level == "warning"]
     return errors, warnings
+
+
+def _director_capabilities(request: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(request, Mapping):
+        preset_id, mode = request.get("preset_id"), request.get("mode")
+    else:
+        preset_id, mode = getattr(request, "preset_id", None), getattr(request, "mode", None)
+    if not preset_id:
+        return None
+    try:
+        repository = get_container().file_preset_repository
+    except RuntimeError:
+        return None
+    template = repository.find_preset_by_id(preset_id)
+    capabilities = (getattr(template, "vars", None) or {}).get("video_director") if template is not None else None
+    if not isinstance(capabilities, dict):
+        return None
+    return apply_preset_mode_overlay(capabilities, mode)
+
+
+def bind_director_media(
+    request,
+    role: str,
+    media: Any,
+    segment_id: Optional[str] = None,
+    promote: bool = False,
+    *,
+    at: Optional[float] = None,
+    capabilities: Optional[Mapping[str, Any]] = None,
+    field: Optional[str] = None,
+):
+    """Bind resolved media into the request's Video Director document; returns a new request.
+
+    Single-shot documents take a `first` or `last` frame; `promote` turns t2v
+    into i2v and i2v into flf when needed. A `director` document takes `first`, `last` or `keyframe` on `segment_id`,
+    `at` being a keyframe's seconds from the start of that segment. Role
+    `reference` adds one or a list of media to the preset mode's reference
+    pool (`field`, default the first reference field) and, with `segment_id`,
+    cites them in that segment's prompt. `capabilities` defaults to the
+    preset's `vars.video_director` for the request's mode. Raises
+    `DirectorBindingError` with a `code`."""
+    if capabilities is None:
+        capabilities = _director_capabilities(request)
+    return _bind_director_media(
+        request, role, media, segment_id, promote, at=at, capabilities=capabilities, field=field,
+    )
 
 
 @dataclass(frozen=True)
