@@ -28,7 +28,7 @@ import overlayLayer from '$lib/actions/overlayLayer';
 import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createImageEditorApi, type PluginImageEditorApi } from '$lib/components/imageEditor/registries';
-import { chatPanelStore, isChatPanelOpen } from '$lib/stores/chatPanel';
+import { chatPanelStore, isChatPanelOpen, type ChatPrefillOptions } from '$lib/stores/chatPanel';
 import { holdKeyboard, releaseKeyboardHold } from '$lib/services/keyboard';
 import {
 	createGenerationSocket,
@@ -94,6 +94,18 @@ export interface PluginChatApi {
 	close(): void;
 	toggle(): void;
 	isOpen(): boolean;
+	/**
+	 * Put `text` in the chat composer without sending it, opening the panel
+	 * and focusing the composer. A draft the user already typed is kept
+	 * unless `replace` is set.
+	 */
+	prefill(text: string, options?: ChatPrefillOptions): void;
+	/**
+	 * Send `text` as the user's message in the page's chat mode, opening the
+	 * panel. Resolves once the message is on its way; rejects when the chat
+	 * is unavailable or still answering.
+	 */
+	send(text: string): Promise<void>;
 }
 
 export interface PluginKeyboardApi {
@@ -143,7 +155,7 @@ export interface PotionUIHostApi {
 	};
 	/** User notification surface: local toasts and persisted notifications. */
 	notifications: PluginNotificationsApi;
-	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
+	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling, panel and composer. */
 	chat: PluginChatApi;
 	keyboard: PluginKeyboardApi;
 	layers: PluginLayersApi;
@@ -292,7 +304,9 @@ export function initHostApi(): void {
 			open: () => chatPanelStore.open(),
 			close: () => chatPanelStore.close(),
 			toggle: () => chatPanelStore.toggle(),
-			isOpen: () => get(isChatPanelOpen)
+			isOpen: () => get(isChatPanelOpen),
+			prefill: (text, options) => chatPanelStore.prefill(text, options),
+			send: (text) => chatPanelStore.send(text)
 		},
 		keyboard: {
 			suppress: () => holdKeyboard(),

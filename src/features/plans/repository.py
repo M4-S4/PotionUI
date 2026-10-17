@@ -190,12 +190,14 @@ class LimitEventRepository:
             cursor.execute(query, params)
             return float(cursor.fetchone()["total"] or 0)
 
-    def refund(self, ref_id: str, at: datetime) -> int:
+    def refund(self, ref_id: str, at: datetime, kind: Optional[str] = None) -> int:
+        query = "UPDATE limit_events SET refunded_at = ? WHERE ref_id = ? AND refunded_at IS NULL"
+        params: List[Any] = [dt_iso(at), ref_id]
+        if kind is not None:
+            query += " AND kind = ?"
+            params.append(kind)
         with _db().get_cursor() as cursor:
-            cursor.execute(
-                "UPDATE limit_events SET refunded_at = ? WHERE ref_id = ? AND refunded_at IS NULL",
-                (dt_iso(at), ref_id),
-            )
+            cursor.execute(query, params)
             return cursor.rowcount
 
     def prune(self, before: datetime) -> int:

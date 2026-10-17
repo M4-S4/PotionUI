@@ -486,6 +486,8 @@ export interface SendMessageParams {
 	onSessionCreated?: (sessionData: ChatSessionResponse) => void;
 	/** e.g. focusing the composer input once settled. */
 	onSettled?: () => void;
+	/** Fired once, right before this turn's request is issued. */
+	onDispatched?: () => void;
 }
 
 /**
@@ -593,6 +595,7 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 
 		try {
 			if (!owned.isCurrent()) return; // re-check immediately before the outbound call
+			params.onDispatched?.();
 			await d.api.sendChatMessageStream(owned.captured.sessionId, payload, handler.handleEvent);
 		} catch (err: any) {
 			if (!owned.isCurrent()) return;

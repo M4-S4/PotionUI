@@ -1,6 +1,13 @@
 """Plan limits: contributing a limit kind, recording its events, and reading
 where a user stands against one (`limit_status`, for a plugin that admits its
 own operations against a kind it measures itself).
+
+`LimitEvents.admit(user_id, kind, units, ref_id)` checks the user's limit for
+`kind` and records the units in one step, so two concurrent admissions cannot
+both pass on the same remaining room; it raises `LimitExceeded` (with `limit`,
+`used` and `remaining`) and records nothing when the units do not fit.
+`LimitEvents.refund(ref_id, kind=None)` refunds the events recorded with
+`ref_id`, only those of `kind` when it is given.
 """
 
 from dataclasses import dataclass
@@ -42,8 +49,14 @@ class LimitEvents:
         return get_container().plans.events.record(user_id, kind, units, ref_id, now_utc())
 
     @staticmethod
-    def refund(ref_id: str) -> int:
-        return get_container().plans.guard.refund(ref_id)
+    def admit(user_id: str, kind: str, units: float = 1, ref_id: Optional[str] = None) -> str:
+        """Record `units` of `kind` for the user if they fit the user's limit; returns the event id."""
+        return get_container().plans.guard.admit_units(user_id, kind, units, ref_id)
+
+    @staticmethod
+    def refund(ref_id: str, kind: Optional[str] = None) -> int:
+        """Refund the events recorded with `ref_id` (only those of `kind` when given); returns how many."""
+        return get_container().plans.guard.refund(ref_id, kind)
 
 
 @dataclass(frozen=True)
