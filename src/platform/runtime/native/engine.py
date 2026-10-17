@@ -49,10 +49,19 @@ from .memory.residency import (
     minimum_inference_memory_gb,
 )
 from .memory.partial import ModuleStreamer, plan_residency_split
+from .memory.text_encoder import (
+    TextEncoderFootprint,
+    encoder_gb_on_device,
+    module_weights_bytes,
+    text_encoder_footprint,
+    text_encoder_modules,
+    text_encoder_placement_settings,
+)
 from src.platform.runtime.system_memory import get_system_memory
 from src.platform.observability.profiling import get_profiler, profiling_enabled, read_process_rss_gb
 from src.platform.settings.runtime_flags import runtime_flag
 from .memory.tiering import (
+    ComponentPlacement,
     PlacementPlan,
     activation_headroom_gb,
     plan_placement,
@@ -225,29 +234,20 @@ def _estimate_text_encoder_gb(encoder: Any) -> float | None:
     parameters are found, so a genuinely-unmeasurable encoder still reads as
     "unknown" rather than as "definitely tiny" to any caller checking
     ``estimated_vram_gb or 0.0``.
-    """
-    modules: list[torch.nn.Module] = []
-    direct = getattr(encoder, "module", None)
-    if isinstance(direct, torch.nn.Module):
-        modules.append(direct)
-    for attr in ("t5", "clip_l"):
-        sub_module = getattr(getattr(encoder, attr, None), "module", None)
-        if isinstance(sub_module, torch.nn.Module):
-            modules.append(sub_module)
-    if not modules:
-        return None
 
-    total_bytes = 0
-    for module in modules:
-        try:
-            for p in module.parameters():
-                total_bytes += p.numel() * p.element_size()
-            for b in module.buffers():
-                if b is not None:
-                    total_bytes += b.numel() * b.element_size()
-        except Exception:  # pragma: no cover - best-effort sizing only
-            continue
-    return (total_bytes / _BYTES_PER_GB) if total_bytes > 0 else None
+    The figure is the real device weight, quantised layers included: an nvfp4
+    layer keeps its packed U8 codes plus two scales in BUFFERS (``weight`` is
+    ``None``), ≈ 0.81 B per weight element against 0.5625 on disk, so a 14.6 GB
+    nvfp4 checkpoint reads ≈ 21 GB here; int8 and fp8 layers count 1 B/elem plus
+    their scales (formula in ``memory/text_encoder.py``). It stays the RESTING
+    footprint because ``estimated_vram_gb`` also sizes host-RAM accounting and
+    the residency registry; the per-layer dequantisation transient the encode
+    adds on top is ``text_encoder_footprint(...).dequant_peak_gb``, which sizes
+    the resident share of a streamed encoder (``tiering.plan_text_encoder_placement``)
+    and never enters its fit test.
+    """
+    footprint = text_encoder_footprint(encoder)
+    return footprint.weights_gb if footprint is not None else None
 
 
 def _latent_frames(shape) -> int:
@@ -376,6 +376,7 @@ class NativeModel:
         compute_dtype: torch.dtype = torch.bfloat16,
         quant_format: str | None = None,
         device: str = "cpu",
+        stream_nvfp4: bool = False,
     ) -> None:
         self.kind = kind
         self.module = module
@@ -384,6 +385,7 @@ class NativeModel:
         self.compute_dtype = compute_dtype
         self.quant_format = quant_format
         self.device = device
+        self.stream_nvfp4 = stream_nvfp4
         self.weight_revision = next(_weight_revisions)
         self.effective_revision = self.weight_revision
         # Set by mark_unusable() when a failed weight mutation could not be rolled
@@ -398,6 +400,7 @@ class NativeModel:
         # handle. Restored whenever the module leaves the GPU so the RAM-cached
         # copy never holds a compiled graph. ``None`` = not compiled.
         self._compiled = None
+        self.last_stream_plan = None
 
     def bump_weight_revision(self, reason: str) -> int:
         """Declare that this component's effective weights are about to change.
@@ -632,14 +635,15 @@ class NativeModel:
         # the new pin. `stream_to` only runs when ENTERING partial residency
         # (never per forward step), so this is a rare, coarse-grained call.
         self._reclaim_with_marks("stream_to", "empty_pinned_host_cache", empty_pinned_host_cache)
-        plan = plan_residency_split(self.module, resident_budget_gb)
+        plan = plan_residency_split(self.module, resident_budget_gb, stream_nvfp4=self.stream_nvfp4)
         # Refuse the placement outright if pinning this streamed set would leave
         # host RAM unable to survive it (and its teardown) — a clean generation
         # failure beats degrading into a state whose teardown OOM-kills the API.
         self._guard_host_ram_for_streaming(plan)
         if self._streamer is None:
-            self._streamer = ModuleStreamer(self.module)
+            self._streamer = ModuleStreamer(self.module, stream_nvfp4=self.stream_nvfp4)
         self._streamer.apply(device, plan, non_blocking=non_blocking)
+        self.last_stream_plan = plan
         self.device = str(device)
         get_residency_registry().note_resident(self, device, plan.resident_gb)
         # Mirror `move_to()`'s post-teardown trim: `apply()` above frees the
@@ -726,6 +730,90 @@ class NativeModel:
         # its own reclaim (trim + large-pin pinned-pool release) too.
         if teardown_from_streamer:
             self._reclaim_host_after_teardown(pinned_gb)
+
+
+@contextmanager
+def _module_moves_suppressed(modules: Sequence[torch.nn.Module]):
+    """Make ``.to()`` a no-op on ``modules`` for the duration of the block.
+
+    Lets a text-encoder wrapper run its own ``.to(device)`` — which retargets the
+    device its inputs are built on — without that call moving a partially
+    resident module whole and undoing the streamer's split.
+    """
+    patched = []
+    for module in modules:
+        if "to" not in module.__dict__:
+            object.__setattr__(module, "to", lambda *args, _m=module, **kwargs: _m)
+            patched.append(module)
+    try:
+        yield
+    finally:
+        for module in patched:
+            module.__dict__.pop("to", None)
+
+
+class TextEncoderStreaming:
+    """Partial residency for the real modules behind a text-encoder wrapper.
+
+    Each real ``nn.Module`` (one for a single encoder; ``t5`` + ``clip_l`` for the
+    Flux1 composite) is wrapped in a ``NativeModel`` and placed with
+    :meth:`NativeModel.stream_to`, exactly like a DiT that does not fit: leaves
+    resident up to the budget, the rest streamed per forward from pinned CPU RAM,
+    nvfp4 leaves included. Smallest module first, so a small companion stays
+    whole and the big one absorbs the streaming. The wrapper's own ``.to()``
+    then retargets its input device with every weight move suppressed.
+    :meth:`teardown` offloads every part (unpinning and reclaiming host RAM like
+    a streamed DiT's offload) and points the wrapper back at the CPU.
+    """
+
+    def __init__(self, encoder: Any) -> None:
+        self.encoder = encoder
+        modules = sorted(text_encoder_modules(encoder), key=module_weights_bytes)
+        self.parts = [
+            NativeModel(
+                "text_encoder", module,
+                estimated_vram_gb=module_weights_bytes(module) / _BYTES_PER_GB,
+                stream_nvfp4=True,
+            )
+            for module in modules
+        ]
+        self.budget_gb = 0.0
+        self.resident_gb = 0.0
+        self.streamed_gb = 0.0
+
+    @property
+    def active(self) -> bool:
+        return any(part.is_streaming for part in self.parts)
+
+    def apply(self, device: str | torch.device, budget_gb: float) -> None:
+        self.budget_gb = max(0.0, float(budget_gb))
+        remaining = self.budget_gb
+        resident = streamed = 0.0
+        for part in self.parts:
+            part.stream_to(device, remaining)
+            plan = part.last_stream_plan if part.is_streaming else None
+            part_resident = plan.resident_gb if plan is not None else (part.estimated_vram_gb or 0.0)
+            part_streamed = plan.streamed_gb if plan is not None else 0.0
+            remaining = max(0.0, remaining - part_resident)
+            resident += part_resident
+            streamed += part_streamed
+        self.resident_gb = resident
+        self.streamed_gb = streamed
+        with _module_moves_suppressed([part.module for part in self.parts]):
+            mover = getattr(self.encoder, "to", None)
+            if callable(mover):
+                mover(device)
+        get_profiler().mark(
+            "te.stream", device=str(device), budget_gb=round(self.budget_gb, 3),
+            resident_gb=round(resident, 3), streamed_gb=round(streamed, 3),
+        )
+
+    def teardown(self) -> None:
+        for part in self.parts:
+            part.offload()
+        mover = getattr(self.encoder, "to", None)
+        if callable(mover):
+            mover("cpu")
 
 
 class NativeEngineLoader:
@@ -1142,6 +1230,7 @@ class NativeGenerator:
         *,
         placement: PlacementPlan | None = None,
         vram_gb: float | None = None,
+        text_encoder_placement: str | None = None,
     ) -> None:
         self.dit = dit
         self.te = te
@@ -1152,6 +1241,8 @@ class NativeGenerator:
         self._explicit_placement = placement
         self.placement = placement
         self.vram_gb = vram_gb
+        self.text_encoder_placement = text_encoder_placement
+        self._te_streaming: TextEncoderStreaming | None = None
         self.spec = dit.spec
         if self.spec is None:
             raise NativeEngineUnsupportedError("NativeGenerator requires a DiT NativeModel carrying a ModelSpec")
@@ -1260,18 +1351,124 @@ class NativeGenerator:
         or a ``ClipTextEncoder`` WRAPPER (``Krea2ClipTextEncoder`` etc.) that has
         no ``.to`` — only a ``.encoder``. Duck-type so the decode OOM-retry that
         calls this never itself crashes with an ``AttributeError`` on the recovery
-        path (that would turn a recoverable OOM into a hard failure)."""
+        path (that would turn a recoverable OOM into a hard failure).
+
+        An encode placed with partial residency (:meth:`_place_te_for_encode`) is
+        torn down instead: every streamed part offloaded, its pinned host RAM
+        released, the wrapper pointed back at the CPU."""
+        streaming = self._te_streaming
+        if streaming is not None:
+            self._te_streaming = None
+            try:
+                streaming.teardown()
+            except Exception:  # pragma: no cover - best-effort offload
+                logger.debug("text-encoder streaming teardown failed", exc_info=True)
+            return
         if not self._is_cuda():
             return
-        target = self.te
-        if not hasattr(target, "to") and hasattr(target, "encoder"):
-            target = target.encoder  # clip wrapper -> underlying native encoder
+        target = self._te_target()
         mover = getattr(target, "to", None)
         if callable(mover):
             try:
                 mover("cpu")
             except Exception:  # pragma: no cover - best-effort offload
                 logger.debug("text-encoder offload to cpu failed", exc_info=True)
+
+    def _te_target(self) -> Any:
+        """The native encoder behind ``self.te`` (a ``ClipTextEncoder`` wrapper
+        exposes it as ``.encoder`` and has no ``.to`` of its own)."""
+        target = self.te
+        if not hasattr(target, "to") and hasattr(target, "encoder"):
+            target = target.encoder
+        return target
+
+    def _te_placement_mode(self) -> str:
+        if self.text_encoder_placement is not None:
+            return self.text_encoder_placement
+        return text_encoder_placement_settings().mode
+
+    def _te_available_gb(self, device: str, target: Any) -> float | None:
+        """VRAM the encoder could occupy on ``device`` right now: live free VRAM
+        plus what it already holds there. ``None`` off-CUDA or unmeasurable."""
+        if self._budget_gb() is None:
+            return None
+        free = free_vram_gb(device)
+        if free is None:
+            return None
+        return free + encoder_gb_on_device(target, device)
+
+    def _te_encode_plan(self, device: str, target: Any, footprint: TextEncoderFootprint) -> ComponentPlacement | None:
+        """Encode-phase placement of the text encoder, through ``plan_placement``.
+
+        ``encode_prompt`` always moved the encoder whole, so ``auto`` streams only
+        when that move cannot succeed: weights larger than the VRAM the encoder
+        could occupy (no reserve, no dequantisation peak, no budget in the test;
+        those only size the resident share). ``None`` means "move it whole, as
+        always": mode ``gpu``, a CPU run, nothing measurable. An explicit
+        ``placement`` decides on its own (its ``text_encoder.streamed`` defaults to
+        ``False``).
+        """
+        if self._explicit_placement is not None:
+            return self._explicit_placement.text_encoder
+        mode = self._te_placement_mode()
+        if mode == "gpu" or not str(device).startswith("cuda"):
+            return None
+        available = self._te_available_gb(device, target)
+        if available is None:
+            return None
+        sizes = {
+            "dit": self.dit.estimated_vram_gb or 0.0,
+            "text_encoder": footprint.weights_gb,
+            "vae": self.vae.estimated_vram_gb or 0.0,
+        }
+        budget = self._budget_gb()
+        plan = plan_placement(
+            budget or available, sizes, self.dit.quant_format, self.device_plan,
+            text_encoder_mode=mode,
+            text_encoder_available_gb=available,
+            text_encoder_dequant_gb=footprint.dequant_peak_gb,
+            text_encoder_headroom_gb=minimum_inference_memory_gb(),
+            text_encoder_fit_headroom_gb=0.0,
+            text_encoder_resident_cap_gb=budget,
+        )
+        return plan.text_encoder
+
+    def _place_te_for_encode(self, device: str) -> bool:
+        """Place the encoder with partial residency when the encode plan says the
+        whole move cannot succeed; ``False`` (nothing touched) leaves the whole
+        move to the caller. Nothing is evicted for it (the historical path never
+        evicted either); a placement that still OOMs retries fully streamed
+        (budget 0)."""
+        if self._explicit_placement is None and (
+            self._te_placement_mode() == "gpu" or not str(device).startswith("cuda")
+        ):
+            return False
+        target = self._te_target()
+        footprint = text_encoder_footprint(target)
+        if footprint is None:
+            return False
+        te_plan = self._te_encode_plan(device, target, footprint)
+        if te_plan is None or not te_plan.streamed:
+            return False
+        budget = te_plan.stream_budget_gb or 0.0
+        streaming = TextEncoderStreaming(target)
+        try:
+            streaming.apply(device, budget)
+        except torch.cuda.OutOfMemoryError:
+            logger.warning(
+                "streamed text-encoder placement OOM'd (budget %.1fGB); streaming every leaf", budget,
+            )
+            streaming.teardown()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            streaming = TextEncoderStreaming(target)
+            streaming.apply(device, 0.0)
+        self._te_streaming = streaming
+        logger.info(
+            "[NATIVE] text encoder streamed for encode: %.1fGB resident, %.1fGB streamed (budget %.1fGB, footprint %.1fGB)",
+            streaming.resident_gb, streaming.streamed_gb, budget, footprint.encode_gb,
+        )
+        return True
 
     def _own_models(self) -> list:
         """This generation's own NativeModels — never evicted to free room for it.
@@ -1501,14 +1698,26 @@ class NativeGenerator:
         a ConditioningModel and calls ``sample`` directly (see ``sample``).
         Normalises the raw TE output to the ``context``/``y``/``attention_mask``
         cond-dict contract.
+
+        The encoder takes the whole ``.to(te_device)`` as always, unless its
+        weights cannot fit the VRAM it could occupy (or mode ``stream``): then it
+        is placed with partial residency (:meth:`_place_te_for_encode`) and torn
+        down by ``_maybe_offload_te``.
         """
         te_device = self.device_plan.te_device
-        self.te.to(te_device)
-        cond = self._normalize_te(self._encode_te(prompt))
-        uncond = None
-        # Only classic-CFG models consume a negative; embedded-guidance ignores it.
-        if negative is not None and self.spec.sampling_settings.get("guidance") == "cfg":
-            uncond = self._normalize_te(self._encode_te(negative))
+        streamed = self._place_te_for_encode(te_device)
+        if not streamed:
+            self.te.to(te_device)
+        try:
+            cond = self._normalize_te(self._encode_te(prompt))
+            uncond = None
+            # Only classic-CFG models consume a negative; embedded-guidance ignores it.
+            if negative is not None and self.spec.sampling_settings.get("guidance") == "cfg":
+                uncond = self._normalize_te(self._encode_te(negative))
+        except Exception:
+            if streamed:
+                self._maybe_offload_te()
+            raise
         # TE is phase-dead for the rest of the generation -> free it now.
         self._maybe_offload_te()
         return Conditioning(cond, uncond)
