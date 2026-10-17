@@ -10,7 +10,9 @@ notification of that type should be delivered to a given user at all.
 
 Plugins extend this via the `notification_type.register` hook (see
 `src/features/notifications/hooks.py`), fired once at app startup next to the
-`output_type.register` hook in `build_container()`.
+`output_type.register` hook in `build_container()`, and by
+`PluginRegistry.enable_plugin` for a plugin enabled later. Types are never
+unregistered: a disabled plugin's types stay until the next restart.
 """
 
 from dataclasses import dataclass
