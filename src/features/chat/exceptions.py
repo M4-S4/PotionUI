@@ -68,3 +68,11 @@ class ContextBudgetExceededException(ChatException):
     ``src.features.llm.context_budget.ContextBudgetExceededError``, which
     this wraps to keep the llm feature layer chat-agnostic)."""
     pass
+
+
+class ToolExecutionPendingException(ChatException):
+    pass
+
+
+class ContinuationConflictException(ChatException):
+    pass

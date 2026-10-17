@@ -114,6 +114,20 @@ TOOL_LOOP_CONTINUATION_NUDGE = (
 )
 
 
+APPROVAL_CONTINUATION_NOTE = (
+    "The user just resolved the pending tool call (approved or declined); "
+    "its outcome is the last tool result in the conversation above. Reply with "
+    "one short sentence saying what was done, naming the item or change exactly "
+    "as that last tool result states it (never a name from an earlier search or "
+    "tool result), or that nothing was applied. Never answer with only an "
+    "acknowledgment such as \"OK\"."
+)
+
+
+def approval_continuation_message() -> Dict[str, str]:
+    return {"role": "user", "content": f"<context>\n{APPROVAL_CONTINUATION_NOTE}\n</context>"}
+
+
 def parse_reply_contract(content: str) -> Tuple[str, Optional[Dict[str, Any]]]:
     """Split ``## improved`` / ``## questions`` sections out of a reply.
 

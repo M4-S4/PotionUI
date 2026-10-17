@@ -678,9 +678,11 @@ for (const size of SIZES) {
 			await mixed.locator('[data-media-add="audio"]').click();
 			await page.locator('[data-source-menu] [data-source="history"]').click();
 			await expect(page.getByText('Select Audio from Generation History')).toBeVisible();
-			const mixedCards = page.getByRole('dialog').locator('[data-testid="history-file-tile"] button');
-			await expect(mixedCards).toHaveCount(1);
-			await mixedCards.first().click();
+			const mixedDialog = page.getByRole('dialog');
+			const mixedChecks = mixedDialog.getByRole('checkbox');
+			await expect(mixedChecks).toHaveCount(1);
+			await mixedChecks.first().check();
+			await mixedDialog.getByRole('button', { name: 'Use selected' }).click();
 			await expect(mixed.locator('[data-media-group="audio"] [data-media-tile]')).toHaveCount(1);
 			await expect(mixed.locator('[data-media-eyebrow="audio"]')).toContainText('1/3');
 		});

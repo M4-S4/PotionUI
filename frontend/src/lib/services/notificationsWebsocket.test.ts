@@ -1,26 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const owned = new Set<string>();
-
-vi.mock('$lib/generation/compare/compareStore.svelte', () => ({
-	ownsGeneration: (id: string | undefined) => !!id && owned.has(id)
-}));
 vi.mock('$lib/stores/toast', () => ({ toasts: { show: vi.fn() } }));
 vi.mock('$lib/utils/notificationChime', () => ({ playNotificationChime: vi.fn() }));
 
 import { toasts } from '$lib/stores/toast';
 import { notificationsWebSocket } from './notificationsWebsocket';
 
-function push(type: string, generationId: string) {
+function push(type: string, metadata: Record<string, unknown>, title = 'Generation completed', message = '') {
 	(notificationsWebSocket as unknown as { onMessage: (m: unknown) => void }).onMessage({
 		type: 'notification',
 		notification: {
-			id: `${type}-${generationId}`,
+			id: `${type}-${JSON.stringify(metadata)}`,
 			type,
 			level: type === 'generation.failed' ? 'error' : 'success',
-			title: 'Generation completed',
-			message: '',
-			metadata: { generation_id: generationId },
+			title,
+			message,
+			metadata,
 			read: false,
 			created_at: new Date().toISOString()
 		}
@@ -28,25 +23,24 @@ function push(type: string, generationId: string) {
 }
 
 beforeEach(() => {
-	owned.clear();
 	vi.mocked(toasts.show).mockReset();
 });
 
-describe('notification toasts for compare cells', () => {
+describe('generation notification toasts', () => {
 	it('shows the completion toast for an ordinary generation', () => {
-		push('generation.completed', 'solo');
+		push('generation.completed', { generation_id: 'solo' });
 		expect(toasts.show).toHaveBeenCalledTimes(1);
 	});
 
-	it('suppresses the completion toast for a compare grid cell', () => {
-		owned.add('cell-1');
-		push('generation.completed', 'cell-1');
-		expect(toasts.show).not.toHaveBeenCalled();
+	it('shows the single grid completion toast with its cell summary', () => {
+		push('generation.completed', { grid_id: 'grid-1' }, 'Comparison finished', '12 of 12 cells done.');
+		expect(toasts.show).toHaveBeenCalledTimes(1);
+		expect(vi.mocked(toasts.show).mock.calls[0][1]).toBe('12 of 12 cells done.');
+		expect(vi.mocked(toasts.show).mock.calls[0][2]).toMatchObject({ title: 'Comparison finished' });
 	});
 
-	it('still shows a failure toast for a compare grid cell', () => {
-		owned.add('cell-2');
-		push('generation.failed', 'cell-2');
+	it('shows a failure toast for a compare grid cell', () => {
+		push('generation.failed', { generation_id: 'cell-2' });
 		expect(toasts.show).toHaveBeenCalledTimes(1);
 	});
 });

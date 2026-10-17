@@ -140,9 +140,6 @@ storage/model_hash_cache.json
 frontend/tests/e2e/.playwright-artifacts/
 frontend/test-results/
 frontend/playwright-report/
-# scripts/marketing_capture.py run output — tests/e2e-marketing/
-frontend/tests/e2e-marketing/.playwright-artifacts/
-frontend/tests/e2e-marketing/preview.log
 
 # Internal tooling and working notes - never published
 .claude/

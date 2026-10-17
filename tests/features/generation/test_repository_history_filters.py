@@ -23,14 +23,15 @@ class TestGenerationHistoryFilters(PersistenceTestBase):
         self.user_id = self.create_test_user()
 
     def _make(self, prompt="a prompt", preset_id="native/SDXL/realistic",
-              mode="txt2img", status="completed"):
+              mode="txt2img", status="completed", form_data=None, prompt_state=None):
         gen = Generation(
             id=generate_ulid(),
             preset_id=preset_id,
-            form_data={"prompt": prompt},
+            form_data=form_data if form_data is not None else {"prompt": prompt},
             user_id=self.user_id,
             status=status,
             mode=mode,
+            prompt_state=prompt_state,
         )
         return self.repo.create(gen)
 
@@ -130,6 +131,24 @@ class TestGenerationHistoryFilters(PersistenceTestBase):
         sharp = self._make(prompt="a sharp cat")
         results = self.repo.get_all(user_id=self.user_id, search="cat, !blurry")
         self.assertEqual({g.id for g in results}, {sharp.id})
+
+    def test_search_matches_prompt_only_in_prompt_state(self):
+        segmented = self._make(form_data={"steps": 20}, prompt_state={"prompt": "a lighthouse at dusk", "promptSegments": []})
+        self._make(prompt="a happy dog")
+        results = self.repo.get_all(user_id=self.user_id, search="lighthouse")
+        self.assertEqual({g.id for g in results}, {segmented.id})
+        self.assertEqual(self.repo.count_by_status(user_id=self.user_id, search="lighthouse"), 1)
+
+    def test_search_ignores_negative_prompt_in_both_columns(self):
+        self._make(prompt="a castle", form_data={"prompt": "a castle", "negative_prompt": "blurry"})
+        self._make(form_data={"steps": 1}, prompt_state={"prompt": "a tower", "negativePrompt": "blurry"})
+        self.assertEqual(self.repo.get_all(user_id=self.user_id, search="blurry"), [])
+
+    def test_search_negation_covers_prompt_state(self):
+        keep = self._make(form_data={"steps": 1}, prompt_state={"prompt": "a calm sea"})
+        self._make(form_data={"steps": 1}, prompt_state={"prompt": "a stormy sea"})
+        results = self.repo.get_all(user_id=self.user_id, search="sea, !stormy")
+        self.assertEqual({g.id for g in results}, {keep.id})
 
     def test_search_matches_preset(self):
         q = self._make(prompt="landscape", preset_id="native/QwenImage/standard")

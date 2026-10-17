@@ -32,10 +32,11 @@ from src.features.chat.exceptions import (
 from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
 from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
-from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE
+from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE, approval_continuation_message
+from src.features.chat.tool_transcript import tool_metadata
 from src.features.llm import context_budget, trace_collector
 from src.features.llm.trace_repository import chat_call_trace_repository
-from src.features.llm.tools.base import ToolContext, ToolExecution, serialize_approval_preview
+from src.features.llm.tools.base import ToolExecution
 from src.features.llm.tools.builtin.utils import resolve_active_preset_id
 from src.platform.plugins.hooks import await_hook_blocking_waits
 from src.platform.util.imaging import convert_image_to_base64
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 # "0 = unlimited" convention documented for the setting.
 _DEFAULT_HISTORY_TOKEN_BUDGET = 8000
 _HISTORY_BUDGET_CHARS_PER_TOKEN = 4
+_MAX_TOOL_ROUNDS = 20
 
 
 class ConversationRunner:
@@ -112,8 +114,6 @@ class ConversationRunner:
         if not session.llm_config_id:
             raise InvalidLLMConfigException("Session has no LLM configuration")
 
-        # Execute before_send hook; drain blocking waits so a wait_for_completion
-        # automation (e.g. clear VRAM) finishes before the message proceeds.
         hook_data, blocked, hook_ctx = self._m._execute_hook(
             CHAT_MESSAGE_HOOKS.before_send,
             {
@@ -160,6 +160,7 @@ class ConversationRunner:
             preset_id = resolve_active_preset_id((context_metadata or {}).get("form_state"))
             if preset_id:
                 user_metadata["preset_id"] = preset_id
+        resolved_message = await self._m._tools.reject_pending_for_reply(session_id, content)
         user_message = self._m.chat_repository.add_message(
             session_id=session_id,
             role='user',
@@ -170,8 +171,14 @@ class ConversationRunner:
         if not user_message:
             raise MessageCreationFailedException("Failed to save user message")
 
-        # Build conversation history
-        conversation_history = self._m.chat_repository.get_conversation_history(session_id)
+        system_prompt, allowed_tools, mode = self._m._context.resolve_session_prompt_and_tools(
+            session, form_state=(context_metadata or {}).get("form_state"),
+        )
+        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
+
+        conversation_history = self._m.chat_repository.get_conversation_history(
+            session_id, include_tool_transcript=tools_enabled,
+        )
 
         # Execute before_generate hook
         gen_hook_data, _, _ctx = self._m._execute_hook(
@@ -184,14 +191,6 @@ class ConversationRunner:
         )
         # Allow hooks to modify generation parameters
         conversation_history = gen_hook_data.get("conversation_history", conversation_history)
-
-        # Resolve the session's mode into prompt + allowed tools up front: the
-        # injected blocks below must reference only tools the session can call
-        # (e.g. the memory block's write_memory nudge). Cached, side-effect-free.
-        system_prompt, allowed_tools, mode = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=(context_metadata or {}).get("form_state"),
-        )
-        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
 
         # Tools the mode's prompt describes but this session can't actually call
         # right now (toggled off, governed off, or unavailable) - without this
@@ -253,37 +252,12 @@ class ConversationRunner:
         image_base64 = convert_image_to_base64(image_data)
 
         tool_executions: List[ToolExecution] = []
+        transcript: List[Dict[str, Any]] = []
+        rounds_used = 0
 
         _thinking_start = time.monotonic()
         if tools_enabled:
-            # Build tool context with service references
-            tool_context = ToolContext(
-                user_id=user_id,
-                mode_id=mode.id,
-                is_admin=is_admin,
-                session_metadata=context_metadata or {},
-                segment_category_repository=self._m.segment_category_repository,
-                saved_segment_repository=self._m.saved_segment_repository,
-                segment_template_repository=self._m.segment_template_repository,
-                model_index_manager=self._m.model_index_manager,
-                preset_collaborators=self._m.preset_collaborators,
-                phrasebook_category_repository=self._m.phrasebook_category_repository,
-                phrasebook_value_repository=self._m.phrasebook_value_repository,
-                llm_repository=self._m.llm_service.repository,
-                prompt_database=self._m.prompt_database,
-                generation_orchestrator=self._m.generation_orchestrator,
-                llm_memory_repository=self._m.llm_memory_repository,
-                prompt_enhancement_manager=self._m.prompt_enhancement_manager,
-                media_indexer=self._m.media_indexer,
-                settings=self._m.settings,
-                collection_repository=self._m.collection_repository,
-                tag_repository=self._m.tag_repository,
-                plugin_registry=self._m.plugins,
-                generation_history_facade=self._m.generation_history_facade,
-                content_safety=self._m.content_safety,
-                library_collaborators=self._m.library_collaborators,
-                llm_id=session.llm_config_id,
-            )
+            tool_context = self._m._tools.tool_context(session, user_id, is_admin, context_metadata, mode.id)
 
             # Route through tool executor
             with trace_collector.activate(session_id, user_id, purpose="chat_tools"):
@@ -294,10 +268,13 @@ class ConversationRunner:
                     tool_context=tool_context,
                     mode=mode.id,
                     image_data=image_base64,
+                    max_iterations=_MAX_TOOL_ROUNDS,
                     allowed_tools=allowed_tools,
                     llm_options=mode.llm_options or None,
                     iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
                 )
+            transcript = self._list_or_empty(getattr(llm_response, "tool_transcript", None))
+            rounds_used = self._int_or_zero(getattr(llm_response, "rounds_used", 0))
         else:
             # Standard path - direct LLM call without tools
             with trace_collector.activate(session_id, user_id, purpose="chat"):
@@ -349,26 +326,7 @@ class ConversationRunner:
             ),
         }
 
-        # Include tool execution records if any
-        if tool_executions:
-            assistant_metadata['tool_executions'] = [
-                {
-                    'tool_name': te.tool_name,
-                    'arguments': te.arguments,
-                    'result': {
-                        'success': te.result.success,
-                        'data': te.result.data,
-                        'error': te.result.error,
-                    },
-                    'duration_ms': te.duration_ms,
-                    'pending_approval': te.pending_approval,
-                    'preview': serialize_approval_preview(te.result.preview),
-                }
-                for te in tool_executions
-            ]
-            # Store context_metadata so approve_tool_execution can rebuild ToolContext
-            if context_metadata:
-                assistant_metadata['context_metadata'] = context_metadata
+        assistant_metadata.update(tool_metadata(tool_executions, transcript, rounds_used, context_metadata))
 
         # Add assistant message to session
         assistant_message = self._m.chat_repository.add_message(
@@ -413,7 +371,8 @@ class ConversationRunner:
 
         return SendMessageResponse(
             user_message=user_message,
-            assistant_message=assistant_message
+            assistant_message=assistant_message,
+            resolved_message=resolved_message,
         )
 
     async def send_message_stream(
@@ -425,6 +384,7 @@ class ConversationRunner:
         context_metadata: Optional[Dict[str, Any]] = None,
         resources: Optional[List[str]] = None,
         is_admin: bool = False,
+        continue_from: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Send a message and stream the AI response as an async generator.
 
@@ -438,6 +398,8 @@ class ConversationRunner:
             content: The message content
             image_data: Optional image data (path or base64)
             context_metadata: Optional context metadata
+            continue_from: ``{"message_id", "tool_index"}`` of a resolved tool
+                execution to continue the turn from, instead of a new user message
 
         Yields:
             Dicts with 'event' and 'data' keys describing streaming events.
@@ -458,26 +420,34 @@ class ConversationRunner:
         if not session.llm_config_id:
             raise InvalidLLMConfigException("Session has no LLM configuration")
 
-        # Execute before_send hook; drain blocking waits so a wait_for_completion
-        # automation (e.g. clear VRAM) finishes before the message proceeds.
-        hook_data, blocked, hook_ctx = self._m._execute_hook(
-            CHAT_MESSAGE_HOOKS.before_send,
-            {
-                "session_id": session_id,
-                "user_id": user_id,
-                "content": content,
-                "image_data": image_data
-            }
+        continuation = (
+            self._m._tools.continuation(session_id, continue_from) if continue_from else None
         )
-        await await_hook_blocking_waits(hook_ctx)
 
-        if blocked:
-            reason = hook_data.get("block_reason", "Message blocked")
-            logger.warning(f"Message send blocked by plugin: {reason}")
-            raise MessageCreationFailedException(reason)
+        if continuation is None:
+            hook_data, blocked, hook_ctx = self._m._execute_hook(
+                CHAT_MESSAGE_HOOKS.before_send,
+                {
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "content": content,
+                    "image_data": image_data
+                }
+            )
+            await await_hook_blocking_waits(hook_ctx)
 
-        content = hook_data.get("content", content)
-        image_data = hook_data.get("image_data", image_data)
+            if blocked:
+                reason = hook_data.get("block_reason", "Message blocked")
+                logger.warning(f"Message send blocked by plugin: {reason}")
+                raise MessageCreationFailedException(reason)
+
+            content = hook_data.get("content", content)
+            image_data = hook_data.get("image_data", image_data)
+        else:
+            image_data = None
+            resources = None
+            if context_metadata is None:
+                context_metadata = continuation.context_metadata
 
         # Behavior-trace bookkeeping.
         step_records: List[Dict[str, Any]] = []
@@ -509,30 +479,39 @@ class ConversationRunner:
                 resources, user_id, session.mode, context_metadata, is_admin=is_admin
             )
 
-        # Save user message (store image reference in metadata for chat display)
-        user_metadata = {}
-        if image_data:
-            user_metadata["image_path"] = image_data
-        if context_metadata and context_metadata.get("image_url"):
-            user_metadata["image_url"] = context_metadata["image_url"]
-        if resolved_resources:
-            user_metadata["resources"] = self._m._context.resources_metadata(resolved_resources)
-        if session.mode == GENERATION_MODE_ID:
-            preset_id = resolve_active_preset_id((context_metadata or {}).get("form_state"))
-            if preset_id:
-                user_metadata["preset_id"] = preset_id
-        user_message = self._m.chat_repository.add_message(
-            session_id=session_id,
-            role='user',
-            content=content,
-            metadata=user_metadata if user_metadata else None,
+        user_message = None
+        resolved_message = None
+        if continuation is None:
+            user_metadata = {}
+            if image_data:
+                user_metadata["image_path"] = image_data
+            if context_metadata and context_metadata.get("image_url"):
+                user_metadata["image_url"] = context_metadata["image_url"]
+            if resolved_resources:
+                user_metadata["resources"] = self._m._context.resources_metadata(resolved_resources)
+            if session.mode == GENERATION_MODE_ID:
+                preset_id = resolve_active_preset_id((context_metadata or {}).get("form_state"))
+                if preset_id:
+                    user_metadata["preset_id"] = preset_id
+            resolved_message = await self._m._tools.reject_pending_for_reply(session_id, content)
+            user_message = self._m.chat_repository.add_message(
+                session_id=session_id,
+                role='user',
+                content=content,
+                metadata=user_metadata if user_metadata else None,
+            )
+
+            if not user_message:
+                raise MessageCreationFailedException("Failed to save user message")
+
+        system_prompt, allowed_tools, mode = self._m._context.resolve_session_prompt_and_tools(
+            session, form_state=(context_metadata or {}).get("form_state"),
         )
+        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
 
-        if not user_message:
-            raise MessageCreationFailedException("Failed to save user message")
-
-        # Build conversation history
-        conversation_history = self._m.chat_repository.get_conversation_history(session_id)
+        conversation_history = self._m.chat_repository.get_conversation_history(
+            session_id, include_tool_transcript=tools_enabled,
+        )
 
         # Execute before_generate hook
         gen_hook_data, _, _ctx = self._m._execute_hook(
@@ -544,14 +523,6 @@ class ConversationRunner:
             }
         )
         conversation_history = gen_hook_data.get("conversation_history", conversation_history)
-
-        # Resolve the session's mode into prompt + allowed tools up front: the
-        # injected blocks below must reference only tools the session can call
-        # (e.g. the memory block's write_memory nudge). Cached, side-effect-free.
-        system_prompt, allowed_tools, mode = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=(context_metadata or {}).get("form_state"),
-        )
-        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
 
         # Tools the mode's prompt describes but this session can't actually call
         # right now (toggled off, governed off, or unavailable) - without this
@@ -613,6 +584,8 @@ class ConversationRunner:
         self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
+        if continuation is not None:
+            conversation_history.append(approval_continuation_message())
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
         budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
@@ -649,10 +622,15 @@ class ConversationRunner:
         image_base64 = convert_image_to_base64(image_data)
 
         # --- Streaming starts here ---
-        yield {"event": "message_created", "data": {"user_message_id": user_message.id, "assistant_message_id": ""}}
+        yield {"event": "message_created", "data": {
+            "user_message_id": user_message.id if user_message else None, "assistant_message_id": "",
+        }}
 
+        base_rounds = continuation.rounds_used if continuation else 0
         full_content = ""
         tool_executions: List[ToolExecution] = []
+        transcript: List[Dict[str, Any]] = []
+        rounds_used = 0
         rescues: Optional[List[Dict[str, Any]]] = None
         tool_failures: Optional[Any] = None
         thinking_mode: Optional[Dict[str, Any]] = None
@@ -665,33 +643,7 @@ class ConversationRunner:
 
         try:
             if tools_enabled:
-                tool_context = ToolContext(
-                    user_id=user_id,
-                    mode_id=mode.id,
-                    is_admin=is_admin,
-                    session_metadata=context_metadata or {},
-                    segment_category_repository=self._m.segment_category_repository,
-                saved_segment_repository=self._m.saved_segment_repository,
-                segment_template_repository=self._m.segment_template_repository,
-                    model_index_manager=self._m.model_index_manager,
-                    preset_collaborators=self._m.preset_collaborators,
-                    phrasebook_category_repository=self._m.phrasebook_category_repository,
-                phrasebook_value_repository=self._m.phrasebook_value_repository,
-                    llm_repository=self._m.llm_service.repository,
-                    prompt_database=self._m.prompt_database,
-                    generation_orchestrator=self._m.generation_orchestrator,
-                    llm_memory_repository=self._m.llm_memory_repository,
-                    prompt_enhancement_manager=self._m.prompt_enhancement_manager,
-                    media_indexer=self._m.media_indexer,
-                    settings=self._m.settings,
-                    collection_repository=self._m.collection_repository,
-                    tag_repository=self._m.tag_repository,
-                    plugin_registry=self._m.plugins,
-                    generation_history_facade=self._m.generation_history_facade,
-                    content_safety=self._m.content_safety,
-                    library_collaborators=self._m.library_collaborators,
-                    llm_id=session.llm_config_id,
-                )
+                tool_context = self._m._tools.tool_context(session, user_id, is_admin, context_metadata, mode.id)
 
                 with trace_collector.activate(session_id, user_id, purpose="chat_tools"):
                     # Owns the executor's stream: this generator being closed
@@ -707,9 +659,11 @@ class ConversationRunner:
                         tool_context=tool_context,
                         mode=mode.id,
                         image_data=image_base64,
+                        max_iterations=max(0, _MAX_TOOL_ROUNDS - base_rounds),
                         allowed_tools=allowed_tools,
                         llm_options=mode.llm_options or None,
                         iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
+                        applied_calls=continuation.applied_calls if continuation else None,
                     )) as agen:
                         async for event in agen:
                             if event["type"] in ("tool_start", "tool_end"):
@@ -730,6 +684,8 @@ class ConversationRunner:
                                 yield {"event": "token", "data": event["data"]}
                             elif event["type"] == "done":
                                 tool_executions = event["data"]["tool_executions"]
+                                transcript = self._list_or_empty(event["data"].get("tool_transcript"))
+                                rounds_used = self._int_or_zero(event["data"].get("rounds_used"))
                                 rescues = event["data"].get("rescues")
                                 tool_failures = event["data"].get("tool_failures")
                                 thinking_mode = event["data"].get("thinking_mode")
@@ -831,25 +787,14 @@ class ConversationRunner:
                 assistant_metadata['prompt_tokens'] = usage_data.get('prompt_tokens')
                 assistant_metadata['completion_tokens'] = usage_data.get('completion_tokens')
 
-            if tool_executions:
-                assistant_metadata['tool_executions'] = [
-                    {
-                        'tool_name': te.tool_name,
-                        'arguments': te.arguments,
-                        'result': {
-                            'success': te.result.success,
-                            'data': te.result.data,
-                            'error': te.result.error,
-                        },
-                        'duration_ms': te.duration_ms,
-                        'pending_approval': te.pending_approval,
-                        'preview': serialize_approval_preview(te.result.preview),
-                    }
-                    for te in tool_executions
-                ]
-                # Store context_metadata so approve_tool_execution can rebuild ToolContext
-                if context_metadata:
-                    assistant_metadata['context_metadata'] = context_metadata
+            assistant_metadata.update(
+                tool_metadata(tool_executions, transcript, base_rounds + rounds_used, context_metadata)
+            )
+            if continuation is not None:
+                assistant_metadata['continued_from'] = {
+                    "message_id": continuation.message_id,
+                    "tool_index": continuation.tool_index,
+                }
 
             assistant_message = self._m.chat_repository.add_message(
                 session_id=session_id,
@@ -875,16 +820,16 @@ class ConversationRunner:
                 }
             )
 
-            # Execute after_send hook
-            self._m._execute_hook(
-                CHAT_MESSAGE_HOOKS.after_send,
-                {
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    "user_message_id": user_message.id,
-                    "assistant_message_id": assistant_message.id
-                }
-            )
+            if user_message is not None:
+                self._m._execute_hook(
+                    CHAT_MESSAGE_HOOKS.after_send,
+                    {
+                        "session_id": session_id,
+                        "user_id": user_id,
+                        "user_message_id": user_message.id,
+                        "assistant_message_id": assistant_message.id
+                    }
+                )
 
             logger.debug(f"Streaming message exchange complete in session {session_id}")
 
@@ -895,7 +840,8 @@ class ConversationRunner:
                 "event": "done",
                 "data": {
                     "assistant_message": assistant_message.model_dump(),
-                    "user_message": user_message.model_dump()
+                    "user_message": user_message.model_dump() if user_message else None,
+                    "resolved_message": resolved_message,
                 }
             }
 
@@ -910,6 +856,14 @@ class ConversationRunner:
         except Exception as e:
             logger.exception(f"Error during streaming in session {session_id}: {e}")
             yield {"event": "error", "data": {"error": "stream_error", "message": failure_detail(e, is_admin)}}
+
+    @staticmethod
+    def _list_or_empty(value: Any) -> List[Dict[str, Any]]:
+        return value if isinstance(value, list) else []
+
+    @staticmethod
+    def _int_or_zero(value: Any) -> int:
+        return value if isinstance(value, int) else 0
 
     def _start_title_task(self, session: SessionResponse, session_id: str) -> Optional[asyncio.Task]:
         """Start async title generation if the session needs one.
@@ -989,11 +943,14 @@ class ConversationRunner:
     ) -> Dict[str, Any]:
         """Trim `conversation_history` in place to a token budget before it reaches the LLM.
 
-        Uses a chars/4 heuristic per message. Whole messages only, oldest
-        dropped first. The last ``min_protected`` messages are always kept
-        regardless of their combined size — normally just the current (last)
-        message. This only affects what's sent to the LLM for this turn — the
-        stored conversation in the repository/UI is untouched.
+        Uses a chars/4 heuristic per message. Whole units only, oldest
+        dropped first: an assistant tool-call round and its tool results form
+        one unit (see ``context_budget.atomic_units``), so a round is never
+        split. The current turn (the last user message and every round after
+        it) and at least the last ``min_protected`` units are always kept
+        regardless of their combined size. This only affects what's sent to
+        the LLM for this turn — the stored conversation in the repository/UI
+        is untouched.
 
         Returns the manifest entry recorded into the behavior trace:
         ``{"messages_sent": n, "messages_total": n, "truncated": bool}``.
@@ -1007,26 +964,37 @@ class ConversationRunner:
             return {"messages_sent": total, "messages_total": total, "truncated": False}
 
         budget_chars = budget_tokens * _HISTORY_BUDGET_CHARS_PER_TOKEN
-        min_protected = max(1, min(min_protected, total))
+        units = context_budget.atomic_units(conversation_history)
+        anchor = context_budget.current_turn_anchor(units)
+        protected_count = max(1, min(min_protected, len(units)))
+        if anchor is not None:
+            protected_count = max(protected_count, len(units) - anchor)
 
-        # Always keep the protected tail regardless of its size, then walk
-        # backwards keeping whole messages while they still fit.
-        protected = conversation_history[-min_protected:]
+        protected = units[-protected_count:]
         kept_reversed = list(reversed(protected))
-        used_chars = sum(len(msg.get("content", "") or "") for msg in protected)
-        for msg in reversed(conversation_history[:-min_protected]):
-            content_len = len(msg.get("content", "") or "")
-            if used_chars + content_len > budget_chars:
+        used_chars = sum(self._unit_chars(unit) for unit in protected)
+        for unit in reversed(units[:-protected_count]):
+            unit_chars = self._unit_chars(unit)
+            if used_chars + unit_chars > budget_chars:
                 break
-            kept_reversed.append(msg)
-            used_chars += content_len
+            kept_reversed.append(unit)
+            used_chars += unit_chars
 
-        kept = list(reversed(kept_reversed))
+        kept = [msg for unit in reversed(kept_reversed) for msg in unit]
         truncated = len(kept) < total
         if truncated:
             conversation_history[:] = kept
 
         return {"messages_sent": len(kept), "messages_total": total, "truncated": truncated}
+
+    @staticmethod
+    def _unit_chars(unit: List[Dict[str, Any]]) -> int:
+        chars = 0
+        for msg in unit:
+            chars += len(msg.get("content", "") or "")
+            if msg.get("tool_calls"):
+                chars += len(json.dumps(msg["tool_calls"], default=str))
+        return chars
 
     def _resolve_tool_schemas_for_ledger(self, allowed_tools: Optional[List[str]]) -> List[Dict[str, Any]]:
         """Fetch the resolved tool schemas the executor would actually send this turn.

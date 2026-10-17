@@ -182,3 +182,12 @@ test('licenseFlags spells out the CivitAI flags', () => {
 	]);
 	assert.deepEqual(licenseFlags(null), []);
 });
+
+test("initialForm starts on the file's own type before the repo type", () => {
+	const repo = { ...DETAIL, mb_type: 'upscaler' };
+	assert.equal(initialForm(ADMIN, repo, { ...FILE, file_type: 'Text Encoder' }).modelType, 'text_encoder');
+	assert.equal(initialForm(ADMIN, repo, { ...FILE, file_type: 'UNet' }).modelType, 'unet');
+	assert.equal(initialForm(ADMIN, repo, { ...FILE, file_type: 'VAE' }).modelType, 'vae');
+	assert.equal(initialForm(ADMIN, repo, { ...FILE, file_type: 'Model' }).modelType, 'upscaler');
+	assert.equal(initialForm(ADMIN, repo, FILE).modelType, 'upscaler');
+});

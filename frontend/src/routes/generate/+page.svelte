@@ -26,6 +26,7 @@
 	import { api, type GenerationRequest, type PresetStyle } from '$lib/services/api';
 	import type { GenerationQueueSnapshot } from '$lib/types/api';
 	import { buildVariablesPayload } from '$lib/utils/generationOrchestrator';
+	import { applyIndependentUsages, mergeVariableRolls } from '$lib/utils/variableDefs';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
 	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
 	import {
@@ -281,13 +282,25 @@
 			toasts.error(reason);
 			return { ok: false, reason };
 		}
-		const positive = resolvedDoc.segments[0]?.prompt ?? '';
-		const negative = resolvedDoc.segments[0]?.negative_prompt ?? '';
-		const variablesResult = buildVariablesPayload(tab);
+		const independent = applyIndependentUsages(
+			resolvedDoc.segments.map((s) => ({ positive: s.prompt ?? '', negative: s.negative_prompt ?? '' })),
+			tab.variables
+		);
+		const sentDoc = {
+			...resolvedDoc,
+			segments: resolvedDoc.segments.map((s, i) => ({
+				...s,
+				prompt: independent.prompts[i].positive,
+				negative_prompt: independent.prompts[i].negative
+			}))
+		};
+		const positive = sentDoc.segments[0]?.prompt ?? '';
+		const negative = sentDoc.segments[0]?.negative_prompt ?? '';
+		const variablesResult = buildVariablesPayload(tab, { usageCounts: independent.usageCounts });
 		const request: GenerationRequest = buildGenerationRequest(tab, {
 			tabId: tab.id,
 			prompts: [{ positive, negative }],
-			formData: { ...tab.formData, video_director: resolvedDoc },
+			formData: { ...tab.formData, video_director: sentDoc },
 			variables: variablesResult.variables,
 			promptStateVariables: false
 		});
@@ -1507,7 +1520,7 @@
 					// pick — merge, don't replace, so a variable rolled
 					// on an earlier click keeps its last roll until it's rolled again.
 					...(Object.keys(variableRolls).length > 0 ? {
-						variableRolls: { ...(currentTab.variableRolls || {}), ...variableRolls }
+						variableRolls: mergeVariableRolls(currentTab.variableRolls, variableRolls)
 					} : {}),
 					// Per-shot Video Director run tracking (PLAN.md §C W3) -- only
 					// when this submission actually covered shot(s) (Video Director

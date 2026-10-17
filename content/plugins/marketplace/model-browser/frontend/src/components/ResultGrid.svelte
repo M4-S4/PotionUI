@@ -16,7 +16,8 @@
 		onLoadMore,
 		onRetry,
 		onOpen,
-		revealFor = null
+		revealFor = null,
+		nsfwMode = 'show'
 	} = $props();
 
 	const SKELETONS = Array.from({ length: 12 }, (_, index) => index);
@@ -112,7 +113,7 @@
 	<ul class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5" aria-label="Models">
 		{#each items as item (`${item.source}:${item.id}`)}
 			<li class="min-w-0">
-				<ModelCard {item} {onOpen} reveal={revealFor ? revealFor(item) : null} />
+				<ModelCard {item} {onOpen} reveal={revealFor ? revealFor(item) : null} {nsfwMode} />
 			</li>
 		{/each}
 	</ul>
@@ -128,7 +129,7 @@
 		{:else if hasMore}
 			<HostUi name="Button" props={{ variant: 'secondary', size: 'sm', onclick: () => onLoadMore?.() }}>Load more</HostUi>
 		{:else}
-			<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">End of results</p>
+			<p class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">End of results</p>
 		{/if}
 	</div>
 {/if}

@@ -23,11 +23,13 @@ and what their results mean for the turn.
 import json
 import logging
 import re
+import uuid
 from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional, Protocol
 
 from src.features.llm import context_budget
+from src.features.llm.clients.tool_call_shape import arguments_to_object
 from src.features.llm.tools import tool_call_rescue
 from src.features.llm.tools.base import ToolContext, ToolExecution
 
@@ -110,12 +112,15 @@ class ToolCallGuard:
     never blocked.
     """
 
-    def __init__(self) -> None:
+    ALREADY_APPLIED_RESULT = "Already applied earlier in this turn."
+
+    def __init__(self, applied_calls: Optional[set] = None) -> None:
         self._failed_calls: Dict[str, str] = {}
         self.tool_failures: Dict[str, int] = {}
+        self._applied_calls = set(applied_calls or ())
 
     @staticmethod
-    def _call_key(tool_name: str, arguments: Dict[str, Any]) -> str:
+    def call_key(tool_name: str, arguments: Dict[str, Any]) -> str:
         try:
             args_json = json.dumps(arguments, sort_keys=True, default=str)
         except TypeError:
@@ -124,7 +129,7 @@ class ToolCallGuard:
 
     def blocked_repeat_error(self, tool_name: str, arguments: Dict[str, Any]) -> Optional[str]:
         """The teaching error to return without re-executing, or None to proceed."""
-        original_error = self._failed_calls.get(self._call_key(tool_name, arguments))
+        original_error = self._failed_calls.get(self.call_key(tool_name, arguments))
         if original_error is None:
             return None
         return (
@@ -137,9 +142,12 @@ class ToolCallGuard:
         if result.success:
             return
         self.tool_failures[tool_name] = self.tool_failures.get(tool_name, 0) + 1
-        key = self._call_key(tool_name, arguments)
+        key = self.call_key(tool_name, arguments)
         if key not in self._failed_calls:
             self._failed_calls[key] = result.error or "unknown error"
+
+    def already_applied(self, tool_name: str, arguments: Dict[str, Any]) -> bool:
+        return self.call_key(tool_name, arguments) in self._applied_calls
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +277,7 @@ class ToolWorkflow:
         forced_tool_call: Optional[Dict[str, Any]] = None,
         iteration_nudge: Optional[str] = None,
         wrap_up_on_limit: bool = True,
+        applied_calls: Optional[set] = None,
     ) -> None:
         self._executor = executor
         self.tool_context = tool_context
@@ -282,8 +291,10 @@ class ToolWorkflow:
         self.wrap_up_on_limit = wrap_up_on_limit
 
         self.working_messages: List[Dict[str, Any]] = list(messages)
+        self._history_len = len(self.working_messages)
         self.tool_executions: List[ToolExecution] = []
-        self.guard = ToolCallGuard()
+        self.guard = ToolCallGuard(applied_calls)
+        self.iterations_used = 0
         self._rescue_records: List[Dict[str, Any]] = []
         self._rescue_retries = 0
         self._any_tool_round_completed = False
@@ -308,6 +319,29 @@ class ToolWorkflow:
     def tool_failures(self) -> Optional[Dict[str, int]]:
         return dict(self.guard.tool_failures) if self.guard.tool_failures else None
 
+    @property
+    def transcript(self) -> List[Dict[str, Any]]:
+        rounds: List[Dict[str, Any]] = []
+        for message in self.working_messages[self._history_len:]:
+            if message.get("role") == "assistant" and message.get("tool_calls"):
+                rounds.append({
+                    "calls": [
+                        {
+                            "id": call.get("id", ""),
+                            "name": call.get("function", {}).get("name", ""),
+                            "arguments": arguments_to_object(call.get("function", {}).get("arguments")),
+                        }
+                        for call in message["tool_calls"]
+                    ],
+                    "results": [],
+                })
+            elif message.get("role") == "tool" and rounds:
+                rounds[-1]["results"].append({
+                    "tool_call_id": message.get("tool_call_id", ""),
+                    "content": message.get("content", ""),
+                })
+        return rounds
+
     # -- the loop -----------------------------------------------------------
 
     async def run(self, source: TurnSource) -> AsyncGenerator[Any, None]:
@@ -315,6 +349,7 @@ class ToolWorkflow:
             yield event
 
         for iteration in range(self.max_iterations):
+            self.iterations_used += 1
             logger.debug(f"[ToolWorkflow] Iteration {iteration + 1}/{self.max_iterations}")
             turn: Optional[ProviderTurn] = None
             # Owns the turn source's generator: this loop is the ONLY thing
@@ -462,6 +497,7 @@ class ToolWorkflow:
         self, calls: List[Dict[str, Any]], assistant_content: str
     ) -> AsyncGenerator[Any, None]:
         """Append the assistant tool_call message, then run every call."""
+        calls = [self._with_id(call) for call in calls]
         self.working_messages.append({
             "role": "assistant",
             "content": assistant_content,
@@ -476,6 +512,7 @@ class ToolWorkflow:
         if self._inline_assistant_msg is None:
             self._inline_assistant_msg = {"role": "assistant", "content": "", "tool_calls": []}
             self.working_messages.append(self._inline_assistant_msg)
+        call = self._with_id(call)
         self._inline_assistant_msg["tool_calls"].append(call)
         async for item in self._run_calls([call]):
             yield item
@@ -485,6 +522,12 @@ class ToolWorkflow:
         once the turn's generation is complete."""
         if self._inline_assistant_msg is not None:
             self._inline_assistant_msg["content"] = strip_tool_call_xml(content)
+
+    @staticmethod
+    def _with_id(call: Dict[str, Any]) -> Dict[str, Any]:
+        if call.get("id"):
+            return call
+        return {**call, "id": f"call_{uuid.uuid4().hex[:24]}"}
 
     @property
     def dispatched_inline(self) -> bool:

@@ -71,11 +71,11 @@ function formatValue(value: unknown): string {
  * present, so callers fall through to the chip/fallback renderers.
  */
 export function buildApprovalDiff(execution: ToolExecution): ApprovalDiffRow[] | null {
-	const data = parseExecutionResultData<{
-		proposed_changes?: Array<{ field_name: string; old_value: unknown; new_value: unknown; reason?: string }>;
-	}>(execution);
-	if (!data.proposed_changes || data.proposed_changes.length === 0) return null;
-	return data.proposed_changes.map((change) => ({
+	type ChangeRow = { field_name: string; old_value: unknown; new_value: unknown; reason?: string };
+	const data = parseExecutionResultData<{ proposed_changes?: ChangeRow[]; applied_changes?: ChangeRow[] }>(execution);
+	const changes = data.proposed_changes?.length ? data.proposed_changes : data.applied_changes;
+	if (!changes || changes.length === 0) return null;
+	return changes.map((change) => ({
 		field: change.field_name,
 		oldValue: formatValue(change.old_value),
 		newValue: formatValue(change.new_value),

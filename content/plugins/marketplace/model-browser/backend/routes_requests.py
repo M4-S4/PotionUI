@@ -198,6 +198,27 @@ def list_requests(
     )
 
 
+MAX_PENDING_KEYS = 5000
+
+
+@router.get("/requests/pending")
+def pending_requests(principal: Principal = Depends(require_requests_access)) -> Dict[str, Any]:
+    rows = requests.list_rows(user_id=principal.user.id, statuses=[requests.OPEN], limit=MAX_PENDING_KEYS)
+    return _ok(
+        {
+            "keys": [
+                {
+                    "source": row.source,
+                    "model_id": row.source_model_id,
+                    "version_id": row.source_version_id,
+                    "file_id": row.file_id,
+                }
+                for row in rows
+            ]
+        }
+    )
+
+
 async def _queue_for_requester(
     request: Request, approval: Approval, principal: Principal
 ) -> Tuple[Dict[str, Any], str, NsfwContext]:

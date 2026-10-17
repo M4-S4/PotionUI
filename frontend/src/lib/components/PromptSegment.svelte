@@ -34,6 +34,7 @@
 	export let placeholder = 'Enter prompt content... (# for phrasebook)';
 	export let variables: VariablesMap = {};
 	export let variableRolls: Record<string, VariableRoll> = {};
+	export let variableUsageNumbers: { name: string; ordinal: number; total: number }[] = [];
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
 	export let activeTriggerWords: string[] = [];
@@ -486,6 +487,7 @@
 					density={compact ? 'compact' : 'default'}
 					{variables}
 					{variableRolls}
+					{variableUsageNumbers}
 					{onVariableDefChange}
 					{onOpenVariableManager}
 					{activeTriggerWords}

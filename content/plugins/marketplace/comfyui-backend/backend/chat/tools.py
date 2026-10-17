@@ -37,7 +37,7 @@ model's own arguments (the ops schema has no such fields, and never should) -
 `execute` at proposal time, `execute_confirmed` at approval time from the
 SAME persisted context the proposal turn saw (approval rebuilds
 ``ToolContext`` from the message's stored ``context_metadata``, not a live
-resync - see ``ToolCallDispatcher.approve_tool_execution``). The wizard checks
+resync - see ``ToolCallDispatcher.resolve_tool_execution``). The wizard checks
 the stamped values before applying anything (see `applyImportFormChanges`):
 a missing or mismatched `draft_id` rejects the whole batch outright (this
 module has no way to know whether the wizard has since moved on to a

@@ -82,6 +82,7 @@ class MemoryPolicy:
                 # Native engine v2 families.
                 "flux2": 18.0,       # 9B DiT bf16 (~9GB when fp8-scaled)
                 "flux_klein": 18.0,  # same 9B Flux2 DiT checkpoint (Klein)
+                "flux3": 11.5,
                 "krea2": 26.0,       # ~12B DiT bf16 (features 6144 x 28 layers), 26GB on disk
                 "wan22": 14.0,       # 14B expert resident at a time (video), fp8 default
                 "ltx2": 27.0,        # LTX-2 AV DiT (19-22B)

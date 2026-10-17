@@ -37,6 +37,13 @@
 	$: varyingNotes = previewVariables.notes.filter((note) =>
 		(active === 'prompt' ? prompt : negativePrompt).includes('${' + note.name + '}')
 	);
+	$: rowNotes = previewVariables.notes.filter((note) => prompt.includes('${' + note.name + '}'));
+	$: rowNoteText =
+		rowNotes.length === 0
+			? ''
+			: rowNotes.length === 1
+				? `${rowNotes[0].name} ${rowNotes[0].phrase}`
+				: `${rowNotes[0].name} ${rowNotes[0].phrase} +${rowNotes.length - 1} more`;
 	$: activeText = active === 'prompt' ? resolvedPrompt : resolvedNegativePrompt;
 	$: wordCount = activeText.trim() ? activeText.trim().split(/\s+/).length : 0;
 	$: activeSegments = buildSyntaxSegments(activeText, promptSyntax);
@@ -67,6 +74,9 @@
 				<span class="block truncate font-mono text-2xs text-fg-subtle">
 					{resolvedPrompt || 'No enabled prompt content'}
 				</span>
+				{#if rowNoteText}
+					<span class="block truncate text-xs text-fg-muted" data-testid="resolved-row-note">{rowNoteText}</span>
+				{/if}
 			</span>
 			<Icon name="chevron-down" className="h-4 w-4 flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
 		</button>

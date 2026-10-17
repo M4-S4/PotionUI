@@ -1,0 +1,46 @@
+schema: 1
+
+cases:
+  - name: "flux3-distilled-fast"
+    mode: "txt2img"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a stack of ceramic bowls on a kitchen counter, soft daylight"
+      speed_profile: "turbo"
+      steps: 16
+      cfg: 1.0
+      sampler: "euler"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true
+
+  - name: "flux3-edit-fast"
+    mode: "edit"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "change the sign text to read \"Coffee\""
+      speed_profile: "turbo"
+      steps: 16
+      cfg: 1.0
+      sampler: "euler"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

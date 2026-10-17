@@ -22,7 +22,7 @@ export interface MediaPick {
 
 const FALLBACK_EXTENSION: Record<MediaKind, string> = { image: 'png', video: 'mp4', audio: 'mp3' };
 
-export function pickFromGeneration(file: GenerationFileLike): MediaPick {
+export function pickFromGeneration(file: GenerationFileLike, label?: string): MediaPick {
 	const segments = file.file_path.split('/').filter((segment) => segment);
 	const filename = segments[segments.length - 1];
 	const generationId = segments[segments.length - 2];
@@ -44,7 +44,8 @@ export function pickFromGeneration(file: GenerationFileLike): MediaPick {
 			url: `/api/media/generations/${generationId}/${filename}`,
 			name: resolvedName,
 			type: kind,
-			metadata
+			metadata,
+			...(label && label.trim() ? { label: label.trim() } : {})
 		},
 		candidate: {
 			name: filename || 'file',

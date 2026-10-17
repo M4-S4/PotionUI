@@ -36,7 +36,6 @@ from src.features.llm.tools.workflow import (
     ToolWorkflow,
     TurnRequest,
     parse_xml_tool_calls as _parse_xml_tool_calls,
-    strip_tool_call_xml,
 )
 
 logger = logging.getLogger(__name__)
@@ -562,7 +561,7 @@ class ToolExecutor:
             arguments=arguments,
             result=result,
             duration_ms=duration_ms,
-            pending_approval=False,
+            tool_call_id=call_id,
         )
         tool_executions.append(execution)
 
@@ -584,7 +583,7 @@ class ToolExecutor:
             "tool_name": execution.tool_name,
             "success": execution.result.success,
             "duration_ms": execution.duration_ms,
-            "pending_approval": execution.pending_approval,
+            "approval_status": execution.approval_status,
         }
         if execution.result.sources:
             data["sources"] = [
@@ -614,6 +613,7 @@ class ToolExecutor:
         llm_options: Optional[Dict[str, Any]] = None,
         forced_tool_call: Optional[Dict[str, Any]] = None,
         iteration_nudge: Optional[str] = None,
+        applied_calls: Optional[set] = None,
     ) -> Tuple[Any, List[ToolExecution]]:
         """Run the tool loop buffered. Returns final LLM response + execution records.
 
@@ -634,6 +634,8 @@ class ToolExecutor:
             iteration_nudge: Optional reminder text appended as a trailing
                 system message on every LLM call once at least one tool round
                 has completed this turn.
+            applied_calls: ``ToolCallGuard.call_key`` keys of calls already
+                approved earlier in this turn chain.
 
         Unlike the two streaming entry points, this one makes its post-budget
         wrap-up call without the exhausted-budget instruction and emits no
@@ -647,6 +649,7 @@ class ToolExecutor:
             self, messages, tool_context, allowed_tools, max_iterations,
             image_data=image_data, forced_tool_call=forced_tool_call,
             iteration_nudge=iteration_nudge, wrap_up_on_limit=False,
+            applied_calls=applied_calls,
         )
         source = _BufferedTurnSource(
             self, llm_id, system_message, self.tool_registry.get_schemas(allowed_tools),
@@ -681,6 +684,8 @@ class ToolExecutor:
             response.completion = None
         response.rescues = workflow.rescues
         response.tool_failures = workflow.tool_failures
+        response.tool_transcript = workflow.transcript
+        response.rounds_used = workflow.iterations_used
         return response, workflow.tool_executions
 
 
@@ -720,6 +725,45 @@ class ToolExecutor:
             return True
         return bool((getattr(config, "provider_options", None) or {}).get("force_prompt_tools", False))
 
+    @staticmethod
+    def _call_arguments(tool_call: Dict[str, Any]) -> Dict[str, Any]:
+        raw_args = tool_call.get("function", {}).get("arguments", "{}")
+        if not isinstance(raw_args, str):
+            return raw_args
+        try:
+            return json.loads(raw_args)
+        except json.JSONDecodeError:
+            return {}
+
+    def _skip_remaining_calls(
+        self,
+        remaining: List[Dict[str, Any]],
+        pending_tool: str,
+        working_messages: List[Dict[str, Any]],
+        tool_executions: List[ToolExecution],
+    ) -> None:
+        for tool_call in remaining:
+            tool_name = tool_call.get("function", {}).get("name", "")
+            tool_call_id = tool_call.get("id", "")
+            tool_executions.append(ToolExecution(
+                tool_name=tool_name,
+                arguments=self._call_arguments(tool_call),
+                result=ToolResult(
+                    success=False,
+                    data="",
+                    error=f"Not run: waiting for approval of {pending_tool}.",
+                ),
+                duration_ms=0,
+                skipped=True,
+                tool_call_id=tool_call_id,
+            ))
+            working_messages.append({
+                "role": "tool",
+                "content": f"Not run: waiting for approval of {pending_tool}. Call it again if still needed.",
+                "tool_call_id": tool_call_id,
+                "name": tool_name,
+            })
+
     async def _run_tool_calls_stream(
         self,
         tool_calls: List[Dict[str, Any]],
@@ -739,18 +783,10 @@ class ToolExecutor:
         tool_image_data = None
         pending = False
 
-        for tool_call in tool_calls:
+        for position, tool_call in enumerate(tool_calls):
             tool_name = tool_call.get("function", {}).get("name", "")
             tool_call_id = tool_call.get("id", "")
-            raw_args = tool_call.get("function", {}).get("arguments", "{}")
-
-            try:
-                if isinstance(raw_args, str):
-                    arguments = json.loads(raw_args)
-                else:
-                    arguments = raw_args
-            except json.JSONDecodeError:
-                arguments = {}
+            arguments = self._call_arguments(tool_call)
 
             yield {"type": "tool_start", "data": {"tool_name": tool_name, "arguments": arguments}}
 
@@ -765,7 +801,8 @@ class ToolExecutor:
                 arguments=arguments,
                 result=result,
                 duration_ms=duration_ms,
-                pending_approval=is_pending,
+                approval_status="pending" if is_pending else None,
+                tool_call_id=tool_call_id,
             )
             tool_executions.append(execution)
 
@@ -773,7 +810,7 @@ class ToolExecutor:
                 "tool_name": tool_name,
                 "success": result.success,
                 "duration_ms": duration_ms,
-                "pending_approval": is_pending,
+                "approval_status": execution.approval_status,
             }
             if is_pending:
                 tool_end_data["arguments"] = arguments
@@ -797,6 +834,9 @@ class ToolExecutor:
             if is_pending:
                 logger.info(f"[ToolExecutor] Tool '{tool_name}' requires approval — pausing stream loop")
                 pending = True
+                self._skip_remaining_calls(
+                    tool_calls[position + 1:], tool_name, working_messages, tool_executions
+                )
                 break
 
             vision_note = await self._gate_tool_image(tool_context, result)
@@ -828,15 +868,17 @@ class ToolExecutor:
         llm_options: Optional[Dict[str, Any]] = None,
         forced_tool_call: Optional[Dict[str, Any]] = None,
         iteration_nudge: Optional[str] = None,
+        applied_calls: Optional[set] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Run the tool loop, streaming tokens live as the LLM produces them.
 
         Yields events:
         - {"type": "tool_start", "data": {"tool_name": ..., "arguments": ...}}
-        - {"type": "tool_end", "data": {"tool_name": ..., "success": ..., "duration_ms": ..., "pending_approval": ...}}
+        - {"type": "tool_end", "data": {"tool_name": ..., "success": ..., "duration_ms": ..., "approval_status": ...}}
         - {"type": "token", "data": {"content": ...}}
         - {"type": "status", "data": {"step": "tool_budget_exhausted", ...}}
-        - {"type": "done", "data": {"tool_executions": [...], "full_content": ..., "pending_tool_approval": ...}}
+        - {"type": "done", "data": {"tool_executions": [...], "full_content": ..., "pending_tool_approval": ...,
+          "tool_transcript": [...], "rounds_used": ...}}
 
         When a tool with requires_approval=True is executed, the generator emits a
         "done" event with pending_tool_approval=True and then returns immediately
@@ -860,6 +902,7 @@ class ToolExecutor:
                 llm_options=llm_options,
                 forced_tool_call=forced_tool_call,
                 iteration_nudge=iteration_nudge,
+                applied_calls=applied_calls,
             )) as agen:
                 async for event in agen:
                     yield event
@@ -868,7 +911,7 @@ class ToolExecutor:
         workflow = ToolWorkflow(
             self, messages, tool_context, allowed_tools, max_iterations,
             image_data=image_data, forced_tool_call=forced_tool_call,
-            iteration_nudge=iteration_nudge,
+            iteration_nudge=iteration_nudge, applied_calls=applied_calls,
         )
         source = _LiveTurnSource(
             self, workflow, llm_id, system_message,
@@ -918,6 +961,7 @@ class ToolExecutor:
         llm_options: Optional[Dict[str, Any]] = None,
         forced_tool_call: Optional[Dict[str, Any]] = None,
         iteration_nudge: Optional[str] = None,
+        applied_calls: Optional[set] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Run the tool loop with a non-streaming decision call per iteration.
 
@@ -932,7 +976,7 @@ class ToolExecutor:
         workflow = ToolWorkflow(
             self, messages, tool_context, allowed_tools, max_iterations,
             image_data=image_data, forced_tool_call=forced_tool_call,
-            iteration_nudge=iteration_nudge,
+            iteration_nudge=iteration_nudge, applied_calls=applied_calls,
         )
         source = _BufferedTurnSource(
             self, llm_id, system_message, self.tool_registry.get_schemas(allowed_tools),
@@ -972,60 +1016,10 @@ class ToolExecutor:
             "pending_tool_approval": pending,
             "rescues": workflow.rescues,
             "tool_failures": workflow.tool_failures,
+            "tool_transcript": workflow.transcript,
+            "rounds_used": workflow.iterations_used,
         }
 
-
-    _PRESENTATION_RETRY_NUDGE = (
-        "\n\n---\nReminder: no tools are available this turn. Reply in plain "
-        "text only — do not emit a <tool_call> block or any tool-call syntax."
-    )
-
-    async def present_tool_outcome(
-        self,
-        messages: List[Dict[str, Any]],
-        llm_id: str,
-        system_message: str,
-        mode: Optional[str] = None,
-        llm_options: Optional[Dict[str, Any]] = None,
-    ) -> Any:
-        """Run one buffered, tool-free completion presenting an applied outcome.
-
-        Used to continue the conversation after a paused approval is resolved:
-        the caller seeds `messages` so it ends with the assistant tool_call
-        message and a tool-result message describing what happened, and this
-        makes the model narrate it to the user. Tools are disabled so the turn
-        can only produce text (it never re-triggers another approval-gated
-        action). `system_message` is expected to already be presentation-only
-        (no tool-calling instructions) — see `ToolCallDispatcher` in
-        `src.features.chat.tool_dispatcher`, which builds it. A
-        non-deterministically empty completion is retried with the same
-        discipline the streaming loop uses, nudging harder on each retry.
-        """
-        response = None
-        for attempt in range(self._EMPTY_RESPONSE_MAX_RETRIES):
-            attempt_system_message = system_message
-            if attempt > 0:
-                attempt_system_message = f"{system_message}{self._PRESENTATION_RETRY_NUDGE}"
-            response = await self.llm_service.generate_with_tools(
-                messages=messages,
-                llm_id=llm_id,
-                tools=[],
-                custom_system_message=attempt_system_message,
-                mode=mode,
-                options_override=llm_options,
-            )
-            content = strip_tool_call_xml(response.content or "")
-            if content:
-                response.content = content
-                return response
-            if attempt < self._EMPTY_RESPONSE_MAX_RETRIES - 1:
-                logger.warning(
-                    f"[ToolExecutor] Empty presentation completion "
-                    f"(attempt {attempt + 1}/{self._EMPTY_RESPONSE_MAX_RETRIES}), retrying"
-                )
-        if response is not None:
-            response.content = strip_tool_call_xml(response.content or "")
-        return response
 
     async def _execute_tool(
         self, tool_name: str, context: ToolContext, arguments: Dict[str, Any],
@@ -1034,8 +1028,8 @@ class ToolExecutor:
         """Execute a single tool by name.
 
         Returns:
-            Tuple of (ToolResult, pending_approval flag).
-            pending_approval is True only when the tool has requires_approval=True
+            Tuple of (ToolResult, pending flag).
+            The flag is True only when the tool has requires_approval=True
             AND the execution succeeded (i.e. produced a valid preview).
         """
         # Defense in depth: reject tools not in the allowed set. Name the tools
@@ -1086,6 +1080,8 @@ class ToolExecutor:
     ) -> Tuple[ToolResult, bool]:
         """`_execute_tool`, short-circuiting an exact repeat of a call that
         already failed this turn (see `_ToolCallGuard`) instead of re-running it."""
+        if guard.already_applied(tool_name, arguments):
+            return ToolResult(success=True, data=guard.ALREADY_APPLIED_RESULT), False
         blocked = guard.blocked_repeat_error(tool_name, arguments)
         if blocked is not None:
             result = ToolResult(success=False, data="", error=blocked)

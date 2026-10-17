@@ -273,7 +273,7 @@ class TestTurnTranscriptFromDoneEvent:
             "content": "You're generating with JuggernautXL v9.",
             "tool_executions": [{
                 "tool_name": "get_active_models", "arguments": {},
-                "pending_approval": False, "result": {"success": True, "data": "{\"models\": []}"},
+                "approval_status": None, "result": {"success": True, "data": "{\"models\": []}"},
             }],
         }}}]
         messages, assistant_message = chat_eval.turn_transcript_messages("What model am I using?", events)
@@ -291,7 +291,7 @@ class TestTurnTranscriptFromDoneEvent:
             "content": "Approve to apply.",
             "tool_executions": [{
                 "tool_name": "update_form_settings", "arguments": {"changes": []},
-                "pending_approval": True, "result": {"success": False, "data": ""},
+                "approval_status": "pending", "result": {"success": False, "data": ""},
             }],
         }}}]
         messages, _ = chat_eval.turn_transcript_messages("bump steps", events)
@@ -406,7 +406,7 @@ class TestFailureSafeArtifacts:
                         '"I\'ve set up a red fox in the snow at 1024x1024 on the SDXL base preset - '
                         'approve to start it running.", "tool_executions": [{"tool_name": "start_generation", '
                         '"arguments": {"preset_id": "sdxl/base", "prompt": "a red fox in the snow"}, '
-                        '"pending_approval": true, "result": {"success": false, "data": '
+                        '"approval_status": "pending", "result": {"success": false, "data": '
                         '"{\\"status\\": \\"pending_approval\\"}"}}]}}\n\n'
                     )
                 raise chat_eval._HttpError("boom")
@@ -571,7 +571,7 @@ class TestMemoryReflectionPolicy:
                     '"I\'ve set up a red fox in the snow at 1024x1024 on the SDXL base preset - '
                     'approve to start it running.", "tool_executions": [{"tool_name": "start_generation", '
                     '"arguments": {"preset_id": "sdxl/base", "prompt": "a red fox in the snow"}, '
-                    '"pending_approval": true, "result": {"success": false, "data": '
+                    '"approval_status": "pending", "result": {"success": false, "data": '
                     '"{\\"status\\": \\"pending_approval\\"}"}}]}}\n\n'
                 )
             raise AssertionError(f"unexpected call: {method} {url}")

@@ -28,8 +28,8 @@ export function axisValueLabel(axis: CompareAxis | null, index: number): string 
 }
 
 export function gridTitle(config: Pick<ActiveGrid['config'], 'x' | 'y'>): string {
-	if (config.x && config.y) return `${config.x.label} × ${config.y.label}`;
-	return config.x?.label ?? '';
+	if (config.x && config.y) return `${axisHeaderLabel(config.x.label)} × ${axisHeaderLabel(config.y.label)}`;
+	return axisHeaderLabel(config.x?.label);
 }
 
 export function gridDimensions(grid: Pick<ActiveGrid, 'cols' | 'rows'>): string {
@@ -124,6 +124,16 @@ export function axisFieldLabel(field: string): string {
 	return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+export function axisLabel(axis: { field: string; label?: string | null }): string {
+	const label = axis.label?.trim();
+	return axis.field !== PROMPT_AXIS_FIELD && label ? label : axisFieldLabel(axis.field);
+}
+
+export function configAxisLabel(field: string, config: Pick<ActiveGrid['config'], 'x' | 'y'>): string {
+	const axis = config.x?.field === field ? config.x : config.y?.field === field ? config.y : null;
+	return axisLabel(axis ?? { field });
+}
+
 export function withAxisParams(
 	params: Record<string, unknown>,
 	tags: Record<string, string>,
@@ -216,6 +226,7 @@ export interface CellSize {
 export const CELL_GAP = 12;
 export const LABEL_COLUMN = 96;
 export const MIN_CELL = 112;
+export const MIN_FIT_CELL = 72;
 export const MAX_CELL = 320;
 
 export const HEADER_HEIGHT = 44;
@@ -237,9 +248,22 @@ export function computeCellSize(containerWidth: number, cols: number, heightFit?
 	if (heightFit && heightFit.height > 0 && heightFit.rows > 0 && heightFit.aspect > 0) {
 		const header = heightFit.header && heightFit.header > 0 ? heightFit.header : HEADER_HEIGHT;
 		const rowHeight = (heightFit.height - header - CELL_GAP * heightFit.rows) / heightFit.rows;
-		size = Math.max(MIN_CELL, Math.min(size, Math.floor(rowHeight * heightFit.aspect)));
+		size = Math.max(MIN_FIT_CELL, Math.min(size, Math.floor(rowHeight * heightFit.aspect)));
 	}
 	return { size, scrolls: false };
+}
+
+export function axisHeaderLabel(label: string | null | undefined): string {
+	const text = (label ?? '').trim();
+	const short = text.replace(/\s*\([^)]*\)\s*$/, '').trim();
+	return short || text;
+}
+
+export const WORKBENCH_MAX_VIEWPORT_SHARE = 0.7;
+
+export function workbenchFitHeight(viewportHeight: number): number {
+	if (!(viewportHeight > 0)) return 0;
+	return Math.max(0, Math.floor(viewportHeight * WORKBENCH_MAX_VIEWPORT_SHARE) - 2 * SCROLLER_PADDING);
 }
 
 export function gridTemplateColumns(cols: number, size: number): string {

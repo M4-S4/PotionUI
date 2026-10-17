@@ -23,7 +23,6 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Caps mirror FormResourceProvider's discipline (small-model payload budget).
-_MAX_VARIABLES = 24
 _MAX_OPTIONS = 12
 _MAX_VALUE_CHARS = 80
 _MAX_NAME_CHARS = 60
@@ -31,7 +30,6 @@ _MAX_NAME_CHARS = 60
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALID_MODES = {"shuffle", "pin", "per-image"}
 MAX_NAME_CHARS = _MAX_NAME_CHARS
-MAX_VARIABLES = _MAX_VARIABLES
 
 
 def _clip(text: str, limit: int) -> str:
@@ -166,7 +164,7 @@ def render_prompt_variable_lines(variables: Any) -> List[str]:
     if not isinstance(variables, (list, tuple)):
         return []
     lines: List[str] = []
-    for var in variables[:_MAX_VARIABLES]:
+    for var in variables:
         if not isinstance(var, dict):
             continue
         raw_name = var.get("name")
@@ -239,9 +237,6 @@ def validate_variables_map(variables: Any) -> List[str]:
         return errors
     if not isinstance(variables, dict):
         return ["variables must be an object mapping name to definition."]
-
-    if len(variables) > MAX_VARIABLES:
-        errors.append(f"Too many prompt variables: {len(variables)} (max {MAX_VARIABLES}).")
 
     for raw_name, definition in variables.items():
         if not isinstance(raw_name, str) or not raw_name.strip():

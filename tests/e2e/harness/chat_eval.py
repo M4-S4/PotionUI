@@ -444,8 +444,10 @@ def parse_sse_events(text: str) -> List[Dict[str, Any]]:
 
 
 def _outcome_from_tool_execution(execution: Dict[str, Any]) -> Optional[str]:
-    if execution.get("pending_approval"):
+    if execution.get("approval_status") == "pending":
         return "pending_approval"
+    if execution.get("skipped"):
+        return None
     success = (execution.get("result") or {}).get("success")
     if success is False:
         return "error"

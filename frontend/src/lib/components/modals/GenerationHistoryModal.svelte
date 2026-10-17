@@ -14,6 +14,7 @@
 		isMediaTypeSelectable,
 		mediaTypeConstraintMessage,
 		pickedFromHistoryFile,
+		historyTileLabel,
 		type PickedMedia,
 		type PickerMediaType
 	} from './mediaPickerSelection';
@@ -592,9 +593,11 @@
 						{#each filterFilesByMediaType(generation.files, mediaType) as file (file.id)}
 							{@const picked = pickedFromHistoryFile(generation, file)}
 							{@const allowed = isMediaTypeSelectable(picked.mediaType ?? '', selectableMediaTypes)}
+							{@const tile = historyTileLabel(generation, file)}
 							<MediaPickTile
-								label={picked.filename ?? ''}
-								sublabel={generation.preset_name ?? ''}
+								label={tile.label}
+								sublabel={tile.sublabel}
+								fileName={picked.filename ?? ''}
 								checked={$selection.includes(picked.key)}
 								disabled={!allowed}
 								disabledReason={constraintMessage}
@@ -615,11 +618,12 @@
 				{#each generationHistory as generation (generation.id)}
 					{#each filterFilesByMediaType(generation.files, mediaType) as file (file.id)}
 						{@const picked = pickedFromHistoryFile(generation, file)}
+						{@const tile = historyTileLabel(generation, file)}
 						<MediaPickFileButton
 							{file}
 							generationId={generation.id}
-							label={picked.filename ?? ''}
-							sublabel={generation.preset_name ?? ''}
+							label={tile.label}
+							sublabel={tile.sublabel}
 							mediaType={picked.mediaType ?? undefined}
 							onPick={() => handleSelectFromGeneration(generation, file)}
 						/>

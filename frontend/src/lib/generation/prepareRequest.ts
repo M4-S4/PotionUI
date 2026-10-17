@@ -5,7 +5,7 @@ import type { DirectorCapabilities, VideoDirectorValue } from '$lib/types/videoD
 import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 import type { PredecessorOutputLike } from '$lib/utils/directorContinuation';
 import type { SegmentJoin } from '$lib/utils/richSegments';
-import type { VariableRoll } from '$lib/utils/variableDefs';
+import { applyIndependentUsages, type VariableRoll } from '$lib/utils/variableDefs';
 import { isPromptlessMode } from '$lib/utils/promptlessMode';
 import { assembleDirectorRequest } from '$lib/generation/requestAssembly';
 import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
@@ -264,13 +264,15 @@ export function prepareRequest(options: PrepareRequestOptions): PreparedRequest 
 	if (!tab.selectedPreset) return { ok: false, code: 'no_preset', reason: null };
 	if (!hasValidPrompt && !options.promptlessActive) return { ok: false, code: 'no_prompt', reason: null };
 
-	const variablesResult = buildVariablesPayload(
-		tab as Tab,
-		options.random || options.now ? { random: options.random, now: options.now } : undefined
-	);
+	const independent = applyIndependentUsages(promptsArray, tab.variables);
+	const variablesResult = buildVariablesPayload(tab as Tab, {
+		random: options.random,
+		now: options.now,
+		usageCounts: independent.usageCounts
+	});
 	const request = buildGenerationRequest(tab, {
 		tabId: options.tabId,
-		prompts: promptsArray,
+		prompts: independent.prompts,
 		formData: formDataForRequest,
 		variables: variablesResult.variables,
 		batchPrompts,

@@ -206,6 +206,48 @@ class TestTreeFilters(PersistenceTestBase):
         self.collections.add_members(chain[0], [filed], self.user, HISTORY)
         self.assertEqual(self.collections.smart_counts(self.user, HISTORY), {"all": 3, "favorites": 2, "unsorted": 2})
 
+    def _grid_cells(self, cells, favorite=False):
+        grid_id = generate_ulid()
+        ids = []
+        for index in range(cells):
+            generation = Generation(
+                id=generate_ulid(),
+                preset_id="p",
+                form_data={"prompt": "x"},
+                user_id=self.user,
+                status="completed",
+                preset_version="1.0",
+                grid_id=grid_id,
+                grid_x=index,
+                grid_y=0,
+            )
+            self.generations.create(generation)
+            if favorite:
+                self.generations.set_favorite(generation.id, True, self.user)
+            ids.append(generation.id)
+        return ids
+
+    def test_smart_counts_history_agree_with_the_grouped_history_total(self):
+        self._generation()
+        self._generation(favorite=True)
+        self._grid_cells(6)
+        self._grid_cells(4, favorite=True)
+        counts = self.collections.smart_counts(self.user, HISTORY)
+        listed = self.generations.count_by_status(user_id=self.user, group_grids=True)
+        favorites = self.generations.count_by_status(user_id=self.user, group_grids=True, favorites_only=True)
+        unsorted = self.generations.count_by_status(user_id=self.user, group_grids=True, unsorted=True)
+        self.assertEqual(listed, 4)
+        self.assertEqual(counts, {"all": listed, "favorites": favorites, "unsorted": unsorted})
+
+    def test_smart_counts_history_agree_when_a_grid_is_partly_filed(self):
+        chain = self._chain(HISTORY, 1)
+        cells = self._grid_cells(3)
+        self.collections.add_members(chain[0], [cells[0]], self.user, HISTORY)
+        counts = self.collections.smart_counts(self.user, HISTORY)
+        unsorted = self.generations.count_by_status(user_id=self.user, group_grids=True, unsorted=True)
+        self.assertEqual(counts["unsorted"], unsorted)
+        self.assertEqual(counts["all"], 1)
+
     def test_smart_counts_library_ignore_derived_artifacts(self):
         chain = self._chain(LIBRARY, 1)
         filed = self._upload()

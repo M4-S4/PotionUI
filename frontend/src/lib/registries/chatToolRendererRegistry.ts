@@ -1,23 +1,6 @@
 import { createRegistry, CORE_OWNER, pluginOwner } from './registry';
 import { resolveLazyEntry } from './lazyResolve';
 
-/**
- * tool_name -> Svelte component for a per-tool chat rendering surface.
- * Registered entries receive `{ execution, toolMeta, expanded }` props:
- *   - execution: the ToolExecution (arguments, result, pending_approval, ...)
- *   - toolMeta: `{ icon, label }` from the backend tool catalog (may be null)
- *   - expanded: whether the step is expanded (true) or rendering as an
- *     approval preview (also true today; kept for future compact use)
- *
- * An entry is either a `static` core component or a `lazy` plugin-hosted
- * component (registered from a manifest's `renderers: [{kind: "chat.tool", ...}]`
- * entry), resolved on demand via `plugin-api/componentResolver` — mirrors
- * `artifactRendererRegistry.ts`. No core consumer currently calls `.resolve()`
- * (the transcript renders tool status via ChatToolRun's collapsible record —
- * and pending approvals go through ApprovalDock, neither of which is
- * per-tool-rendered);
- * this stays as the `registries.chatTool` plugin API surface (`host.ts`).
- */
 export type ChatToolRendererEntry =
 	| { kind: 'static'; component: any }
 	| { kind: 'lazy'; pluginId: string; asset: string };

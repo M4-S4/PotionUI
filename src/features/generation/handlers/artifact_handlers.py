@@ -369,9 +369,9 @@ def serialize_progress_output(output: ProgressGenerationOutput, ctx: SerializeCo
         result['progress'] = None
 
     # Copy other fields if they exist
-    if hasattr(output, 'current_step_num'):
+    if getattr(output, 'current_step_num', None) is not None:
         result['current_step_num'] = output.current_step_num
-    if hasattr(output, 'total_steps'):
+    if getattr(output, 'total_steps', None) is not None:
         result['total_steps'] = output.total_steps
     # Video Director: which segment/shot this progress update belongs to, for
     # a film-scoped chain/window generation (see

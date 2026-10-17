@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	historyMediaKey,
+	historyTileLabel,
 	isMediaTypeSelectable,
 	itemsForKeys,
 	mediaTypeConstraintMessage,
@@ -41,5 +42,29 @@ describe('mediaPickerSelection', () => {
 			{ key: 'zz:3', mediaType: null, filename: null, origin: { kind: 'history', generationId: 'zz', fileId: 3 } }
 		]);
 		expect(itemsForKeys(['q'], known, 'library')[0].origin).toEqual({ kind: 'library', itemId: 'q' });
+	});
+});
+
+describe('historyTileLabel', () => {
+	const file = { id: 1, file_path: 'outputs/2026-10-08/01K/0.png' } as any;
+
+	it('tells tiles apart by prompt, preset and date instead of the bare file name', () => {
+		const generation = {
+			id: 'g',
+			preset_name: 'FLUX 3',
+			created_at: '2026-10-08T10:00:00Z',
+			form_data: { prompt: '  a candlelit   potion shop at night, rain on the window, volumetric light  ' }
+		} as any;
+		const tile = historyTileLabel(generation, file);
+		expect(tile.label.startsWith('a candlelit potion shop at night')).toBe(true);
+		expect(tile.label.endsWith('…')).toBe(true);
+		expect(tile.label).not.toContain('0.png');
+		expect(tile.sublabel).toBe('FLUX 3 · 2026-10-08');
+	});
+
+	it('falls back to the preset, then the file name', () => {
+		const base = { id: 'g', created_at: '2026-10-08T10:00:00Z', form_data: {} } as any;
+		expect(historyTileLabel({ ...base, preset_name: 'FLUX 3' }, file)).toEqual({ label: 'FLUX 3', sublabel: '2026-10-08' });
+		expect(historyTileLabel(base, file).label).toBe('0.png');
 	});
 });

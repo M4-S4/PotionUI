@@ -184,7 +184,7 @@ def denoise_prenoised(
         guidance = guidance_override
         cache_set = None
     else:
-        guidance = make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps)
+        guidance = make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps, sigmas=sigmas)
         _attach_reference_mask(guidance, model_forward, x_init)
 
         cache_set = StepCacheSet(step_cache_options) if step_cache_options else None

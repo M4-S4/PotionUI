@@ -207,7 +207,7 @@ def list_rows(
     with db.get_cursor() as cursor:
         cursor.execute(
             f"SELECT {', '.join(_COLUMNS)} FROM {TABLE}{where} ORDER BY created_at DESC, id DESC LIMIT ?",
-            (*params, max(1, min(int(limit), 1000))),
+            (*params, max(1, min(int(limit), 5000))),
         )
         records = cursor.fetchall()
     return [_from_record(record) for record in records]

@@ -8,7 +8,7 @@
 </script>
 
 <section class="rounded border border-line bg-surface-2 px-3 py-2.5" aria-label="Licence">
-	<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Licence</p>
+	<p class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle">Licence</p>
 	{#if license}
 		<p class="mt-1 text-sm text-fg">{license.summary}</p>
 		{#if flags.length > 0}

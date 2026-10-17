@@ -13,7 +13,6 @@ import { deriveCompareSummary, type CompareSummary } from './compareSummary';
 import type { LimitRow } from '$lib/plans/meApi';
 import { DEFAULT_CONTACT_LINE } from '$lib/plans/refusal';
 import { fetchGrid, fetchGridSettings, postGrid, postRetryFailed } from './compareApi';
-import { gridProgress } from './view/gridModel';
 import { cellAxisValues, emptyCell, gridFromServer } from './serverGrid';
 import { quantityFieldsOf } from './compareSchema';
 import {
@@ -603,16 +602,6 @@ function rememberCellDuration(tabId: string, generationId: string): void {
 	touch();
 }
 
-function announceGridFinished(grid: ActiveGrid): void {
-	const progress = gridProgress(grid);
-	if (progress.active) return;
-	if (progress.failed > 0) {
-		toasts.warning(`Comparison finished: ${progress.done} of ${progress.total} cells done, ${progress.failed} failed.`);
-	} else if (progress.done > 0) {
-		toasts.success(`Comparison finished: ${progress.done} of ${progress.total} cells done.`);
-	}
-}
-
 export function observeGenerationMessage(message: { type: string; [key: string]: unknown }): boolean {
 	if (!COMPARE_MESSAGE_TYPES.has(message.type)) return false;
 	const generationId = generationIdOf(message);
@@ -632,7 +621,6 @@ export function observeGenerationMessage(message: { type: string; [key: string]:
 	if (!grid || !cell) return false;
 	const next = applyCellMessage(cell, message);
 	if (next === cell) return true;
-	const wasActive = gridProgress(grid).active;
 	if (next.status === 'running' && cell.status !== 'running' && !runStarted.has(generationId)) {
 		runStarted.set(generationId, Date.now());
 	}
@@ -643,13 +631,8 @@ export function observeGenerationMessage(message: { type: string; [key: string]:
 		if (next.status === 'completed') rememberCellDuration(entry.tabId, generationId);
 		else runStarted.delete(generationId);
 		scheduleRefresh(entry.tabId);
-		if (wasActive) announceGridFinished(grid);
 	}
 	return true;
-}
-
-export function ownsGeneration(generationId: string | undefined): boolean {
-	return !!generationId && generationIndex.has(generationId);
 }
 
 export function resetCompareStoreForTests(): void {

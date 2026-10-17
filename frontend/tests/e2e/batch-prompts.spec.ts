@@ -4,6 +4,10 @@ import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'batch-prompts';
 
+test.afterEach(async ({ page }) => {
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
 async function setBatchCapability(page: Page, supported: boolean) {
 	await page.route(/\/api\/presets(\?[^/]*)?$/, async (route) => {
 		if (route.request().method() !== 'GET') return route.fallback();

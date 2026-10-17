@@ -16,7 +16,8 @@
 		placeholderIcon = 'image',
 		placeholderLabel = '',
 		compact = false,
-		onOpen = null
+		onOpen = null,
+		onRevealed = null
 	} = $props();
 
 	let localUrl = $state(null);
@@ -84,7 +85,10 @@
 			result = { error: { message: 'Could not reveal this media' } };
 		}
 		revealing = false;
-		if (result?.url) localUrl = result.url;
+		if (result?.url) {
+			localUrl = result.url;
+			onRevealed?.();
+		}
 		else revealError = result?.error?.message || 'This media is not available';
 	}
 </script>
@@ -106,7 +110,7 @@
 				onmouseleave={pause}
 				onerror={() => (broken = true)}
 			></video>
-			<span class="pointer-events-none absolute bottom-2 right-2 rounded bg-black/60 p-1 text-white backdrop-blur-sm" aria-hidden="true">
+			<span class="pointer-events-none absolute bottom-2 right-2 rounded bg-surface-1/80 p-1 text-fg backdrop-blur-sm" aria-hidden="true">
 				<Icon name="play" class="h-3.5 w-3.5" />
 			</span>
 		{:else}
@@ -132,28 +136,28 @@
 		{#if reveal}
 			<button
 				type="button"
-				class="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/35 px-2 text-center text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal"
+				class="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-surface-1/60 px-2 text-center text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal"
 				aria-label={`NSFW: reveal ${alt || 'this media'}`}
 				aria-busy={revealing}
 				onclick={doReveal}
 			>
 				<Icon name={revealing ? 'refresh' : 'eye-off'} class="{compact ? 'h-4 w-4' : 'h-5 w-5'} {revealing ? 'animate-spin' : ''}" />
-				<span class="{compact ? 'text-2xs' : 'text-xs'} font-semibold">NSFW · click to reveal</span>
+				<span class="text-xs font-semibold">NSFW · click to reveal</span>
 				{#if revealError}
-					<span class="text-2xs text-white/80">{revealError}</span>
+					<span class="text-xs text-fg-muted">{revealError}</span>
 				{/if}
 			</button>
 		{:else}
-			<div class="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/35 px-2 text-center text-white">
+			<div class="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-surface-1/60 px-2 text-center text-fg">
 				<Icon name="eye-off" class={compact ? 'h-4 w-4' : 'h-5 w-5'} />
-				<span class="{compact ? 'text-2xs' : 'text-xs'} font-semibold">NSFW</span>
+				<span class="text-xs font-semibold">NSFW</span>
 			</div>
 		{/if}
 	{:else}
 		<div class="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 text-center">
 			<Icon name={broken ? 'warning' : placeholderIcon} class="h-8 w-8 text-fg-subtle" strokeWidth={1.5} />
 			{#if broken}
-				<span class="text-2xs text-fg-subtle">Preview unavailable</span>
+				<span class="text-xs text-fg-subtle">Preview unavailable</span>
 			{:else if placeholderLabel}
 				<span class="text-xs font-medium text-fg-subtle">{placeholderLabel}</span>
 			{/if}

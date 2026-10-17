@@ -194,6 +194,76 @@ def test_images_and_event_handlers_are_dropped():
     _assert_safe(output)
 
 
+def test_a_table_holding_images_is_dropped_whole():
+    output = sanitize_html(
+        "<p>before</p>"
+        "<table><thead><tr><th>Workflow</th><th>Thumb</th></tr></thead>"
+        '<tbody><tr><td><a href="https://a.b/c">Video</a></td>'
+        '<td><img src="https://a.b/x.webp" alt="Video"><div>Before</div></td></tr></tbody></table>'
+        "<p>after</p>"
+    )
+
+    assert output == "<p>before</p><p>after</p>"
+
+
+def test_a_table_with_images_and_real_prose_is_kept():
+    output = sanitize_html(
+        "<table><tr><td>This model was trained on a curated set of portraits and needs a low strength to look natural.</td>"
+        '<td><img src="https://a.b/x.webp"><div>Before</div></td></tr></table><p>after</p>'
+    )
+
+    assert "trained on a curated set of portraits" in output
+    assert "Before" in output
+    assert "<img" not in output
+
+
+def test_prose_split_by_inline_tags_still_counts_as_prose():
+    output = sanitize_html(
+        "<table><tr><td>This model <b>was</b> trained on <a href=\"https://a.b/c\">a curated</a> set of portraits</td>"
+        '<td><img src="https://a.b/x.webp"></td></tr></table>'
+    )
+
+    assert "trained on" in output
+    assert "curated" in output
+    assert "<img" not in output
+
+
+def test_a_spec_table_with_an_image_keeps_its_cells():
+    output = sanitize_html(
+        '<table><tr><th>Quant</th><th>Size</th><th>Preview</th></tr>'
+        '<tr><td>Q4_K_M</td><td>5 GB</td><td><img src="https://a.b/x.webp"></td></tr></table>'
+    )
+
+    assert "Q4_K_M" in output
+    assert "5 GB" in output
+    assert "<img" not in output
+
+
+def test_a_nested_image_table_is_dropped_without_touching_the_outer_prose():
+    output = sanitize_html(
+        "<table><tr><td>Notes: this checkpoint works best with a low guidance scale and many steps.</td><td>"
+        '<table><tr><th>Thumb</th></tr><tr><td><img src="https://a.b/x.webp"><div>Before</div></td></tr></table>'
+        "</td></tr></table>"
+    )
+
+    assert "low guidance scale" in output
+    assert "Thumb" not in output
+    assert "Before" not in output
+
+
+def test_a_dropped_table_leaves_no_stray_closing_tags():
+    output = sanitize_html('<table><tr><td><b><img src="https://a.b/x.webp"></td></tr></table><p>tail</p>')
+
+    assert output == "<p>tail</p>"
+    assert "</b>" not in output
+
+
+def test_a_table_without_images_keeps_its_text():
+    output = sanitize_html("<table><tr><td>a</td><td>b</td></tr></table><table><tr><td><img src=x>c</td></tr></table>d")
+
+    assert output == "a b <br>d"
+
+
 def test_unknown_tags_are_unwrapped_and_blocks_become_line_breaks():
     output = sanitize_html(
         '<div><span style="color:rgb(250, 176, 5)">Update</span></div><div>next</div>'

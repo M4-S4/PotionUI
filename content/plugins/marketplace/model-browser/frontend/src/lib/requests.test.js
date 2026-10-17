@@ -23,6 +23,7 @@ import {
 	decisionLine,
 	defaultTab,
 	fetchBadgeCount,
+	fetchPendingKeys,
 	groupRequests,
 	initialBadgeCount,
 	initialRequestForm,
@@ -30,6 +31,7 @@ import {
 	listRequests,
 	normalizeListing,
 	normalizeRequest,
+	pendingKeys,
 	panelTabs,
 	parseTime,
 	rejectRequest,
@@ -38,15 +40,18 @@ import {
 	requestFormProblems,
 	requestMeta,
 	requestTitle,
+	requestKey,
 	requestWarnings,
 	requestedType,
 	showsRequests,
 	sortRequests,
 	sourceHost,
+	suggestedModelType,
 	statusInfo,
 	statusLabel,
 	tabQuery,
-	tabRequests
+	tabRequests,
+	withPending
 } from './requests.js';
 
 function meData(overrides = {}) {
@@ -591,4 +596,62 @@ test('approveToast, rejectToast and cancelToast', () => {
 	assert.equal(rejectToast({ ok: false, error: { code: 'not_found', message: 'x' } }, normal).refresh, true);
 	assert.equal(cancelToast({ ok: true, data: {} }, normal).message, 'Request cancelled: add_detail.safetensors');
 	assert.equal(cancelToast({ ok: false, error: { code: 'forbidden', message: 'Not yours' } }, normal).message, 'Could not cancel the request: Not yours');
+});
+
+test('initialRequestForm starts on the file\'s own type, falling back to the repo type', () => {
+	const repo = { ...DETAIL, mb_type: 'upscaler' };
+	assert.equal(initialRequestForm(REQUESTER, repo, { ...FILE, file_type: 'Text Encoder' }).modelType, 'text_encoder');
+	assert.equal(initialRequestForm(REQUESTER, repo, { ...FILE, file_type: 'UNet' }).modelType, 'unet');
+	assert.equal(initialRequestForm(REQUESTER, repo, { ...FILE, file_type: 'VAE' }).modelType, 'vae');
+	assert.equal(initialRequestForm(REQUESTER, repo, { ...FILE, file_type: 'LoRA' }).modelType, 'lora');
+	assert.equal(initialRequestForm(REQUESTER, repo, { ...FILE, file_type: 'Model' }).modelType, 'upscaler');
+	assert.equal(initialRequestForm(REQUESTER, repo, FILE).modelType, 'upscaler');
+	assert.equal(initialRequestForm(REQUESTER, repo).modelType, 'upscaler');
+});
+
+test('suggestedModelType keeps the file type even when the user may not ask for it', () => {
+	assert.equal(suggestedModelType({ mb_type: 'lora' }, { file_type: 'VAE' }), 'vae');
+	assert.equal(suggestedModelType({ mb_type: 'lora' }, { file_type: ' text encoder ' }), 'text_encoder');
+	assert.equal(suggestedModelType({ mb_type: null }, { file_type: 'Model' }), '');
+	assert.equal(initialRequestForm(LIMITED, DETAIL, { ...FILE, file_type: 'VAE' }).modelType, '');
+});
+
+test('pendingKeys lists only the open requests, keyed by source, model, version and file', () => {
+	const listing = normalizeListing({
+		requests: [
+			request('1', 'open', { source: 'huggingface', source_model_id: 'a/b', source_version_id: 'main', file_id: 'x.safetensors' }),
+			request('2', 'done', { source: 'huggingface', source_model_id: 'a/b', source_version_id: 'main', file_id: 'y.safetensors' }),
+			request('3', 'cancelled', { source: 'huggingface', source_model_id: 'a/b', source_version_id: 'main', file_id: 'z.safetensors' })
+		]
+	});
+	const keys = pendingKeys(listing);
+	assert.equal(keys.size, 1);
+	assert.ok(keys.has(requestKey('huggingface', 'a/b', 'main', 'x.safetensors')));
+	assert.ok(!keys.has(requestKey('huggingface', 'a/b', 'main', 'y.safetensors')));
+	assert.equal(requestKey('civitai', 5, 6, 7), requestKey('civitai', '5', '6', '7'));
+	assert.notEqual(requestKey('a', 'bc', 'd', 'e'), requestKey('ab', 'c', 'd', 'e'));
+});
+
+test('withPending adds a freshly created open request and ignores the rest', () => {
+	const created = request('9', 'open', { source: 'huggingface', source_model_id: 'a/b', source_version_id: 'main', file_id: 'x.safetensors' });
+	const next = withPending(new Set(), created);
+	assert.ok(next.has(requestKey('huggingface', 'a/b', 'main', 'x.safetensors')));
+	const keys = new Set();
+	assert.equal(withPending(keys, request('9', 'done')), keys);
+	assert.equal(withPending(keys, null), keys);
+});
+
+test('fetchPendingKeys asks for the caller\'s own open requests and returns null on failure', async () => {
+	const calls = [];
+	const api = fakeApi((method, path) => {
+		calls.push([method, path]);
+		const keys = Array.from({ length: 300 }, (_, index) => ({ source: 'civitai', model_id: '5', version_id: '6', file_id: String(index) }));
+		return ok({ keys });
+	});
+	const keys = await fetchPendingKeys(api);
+	assert.equal(keys.size, 300);
+	assert.ok(keys.has(requestKey('civitai', '5', '6', '299')));
+	assert.equal(calls[0][1], '/requests/pending');
+	const failing = fakeApi(() => fail('internal_error', 'nope'));
+	assert.equal(await fetchPendingKeys(failing), null);
 });

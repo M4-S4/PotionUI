@@ -624,7 +624,7 @@ class TestOutputHandling:
         user_id = 'user_err'
         orchestrator.status_tracker.create(id=generation_id)
         orchestrator.status_tracker.transition(generation_id, GenerationState.RUNNING)
-        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id, grid_id=None)
 
         output = ErrorGenerationOutput(
             error='KSampler: CUDA out of memory',
@@ -669,7 +669,7 @@ class TestOutputHandling:
 
         generation_id = 'gen_admin_error'
         orchestrator.status_tracker.create(id=generation_id)
-        mock_generation_repo.get_by_id.return_value = Mock(user_id='admin_1')
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='admin_1', grid_id=None)
         orchestrator.user_repository = Mock(get_by_id=Mock(return_value=Mock(account_type=AccountType.ADMIN)))
 
         output = ErrorGenerationOutput(
@@ -697,7 +697,7 @@ class TestOutputHandling:
 
         generation_id = 'gen_user_error'
         orchestrator.status_tracker.create(id=generation_id)
-        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_1')
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_1', grid_id=None)
         orchestrator.user_repository = Mock(get_by_id=Mock(return_value=Mock(account_type=AccountType.USER)))
 
         output = ErrorGenerationOutput(
@@ -716,6 +716,30 @@ class TestOutputHandling:
         assert '/srv/' not in rendered
         assert 'Traceback' not in rendered
         assert 'FileNotFoundError' not in rendered
+
+    @pytest.mark.asyncio
+    async def test_grid_cell_error_routes_grid_and_preset_to_grid_summary_not_cell_toast(
+        self,
+        orchestrator,
+        mock_generation_repo
+    ):
+        from src.pipelines.outputs import ErrorGenerationOutput
+
+        generation_id = 'gen_grid_cell_error'
+        orchestrator.status_tracker.create(id=generation_id)
+        mock_generation_repo.get_by_id.return_value = Mock(
+            user_id='user_grid', grid_id='grid_7', preset_id='preset_9'
+        )
+
+        mock_manager = Mock()
+        with patch('src.platform.plugins.runtime_registries.get_global_notification_manager', return_value=mock_manager), \
+                patch.object(orchestrator._notifier, '_notify_grid_completion') as summary:
+            await orchestrator._handle_generation_output(
+                generation_id, ErrorGenerationOutput(error='boom'), 'local', AsyncMock()
+            )
+
+        summary.assert_called_once_with('grid_7', 'preset_9', 'user_grid')
+        mock_manager.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_notify_generation_failure_swallows_errors(
@@ -787,7 +811,7 @@ class TestOutputHandling:
         user_id = 'user_123'
 
         orchestrator.status_tracker.create(id=generation_id)
-        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id, grid_id=None)
 
         # Make output processor fail
         mock_output_processor.process_output.side_effect = Exception("Processing failed")
@@ -820,7 +844,7 @@ class TestOutputHandling:
 
         generation_id = 'gen_error_output'
         orchestrator.status_tracker.create(id=generation_id)
-        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_123')
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_123', grid_id=None)
 
         output = ErrorGenerationOutput(error="pipe exploded")
         callback = AsyncMock()
@@ -845,7 +869,7 @@ class TestOutputHandling:
 
         generation_id = 'gen_error_then_complete'
         orchestrator.status_tracker.create(id=generation_id)
-        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_123')
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_123', grid_id=None)
 
         await orchestrator._handle_generation_output(
             generation_id, ErrorGenerationOutput(error="boom"), 'local', None
@@ -922,7 +946,7 @@ class TestFinalSaveFailure:
         generation_id = 'gen_save_fail'
         user_id = 'user_save_fail'
         orchestrator.status_tracker.create(id=generation_id)
-        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id, grid_id=None)
 
         mock_output_processor.process_output.return_value = {
             'handler': 'ImageGenerationOutputHandler',
@@ -965,7 +989,7 @@ class TestFinalSaveFailure:
         from src.pipelines.outputs import ImageGenerationOutput
 
         generation_id = 'gen_save_fail_exc'
-        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_x')
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_x', grid_id=None)
         orchestrator.status_tracker.create(id=generation_id)
 
         mock_output_processor.process_output.return_value = {
@@ -996,7 +1020,7 @@ class TestFinalSaveFailure:
         from src.pipelines.outputs import ImageGenerationOutput
 
         generation_id = 'gen_temp_output'
-        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_x')
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_x', grid_id=None)
         orchestrator.status_tracker.create(id=generation_id)
         from src.features.generation.status_tracker import GenerationState
         orchestrator.status_tracker.transition(generation_id, GenerationState.RUNNING)
@@ -1025,7 +1049,7 @@ class TestFinalSaveFailure:
         from src.pipelines.outputs import ImageGenerationOutput
 
         generation_id = 'gen_save_fail_then_complete'
-        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_x')
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_x', grid_id=None)
         orchestrator.status_tracker.create(id=generation_id)
 
         mock_output_processor.process_output.return_value = {
@@ -1257,7 +1281,7 @@ class TestIntegrationWorkflows:
         generation_id = result['generation_id']
 
         # Simulate progress output
-        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id, grid_id=None)
 
         progress_output = Mock()
         progress_output.progress = 0.5
@@ -1292,7 +1316,7 @@ class TestIntegrationWorkflows:
         user_id = 'user_123'
 
         orchestrator.status_tracker.create(id=generation_id)
-        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id=user_id, grid_id=None)
 
         # Send multiple outputs
         outputs = [

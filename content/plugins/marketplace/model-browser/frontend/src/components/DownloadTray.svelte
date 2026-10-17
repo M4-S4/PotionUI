@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import Icon from './Icon.svelte';
+	import Tip from './Tip.svelte';
 	import Pill from './Pill.svelte';
 	import { listDownloads } from '../lib/client.js';
 	import {
@@ -109,9 +110,13 @@
 		<Icon name="download" class="h-3.5 w-3.5 text-fg-subtle" />
 		<span>Downloads</span>
 		{#if active > 0}
-			<span class="rounded-full bg-signal/10 px-1.5 font-mono text-2xs tabular-nums text-signal" title="{active} in progress">{active}</span>
+			<Tip text="{active} in progress">
+				<span class="rounded-full bg-signal/10 px-1.5 font-mono text-xs tabular-nums text-signal">{active}</span>
+			</Tip>
 		{:else if failed > 0}
-			<span class="h-1.5 w-1.5 rounded-full bg-danger" title="A download failed"></span>
+			<Tip text="A download failed">
+				<span class="h-1.5 w-1.5 rounded-full bg-danger"></span>
+			</Tip>
 		{/if}
 	</button>
 </div>
@@ -128,27 +133,29 @@
 		<header class="flex items-center gap-2 border-b border-line px-3 py-2">
 			<h2 class="text-sm font-semibold text-fg">Downloads</h2>
 			{#if active > 0}
-				<span class="font-mono text-2xs tabular-nums text-fg-subtle">{active} in progress</span>
+				<span class="font-mono text-xs tabular-nums text-fg-subtle">{active} in progress</span>
 			{/if}
-			<button
-				type="button"
-				class="ml-auto inline-flex min-h-6 min-w-6 items-center justify-center rounded p-1 text-fg-muted transition-colors hover:bg-surface-3/50 hover:text-fg disabled:opacity-50"
-				aria-label="Refresh the downloads"
-				title="Refresh"
-				disabled={refreshing}
-				onclick={() => refresh()}
-			>
-				<Icon name="refresh" class="h-3.5 w-3.5 {refreshing ? 'animate-spin' : ''}" />
-			</button>
-			<button
-				type="button"
-				class="inline-flex min-h-6 min-w-6 items-center justify-center rounded p-1 text-fg-muted transition-colors hover:bg-surface-3/50 hover:text-fg"
-				aria-label="Close the downloads"
-				title="Close"
-				onclick={close}
-			>
-				<Icon name="close" class="h-3.5 w-3.5" />
-			</button>
+			<Tip text="Refresh" wrapperClass="ml-auto inline-flex">
+				<button
+					type="button"
+					class="inline-flex min-h-6 min-w-6 items-center justify-center rounded p-1 text-fg-muted transition-colors hover:bg-surface-3/50 hover:text-fg disabled:opacity-50"
+					aria-label="Refresh the downloads"
+					disabled={refreshing}
+					onclick={() => refresh()}
+				>
+					<Icon name="refresh" class="h-3.5 w-3.5 {refreshing ? 'animate-spin' : ''}" />
+				</button>
+			</Tip>
+			<Tip text="Close">
+				<button
+					type="button"
+					class="inline-flex min-h-6 min-w-6 items-center justify-center rounded p-1 text-fg-muted transition-colors hover:bg-surface-3/50 hover:text-fg"
+					aria-label="Close the downloads"
+					onclick={close}
+				>
+					<Icon name="close" class="h-3.5 w-3.5" />
+				</button>
+			</Tip>
 		</header>
 
 		<div class="min-h-0 flex-1 overflow-y-auto" aria-live="polite">
@@ -168,8 +175,12 @@
 						<li class="space-y-1.5 px-3 py-2.5">
 							<div class="flex items-start gap-2">
 								<div class="min-w-0 flex-1">
-									<p class="truncate text-sm font-medium text-fg" title={rowTitle(row)}>{rowTitle(row)}</p>
-									<p class="truncate font-mono text-2xs text-fg-subtle" title={rowSubtitle(row)}>{rowSubtitle(row)}</p>
+									<Tip text={rowTitle(row)} wrapperClass="min-w-0 flex">
+										<p class="truncate text-sm font-medium text-fg">{rowTitle(row)}</p>
+									</Tip>
+									<Tip text={rowSubtitle(row)} wrapperClass="min-w-0 flex">
+										<p class="truncate font-mono text-xs text-fg-subtle">{rowSubtitle(row)}</p>
+									</Tip>
 								</div>
 								<Pill tone={status.tone}>{status.label}</Pill>
 							</div>
@@ -186,7 +197,7 @@
 								</div>
 							{/if}
 							{#if status.sizeText || status.speedText}
-								<p class="font-mono text-2xs tabular-nums text-fg-subtle">
+								<p class="font-mono text-xs tabular-nums text-fg-subtle">
 									{[status.progress !== null && status.label === 'Downloading' ? `${status.progress}%` : '', status.sizeText, status.speedText]
 										.filter(Boolean)
 										.join(' · ')}

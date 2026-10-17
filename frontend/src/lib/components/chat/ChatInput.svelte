@@ -24,8 +24,7 @@
 	/** Selected LoRAs per lora_picker field, forwarded for @form browse rows. */
 	export let loraSelections: Record<string, LoraSelectionRow[]> = {};
 	export let disabled: boolean = false;
-	/** True while the ApprovalDock is showing — the composer stays visible but inert. */
-	export let approvalsPending: boolean = false;
+	export let actionPending: boolean = false;
 	export let isGenerating: boolean = false;
 	export let supportsVision: boolean = false;
 	export let onSend: (() => void) | undefined = undefined;
@@ -297,7 +296,7 @@
 		/>
 	{/if}
 
-	<div class="composer" class:approvals-pending={approvalsPending}>
+	<div class="composer">
 		<div class="composer-context">
 			<slot name="context" />
 			{#if attachedImage}
@@ -326,8 +325,8 @@
 			{formData}
 			{loraSelections}
 			{disabled}
-			placeholder={approvalsPending
-				? 'Resolve approvals to continue…'
+			placeholder={actionPending
+				? 'Reply, or tell it what to change instead…'
 				: 'Ask the AI anything... (@ to attach a resource)'}
 			on:change={handleChange}
 			on:submit={handleSubmit}

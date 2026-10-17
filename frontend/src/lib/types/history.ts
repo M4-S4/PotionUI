@@ -145,11 +145,17 @@ export interface GenerationHistoryItem {
 	axis_values?: Record<string, string> | null;
 }
 
+export interface HistoryGridAxis {
+	field: string;
+	label: string;
+}
+
 export interface HistoryGridSummary {
 	id: string;
 	cols: number;
 	rows: number;
 	cell_count: number;
+	axes?: HistoryGridAxis[];
 }
 
 /** The reusable-settings slice of an imported generation bundle — same shape

@@ -71,6 +71,7 @@ from src.features.generation.queue_dispatcher import CancelledBeforeStart, Queue
 from src.features.generation.scheduling import SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
 from src.features.generation.notifier import GenerationNotifier
+from src.features.generation.grids.repository import grid_repo
 from src.features.generation.policy import GenerationPolicy
 from src.features.generation.failure import (
     GenerationFailure,
@@ -605,7 +606,7 @@ class GenerationOrchestrator:
             capacity_for=self._backend_capacity,
         )
         self._prompt_expander = PromptExpander(plugin_registry=plugin_registry)
-        self._notifier = GenerationNotifier(notification_manager=notification_manager)
+        self._notifier = GenerationNotifier(notification_manager=notification_manager, grids=grid_repo)
 
         # Keeps OutputBridge.run() consumer tasks alive (fire-and-forget
         # tasks would otherwise be eligible for GC mid-flight).
@@ -1530,6 +1531,8 @@ class GenerationOrchestrator:
             failure,
             include_detail=self._is_admin_user(user_id),
             video=is_video_request(generation.form_data, generation.mode) if generation else False,
+            grid_id=generation.grid_id if generation else None,
+            preset_id=generation.preset_id if generation else None,
         )
         return generation
 

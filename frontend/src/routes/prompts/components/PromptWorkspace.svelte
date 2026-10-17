@@ -41,6 +41,7 @@
 		toRichSegment
 	} from '$lib/utils/richSegments';
 	import { mergeVariables } from '$lib/utils/variablesTransfer';
+	import { countUsagesInSegments } from '$lib/utils/promptVariables';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
@@ -304,6 +305,7 @@
 			return 0;
 		}
 	}
+	$: editorUsageCounts = countUsagesInSegments(editorSegments);
 	$: dirtyCount = computeDirtyCount(name, usageHint, editModelId, editorSegments, editorVariables);
 
 	function resetEditFields() {
@@ -1055,6 +1057,7 @@
 <VariableManagerModal
 	isOpen={variablesModalOpen}
 	variables={editorVariables}
+	usageCounts={editorUsageCounts}
 	on:close={() => (variablesModalOpen = false)}
 	on:change={(e) => (editorVariables = e.detail)}
 />

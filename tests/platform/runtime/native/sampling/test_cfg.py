@@ -7,6 +7,7 @@ import torch
 
 from src.platform.runtime.native.sampling.cfg import (
     EmbeddedGuidance,
+    FlowMapGuidance,
     NoCFG,
     SkipLayerGuidance,
     TrueCFG,
@@ -795,3 +796,50 @@ def test_slg_negative_scale_is_a_noop():
     out = slg(model_fn, x, sigma, {"v": 7.0}, None, 0)
     assert torch.allclose(out, torch.full_like(x, 7.0))
     assert len(calls) == 1
+
+
+def _recording_model():
+    seen = []
+
+    def model_fn(x, sigma, cond):
+        seen.append((float(sigma.reshape(-1)[0]), cond.get("flow_map_target")))
+        return torch.zeros_like(x)
+
+    return model_fn, seen
+
+
+def test_flow_map_guidance_passes_the_next_sigma_as_target_every_step():
+    from src.platform.runtime.native.sampling.registry import sampler_registry
+
+    sigmas = torch.tensor([1.0, 0.8, 0.5, 0.2, 0.0])
+    model_fn, seen = _recording_model()
+    x = torch.zeros(2, 3)
+    sampler_registry.get("euler").sample(model_fn, x, sigmas, FlowMapGuidance(sigmas), {"context": 1}, {"context": 0})
+    assert [round(s, 6) for s, _ in seen] == [1.0, 0.8, 0.5, 0.2]
+    for step, (_, target) in enumerate(seen):
+        assert target.shape == (2,)
+        assert torch.all(target == sigmas[step + 1])
+
+
+def test_flow_map_guidance_runs_one_conditional_forward_and_ignores_uncond():
+    sigmas = torch.tensor([1.0, 0.4, 0.0])
+    model_fn, seen = _recording_model()
+    out = FlowMapGuidance(sigmas)(model_fn, torch.zeros(1, 2), sigmas[0:1], {"context": "c"}, {"context": "u"}, 0)
+    assert len(seen) == 1
+    assert torch.equal(out, torch.zeros(1, 2))
+
+
+def test_flow_map_guidance_does_not_mutate_the_cond_dict():
+    sigmas = torch.tensor([1.0, 0.4, 0.0])
+    model_fn, _ = _recording_model()
+    cond = {"context": "c"}
+    FlowMapGuidance(sigmas)(model_fn, torch.zeros(1, 2), sigmas[1:2], cond, None, 1)
+    assert cond == {"context": "c"}
+
+
+def test_flow_map_guidance_rejects_a_sigma_off_the_schedule():
+    sigmas = torch.tensor([1.0, 0.4, 0.0])
+    model_fn, seen = _recording_model()
+    with pytest.raises(ValueError, match="euler"):
+        FlowMapGuidance(sigmas)(model_fn, torch.zeros(1, 2), torch.tensor([0.7]), {}, None, 0)
+    assert seen == []

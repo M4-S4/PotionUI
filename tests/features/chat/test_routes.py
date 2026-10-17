@@ -839,6 +839,7 @@ class TestChatController:
             context_metadata=None,
             resources=None,
             is_admin=False,
+            continue_from=None,
         )
 
     @pytest.mark.asyncio

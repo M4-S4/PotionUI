@@ -677,17 +677,17 @@ class TestXmlToolCallParsing:
         assert len(calls) == 0
 
     def test_strip_tool_call_xml(self):
-        from src.features.llm.tools.executor import strip_tool_call_xml
+        from src.features.llm.tools.workflow import strip_tool_call_xml
         content = 'hello <tool_call>{"name": "x"}</tool_call> world'
         assert strip_tool_call_xml(content) == 'hello  world'
 
     def test_strip_tool_call_xml_multiline(self):
-        from src.features.llm.tools.executor import strip_tool_call_xml
+        from src.features.llm.tools.workflow import strip_tool_call_xml
         content = 'before\n<tool_call>\n{"name": "x"}\n</tool_call>\nafter'
         assert strip_tool_call_xml(content) == 'before\n\nafter'
 
     def test_strip_preserves_clean_content(self):
-        from src.features.llm.tools.executor import strip_tool_call_xml
+        from src.features.llm.tools.workflow import strip_tool_call_xml
         content = 'no xml here'
         assert strip_tool_call_xml(content) == 'no xml here'
 
@@ -1407,21 +1407,17 @@ class TestToolResultSources:
         assert result.sources[0].title == "T"
 
 
-# ---------------------------------------------------------------------------
-# ToolExecution pending_approval field
-# ---------------------------------------------------------------------------
-
-
-class TestToolExecutionPendingApproval:
-    def test_pending_approval_defaults_false(self):
+class TestToolExecutionApprovalStatus:
+    def test_approval_status_defaults_none(self):
         result = ToolResult(success=True, data="ok")
         exec_ = ToolExecution(tool_name="echo", arguments={}, result=result, duration_ms=1)
-        assert exec_.pending_approval is False
+        assert exec_.approval_status is None
+        assert exec_.skipped is False
 
-    def test_pending_approval_can_be_set(self):
+    def test_approval_status_can_be_set(self):
         result = ToolResult(success=True, data="preview")
-        exec_ = ToolExecution(tool_name="approval_tool", arguments={}, result=result, duration_ms=1, pending_approval=True)
-        assert exec_.pending_approval is True
+        exec_ = ToolExecution(tool_name="approval_tool", arguments={}, result=result, duration_ms=1, approval_status="pending")
+        assert exec_.approval_status == "pending"
 
 
 # ---------------------------------------------------------------------------
@@ -1459,7 +1455,7 @@ class TestToolExecutorApprovalNonStreaming:
         # Loop must have stopped — only 1 LLM call made
         assert llm_service.generate_with_tools.call_count == 1
         assert len(executions) == 1
-        assert executions[0].pending_approval is True
+        assert executions[0].approval_status == "pending"
         assert executions[0].result.success is True
         assert "Preview" in executions[0].result.data
         # Response content is empty (loop did not get a final LLM response)
@@ -1487,7 +1483,7 @@ class TestToolExecutorApprovalNonStreaming:
             tool_context=make_context(),
         )
 
-        assert executions[0].pending_approval is False
+        assert executions[0].approval_status is None
         assert response.content == "could not preview"
 
     @pytest.mark.asyncio
@@ -1537,8 +1533,7 @@ class TestToolExecutorApprovalNonStreaming:
         assert result.error != "Confirmed execution failed: confirm boom"
 
     @pytest.mark.asyncio
-    async def test_on_tool_event_receives_pending_approval_flag(self):
-        """on_tool_event callback should receive pending_approval=True for approval tools."""
+    async def test_on_tool_event_receives_pending_approval_status(self):
         executor, llm_service = self._make_executor(ApprovalTool())
 
         tool_call = {
@@ -1563,7 +1558,7 @@ class TestToolExecutorApprovalNonStreaming:
 
         end_events = [d for t, d in events if t == "tool_end"]
         assert len(end_events) == 1
-        assert end_events[0]["pending_approval"] is True
+        assert end_events[0]["approval_status"] == "pending"
         assert "arguments" in end_events[0]
 
 
@@ -1608,13 +1603,13 @@ class TestToolExecutorApprovalStream:
         assert "token" not in event_types
 
         tool_end = next(e for e in events if e["type"] == "tool_end")
-        assert tool_end["data"]["pending_approval"] is True
+        assert tool_end["data"]["approval_status"] == "pending"
         assert "arguments" in tool_end["data"]
 
         done = next(e for e in events if e["type"] == "done")
         assert done["data"]["pending_tool_approval"] is True
         assert len(done["data"]["tool_executions"]) == 1
-        assert done["data"]["tool_executions"][0].pending_approval is True
+        assert done["data"]["tool_executions"][0].approval_status == "pending"
 
     @pytest.mark.asyncio
     async def test_normal_tool_done_has_pending_false(self):
@@ -1910,12 +1905,12 @@ class TestToolExecutorNativeStream:
         assert "token" not in event_types  # loop paused before any answer streamed
 
         tool_end = next(e for e in events if e["type"] == "tool_end")
-        assert tool_end["data"]["pending_approval"] is True
+        assert tool_end["data"]["approval_status"] == "pending"
 
         done = next(e for e in events if e["type"] == "done")
         assert done["data"]["pending_tool_approval"] is True
         assert len(done["data"]["tool_executions"]) == 1
-        assert done["data"]["tool_executions"][0].pending_approval is True
+        assert done["data"]["tool_executions"][0].approval_status == "pending"
 
     @pytest.mark.asyncio
     async def test_force_prompt_tools_config_uses_legacy_buffered_path(self):

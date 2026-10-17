@@ -266,3 +266,20 @@ class TestToolActionTagSurvivesSectionParsing:
         assert '\x00' not in cleaned
         assert '<tool_action type="update_segment"' in cleaned
         assert contract == {"questions": [{"text": "keep this variant?", "options": []}]}
+
+
+class TestApprovalContinuation:
+    def test_it_asks_for_one_short_sentence_and_forbids_a_bare_ok(self):
+        from src.features.chat.reply_contract import APPROVAL_CONTINUATION_NOTE
+
+        assert "one short sentence" in APPROVAL_CONTINUATION_NOTE
+        assert "last tool result" in APPROVAL_CONTINUATION_NOTE
+        assert "earlier" in APPROVAL_CONTINUATION_NOTE
+        assert "OK" in APPROVAL_CONTINUATION_NOTE
+
+    def test_it_is_a_trailing_user_context_message(self):
+        from src.features.chat.reply_contract import APPROVAL_CONTINUATION_NOTE, approval_continuation_message
+
+        message = approval_continuation_message()
+        assert message["role"] == "user"
+        assert APPROVAL_CONTINUATION_NOTE in message["content"]

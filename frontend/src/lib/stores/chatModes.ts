@@ -74,7 +74,7 @@ export function resolveModeForRoute(pathname: string, modes: ChatMode[]): string
 
 /** Tools visible in a mode: the mode's own tools plus global (modeless) tools. */
 export function toolsForMode(tools: ChatToolInfo[], modeId: string): ChatToolInfo[] {
-	return tools.filter((t) => !t.mode || t.mode === modeId);
+	return tools.filter((t) => (t.modes ? t.modes.includes(modeId) : !t.mode || t.mode === modeId));
 }
 
 /** Display name for a mode id, falling back to the id itself if unknown. */

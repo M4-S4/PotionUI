@@ -1020,8 +1020,7 @@ class TestMemoryCountedInHistoryBudget:
         assert isinstance(ledger["total_est_tokens"], int)
 
 
-class TestApproveToolExecutionPreservesBehaviorTrace:
-    """The tool-approval metadata rewrite must not drop the persisted behavior_trace."""
+class TestResolveToolExecutionPreservesBehaviorTrace:
 
     def setup_method(self):
         self.mock_repo = Mock()
@@ -1055,11 +1054,12 @@ class TestApproveToolExecutionPreservesBehaviorTrace:
         message.session_id = "session-123"
         message.metadata = {
             "behavior_trace": behavior_trace,
-            "tool_executions": [{"tool_name": "get_data", "arguments": {}, "pending_approval": True, "result": {}}],
+            "tool_executions": [{"tool_name": "get_data", "arguments": {}, "approval_status": "pending", "result": {}}],
         }
         self.mock_repo.get_message.return_value = message
+        self.mock_repo.transition_tool_execution.return_value = True
 
-        await self.manager.approve_tool_execution(
+        await self.manager.resolve_tool_execution(
             session_id="session-123",
             user_id="user-123",
             message_id="msg-1",
@@ -1067,7 +1067,7 @@ class TestApproveToolExecutionPreservesBehaviorTrace:
             approved=False,
         )
 
-        persisted = self.mock_repo.update_message_metadata.call_args.args[1]
+        persisted = self.mock_repo.transition_tool_execution.call_args.args[3]
         assert persisted["behavior_trace"] == behavior_trace
 
 

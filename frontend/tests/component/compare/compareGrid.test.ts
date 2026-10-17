@@ -328,12 +328,18 @@ describe('compare grid left edge', () => {
 		}
 	});
 
-	it('pins the axis corner and the Y labels to the left of the scroller', () => {
+	it('pins the axis corner and the Y labels to the scroller edge, covering its left padding', () => {
 		const { target } = mount(CompareGrid, { grid: wide() });
 		const scroller = q(target, '[data-testid="compare-scroller"]') as HTMLElement;
 		const corner = (scroller.firstElementChild as HTMLElement).firstElementChild as HTMLElement;
-		expect(corner.className).toContain('sticky');
-		expect(corner.className).toContain('left-0');
-		expect(qa(target, '[data-testid="compare-y-label"]').every((el) => el.className.includes('left-0'))).toBe(true);
+		const pinned = [corner, ...qa(target, '[data-testid="compare-y-label"]')];
+		expect(scroller.classList.contains('p-3')).toBe(true);
+		for (const el of pinned) {
+			expect(el.classList.contains('sticky')).toBe(true);
+			expect(el.classList.contains('-left-3')).toBe(true);
+			expect(el.classList.contains('-ml-3')).toBe(true);
+			expect(el.classList.contains('pl-3')).toBe(true);
+			expect(el.classList.contains('left-0')).toBe(false);
+		}
 	});
 });

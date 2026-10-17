@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.15 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.16 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*
@@ -237,7 +237,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.15 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.16 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -281,7 +281,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.15                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.16                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -389,6 +389,53 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.0.16 — 2026-10-16
+
+- FLUX 3 Klein (experimental): the native engine runs FLUX 3 Image Klein checkpoints, base and
+  distilled, with their own text encoder and autoencoder; a new FLUX 3 Klein preset does text-to-image
+  and multi-reference edit, and its steps and CFG follow whichever checkpoint is loaded; it is
+  marked experimental until it has had wider testing.
+- Model Browser: a new marketplace plugin lets users browse CivitAI, Hugging Face and OpenModelDB
+  from PotionUI and download a model straight into the right folder; admins decide per user group
+  who may browse, download, request or approve, from which sources, which model types and up to
+  which size, and previews follow the instance's sensitive-content policy; users without the
+  download right can request a file and get notified when it is approved or declined, and admins
+  can cap files and bytes downloaded per month in Plans.
+- Prompt variables: the variables window lists every variable on the left and edits the selected
+  one on the right, marks with a tick each variable the prompt actually uses, and has no limit on
+  how many variables a prompt can have; a choice variable used several times can roll each usage
+  on its own or share one roll, and each usage chip shows which one it is.
+- Batch prompts: several prompts can run as one generation that encodes every prompt once and
+  lands as one History entry per prompt.
+- X/Y compare: running cells show real step counts; a finished grid sends one notification
+  instead of one per cell, and a grid where every cell failed says so once; History captions use
+  the axis names you picked; the LoRA axis shows the LoRA names; the Stitch window no longer jumps
+  in height while it loads, and the grid's left edge no longer shows cells when you scroll sideways.
+- Chat: approving a tool call happens in a card inside the reply and continues the same answer, so
+  an approval no longer times out, loses the conversation or ends without a reply.
+- Search: History, gallery and chat search find generations whose prompt was written in the
+  segmented prompt editor; text that only appears in the negative prompt no longer matches.
+- Sessions: you stay signed in while you use the app, a valid sign-in survives a backend restart,
+  and adding an account whose session expired switches to it.
+- Plugins: plugins get their disable signal on every teardown, including a rescan, a reload, a
+  removed folder and an uninstall, and start again cleanly after a reload; a plugin folder can be
+  a symlink or a Windows junction, and a broken link is skipped with a warning instead of stopping
+  the plugin build; new plugin API for reacting to finished downloads, queueing downloads, user
+  groups, content policy, notifications and plan limits; relative imports inside a plugin no
+  longer print a warning.
+- Native engine: a Qwen-Image 2.1 multi-reference edit with CFG no longer runs out of VRAM; LoRA
+  stages release their GPU memory once done and fp8 and nvfp4 LoRA runs need less headroom; models
+  that are no longer used give back their pinned system memory.
+- Responsiveness: uploads, edits, storage and limit checks and grid saves no longer block the
+  server; the image editor loads only when opened, and compare progress no longer redraws the
+  whole form.
+- Fixes: a plugin setting switched off in Admin > Plugins > Settings stays off after Save;
+  cancelling a Video Director run reports the stopped shots correctly; group tabs in Admin > Users
+  & Groups no longer reload in a loop after a failed load; frontend dependencies pick up patched
+  security releases.
+- Upgrading: History and gallery search now look only at prompt text, preset and model names, so
+  a seed or another form value no longer finds a generation.
 
 ### 0.0.15 — 2026-10-08
 
@@ -521,46 +568,6 @@ The three most recent releases; older history lives in the
   category name no longer loads; the Docker setup no longer has an outputs volume, since all
   generated work lives in the storage volume; cloud models need the OpenRouter plugin enabled and
   its API key set in Admin → Plugins.
-
-### 0.0.13 — 2026-09-30
-
-- Model folders: adding a folder detects which tool it belongs to (ComfyUI, A1111/Forge/SD.Next,
-  StabilityMatrix, Fooocus, SwarmUI, Pinokio) and maps its subfolders to model types, with an
-  override; a type can use several subfolders of one folder (such as Lora and LyCORIS) with one
-  of them receiving downloads; folders the tool's own config points to are offered as extra
-  folders, including Windows drive paths seen from WSL; any subfolder can be bound to a type by
-  browsing or typing a path, in the setup wizard and in Admin → Models → Folders; Detect again
-  adds only what is missing, and a single subfolder can be removed.
-- Model types: checkpoints and diffusion models sharing one folder, as in Forge and
-  StabilityMatrix, are told apart by reading the file header; Flux, Qwen, Z-Image, Krea-2, Wan,
-  Anima, SeedVR2 and MiniMax-H3 pickers also list full checkpoints of those models and load only
-  their diffusion model weights; files nothing recognises are listed as needing a type, and
-  admins can set or reset a model's type from its detail page, kept across rescans; ComfyUI's
-  unet and latent_upscale_models folders count as diffusion models and upscalers.
-- Content safety: every model can be Allowed, Blurred or Blocked per instance and per user
-  group, with a Restricted content group that is always blocked; outputs are rated by the image
-  tagger before they are saved or sent, and a blocked generation shows a calm notice with the
-  reason.
-- Sessions: sessions open in a drawer with search, a current-session card with Save, Save as
-  new and New, and a history whose rows show the prompt and what changed; sessions can be
-  pinned to the top.
-- Admin: Admin → Generations shows every running and queued generation from all users,
-  including recipe test renders, with Stop, Remove and Stop all.
-- Windows: `./potionui start` falls back to a free port when the default is taken, and
-  `doctor` names the process holding a port and checks for the Visual C++ runtime that PyTorch
-  needs.
-- Fixes: model downloads trust the operating system certificate store on Windows and macOS
-  (`SSL_CERT_FILE` overrides it), and a certificate failure stops retrying and explains the fix;
-  downloads use the detected provider and appear in lists as soon as they finish; stopping a
-  generation really stops it, never reports cancelled when the backend refused, and a stop
-  sent just before a run starts is honoured; recipe downloads can be approved when a provider
-  has no API key yet; plugin settings and new model folders no longer crash on empty fields;
-  the NSFW setting saves again; clearing all chat sessions in Admin works again.
-- Upgrading: the default ports change to 26730 (backend) and 26731 (frontend) because Windows
-  Delivery Optimization holds 7680; set `BACKEND_PORT`/`FRONTEND_PORT` or pass
-  `--backend-port`/`--frontend-port` to keep the old ports, and update bookmarks to
-  `localhost:26731`; the database gains model type, folder binding, session pin and content
-  policy migrations on first start, so take a backup first.
 
 ## Contributing
 

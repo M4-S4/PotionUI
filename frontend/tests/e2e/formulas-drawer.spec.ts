@@ -42,7 +42,12 @@ async function saveSizeFormula(page: Page, name: string) {
 		else await box.uncheck();
 	}
 	await drawer.locator('#formula-name').fill(name);
+	const saved = page.waitForResponse(
+		(r) => r.request().method() === 'POST' && /\/api\/formulas$/.test(new URL(r.url()).pathname),
+		{ timeout: 30000 }
+	);
 	await drawer.getByRole('button', { name: /^Save/ }).last().click();
+	if ((await saved).status() === 409) await drawer.getByRole('button', { name: 'Cancel' }).click();
 	await expect(drawer.locator(`[data-row-id]`, { hasText: name })).toBeVisible();
 }
 

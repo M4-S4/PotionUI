@@ -515,7 +515,7 @@
 								{#if te.result && !te.result.success}
 									<Badge variant="danger" size="sm">failed</Badge>
 								{/if}
-								{#if te.pending_approval}
+								{#if te.approval_status === 'pending'}
 									<Badge variant="warning" size="sm">pending approval</Badge>
 								{/if}
 							</div>

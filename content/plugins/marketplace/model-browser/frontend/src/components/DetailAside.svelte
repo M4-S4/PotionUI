@@ -2,6 +2,7 @@
 	import HostUi from '../../../../../sdk/HostUi.svelte';
 	import Pill from './Pill.svelte';
 	import Icon from './Icon.svelte';
+	import Tip from './Tip.svelte';
 	import { formatCount, formatDate, modelTypeLabel } from '../lib/format.js';
 	import { licenseFlags } from '../lib/downloadForm.js';
 	import { copyText, toast } from '../lib/dom.js';
@@ -48,15 +49,16 @@
 				{:else}
 					<span class="flex flex-wrap items-center gap-1.5">
 						{#each triggers as word, index (`${index}:${word}`)}
-							<button
-								type="button"
-								class="inline-flex max-w-full items-center gap-1 rounded border border-line-strong bg-surface-2 px-1.5 py-0.5 text-left font-mono text-xs text-fg transition-colors hover:bg-surface-3"
-								title="Copy this trigger word"
-								onclick={() => copyWord(word)}
-							>
-								<span class="break-words">{word}</span>
-								<Icon name="copy" class="h-3 w-3 flex-shrink-0 text-fg-subtle" />
-							</button>
+							<Tip text="Copy this trigger word">
+								<button
+									type="button"
+									class="inline-flex max-w-full items-center gap-1 rounded border border-line-strong bg-surface-2 px-1.5 py-0.5 text-left font-mono text-xs text-fg transition-colors hover:bg-surface-3"
+									onclick={() => copyWord(word)}
+								>
+									<span class="break-words">{word}</span>
+									<Icon name="copy" class="h-3 w-3 flex-shrink-0 text-fg-subtle" />
+								</button>
+							</Tip>
 						{/each}
 						{#if triggers.length > 1}
 							<HostUi name="CopyButton" props={{ text: triggers.join(', '), label: 'Copy all', size: 'xs', variant: 'secondary' }} />

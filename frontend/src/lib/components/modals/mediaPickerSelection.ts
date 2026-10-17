@@ -45,6 +45,36 @@ export function pickedFromHistoryFile(generation: GenerationHistoryItem, file: G
 	};
 }
 
+const PROMPT_KEYS = ['prompt', 'positive_prompt', 'text'];
+const LABEL_EXCERPT = 40;
+
+function excerpt(text: string): string {
+	const flat = text.replace(/\s+/g, ' ').trim();
+	return flat.length > LABEL_EXCERPT ? `${flat.slice(0, LABEL_EXCERPT - 1).trimEnd()}…` : flat;
+}
+
+export function historyTileLabel(
+	generation: GenerationHistoryItem,
+	file: GenerationFile
+): { label: string; sublabel: string } {
+	const form = (generation.form_data ?? {}) as Record<string, unknown>;
+	let prompt = '';
+	for (const key of PROMPT_KEYS) {
+		const value = form[key];
+		if (typeof value === 'string' && value.trim()) {
+			prompt = excerpt(value);
+			break;
+		}
+	}
+	const filename = (file.file_path ?? '').split('/').pop() || file.file_path || '';
+	const date = typeof generation.created_at === 'string' ? generation.created_at.slice(0, 10) : '';
+	const preset = generation.preset_name ?? '';
+	return {
+		label: prompt || preset || filename,
+		sublabel: [prompt ? preset : '', date].filter(Boolean).join(' · ')
+	};
+}
+
 export function pickedFromLibraryItem(item: LibraryItem): PickedMedia {
 	return {
 		key: libraryMediaKey(item.id),

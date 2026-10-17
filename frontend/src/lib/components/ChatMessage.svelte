@@ -16,6 +16,8 @@
 	import { buildVariableChipTooltips } from '$lib/utils/variableSnapshot';
 	import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 	import ChatBehaviorTrace from '$lib/components/chat/ChatBehaviorTrace.svelte';
+	import ChatActionCard from '$lib/components/chat/ChatActionCard.svelte';
+	import { actionExecutions, type ActionDecision, type ActionResolveOutcome } from '$lib/chat/actionCard';
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { appliedSegmentActions, isAppliedSegmentAction } from '$lib/stores/appliedSegmentActions';
@@ -64,6 +66,14 @@
 	export let onPromptFeedback:
 		| ((data: { actionIndex: number; verdict: 'approved' | 'rejected'; reason?: string }) => void)
 		| undefined = undefined;
+	export let actionsLocked: boolean = false;
+	export let actionErrors: Record<string, string> = {};
+	export let onResolveAction:
+		| ((index: number, decision: ActionDecision) => Promise<ActionResolveOutcome>)
+		| undefined = undefined;
+	export let onAskRedo: ((index: number) => void) | undefined = undefined;
+
+	$: actionItems = actionExecutions(toolExecutions);
 
 	// Deduplicate sources by (source_type, title)
 	$: uniqueSources = (() => {
@@ -269,6 +279,17 @@
 				{/if}
 
 				<ChatBehaviorTrace executions={toolExecutions} {traceSteps} {metadata} {isStreaming} />
+
+				{#each actionItems as item (item.index)}
+					<ChatActionCard
+						execution={item.execution}
+						actionKey="{messageId || 'local'}:{item.index}"
+						locked={actionsLocked || !messageId}
+						externalError={actionErrors[`${messageId}:${item.index}`] ?? null}
+						onResolve={onResolveAction ? (decision) => onResolveAction!(item.index, decision) : undefined}
+						onAskRedo={onAskRedo ? () => onAskRedo!(item.index) : undefined}
+					/>
+				{/each}
 
 				{#each markdownResult.actions as action, i}
 					{@const feedback = promptFeedbackByIndex[i]}

@@ -57,7 +57,7 @@ PLUGIN_LIFECYCLE_HOOKS = hooks_registry.declare(
             ),
         },
         "disable": {
-            "description": "Fired before a plugin's hooks are unregistered (called right after the plugin lookup, prior to actual unregistration). Notification-only, cannot block disabling.",
+            "description": "Fired by the registry exactly once, as a broadcast to every plugin, whenever a plugin that was enabled is torn down - an admin disable, uninstall, reload, a rescan that replaces its changed manifest or finds its folder gone, or a mount failure - before its hooks are unregistered. Never fired for a plugin that never reached the enabled state. Notification-only, cannot block disabling; handler errors are logged and ignored.",
             "payload": {
                 "plugin_id": {"type": "str", "description": "Identifier of the plugin being disabled"},
             },

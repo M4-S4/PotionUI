@@ -1,10 +1,3 @@
-// @vitest-environment jsdom
-//
-// ChatToolRun replaced the always-visible chip strip with a collapsible
-// record. These prove the three product rulings that survive the redesign:
-// the summary counts and names only what it renders, a failed row always
-// shows its `result.error` inline (no click-to-reveal), and a pending
-// execution never appears here at all — that's ApprovalDock's surface.
 import { describe, it, expect, afterEach } from 'vitest';
 import type { ToolExecution } from '../../src/lib/types/chat';
 
@@ -64,14 +57,34 @@ describe('ChatToolRun', () => {
 		expect(details.textContent).toContain('Field "steps" is out of range');
 	});
 
-	it('excludes pending-approval executions entirely', () => {
+	it('excludes approval-gated executions, which render as action cards', () => {
 		const target = mount([
-			execution({ tool_name: 'start_generation', pending_approval: true }),
+			execution({ tool_name: 'start_generation', approval_status: 'pending' }),
+			execution({ tool_name: 'update_form_settings', approval_status: 'approved' }),
 			execution({ tool_name: 'read_active_prompt' })
 		]);
 
 		const details = target.querySelector('details');
 		expect(details?.textContent).toContain('1 tool used');
 		expect(details?.textContent).not.toContain('Start Generation');
+		expect(details?.textContent).not.toContain('Update Form Settings');
+	});
+
+	it('shows a skipped sibling call as "Not run" rather than as a failure', () => {
+		const target = mount([
+			execution({
+				tool_name: 'read_preset',
+				skipped: true,
+				result: { success: false, data: '', error: 'Not run: waiting for approval of start_generation.' }
+			})
+		]);
+
+		const details = target.querySelector('details') as HTMLDetailsElement;
+		expect(details.classList.contains('failed')).toBe(false);
+		expect(details.open).toBe(false);
+		const row = target.querySelector('.tool-execution.skipped');
+		expect(row?.textContent).toContain('Read Preset');
+		expect(row?.textContent).toContain('Not run');
+		expect(target.querySelector('.tool-execution-error')).toBeNull();
 	});
 });

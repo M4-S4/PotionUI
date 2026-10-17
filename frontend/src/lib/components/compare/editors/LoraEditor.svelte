@@ -2,7 +2,9 @@
 	import ModelPickerDropdown from './ModelPickerDropdown.svelte';
 	import NumberValuesInput from './NumberValuesInput.svelte';
 	import { tabsStore } from '$lib/stores/tabs';
-	import { refFor } from '$lib/utils/modelRef';
+	import { untrack } from 'svelte';
+	import { refFor, MODEL_REF_PREFIX } from '$lib/utils/modelRef';
+	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { loraAxisValues } from '$lib/generation/compare/axisValues';
 	import type { AxisCandidate, CompareAxis, CompareAxisValue } from '$lib/generation/compare/types';
@@ -36,9 +38,19 @@
 	let selectedRef = $state<string>(savedLora ?? '');
 	let strengths = $state<number[]>([]);
 
+	let selections = $derived(loraSelectionsForTab(tabId));
+	let resolvedNames = $derived(
+		new Map(
+			Object.values($selections)
+				.flat()
+				.filter((row) => row.id && row.name)
+				.map((row) => [`${MODEL_REF_PREFIX}${row.id}`, row.name])
+		)
+	);
+
 	let choices = $derived.by(() => {
 		const out: Array<{ ref: string; name: string }> = [];
-		for (const row of rows) out.push({ ref: row.model, name: row.model.replace(/^model:/, '') });
+		for (const row of rows) out.push({ ref: row.model, name: resolvedNames.get(row.model) ?? row.model.replace(/^model:/, '') });
 		for (const item of extra) if (!out.some((entry) => entry.ref === item.ref)) out.push(item);
 		return out;
 	});
@@ -57,6 +69,13 @@
 		}
 		onChange(loraAxisValues(activeRef, activeName, next, step));
 	}
+
+	$effect(() => {
+		const name = activeName;
+		untrack(() => {
+			if (activeRef && strengths.length) onChange(loraAxisValues(activeRef, name, strengths, step));
+		});
+	});
 
 	function browse(model: any) {
 		const ref = refFor(model);
