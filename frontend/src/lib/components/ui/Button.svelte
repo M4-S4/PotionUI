@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from '../Icon.svelte';
+	import { tooltipDescription } from '../tooltipContext';
 
 	type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 	type Size = 'xs' | 'sm' | 'md' | 'lg';
@@ -62,6 +63,8 @@
 		lg: 'w-4 h-4'
 	};
 
+	const describedBy = tooltipDescription();
+
 	let isDisabled = $derived(disabled || loading);
 	let classes = $derived(
 		`inline-flex items-center justify-center gap-1.5 rounded transition-colors duration-100 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap ${sizeClasses[size]} ${variantClasses[variant]} ${className}`
@@ -69,7 +72,7 @@
 </script>
 
 {#if href && !isDisabled}
-	<a {href} {target} {rel} class={classes} {title} role="button">
+	<a {href} {target} {rel} class={classes} {title} role="button" aria-describedby={$describedBy}>
 		{#if icon}<Icon name={icon} className={iconSizeClasses[size]} />{/if}
 		{@render children?.()}
 	</a>
@@ -82,6 +85,7 @@
 		{onclick}
 		aria-expanded={ariaExpanded}
 		aria-haspopup={ariaHaspopup}
+		aria-describedby={$describedBy}
 		data-autofocus={initialFocus ? '' : undefined}
 	>
 		{#if loading}

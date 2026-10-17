@@ -8,6 +8,8 @@
 	import { getRegistry } from '$lib/plugin-api/componentRegistry';
 	import { PageHeader, PageTitle } from '$lib/components/ui';
 	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
+	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
+	import { createPluginApi, type PluginPageApi } from '$lib/plugin-api/pluginApi';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -25,70 +27,8 @@
 		headerHidden = state.hidden;
 	});
 
-	function createPluginApi(pluginId: string) {
-		const baseUrl = api.getBaseURL();
-		const headers = () => ({
-			'Content-Type': 'application/json',
-			...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {})
-		});
-
-		return {
-			// The auth token, so a plugin can authenticate a WebSocket it opens
-			// itself (query-string token - a browser WebSocket cannot send an
-			// Authorization header). Null when unauthenticated.
-			getToken: () => api.getToken(),
-			get: async (path: string) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					headers: headers(),
-					credentials: 'include'
-				});
-				return res.json();
-			},
-			post: async (path: string, data: any) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					method: 'POST',
-					headers: headers(),
-					credentials: 'include',
-					body: JSON.stringify(data)
-				});
-				return res.json();
-			},
-			put: async (path: string, data: any) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					method: 'PUT',
-					headers: headers(),
-					credentials: 'include',
-					body: JSON.stringify(data)
-				});
-				return res.json();
-			},
-			delete: async (path: string) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					method: 'DELETE',
-					headers: headers(),
-					credentials: 'include'
-				});
-				return res.json();
-			},
-			uploadFile: async (path: string, formData: FormData) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					method: 'POST',
-					headers: {
-						...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {})
-					},
-					credentials: 'include',
-					body: formData
-				});
-				return res.json();
-			},
-			fetchFromApp: async (path: string) => {
-				const res = await fetch(`${baseUrl}${path}`, {
-					headers: headers(),
-					credentials: 'include'
-				});
-				return res.json();
-			}
-		};
+	function pluginApiFor(pluginId: string): PluginPageApi {
+		return createPluginApi(pluginId, { baseUrl: api.getBaseURL(), getToken: () => api.getToken() });
 	}
 
 	function cleanupPlugin() {
@@ -101,6 +41,7 @@
 		}
 		pluginInstance = null;
 		unmountFn = null;
+		releaseAllKeyboardHolds();
 	}
 
 	async function loadPlugin(id: string) {
@@ -151,7 +92,7 @@
 				pluginInstance = mod.mountPlugin(containerEl, {
 					pluginId: id,
 					route: pageInfo.route,
-					api: createPluginApi(id),
+					api: pluginApiFor(id),
 					user: $authStore.user,
 					navigate: (path: string) => goto(path),
 					replaceUrl: (path: string) => goto(path, { replaceState: true, keepFocus: true, noScroll: true }).catch(() => undefined),
@@ -169,7 +110,7 @@
 					props: {
 						pluginId: id,
 						route: pageInfo.route,
-						api: createPluginApi(id),
+						api: pluginApiFor(id),
 						user: $authStore.user,
 						navigate: (path: string) => goto(path),
 						replaceUrl: (path: string) => goto(path, { replaceState: true, keepFocus: true, noScroll: true }).catch(() => undefined),
