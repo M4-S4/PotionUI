@@ -134,7 +134,8 @@ def test_a_named_segment_is_used():
     [
         (document("t2v"), "first", IMAGE, None, "unsupported_mode"),
         (document("i2v"), "last", IMAGE, None, "unsupported_mode"),
-        (document("director"), "first", IMAGE, None, "unsupported_mode"),
+        (document("director"), "first", IMAGE, None, "segment_required"),
+        (document("director"), "first", IMAGE, "shot-1", "no_capabilities"),
         (document("i2v"), "keyframe", IMAGE, None, "invalid_role"),
         (document("i2v", segments=[{"id": "a"}, {"id": "b"}]), "first", IMAGE, None, "segment_required"),
         (document("i2v"), "first", IMAGE, "shot-9", "unknown_segment"),
@@ -202,7 +203,7 @@ def test_first_then_last_turn_a_text_only_shot_into_a_first_and_last_shot(storag
     "doc, role, code",
     [
         (document("t2v", segments=[{"id": "a", "prompt": "a"}, {"id": "b", "prompt": "b"}]), "first", "segment_required"),
-        (document("director"), "first", "unsupported_mode"),
+        (document("director"), "first", "segment_required"),
         (document("t2v"), "last", "unsupported_mode"),
         (document("i2v"), "last", "first_frame_required"),
     ],
