@@ -418,6 +418,7 @@ this table and the scaffolder can never disagree for long.
 |---|---|---|---|
 | `anima` | `model_loader/anima` | `generator/anima` | image |
 | `flux` | `model_loader/flux` | `generator/flux` | image |
+| `flux3` | `model_loader/flux3` | `generator/flux3` | image |
 | `krea2` | `model_loader/krea2` | `generator/krea2` | image |
 | `ltx` | `model_loader/ltx` | `generator/txt2vid_ltx`, `generator/video_ltx`, `generator/dfr_video_ltx` | video |
 | `maya` | `model_loader/maya` | `generator/maya` | image |

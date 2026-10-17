@@ -4,7 +4,8 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 const apiMocks = vi.hoisted(() => ({
 	getGenerationHistory: vi.fn(),
 	listLibraryItems: vi.fn(),
-	getTags: vi.fn()
+	getTags: vi.fn(),
+	getClient: () => ({ get: vi.fn().mockResolvedValue({ data: { data: {} } }) })
 }));
 
 vi.mock('$lib/services/api/index', () => ({
@@ -85,7 +86,7 @@ async function settle() {
 }
 
 function checkbox(label: string): HTMLInputElement {
-	const el = document.querySelector<HTMLInputElement>(`input[aria-label="Select ${label}"]`);
+	const el = document.querySelector<HTMLInputElement>(`input[data-file="${label}"]`);
 	if (!el) throw new Error(`no checkbox for ${label}`);
 	return el;
 }
@@ -142,7 +143,7 @@ describe('GenerationHistoryModal multi-select', () => {
 
 		buttonByText('7 Days')!.click();
 		await vi.waitFor(() => expect(apiMocks.getGenerationHistory.mock.calls.length).toBeGreaterThan(calls));
-		await vi.waitFor(() => expect(document.querySelector('input[aria-label="Select a.png"]')).not.toBeNull());
+		await vi.waitFor(() => expect(document.querySelector('input[data-file="a.png"]')).not.toBeNull());
 
 		expect(checkbox('a.png').checked).toBe(true);
 		expect(count()).toBe('1 selected');
@@ -225,7 +226,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
 		await settle();
 
-		document.querySelector<HTMLButtonElement>('button[aria-label="Preview a.png"]')!.click();
+		document.querySelector<HTMLButtonElement>('button[data-file="a.png"]')!.click();
 		await tick();
 
 		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
@@ -308,7 +309,7 @@ describe('UploadLibraryModal multi-select', () => {
 		const input = document.querySelector<HTMLInputElement>('input[placeholder^="Search"]')!;
 		input.value = 'two';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
-		await vi.waitFor(() => expect(document.querySelector('input[aria-label="Select one.png"]')).toBeNull(), {
+		await vi.waitFor(() => expect(document.querySelector('input[data-file="one.png"]')).toBeNull(), {
 			timeout: 3000
 		});
 
@@ -316,7 +317,7 @@ describe('UploadLibraryModal multi-select', () => {
 		apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: LIBRARY, total: 3 } });
 		input.value = '';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
-		await vi.waitFor(() => expect(document.querySelector('input[aria-label="Select one.png"]')).not.toBeNull(), {
+		await vi.waitFor(() => expect(document.querySelector('input[data-file="one.png"]')).not.toBeNull(), {
 			timeout: 3000
 		});
 		expect(checkbox('one.png').checked).toBe(true);

@@ -1208,7 +1208,7 @@ export interface AdminChatToolExecution {
 		error: string | null;
 	};
 	duration_ms: number;
-	pending_approval: boolean;
+	approval_status?: 'pending' | 'approved' | 'rejected' | 'failed' | null;
 }
 
 /** One timed step in a `behavior_trace` manifest's `steps[]`. */

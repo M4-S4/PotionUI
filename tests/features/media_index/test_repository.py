@@ -111,6 +111,26 @@ class TestQueue(MediaIndexTestBase):
         assert item.generation_id is None
         assert item.prompt_text is None
 
+    def test_claim_batch_prompt_text_prefers_form_data_then_prompt_state(self):
+        cases = [
+            ({"steps": 20}, "a lighthouse"),
+            ({"prompt": ""}, "a lighthouse"),
+            ({"prompt": "a castle"}, "a castle"),
+        ]
+        for index, (form_data, expected) in enumerate(cases):
+            with self.subTest(form_data=form_data):
+                gen = self.create_test_generation(f"gen{index}", self.user_id, form_data=form_data)
+                with self.db.get_cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE generations SET prompt_state = ? WHERE id = ?", ('{"prompt": "a lighthouse"}', gen)
+                    )
+                self._make_file(f"f{index}", gen)
+                self.repo.enqueue_files([f"f{index}"], "prompt_embed")
+
+                item = self.repo.claim_batch("prompt_embed", 1, 3)[0]
+
+                assert item.prompt_text == expected
+
     def test_claim_batch_prompt_text_is_none_when_form_data_has_no_prompt(self):
         gen = self.create_test_generation("gen1", self.user_id, form_data={"steps": 20})
         self._make_file("f1", gen)

@@ -74,18 +74,22 @@ def repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _esbuild_calls(repo: Path, *args: str) -> dict:
+def _run(repo: Path, *args: str) -> subprocess.CompletedProcess:
     log = repo / "esbuild-calls.jsonl"
     log.unlink(missing_ok=True)
     env = {k: v for k, v in os.environ.items() if k != "PLUGIN_BUILD"}
     env["BUILD_PLUGINS_TEST_LOG"] = str(log)
-    result = subprocess.run(
+    return subprocess.run(
         [NODE, str(repo / "scripts" / "build-plugins.mjs"), *args],
         cwd=repo, env=env, capture_output=True, text=True,
     )
+
+
+def _esbuild_calls(repo: Path, *args: str) -> dict:
+    result = _run(repo, *args)
     assert result.returncode == 0, result.stdout + result.stderr
     calls = {}
-    for line in log.read_text().splitlines():
+    for line in (repo / "esbuild-calls.jsonl").read_text(encoding="utf-8").splitlines():
         options = json.loads(line)
         plugin_id = Path(options["entryPoints"][0]).parts[-4]
         calls.setdefault(plugin_id, []).append(options)
@@ -115,3 +119,20 @@ def test_release_and_debug_modes_differ_in_minify_and_sourcemap_only(repo):
     for release_options, debug_options in zip(release, debug):
         unchanged = {k: v for k, v in release_options.items() if k not in ("minify", "sourcemap")}
         assert unchanged == {k: v for k, v in debug_options.items() if k not in ("minify", "sourcemap")}
+
+
+def test_a_dangling_plugin_link_is_skipped_with_a_warning_and_the_rest_still_build(repo, tmp_path):
+    gone = tmp_path / "gone" / "dead-plugin"
+    gone.mkdir(parents=True)
+    dangling = repo / "content" / "plugins" / "local" / "dead-plugin"
+    _link(dangling, gone)
+    gone.rmdir()
+    if dangling.exists():
+        pytest.skip("platform keeps the link resolvable after its target is removed")
+
+    result = _run(repo)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "dead-plugin" in result.stderr
+    ids = {Path(json.loads(line)["entryPoints"][0]).parts[-4] for line in (repo / "esbuild-calls.jsonl").read_text(encoding="utf-8").splitlines()}
+    assert ids == {"plain-plugin", "linked-plugin"}

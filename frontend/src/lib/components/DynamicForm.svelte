@@ -18,6 +18,7 @@
 	import { formAudienceStore } from '$lib/stores/formAudience';
 	import { applyAudienceVisibilityToSchema, type FormAudience } from '$lib/utils/audienceFilter';
 	import { applyReadonlyToSchema } from '$lib/utils/readonlyFilter';
+	import { annotateLockHints } from '$lib/form/lockHints';
 	import { FORM_FIELD_ERRORS_CONTEXT_KEY } from '$lib/form/fieldErrorsContext';
 	import {
 		FORM_FIELD_ERROR_ACTIONS_CONTEXT_KEY,
@@ -273,6 +274,7 @@
 	) {
 		const result = processSchemaWithReactions(schema, data, gate);
 		applyReadonlyToSchema(result.processedSchema);
+		annotateLockHints(result.processedSchema, data);
 		const capabilities = resolveCapabilities(
 			modelFields,
 			data,

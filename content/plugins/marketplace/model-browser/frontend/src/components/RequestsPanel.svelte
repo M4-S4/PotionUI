@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import HostUi from '../../../../../sdk/HostUi.svelte';
 	import Icon from './Icon.svelte';
+	import Tip from './Tip.svelte';
 	import RequestRow from './RequestRow.svelte';
 	import {
 		POLL_INTERVAL_MS,
@@ -139,26 +140,28 @@
 				<h2 id="{uid}-title" class="text-lg font-semibold text-fg">Requests</h2>
 				<p class="mt-0.5 text-xs text-fg-muted">{subtitle}</p>
 			</div>
-			<button
-				type="button"
-				class="inline-flex min-h-8 min-w-8 items-center justify-center rounded p-1.5 text-fg-muted transition-colors duration-100 hover:bg-surface-3/50 hover:text-fg disabled:opacity-50"
-				aria-label="Refresh the requests"
-				title="Refresh"
-				disabled={refreshing}
-				onclick={() => load()}
-			>
-				<Icon name="refresh" class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" />
-			</button>
-			<button
-				type="button"
-				class="inline-flex min-h-8 min-w-8 items-center justify-center rounded p-1.5 text-fg-muted transition-colors duration-100 hover:bg-surface-3/50 hover:text-fg"
-				aria-label="Close the requests"
-				title="Close (Esc)"
-				data-autofocus
-				onclick={() => onClose?.()}
-			>
-				<Icon name="close" class="h-4 w-4" />
-			</button>
+			<Tip text="Refresh">
+				<button
+					type="button"
+					class="inline-flex min-h-8 min-w-8 items-center justify-center rounded p-1.5 text-fg-muted transition-colors duration-100 hover:bg-surface-3/50 hover:text-fg disabled:opacity-50"
+					aria-label="Refresh the requests"
+					disabled={refreshing}
+					onclick={() => load()}
+				>
+					<Icon name="refresh" class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" />
+				</button>
+			</Tip>
+			<Tip text="Close (Esc)">
+				<button
+					type="button"
+					class="inline-flex min-h-8 min-w-8 items-center justify-center rounded p-1.5 text-fg-muted transition-colors duration-100 hover:bg-surface-3/50 hover:text-fg"
+					aria-label="Close the requests"
+					data-autofocus
+					onclick={() => onClose?.()}
+				>
+					<Icon name="close" class="h-4 w-4" />
+				</button>
+			</Tip>
 		</header>
 
 		{#if tabs.length > 1}

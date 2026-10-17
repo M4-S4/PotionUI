@@ -21,6 +21,8 @@ class LLMResponse(BaseModel):
     # ToolExecutor._ToolCallGuard); same dict[str, int] | None shape the
     # streaming `done` events carry under the same key.
     tool_failures: Optional[dict] = None
+    tool_transcript: Optional[list] = None
+    rounds_used: Optional[int] = None
     # Explicit thinking-mode outcome for providers whose chat template can
     # toggle it (currently the native provider only — see
     # `NativeLLMClient._chat_template_kwargs`): {"requested": None|bool,

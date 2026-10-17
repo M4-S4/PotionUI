@@ -289,6 +289,11 @@ PROMPTS_SYSTEM_PROMPT_TEMPLATE = (
     "{{#if delete_prompt}}{{#ifany add_prompt edit_prompt}} and {{/ifany}}delete_prompt{{/if}}"
     ") returns a preview the user confirms before anything changes.\n"
     "{{/ifany}}"
+    "{{#ifany add_prompt edit_prompt}}"
+    "- When the user gives you the text to save, pass it to the tool exactly as written, in one segment, "
+    "with the name they chose. Do not add terms, borrow vocabulary from memory or from search results, or "
+    "rewrite it. Compose or improve a prompt only when the user asks you to.\n"
+    "{{/ifany}}"
     "\nTool guide:\n"
     "{{TOOL_HINTS}}\n"
 )

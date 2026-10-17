@@ -1,12 +1,4 @@
 <script lang="ts">
-	/**
-	 * Docked question queue, ported verbatim from the mock's
-	 * `.question-dock-wrap` (design-proposals/llm-chat-concept.html). Split out
-	 * of ApprovalDock so the question anatomy can match the mock exactly while
-	 * approvals keep their own (non-mocked) compact/expand shell. Mounted by
-	 * UnifiedAIChat only once the approval queue has drained — approvals gate
-	 * side effects, questions are optional, so they rank first.
-	 */
 	import { tick } from 'svelte';
 	import { processMarkdown } from '$lib/utils/markdown';
 	import type { UnifiedChatMessageData } from '$lib/types/chat';

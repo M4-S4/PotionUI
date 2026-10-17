@@ -362,6 +362,14 @@ def test_a_requester_lists_their_own_requests_only(api, listed):
     assert (data["open_count"], data["can_approve"]) == (0, False)
 
 
+def test_pending_keys_list_only_the_callers_open_requests(api, listed):
+    keys = api(REQUESTER, "GET", "/requests/pending").json()["data"]["keys"]
+    assert keys == [{"source": "civitai", "model_id": "122359", "version_id": "135867", "file_id": "1001"}]
+    other = api(OTHER, "GET", "/requests/pending").json()["data"]["keys"]
+    assert [key["file_id"] for key in other] == ["1001"]
+    assert api(ADMIN, "GET", "/requests/pending").json()["data"]["keys"] == []
+
+
 def test_an_approver_lists_every_request_unless_asking_for_their_own(api, listed):
     for who in (ADMIN, APPROVER):
         data = api(who, "GET", "/requests").json()["data"]

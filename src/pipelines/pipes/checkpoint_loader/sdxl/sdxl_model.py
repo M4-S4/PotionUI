@@ -643,6 +643,8 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
                         title="generator",
                         state=state,
                         progress=Progress(step + 1, total_steps),
+                        current_step_num=step + 1,
+                        total_steps=total_steps,
                     )
                 )
 

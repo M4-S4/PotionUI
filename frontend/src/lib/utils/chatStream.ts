@@ -10,6 +10,7 @@ import { get, type Readable } from 'svelte/store';
 import { parseServerDate } from '$lib/utils/relativeTime';
 import type {
 	UnifiedChatMessageData,
+	ToolApprovalStatus,
 	ToolExecution,
 	TraceStep,
 	TraceStepName,
@@ -91,12 +92,15 @@ export function applyToolEnd(
 		arguments?: Record<string, unknown>;
 		success?: boolean;
 		duration_ms?: number;
-		pending_approval?: boolean;
+		approval_status?: ToolApprovalStatus | null;
+		skipped?: boolean;
 		preview?: ToolExecution['preview'];
 		sources?: unknown[];
 	}
 ): Messages {
 	let msgs = messages;
+	let matched = false;
+	const pending = data?.approval_status === 'pending';
 
 	// Mark the last running execution with this tool name as done. `tool_start`
 	// seeds `result: { success: false, data: '' }` as a placeholder; the wire
@@ -114,16 +118,25 @@ export function applyToolEnd(
 					...exec,
 					status: 'done',
 					result: { ...exec.result, success: data.success ?? exec.result.success },
-					duration_ms: data.duration_ms ?? exec.duration_ms
+					duration_ms: data.duration_ms ?? exec.duration_ms,
+					...(pending
+						? {
+								approval_status: 'pending' as const,
+								arguments: data.arguments ?? exec.arguments,
+								preview: data.preview ?? null
+							}
+						: {}),
+					...(data.skipped ? { skipped: true } : {})
 				};
 				msgs = [...msgs];
 				msgs[lastIdx] = { ...msgs[lastIdx], tool_executions: updated };
+				matched = true;
 				break;
 			}
 		}
 	}
 
-	if (data?.pending_approval) {
+	if (pending && !matched) {
 		msgs = msgs.map((m, idx) => {
 			if (!isLastAssistant(msgs, idx)) return m;
 			return {
@@ -135,8 +148,8 @@ export function applyToolEnd(
 						arguments: data.arguments || {},
 						result: { success: false, data: '' },
 						duration_ms: 0,
-						pending_approval: true,
-						rejected: false,
+						status: 'done',
+						approval_status: 'pending',
 						preview: data.preview ?? null,
 						seq: nextSeq(m)
 					}
@@ -291,16 +304,24 @@ export function hydrateTraceSteps(
 /** `done` event: finalize the optimistic user message and the streamed assistant message. */
 export function applyDone(
 	messages: Messages,
-	data: { assistant_message?: any; user_message?: any }
+	data: {
+		assistant_message?: any;
+		user_message?: any;
+		resolved_message?: { id: string; tool_executions: ToolExecution[] } | null;
+	}
 ): Messages {
 	const assistantMsg = data.assistant_message;
 	const userMsg = data.user_message;
+	const resolved = data.resolved_message;
 
 	const allSources = (assistantMsg?.tool_executions || []).flatMap(
 		(te: any) => te.result?.sources || []
 	);
 
 	return messages.map((m, idx) => {
+		if (resolved?.id && m.id === resolved.id && !isLastAssistant(messages, idx)) {
+			return { ...m, tool_executions: resolved.tool_executions };
+		}
 		if (idx === messages.length - 2 && m.role === 'user') {
 			return {
 				...m,

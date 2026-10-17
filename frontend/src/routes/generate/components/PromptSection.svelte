@@ -12,6 +12,7 @@
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import type { PresetStyle } from '$lib/types/api';
 	import { appliedStyleTag, applyStyleToPrompt, clearStyle } from '$lib/prompt/styleSegments';
+	import { countUsagesInSegments } from '$lib/utils/promptVariables';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import PromptPicker from '$lib/components/PromptPicker.svelte';
 	import { Alert, Button } from '$lib/components/ui';
@@ -124,6 +125,9 @@
 	const promptRelayValue = $derived(tab.promptRelay);
 
 	const variableCount = $derived(Object.keys(variables).length);
+	const usageCounts = $derived(
+		countUsagesInSegments(promptSegments, negativePromptSegments)
+	);
 	const appliedStyleTagValue = $derived(appliedStyleTag(promptSegments));
 	const appliedStyleId = $derived(
 		appliedStyleTagValue && appliedStyleTagValue.presetId === selectedPreset ? appliedStyleTagValue.styleId : null
@@ -339,6 +343,7 @@
 <VariableManagerModal
 	isOpen={variablesModalOpen}
 	variables={variables}
+	{usageCounts}
 	on:close={() => (variablesModalOpen = false)}
 	on:change={(e) => handleVariablesChange(e.detail)}
 />

@@ -104,6 +104,7 @@
 	// Tab.variableRolls), deliberately separate from `variables` itself.
 	// Usage chips read it to show "$name · value".
 	export let variableRolls: Record<string, VariableRoll> = {};
+	export let variableUsageNumbers: { name: string; ordinal: number; total: number }[] = [];
 	// A `${name}` usage renders as a chip whose popover edits the variable's
 	// DEFINITION (mode/pin, or create when undefined) — that edit has to bubble
 	// up to wherever `Tab.variables` actually lives (tabsStore, via
@@ -1988,6 +1989,14 @@
 		onVariableDefChange?.(name, { ...def, mode, pinnedIndex });
 	}
 
+	let openVariableSlotId: string | null = null;
+
+	function handleVariableLinkedChange(name: string, linked: boolean) {
+		const def = normalizeVariableDef(variables[name]);
+		if (def.type !== 'choice') return;
+		onVariableDefChange?.(name, { ...def, linked });
+	}
+
 	/** "Create this variable" on an undefined usage's chip: define it as an
 	 *  empty text variable and open the manager so the user can fill it in
 	 *  (mirrors how "Add variable" in the manager itself defaults to text). */
@@ -2019,7 +2028,7 @@
 		const currentSlotIds = new Set<string>();
 		const containers = editorRef.querySelectorAll('.variable-usage-container');
 
-		containers.forEach((container) => {
+		containers.forEach((container, position) => {
 			const el = container as HTMLElement;
 			if (!el.dataset.slotId) el.dataset.slotId = `var-${variableSlotCounter++}`;
 			const slotId = el.dataset.slotId;
@@ -2033,7 +2042,17 @@
 				props: {
 					name,
 					definition: name in variables ? variables[name] : undefined,
-					roll: variableRolls[name],
+					rolls: variableRolls,
+					variables,
+					usage: variableUsageNumbers[position]?.name === name
+						? variableUsageNumbers[position]
+						: { ordinal: 1, total: 1 },
+					onLinkedChange: (linked: boolean) => handleVariableLinkedChange(name, linked),
+					startOpen: openVariableSlotId === slotId,
+					onOpenChange: (isOpen: boolean) => {
+						if (isOpen) openVariableSlotId = slotId;
+						else if (openVariableSlotId === slotId) openVariableSlotId = null;
+					},
 					disabled: isDisabled,
 					variant,
 					onModeChange: (mode: ChoiceVariableMode, pinnedIndex: number | null) =>
@@ -2443,6 +2462,18 @@
 		if (editorRef && !isInternalUpdate) {
 			const step = stepVariablesHash(currentRollsHash, lastVariableRollsHash);
 			lastVariableRollsHash = step.nextHash;
+			if (step.shouldRemount) {
+				tick().then(remountAllVariableChips);
+			}
+		}
+	}
+
+	let lastUsageNumbersHash: string | null = null;
+	$: {
+		const currentUsageHash = variableUsageNumbers.map((u) => `${u.name}:${u.ordinal}/${u.total}`).join('|');
+		if (editorRef && !isInternalUpdate) {
+			const step = stepVariablesHash(currentUsageHash, lastUsageNumbersHash);
+			lastUsageNumbersHash = step.nextHash;
 			if (step.shouldRemount) {
 				tick().then(remountAllVariableChips);
 			}

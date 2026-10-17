@@ -51,6 +51,7 @@ export interface ChatApiLike {
 			imageData?: string;
 			contextMetadata?: Record<string, any>;
 			resources?: Array<{ uri: string }>;
+			continueFrom?: { message_id: string; tool_index: number };
 		},
 		onEvent?: (event: { type: string; data: any }) => void | Promise<void>
 	): Promise<void>;
@@ -195,10 +196,27 @@ export interface StreamEventHandler {
  * `done`/`error` know whether to trust their own payload or reconcile
  * against the durable persisted message once the turn is no longer live.
  */
+export interface TurnRejection {
+	message: string;
+	code?: string;
+}
+
+function requestRejection(err: unknown): TurnRejection | null {
+	if (typeof err !== 'object' || err === null) return null;
+	const status = (err as { httpStatus?: unknown }).httpStatus;
+	if (typeof status !== 'number' || status < 400 || status >= 500) return null;
+	const code = (err as { code?: unknown }).code;
+	return {
+		message: (err as { message?: string }).message || 'The request was refused.',
+		code: typeof code === 'string' ? code : undefined
+	};
+}
+
 export function createStreamEventHandler(
 	deps: TurnControllerDeps,
 	owned: OwnedSessionController,
-	initialUserMessageId?: string
+	initialUserMessageId?: string,
+	onErrorEvent?: (rejection: TurnRejection) => void
 ): StreamEventHandler {
 	const d = withDefaults(deps);
 	const sessionId = owned.captured.sessionId;
@@ -347,7 +365,9 @@ export function createStreamEventHandler(
 			// The turn was stopped; drop the streaming placeholder like an error.
 			owned.applyStreamEvent({ type: 'error', data: {} });
 		} else if (event.type === 'error') {
-			owned.patch({ error: event.data.message || 'Streaming error' });
+			const message = event.data?.message || 'Streaming error';
+			if (onErrorEvent) onErrorEvent({ message, code: event.data?.error });
+			else owned.patch({ error: message });
 			if (needsDurableRecovery('error', partial)) {
 				await recoverDurableMessage();
 			} else {
@@ -446,11 +466,14 @@ export interface SendMessagePayload {
 	contextMetadata: Record<string, any>;
 	resources?: Array<{ uri: string }>;
 	timeoutSeconds?: number;
+	continueFrom?: { message_id: string; tool_index: number };
 }
 
 export interface SendMessageParams {
 	instruction: string;
-	tempUserMessage: UnifiedChatMessageData;
+	tempUserMessage?: UnifiedChatMessageData;
+	recoveryAnchorMessageId?: string;
+	onRejected?: (rejection: TurnRejection) => void;
 	/** Builds the request payload — called AFTER the optimistic user message
 	 * is published, so it can read whatever UI/segment/context state it
 	 * needs at send time. Ownership is re-checked immediately after this
@@ -548,7 +571,7 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 	const owned = ownSession(d.store, { sessionId: ownedSessionId, turnSeq });
 
 	try {
-		if (owned.addMessage(params.tempUserMessage)) {
+		if (params.tempUserMessage && owned.addMessage(params.tempUserMessage)) {
 			await d.tick();
 			d.scrollToBottom();
 		}
@@ -566,7 +589,7 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 			d.scrollToBottom();
 		}
 
-		const handler = createStreamEventHandler(d, owned);
+		const handler = createStreamEventHandler(d, owned, params.recoveryAnchorMessageId, params.onRejected);
 
 		try {
 			if (!owned.isCurrent()) return; // re-check immediately before the outbound call
@@ -574,7 +597,16 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 		} catch (err: any) {
 			if (!owned.isCurrent()) return;
 
-			if (!isRequestNotStartedError(err)) {
+			const rejection = params.onRejected ? requestRejection(err) : null;
+			if (rejection) {
+				owned.updateMessages((msgs) =>
+					msgs.filter((m, idx) => !(idx === msgs.length - 1 && m.role === 'assistant' && m.isStreaming))
+				);
+				params.onRejected!(rejection);
+				return;
+			}
+
+			if (!isRequestNotStartedError(err) || payload.continueFrom) {
 				// The default, ambiguous case: the request was issued and we
 				// have no affirmative proof it never reached the server — a
 				// dropped connection before the first event is not evidence

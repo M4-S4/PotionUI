@@ -1,18 +1,8 @@
 <script lang="ts">
-	/**
-	 * The behavior trace under an assistant message: tool calls compress into a
-	 * single collapsible record (ChatToolRun); context steps (resources read,
-	 * memory recalled, pre-chat actions, thinking, answering) stay in a
-	 * separate, collapsible timeline below it. Tool APPROVAL is a separate
-	 * surface (ApprovalDock, docked above the composer) — a pending execution
-	 * here is display-only (ChatToolRun excludes it entirely). No
-	 * arguments/results render for a tool beyond a failed row's one-line
-	 * error: showing more in the user-facing chat can leak internal data, so
-	 * full detail lives only in Admin -> LLM / Sessions.
-	 */
 	import { slide } from 'svelte/transition';
 	import type { ToolExecution, TraceStep, TraceStepName } from '$lib/types/chat';
 	import { hydrateTraceSteps, formatContextLedgerSummary, sumMemoryDropped } from '$lib/utils/chatStream';
+	import { toolsStepLabel } from '$lib/chat/traceLabels';
 	import ChatToolRun from './ChatToolRun.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -79,8 +69,7 @@
 					? `Preparing (${(detail.actions || []).join(', ')})`
 					: 'Preparing…';
 			case 'tools': {
-				const withheldCount = Object.keys(detail.withheld || {}).length;
-				return (detail.offered || []).length === 0 ? 'Tools off' : `Tools: ${withheldCount} unavailable`;
+				return toolsStepLabel(detail);
 			}
 			case 'thinking':
 				return 'Thinking…';

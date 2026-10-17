@@ -157,6 +157,8 @@ class ProgressGenerationOutput(GenerationOutput):
     # loop. Lets a film-scoped run light up the active row in the Video
     # Director console (`segment["id"]` from `form.video_director.segments`).
     segment_id: str = None
+    current_step_num: int = None
+    total_steps: int = None
 
 
 @dataclass

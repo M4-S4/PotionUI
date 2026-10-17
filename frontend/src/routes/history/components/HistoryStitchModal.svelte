@@ -80,6 +80,7 @@
 	];
 
 	let loading = $state(true);
+	let drawn = $state(false);
 	let loaded = $state<LoadedImage[]>([]);
 	let availableKeys = $state<ParamKeyOption[]>([]);
 	let options = $state<StitchOptions>({
@@ -228,6 +229,7 @@
 		const entries = imageItems;
 		untrack(() => {
 			loading = true;
+			drawn = false;
 			settlementGate.reset();
 			void loadAll(entries);
 		});
@@ -240,6 +242,7 @@
 	function renderPreview() {
 		const canvas = previewCanvas;
 		if (!canvas) return;
+		drawn = true;
 		if (preview.renderScale <= 0) {
 			canvas.width = 0;
 			canvas.height = 0;
@@ -255,15 +258,15 @@
 		ctx.imageSmoothingQuality = 'high';
 		if (compareActive) {
 			drawCompareStitch(ctx, compareBitmaps, compareLayout, effectiveCompare);
-			return;
+		} else {
+			drawStitch(
+				ctx,
+				loaded.map((entry) => entry.bitmap),
+				layout,
+				lines,
+				options
+			);
 		}
-		drawStitch(
-			ctx,
-			loaded.map((entry) => entry.bitmap),
-			layout,
-			lines,
-			options
-		);
 	}
 
 	$effect(() => {
@@ -562,28 +565,35 @@
 				     flex line cannot be scrolled back past its start edge, which
 				     clips the left and top of anything that overflows. Auto margins
 				     centre the same way and collapse to 0 once it does. -->
-				{#if loading}
-					<div class="m-auto flex items-center gap-2 text-fg-muted">
-						<Spinner size="sm" />
-						<span class="text-sm">Loading images…</span>
-					</div>
-				{:else if loaded.length === 0}
+				{#if !loading && loaded.length === 0}
 					<span class="m-auto text-sm text-fg-subtle">No images could be loaded.</span>
-				{:else}
+				{:else if !loading}
 					<canvas
 						bind:this={previewCanvas}
-						class="m-auto block max-w-none shrink-0"
+						class="m-auto block max-w-none shrink-0 {drawn ? '' : 'invisible'}"
 						style:width="{preview.displayWidth}px"
 						style:height="{preview.displayHeight}px"
 						aria-label="Stitch preview"
 					></canvas>
 				{/if}
 			</div>
+			{#if loading || (loaded.length > 0 && !drawn)}
+				<div
+					data-testid="stitch-loading"
+					class="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-fg-muted"
+				>
+					<Spinner size="sm" />
+					<span class="text-sm">Loading images…</span>
+				</div>
+			{/if}
 		</div>
-			{#if !loading && loaded.length > 0}
+			{#if loading || loaded.length > 0}
 				<div
 					data-testid="stitch-zoom-controls"
-					class="ml-auto flex w-fit items-center gap-0.5 rounded border border-line bg-surface-1 px-1 py-0.5"
+					aria-hidden={!drawn}
+					class="ml-auto flex w-fit items-center gap-0.5 rounded border border-line bg-surface-1 px-1 py-0.5 {drawn
+						? ''
+						: 'invisible'}"
 				>
 					<IconButton
 						icon="minus"
@@ -771,11 +781,14 @@
 			</div>
 			{/if}
 
-			{#if !loading && loaded.length > 0}
-				<p class="font-mono text-2xs text-fg-subtle tabular-nums">
+			{#if loading || loaded.length > 0}
+				<p
+					data-testid="stitch-dimensions"
+					class="font-mono text-2xs text-fg-subtle tabular-nums {loading ? 'invisible' : ''}"
+				>
 					{canvasSize.width} × {canvasSize.height}
 				</p>
-				{#if tileClamped}
+				{#if !loading && tileClamped}
 					<p class="text-xs text-warning">
 						Too large for one canvas — tiles were reduced to {tileClampedSide} px.
 					</p>

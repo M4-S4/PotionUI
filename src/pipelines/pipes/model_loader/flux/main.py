@@ -29,6 +29,8 @@ from src.pipelines.outputs import (
     ModelGenerationOutput,
     ModelsGenerationOutput,
 )
+from src.platform.runtime.model_headers import read_safetensors_header
+from src.platform.runtime.model_headers.signatures import FLUX3_SIG
 from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.contracts import (
@@ -57,6 +59,14 @@ from src.pipelines.pipes._shared.generation.loader_lifecycle import (
 )
 from src.pipelines.pipes.model_loader.flux.bundle import FluxModelBundle
 from src.pipelines.pipes.model_loader.flux.flux_clip import FluxClipTextEncoder
+
+
+def _is_flux3_checkpoint(path: str) -> bool:
+    try:
+        keys = read_safetensors_header(path)
+    except (OSError, ValueError):
+        return False
+    return any(k.endswith(FLUX3_SIG) for k in keys)
 
 
 class ModelLoaderFluxPipe(BaseModelLoaderPipe):
@@ -143,6 +153,11 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         vae_path = _path_of(self.config.get("vae"))
         if not (dit_path and te_path and vae_path):
             raise ValueError("model_loader/flux requires diffusion_model, text_encoder and vae file paths")
+        if _is_flux3_checkpoint(dit_path):
+            raise ValueError(
+                f"'{Path(dit_path).name}' is a FLUX 3 Image Klein checkpoint, which the FLUX loader cannot run: "
+                "select the FLUX 3 preset for it"
+            )
 
         device = self.config.get("device", "cuda")
         dtype = self.config.get("dtype", "bfloat16")

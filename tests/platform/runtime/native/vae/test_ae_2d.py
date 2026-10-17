@@ -6,10 +6,13 @@ from pathlib import Path
 
 import pytest
 import torch
+from safetensors.torch import save_file
 
 from src.platform.runtime.native.base import load_into_module
+from src.platform.runtime.native.detect.vae_detect import detect_vae_config
 from vendor.gpl.comfyui.ops import disable_weight_init
 from src.platform.runtime.native.vae.ae_2d import AutoEncoder2D
+from src.platform.runtime.native.vae.key_convert import hoist_nested_quant_convs
 from src.platform.runtime.native.vae.loader import _VaeSpec, load_vae
 
 _FLUX_AE_PATH = Path("models/vae/ae.sft")
@@ -74,6 +77,68 @@ def test_tiny_config_encode_decode_roundtrip_shape(vae_type, latent, has_quant_c
     assert z.shape == (1, expected_latent_channels, 32 // downscale, 32 // downscale)
     assert out.shape == (1, 3, 32, 32)
     assert torch.isfinite(out).all()
+
+
+def _bfl_layout(module: torch.nn.Module) -> dict[str, torch.Tensor]:
+    sd = {}
+    for key, value in module.state_dict().items():
+        if key.startswith("quant_conv."):
+            key = "encoder." + key
+        elif key.startswith("post_quant_conv."):
+            key = "decoder." + key
+        sd[key] = value.to(torch.bfloat16) if value.is_floating_point() else value
+    return sd
+
+
+def test_bfl_native_layout_is_detected_as_flux2_ae_in_ldm_layout():
+    config = _tiny_config(vae_type="flux2_ae", latent=32, has_quant_conv=True, has_batchnorm=True)
+    module = AutoEncoder2D.from_config(config, disable_weight_init)
+    detected = detect_vae_config(_bfl_layout(module))
+    assert detected["vae_type"] == "flux2_ae"
+    assert detected["key_layout"] == "ldm"
+    assert detected["has_quant_conv"] is True
+    assert detected["has_batchnorm"] is True
+    assert detected["latent_channels"] == 32
+
+
+def test_hoist_nested_quant_convs_only_moves_the_two_convs():
+    sd = {
+        "encoder.quant_conv.weight": torch.zeros(1),
+        "decoder.post_quant_conv.bias": torch.zeros(1),
+        "encoder.conv_in.weight": torch.zeros(1),
+        "bn.running_mean": torch.zeros(1),
+    }
+    assert set(hoist_nested_quant_convs(sd)) == {
+        "quant_conv.weight", "post_quant_conv.bias", "encoder.conv_in.weight", "bn.running_mean",
+    }
+
+
+def test_bfl_native_layout_loads_with_no_missing_or_unexpected_keys(tmp_path):
+    config = _tiny_config(vae_type="flux2_ae", latent=32, has_quant_conv=True, has_batchnorm=True)
+    source = AutoEncoder2D.from_config(config, disable_weight_init)
+    _randomize_weights(source)
+    sd = _bfl_layout(source)
+    path = tmp_path / "ae.safetensors"
+    save_file({k: v.contiguous() for k, v in sd.items()}, str(path))
+
+    vae = load_vae(path, disable_weight_init, device="cpu")
+
+    assert vae.vae_type == "flux2_ae"
+    assert vae.z_channels == 32
+    assert vae.has_quant_conv and vae.has_batchnorm
+    torch.testing.assert_close(vae.quant_conv.weight.float(), sd["encoder.quant_conv.weight"].float())
+    torch.testing.assert_close(vae.post_quant_conv.weight.float(), sd["decoder.post_quant_conv.weight"].float())
+    torch.testing.assert_close(vae.bn.running_mean.float(), sd["bn.running_mean"].float())
+
+
+def test_bn_pixel_unshuffle_matches_the_reference_reshape_permute():
+    z = torch.randn(1, 32, 6, 10)
+    h, w = 3, 5
+    reference = z.reshape(1, 32, h, 2, w, 2).permute(0, 1, 3, 5, 2, 4).reshape(1, 128, h, w)
+    assert torch.equal(torch.nn.functional.pixel_unshuffle(z, 2), reference)
+    packed = torch.randn(1, 128, h, w)
+    reference_back = packed.reshape(1, 32, 2, 2, h, w).permute(0, 1, 4, 2, 5, 3).reshape(1, 32, 2 * h, 2 * w)
+    assert torch.equal(torch.nn.functional.pixel_shuffle(packed, 2), reference_back)
 
 
 def test_post_load_is_safe_noop():

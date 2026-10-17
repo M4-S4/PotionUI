@@ -334,16 +334,20 @@ on Windows). A run killed outright (`kill -9`, Task Manager) leaves the file
 behind, and the next run takes it over as stale. `--list` never takes the lock.
 
 
-**`chat-tool-approval.spec.ts` fails before it reaches the dock (pre-existing,
-confirmed 2026-08-28).** In this container the scripted fake-LLM turn emits the
-`create_phrasebook_category` tool call but the execution comes back **failed**
-instead of `pending_approval`, the loop continues into an unscripted turn
-("(fake-llm: no scripted turn left)"), and no ApprovalDock ever renders — the
-spec then times out. Reproduced identically on a clean fd6239a worktree, i.e.
-NOT caused by the 2026-08-28 approval-dock rework. Separately, the spec's
-selectors assert the pre-rework dock anatomy (`div.border-warning\/35`,
-"from reply") and need updating to the compact-row dock once the underlying
-failure is fixed.
+**`chat-tool-approval.spec.ts` drives the inline action card with `delete_memory`.**
+The chat opens on `/models`, so the session runs in the Models assistant mode,
+and the scripted tool call has to be one that mode enables *and* that requires
+approval. `create_phrasebook_category` is not enabled there (it fails with
+"Tool '…' is not enabled for this session" and the fake LLM then runs out of
+scripted turns), and `write_memory` saves without approval. Each test seeds its
+own global memory note through `POST /api/chat/memory`, scripts
+`delete_memory` for that note id, and checks the side effect through
+`GET /api/chat/memory`: the note is gone after Approve and still there after
+Reject or after replying while the card is pending. Cards are located by
+`[data-testid="action-card"]` and their `data-state` attribute (`pending`,
+`applied`, `rejected`, `failed`, `stale`). If you switch the spec to a
+different tool, first check that the opening route's mode lists it, or the
+card never renders.
 
 **`chat-chip-input-interactions.spec.ts` has two failures unrelated to the chat
 composer (confirmed 2026-09-04 during the chat-view rework, `ChatChipInput`

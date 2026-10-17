@@ -46,6 +46,8 @@ ZIMAGE_TEMPLATE = "<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n"
 
 QWEN3_PAD = 151643
 QWEN3_MIN_LEN = 512
+FLUX3_MAX_LENGTH = 4096
+FLUX3_PAD_MULTIPLE = 80
 
 # Krea-2 Qwen3-VL template, byte-identical to diffusers' Krea2Pipeline
 # `prompt_template_encode_prefix`/`_suffix` (Apache-2.0). The system prompt prefix
@@ -190,6 +192,21 @@ class ZImageTokenizer:
         prefix, suffix = ZIMAGE_TEMPLATE.split("{}")
         ids, weights = weighted_token_ids(self._tok, prompt, prefix, suffix)
         return _pad_weighted(ids, weights, QWEN3_PAD, 1, device)
+
+
+class Flux3Tokenizer:
+    def __init__(self) -> None:
+        self._tok = _load_tokenizer("qwen3_tokenizer", "Qwen2Tokenizer")
+
+    def __call__(
+        self, texts: list[str], device: torch.device | str = "cpu"
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        id_lists = [
+            self._tok(ZIMAGE_TEMPLATE.format(t))["input_ids"][:FLUX3_MAX_LENGTH] for t in texts
+        ]
+        longest = max((len(x) for x in id_lists), default=0)
+        length = min(-(-longest // FLUX3_PAD_MULTIPLE) * FLUX3_PAD_MULTIPLE, FLUX3_MAX_LENGTH)
+        return _pad_batch(id_lists, QWEN3_PAD, length, device)
 
 
 class Qwen3VLTokenizer:

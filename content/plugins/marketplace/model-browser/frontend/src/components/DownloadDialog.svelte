@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import HostUi from '../../../../../sdk/HostUi.svelte';
 	import Icon from './Icon.svelte';
+	import Tip from './Tip.svelte';
 	import LicenceBox from './LicenceBox.svelte';
 	import { listRemoteBackends, startDownload } from '../lib/client.js';
 	import { allowedTypes, canChooseGroup, canChooseRemote, groupChoices } from '../lib/capabilities.js';
@@ -33,7 +34,8 @@
 	const detail = $derived(target.detail);
 	const version = $derived(target.version);
 	const file = $derived(target.file);
-	const typeChoice = $derived(allowedTypes(me, detail.mb_type));
+	const suggestion = $derived(suggestedModelType(detail, file));
+	const typeChoice = $derived(allowedTypes(me, suggestion));
 	const problems = $derived(formProblems(form, { me, detail, file }));
 	const ready = $derived(canSubmit(problems) && !busy);
 	const warnings = $derived(downloadWarnings({ detail, version, file }));
@@ -44,10 +46,10 @@
 	const sizeText = $derived(formatBytes(file.size_bytes));
 	const typeError = $derived(form.modelType && problems.modelType ? problems.modelType : null);
 	const typeHelp = $derived(
-		detail.mb_type
+		suggestion
 			? typeChoice.suggestionAllowed
-				? `Suggested by the source: ${modelTypeLabel(detail.mb_type)}`
-				: `The source suggests ${modelTypeLabel(detail.mb_type)}, which your permissions do not allow: choose another type`
+				? `Suggested by the source: ${modelTypeLabel(suggestion)}`
+				: `The source suggests ${modelTypeLabel(suggestion)}, which your permissions do not allow: choose another type`
 			: `The source's type (${detail.type || 'unknown'}) has no PotionUI equivalent: choose one if you know what this file is`
 	);
 	const destinationHelp = $derived(
@@ -121,7 +123,9 @@
 	<form class="flex min-h-0 flex-1 flex-col" novalidate onsubmit={submit}>
 		<header class="flex items-start gap-3 border-b border-line px-5 py-4">
 			<div class="min-w-0 flex-1">
-				<h2 id="{uid}-title" class="truncate text-lg font-semibold text-fg" title={file.name}>Download {baseName(file.name)}</h2>
+				<Tip text={file.name} wrapperClass="min-w-0 flex">
+					<h2 id="{uid}-title" class="truncate text-lg font-semibold text-fg">Download {baseName(file.name)}</h2>
+				</Tip>
 				<p class="mt-0.5 truncate text-xs text-fg-muted">
 					{[detail.name, version.name, sizeText].filter(Boolean).join(' · ')}
 				</p>

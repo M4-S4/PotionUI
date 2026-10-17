@@ -13,6 +13,9 @@ import {
 	cellFormPatchSummary,
 	cellTabUpdates,
 	computeCellSize,
+	axisHeaderLabel,
+	workbenchFitHeight,
+	MIN_FIT_CELL,
 	cellProgressLabel,
 	createCellTimer,
 	gridFraction,
@@ -104,13 +107,53 @@ describe('geometry and labels', () => {
 		const fitted = computeCellSize(1500, 3, { height: 500, rows: 2, aspect: 1 });
 		expect(fitted.size).toBeLessThan(wide);
 		expect(44 + 2 * (fitted.size + CELL_GAP)).toBeLessThanOrEqual(500);
-		expect(computeCellSize(1500, 3, { height: 100, rows: 2, aspect: 1 }).size).toBe(MIN_CELL);
+		expect(computeCellSize(1500, 3, { height: 100, rows: 2, aspect: 1 }).size).toBe(MIN_FIT_CELL);
 	});
 
 	it('leaves room for a measured header taller than the default when fitting rows', () => {
 		const tallHeader = computeCellSize(1500, 3, { height: 600, rows: 2, aspect: 1, header: 84 });
 		expect(84 + 2 * (tallHeader.size + CELL_GAP)).toBeLessThanOrEqual(600);
 		expect(tallHeader.size).toBeLessThan(computeCellSize(1500, 3, { height: 600, rows: 2, aspect: 1 }).size);
+	});
+
+	it('shrinks a small grid below the scroll minimum so both rows stay on screen', () => {
+		const height = 300;
+		const header = 60;
+		const { size } = computeCellSize(1100, 2, { height, rows: 2, aspect: 1, header });
+		expect(size).toBeLessThan(MIN_CELL);
+		expect(size).toBeGreaterThanOrEqual(MIN_FIT_CELL);
+		expect(header + 2 * (size + CELL_GAP)).toBeLessThanOrEqual(height);
+	});
+
+	it('fits a 2x2 grid in the live workbench of the capture viewport (1536x864) with three panes and a folded form', () => {
+		const height = workbenchFitHeight(864);
+		expect(height).toBe(Math.floor(864 * 0.7) - 24);
+		const paneContentWidth = 740;
+		const header = 58;
+		const { size } = computeCellSize(paneContentWidth, 2, { height, rows: 2, aspect: 1, header });
+		expect(size).toBeLessThan(MAX_CELL);
+		expect(header + 2 * (size + CELL_GAP)).toBeLessThanOrEqual(height);
+		const unfitted = computeCellSize(paneContentWidth, 2).size;
+		expect(header + 2 * (unfitted + CELL_GAP)).toBeGreaterThan(height);
+	});
+
+	it('gives no height fit before the viewport is known', () => {
+		expect(workbenchFitHeight(0)).toBe(0);
+		expect(computeCellSize(940, 2, { height: workbenchFitHeight(0), rows: 2, aspect: 1 }).size).toBe(computeCellSize(940, 2).size);
+	});
+
+	it('titles the grid with short axis labels', () => {
+		const long = (label: string) => ({ ...sampler, label });
+		expect(gridTitle({ x: long('Steps (0 = checkpoint default)'), y: long('CFG Scale (0 = checkpoint default)') })).toBe('Steps × CFG Scale');
+		expect(gridTitle({ x: long('Steps (0 = checkpoint default)'), y: null })).toBe('Steps');
+	});
+
+	it('shortens axis headers by dropping the trailing parenthetical', () => {
+		expect(axisHeaderLabel('Steps (0 = checkpoint default)')).toBe('Steps');
+		expect(axisHeaderLabel('CFG scale (0 = checkpoint default)')).toBe('CFG scale');
+		expect(axisHeaderLabel('Sampler')).toBe('Sampler');
+		expect(axisHeaderLabel('(only)')).toBe('(only)');
+		expect(axisHeaderLabel(undefined)).toBe('');
 	});
 
 	it('fills the width with equal cells when the grid fits', () => {

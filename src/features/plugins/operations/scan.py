@@ -173,6 +173,7 @@ def _apply_reconciled_state(
     for plugin_id in changes.changed:
         if registry.get_plugin_state(plugin_id) == PluginState.ENABLED:
             registry.run_boot_hook(plugin_id)
+            registry.run_ready_hook(plugin_id)
         elif plugin_id in db_plugins and db_plugins[plugin_id].enabled:
             repo.disable_plugin(plugin_id)
             logger.warning(

@@ -22,6 +22,12 @@ describe('pickFromGeneration', () => {
 		expect(item.metadata).toMatchObject({ width: 1024, height: 1536, size: 2000 });
 	});
 
+	it('carries a readable label without touching the file name', () => {
+		const { item } = pickFromGeneration(file, ' a candlelit potion shop ');
+		expect(item).toMatchObject({ name: '0.png', label: 'a candlelit potion shop' });
+		expect(pickFromGeneration(file).item).not.toHaveProperty('label');
+	});
+
 	it('hands the limit check the numbers the history row already knows', () => {
 		const { candidate } = pickFromGeneration({ ...file, file_type: 'video', duration_seconds: 4 });
 		expect(candidate).toMatchObject({ name: '0.png', kind: 'video', sizeBytes: 2000, durationSeconds: 4 });

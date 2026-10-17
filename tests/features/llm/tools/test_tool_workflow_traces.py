@@ -16,6 +16,7 @@ out of scripted turns fails loudly rather than hanging or improvising.
 """
 
 import copy
+import re
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -106,20 +107,25 @@ class ScriptedLLM:
         return _gen()
 
 
+def _generated(call_id):
+    return isinstance(call_id, str) and re.fullmatch(r"call_[0-9a-f]{24}", call_id) is not None
+
+
 def condense(messages) -> List[tuple]:
     """A message history reduced to the parts the loop's behaviour depends on."""
     out = []
     for message in messages:
         calls = message.get("tool_calls")
         call_shape = tuple(
-            (call.get("id"), call.get("function", {}).get("name"))
+            (None if _generated(call.get("id")) else call.get("id"), call.get("function", {}).get("name"))
             for call in calls
         ) if calls else None
+        tool_call_id = message.get("tool_call_id")
         out.append((
             message.get("role"),
             message.get("content"),
             call_shape,
-            message.get("tool_call_id"),
+            "" if _generated(tool_call_id) else tool_call_id,
         ))
     return out
 
@@ -218,7 +224,7 @@ def norm_tool_event(kind: str, data: Dict[str, Any]) -> tuple:
         "tool_end",
         data["tool_name"],
         data["success"],
-        data["pending_approval"],
+        data["approval_status"] == "pending",
         data.get("arguments"),
         (data.get("preview") or {}).get("action"),
     )
@@ -235,11 +241,7 @@ async def run_non_stream(turns, tools, **kwargs) -> Dict[str, Any]:
         on_tool_event=lambda kind, data: trace.append(norm_tool_event(kind, data)),
         **kwargs,
     )
-    # The buffered path has no pending flag on its return value — a paused
-    # turn is signalled by the last execution's `pending_approval` and an
-    # empty content. Folded in here so the terminal entry is comparable with
-    # the streaming paths' `done` event.
-    pending = bool(executions and executions[-1].pending_approval)
+    pending = any(e.approval_status == "pending" for e in executions)
     trace.append(("final", response.content, response.rescues, response.tool_failures, pending))
     return {"trace": trace, "calls": llm.calls, "executions": executions, "response": response}
 
@@ -451,7 +453,7 @@ class TestNonStreamTraces:
             ("final", "", None, None, True),
         ]
         assert len(out["calls"]) == 1
-        assert out["executions"][0].pending_approval is True
+        assert out["executions"][0].approval_status == "pending"
 
     @pytest.mark.asyncio
     async def test_iteration_limit_makes_a_final_tool_free_call(self):

@@ -178,6 +178,7 @@ class _Limiter:
     def __init__(self, min_interval: float, concurrency: int, clock: Callable[[], float], sleep) -> None:
         self.min_interval = max(0.0, float(min_interval))
         self._semaphore = asyncio.Semaphore(max(1, int(concurrency)))
+        self._gate = asyncio.Lock()
         self._clock = clock
         self._sleep = sleep
         self._next_start: Optional[float] = None
@@ -185,11 +186,12 @@ class _Limiter:
     async def __aenter__(self) -> "_Limiter":
         await self._semaphore.acquire()
         try:
-            now = self._clock()
-            start = now if self._next_start is None else max(now, self._next_start)
-            self._next_start = start + self.min_interval
-            if start > now:
-                await self._sleep(start - now)
+            async with self._gate:
+                if self._next_start is not None:
+                    wait = self._next_start - self._clock()
+                    if wait > 0:
+                        await self._sleep(wait)
+                self._next_start = self._clock() + self.min_interval
         except BaseException:
             self._semaphore.release()
             raise
@@ -205,7 +207,7 @@ class SourceHttp:
         fetch: Optional[Fetch] = None,
         *,
         limits: Optional[Mapping[str, Tuple[float, int]]] = None,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] = time.perf_counter,
         sleep: Optional[Callable[[float], Awaitable[Any]]] = None,
         timeout_seconds: float = TIMEOUT_SECONDS,
         max_body_bytes: int = MAX_BODY_BYTES,

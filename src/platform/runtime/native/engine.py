@@ -1072,7 +1072,9 @@ class NativeEngineLoader:
             compute_dtype=compute_dtype, quant_format=quant_format,
         )
 
-    def _load_te(self, path: str | Path | list, *, vision: bool = False) -> NativeModel:
+    def _load_te(
+        self, path: str | Path | list, *, vision: bool = False, te_variant: str | None = None,
+    ) -> NativeModel:
         # The TE loader owns its own ops selection (fp8/manual_cast/standard) and
         # composite (T5+CLIP) assembly, so we hand it the path(s) directly.
         # ``vision`` (``qwen25_vl`` and ``qwen3vl``; ignored by every other TE
@@ -1083,7 +1085,7 @@ class NativeEngineLoader:
         # build DIFFERENT modules; the caller's model-lifecycle fingerprint must
         # differ or a cache hit can hand back the wrong variant).
         get_profiler().mark("load.text_encoder.read", path=str(path))
-        encoder = load_text_encoder(path, device="cpu", vision=vision)
+        encoder = load_text_encoder(path, device="cpu", vision=vision, te_variant=te_variant)
         est_gb = _estimate_text_encoder_gb(encoder)
         get_profiler().mark("load.text_encoder.built", est_gb=est_gb)
         return NativeModel("text_encoder", encoder, estimated_vram_gb=est_gb)
@@ -2410,6 +2412,9 @@ class NativeGenerator:
                 _boost = conditioning.get(_boost_key)
                 if _boost is not None:
                     extra[_boost_key] = _boost
+            flow_map_target = conditioning.get("flow_map_target")
+            if flow_map_target is not None:
+                extra["flow_map_target"] = flow_map_target
             # Krea-2 NAG: the cond dict may carry the negative prompt's
             # raw TE hidden states + NAG params (attached by the generator pipe
             # when nag_scale > 1.0 -- see FlowMatchGeneratorPipe.generate_one).

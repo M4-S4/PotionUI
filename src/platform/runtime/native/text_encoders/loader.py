@@ -30,13 +30,14 @@ from .clip_l import CLIPLModel, CLIPLTextEncoder
 from .gemma3 import Gemma3Model, Gemma3TextEncoder
 from .gemma4 import Gemma4Model, Gemma4TextEncoder, is_global_layer
 from .qwen3 import (
-    MiniMaxH3TextEncoder, Qwen3Model, Qwen3TextEncoder, Qwen3VLTextEncoder, ZImageTextEncoder,
+    Flux3TextEncoder, MiniMaxH3TextEncoder, Qwen3Model, Qwen3TextEncoder, Qwen3VLTextEncoder, ZImageTextEncoder,
 )
 from .qwen25_vl import Qwen25VLModel, Qwen25VLTextEncoder
 from .t5xxl import T5XXLModel, T5XXLTextEncoder, UMT5TextEncoder
 from .tokenization import (
     CLIPLTokenizerWrap,
     Gemma3Tokenizer,
+    Flux3Tokenizer,
     Gemma4Tokenizer,
     MiniMaxH3Tokenizer,
     Qwen3Tokenizer,
@@ -373,6 +374,19 @@ def _convert_wan_umt5(sd: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     return out
 
 
+_HF_LANGUAGE_PREFIX = "model.language_model."
+
+
+def _normalise_hf_qwen3vl_keys(sd: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    if not any(k.startswith(_HF_LANGUAGE_PREFIX) for k in sd):
+        return sd
+    return {
+        "model." + k[len(_HF_LANGUAGE_PREFIX):] if k.startswith(_HF_LANGUAGE_PREFIX) else k: v
+        for k, v in sd.items()
+        if k != "lm_head.weight"
+    }
+
+
 def _load_one(
     path: str | Path,
     *,
@@ -402,6 +416,7 @@ def _load_one(
     Returns ``(te_type, variant, module, config, metadata)``.
     """
     sd, metadata = load_torch_file(path, device="cpu")
+    sd = _normalise_hf_qwen3vl_keys(sd)
     te_config = detect_te_config(sd)
     if te_config is None:
         raise NativeEngineUnsupportedError(f"unrecognised text encoder: {Path(path).name}")
@@ -488,6 +503,8 @@ def _load_one(
 
 def _make_encoder(te_type: str, variant: str, module: Any, device: str | torch.device,
                   te_variant: str | None = None, config: dict | None = None) -> NativeTextEncoder:
+    if te_variant == "flux3" and te_type in ("qwen3", "qwen3vl"):
+        return Flux3TextEncoder(module, Flux3Tokenizer(), device=device)
     if te_type == "qwen3":
         if variant == "qwen3_06b":
             # Anima's TE: same Qwen3 arch, but last-hidden extraction + a T5

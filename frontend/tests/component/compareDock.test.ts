@@ -146,7 +146,7 @@ describe('dock Generate with Compare armed', () => {
 		const generate = mounted.target.querySelector<HTMLButtonElement>('.generate-button')!;
 		expect(generate.textContent).toContain('Generate');
 		expect(generate.querySelector('.generate-count')?.textContent).toBe('12');
-		expect(mounted.target.querySelector('[data-compare-status]')?.textContent?.trim()).toMatch(/^12 cells · -$/);
+		expect(mounted.target.querySelector('[data-compare-status]')?.textContent?.trim()).toBe('12 cells');
 		expect(generate.disabled).toBe(false);
 	});
 

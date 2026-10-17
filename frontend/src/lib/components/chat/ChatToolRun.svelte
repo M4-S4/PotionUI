@@ -1,20 +1,11 @@
 <script lang="ts">
-	/**
-	 * Collapsible record of a message's completed/failed tool calls, replacing
-	 * the always-visible chip strip. Approval is a separate surface
-	 * (ApprovalDock docked above the composer) — a pending execution is not
-	 * this record's business and is filtered out before anything renders.
-	 * A failed row always shows its `result.error` inline (no click-to-reveal):
-	 * that's the one place a tool's own text reaches the transcript, so it
-	 * must never require a second interaction to see.
-	 */
 	import { slide } from 'svelte/transition';
 	import type { ToolExecution } from '$lib/types/chat';
 	import { chatModes } from '$lib/stores/chatModes';
 
 	export let executions: ToolExecution[] = [];
 
-	$: visible = executions.filter((e) => !e.pending_approval);
+	$: visible = executions.filter((e) => e.approval_status == null);
 
 	function humanize(name: string): string {
 		return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -26,7 +17,7 @@
 	}
 
 	function isFailed(execution: ToolExecution): boolean {
-		return execution.status !== 'running' && !execution.rejected && !execution.result.success;
+		return execution.status !== 'running' && !execution.skipped && !execution.result.success;
 	}
 
 	function formatDuration(ms: number): string {
@@ -52,19 +43,19 @@
 			{#each visible as execution}
 				{@const failed = isFailed(execution)}
 				{@const running = execution.status === 'running'}
-				{@const rejected = !!execution.rejected}
-				<div class="tool-execution" class:failed class:rejected>
+				{@const skipped = !!execution.skipped}
+				<div class="tool-execution" class:failed class:skipped>
 					{#if running}
 						<span class="tool-execution-spinner" role="status" aria-label="Running"></span>
 					{:else if failed}
 						<svg class="icon"><use href="#i-close" /></svg>
-					{:else if rejected}
+					{:else if skipped}
 						<svg class="icon"><use href="#i-chevron" /></svg>
 					{:else}
 						<svg class="icon"><use href="#i-check" /></svg>
 					{/if}
 					<strong>{toolLabel(execution)}</strong>
-					<span>{formatDuration(execution.duration_ms)}</span>
+					<span>{skipped ? 'Not run' : formatDuration(execution.duration_ms)}</span>
 				</div>
 				{#if failed && execution.result?.error}
 					<div class="tool-execution-error" transition:slide={{ duration: 120 }}>{execution.result.error}</div>

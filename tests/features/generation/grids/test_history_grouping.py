@@ -28,8 +28,8 @@ class History:
 
     def grid(self, grid_id, cols=3, rows=2, user="u1", statuses=None, ratings=None):
         record = self.grids.create(
-            user, "p1", "tab", axis("sampler", list(range(cols))),
-            axis("steps", list(range(rows))) if rows > 1 else None, True, base_request().model_dump(), {},
+            user, "p1", "tab", axis("sampler", list(range(cols)), label="Sampler"),
+            axis("cfg_scale", list(range(rows)), label="CFG") if rows > 1 else None, True, base_request().model_dump(), {},
         )
         with self.db.get_cursor() as cursor:
             cursor.execute("UPDATE generation_grids SET id = ? WHERE id = ?", (grid_id, record.id))
@@ -76,7 +76,10 @@ def test_the_default_listing_returns_one_entry_per_grid_with_the_first_cell_and_
     assert sorted(history.ids(result)) == ["g1-00", "solo"]
     assert result["total"] == 2
     entry = next(item for item in result["generations"] if item["id"] == "g1-00")
-    assert entry["grid"] == {"id": "g1", "cols": 3, "rows": 2, "cell_count": 6}
+    assert entry["grid"] == {
+        "id": "g1", "cols": 3, "rows": 2, "cell_count": 6,
+        "axes": [{"field": "sampler", "label": "Sampler"}, {"field": "cfg_scale", "label": "CFG"}],
+    }
     assert (entry["grid_id"], entry["grid_x"], entry["grid_y"]) == ("g1", 0, 0)
     assert entry["axis_values"] == {"sampler": "0"}
     assert "grid" not in next(item for item in result["generations"] if item["id"] == "solo")
@@ -96,7 +99,10 @@ def test_a_single_axis_grid_is_one_row(history):
 
     entry = history.history(group_grids=True)["generations"][0]
 
-    assert entry["grid"] == {"id": "g1", "cols": 4, "rows": 1, "cell_count": 4}
+    assert entry["grid"] == {
+        "id": "g1", "cols": 4, "rows": 1, "cell_count": 4,
+        "axes": [{"field": "sampler", "label": "Sampler"}],
+    }
 
 
 def test_a_filter_that_matches_the_first_cell_keeps_the_grid_as_one_entry(history):

@@ -13,6 +13,7 @@
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import { PageHeader, PageTitle, IconButton, Badge, ModelPickTrigger } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { api } from '$lib/services/api/index';
 	import ModelAssignmentModal from '$lib/components/modals/ModelAssignmentModal.svelte';
 	import HistorySearchableFilter from './HistorySearchableFilter.svelte';
@@ -688,12 +689,14 @@
 
 				<!-- Overflow menu: rarer actions -->
 				<div class="relative history-more-menu" bind:this={moreMenuButtonEl}>
-					<IconButton
-						icon="more"
-						label="More actions"
-						active={isMoreMenuOpen}
-						onclick={toggleMoreMenu}
-					/>
+					<Tooltip text="More actions">
+						<IconButton
+							icon="more"
+							label="More actions"
+							active={isMoreMenuOpen}
+							onclick={toggleMoreMenu}
+						/>
+					</Tooltip>
 					{#if isMoreMenuOpen}
 						<div
 							use:portal

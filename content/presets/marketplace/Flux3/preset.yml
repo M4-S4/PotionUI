@@ -1,0 +1,63 @@
+schema: 1
+id: "01M506YWDFE0W3R42YPDXWRZYW"
+name: "FLUX 3 Klein (experimental)"
+category: "image"
+version: "1.0.0"
+engine: "native"
+tags: ["flux", "flux3", "klein", "local", "edit", "experimental"]
+
+requires:
+  recommended_vram_gb: 16
+
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Diffusion Model picker."
+  text_encoder_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+
+speed_profiles:
+  turbo:  { steps: 16, guidance: 1.0, sampler: "euler" }
+  base:   { steps: 50, guidance: 3.5, sampler: "euler" }
+  custom: { steps: 50, guidance: 3.5, sampler: "euler" }
+
+vars:
+  default_shift: 6.93
+
+llm:
+  guide: |
+    Write natural-language prose describing the scene, subject, style and lighting;
+    the model follows detailed descriptions well. Put exact display text in double
+    quotes. The distilled checkpoint runs without a negative prompt or CFG; with the
+    Base checkpoint a short, targeted negative prompt is optional. Edit mode takes 1-10
+    reference images: the first sets the output's size and is the image being edited;
+    describe the change you want (e.g. "put a red bandana around the dog's neck"), and
+    refer to the other images by position ("the dog from the second image").
+
+prompt_resources:
+  edit:
+    - field: "source_image"
+      kind: "image"
+      label: "Images"
+      token: "<image@>"
+
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    cache:  { label: "Step cache" }
+    models: { label: "Models", preselect: false }
+
+negative_prompt:
+  applies_when: { field: "cfg", not_equals: 1 }
+
+modes:
+  - txt2img
+  - edit

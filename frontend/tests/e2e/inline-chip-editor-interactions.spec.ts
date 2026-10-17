@@ -46,15 +46,12 @@ async function openVariableManager(page: Page) {
 	return modal;
 }
 
-/** Fills variable manager row `index` (0-based, in `Object.entries(variables)`
- *  order). Row 0 already exists on first open; every later index needs an
- *  "Add variable" click first. */
 async function fillVariableRow(modal: Locator, index: number, name: string, value: string) {
 	if (index > 0) {
 		await modal.getByRole('button', { name: 'Add variable' }).click();
 	}
-	await modal.getByLabel('Variable name').nth(index).fill(name);
-	await modal.getByLabel('Variable value').nth(index).fill(value);
+	await modal.getByLabel('Variable name').fill(name);
+	await modal.getByLabel('Variable value').fill(value);
 }
 
 test.describe('InlineChipEditor browser interactions', () => {

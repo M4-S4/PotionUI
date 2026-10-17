@@ -34,6 +34,9 @@ import torch
 from src.platform.runtime.model_headers.signatures import (
     ANIMA_SIG,
     FLUX2_SIG,
+    FLUX3_FLOW_MAP_SIG,
+    FLUX3_SIG,
+    FLUX3_SIG2,
     FLUX_SIG,
     KREA2_SIG,
     LTX_SIG,
@@ -81,6 +84,9 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
 
     if KREA2_SIG in sd:
         return _detect_krea2(sd)
+
+    if FLUX3_SIG in sd and FLUX3_SIG2 in sd:
+        return _detect_flux3(sd)
 
     if QWEN_IMAGE21_SIG in sd and QWEN_IMAGE21_SIG2 in sd:
         return _detect_qwen_image21(sd)
@@ -273,6 +279,36 @@ def _detect_krea2(sd: dict[str, torch.Tensor]) -> dict:
     logger.debug(
         "detected krea2 DiT: features=%d heads=%d/%d layers=%d channels=%d txtdim=%d txtlayers=%d mult=%d",
         features, heads, kvheads, config["layers"], channels, txtdim, txtlayers, multiplier,
+    )
+    return config
+
+
+def _detect_flux3(sd: dict[str, torch.Tensor]) -> dict:
+    if any(k.endswith(".weight_scale_2") for k in sd):
+        raise NativeEngineUnsupportedError(
+            "FLUX 3 NVFP4 checkpoints are not supported yet: load the bf16 or fp8 FLUX 3 Image Klein DiT instead"
+        )
+    hidden = int(sd["txt_in.weight"].shape[0])
+    head_dim = int(sd["single_blocks.0.norm.query_norm.scale"].shape[0])
+    config = {
+        "image_model": "flux3",
+        "hidden_size": hidden,
+        "context_in_dim": linear_in_features(sd, "txt_in.weight"),
+        "in_channels": linear_in_features(sd, "emb_in.image.weight"),
+        "num_heads": hidden // head_dim,
+        "head_dim": head_dim,
+        "depth": count_blocks(sd, "txt_mode_blocks.{}."),
+        "depth_single_blocks": count_blocks(sd, "single_blocks.{}."),
+        "mlp_hidden": linear_in_features(sd, "single_blocks.0.mlp_out.weight"),
+        "axes_dim": [head_dim // 4] * 4,
+        "theta": 10000,
+        "flow_map": FLUX3_FLOW_MAP_SIG in sd,
+        "has_image_cond": "emb_in.image_cond.weight" in sd,
+    }
+    logger.debug(
+        "detected flux3 DiT: hidden=%d heads=%d depth=%d/%d ctx=%d flow_map=%s",
+        hidden, config["num_heads"], config["depth"], config["depth_single_blocks"],
+        config["context_in_dim"], config["flow_map"],
     )
     return config
 

@@ -15,11 +15,11 @@ from src.features.presets.templates import FieldTemplate, ModeTemplate, PipeTemp
 from src.platform.security.user import AccountType, User
 
 
-def axis(field: str, values: List[Any], type: str = "select", labels: List[str] = None) -> Axis:
+def axis(field: str, values: List[Any], type: str = "select", labels: List[str] = None, label: str = None) -> Axis:
     return Axis(
         field=field,
         type=type,
-        label=field,
+        label=label or field,
         values=[
             AxisValue(value=value, label=(labels[index] if labels else str(value)))
             for index, value in enumerate(values)

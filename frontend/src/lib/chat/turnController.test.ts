@@ -109,6 +109,139 @@ describe('sendMessage: control (unchanged turn, real functions)', () => {
 	});
 });
 
+describe('sendMessage: continuation after a resolved action', () => {
+	it('streams without adding a user message and sends continue_from', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		chatSession.addMessage({ id: 'a0', role: 'assistant', content: 'proposal', timestamp: 1 });
+		const payloads: unknown[] = [];
+		await sendMessage(
+			deps({
+				sendChatMessageStream: async (_sid, payload, onEvent) => {
+					payloads.push(payload);
+					await onEvent!({ type: 'token', data: { content: 'Done.' } });
+					await onEvent!({ type: 'done', data: { assistant_message: { id: 'a1', content: 'Done.' } } });
+				}
+			}),
+			{
+				instruction: '',
+				recoveryAnchorMessageId: 'a0',
+				buildPayload: () => ({
+					content: '',
+					contextMetadata: {},
+					continueFrom: { message_id: 'a0', tool_index: 0 }
+				}),
+				createSessionPayload: { mode: 'generation' }
+			}
+		);
+
+		const state = get(chatSession);
+		expect(payloads[0]).toMatchObject({ continueFrom: { message_id: 'a0', tool_index: 0 } });
+		expect(state.messages.map((m) => [m.id, m.role])).toEqual([
+			['a0', 'assistant'],
+			['a1', 'assistant']
+		]);
+		expect(state.isGenerating).toBe(false);
+	});
+
+	it('recovers the continuation reply anchored on the resolved message', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		chatSession.addMessage({ id: 'a0', role: 'assistant', content: 'proposal', timestamp: 1 });
+		let fallbackCalls = 0;
+		await sendMessage(
+			deps({
+				sendChatMessageStream: async () => {
+					throw Object.assign(new Error('never sent'), { notStarted: true });
+				},
+				sendChatMessage: async () => {
+					fallbackCalls += 1;
+					return { success: false, error: 'unused' };
+				},
+				reattachChatMessageStream: async (_sid, onEvent) => {
+					await onEvent!({ type: 'no_active_turn', data: {} });
+				},
+				getChatSession: async () => ({
+					success: true,
+					data: {
+						messages: [
+							{ id: 'a0', role: 'assistant', content: 'proposal' },
+							{ id: 'a1', role: 'assistant', content: 'recovered reply' }
+						]
+					} as never
+				})
+			}),
+			{
+				instruction: '',
+				recoveryAnchorMessageId: 'a0',
+				buildPayload: () => ({ content: '', contextMetadata: {}, continueFrom: { message_id: 'a0', tool_index: 0 } }),
+				createSessionPayload: { mode: 'generation' }
+			}
+		);
+
+		const state = get(chatSession);
+		expect(fallbackCalls).toBe(0);
+		expect(state.messages.at(-1)).toMatchObject({ id: 'a1', content: 'recovered reply' });
+	});
+});
+
+describe('sendMessage: continuation refused by the server', () => {
+	function continuationParams(onRejected: (r: { message: string; code?: string }) => void) {
+		return {
+			instruction: '',
+			recoveryAnchorMessageId: 'a0',
+			onRejected,
+			buildPayload: () => ({ content: '', contextMetadata: {}, continueFrom: { message_id: 'a0', tool_index: 0 } }),
+			createSessionPayload: { mode: 'generation' }
+		};
+	}
+
+	it('hands a 409 to onRejected without reattaching or raising the session banner', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		chatSession.addMessage({ id: 'a0', role: 'assistant', content: 'proposal', timestamp: 1 });
+		const rejections: unknown[] = [];
+		let reattached = 0;
+		await sendMessage(
+			deps({
+				sendChatMessageStream: async () => {
+					throw Object.assign(new Error('Message has already been continued'), {
+						httpStatus: 409,
+						code: 'continuation_conflict'
+					});
+				},
+				reattachChatMessageStream: async () => {
+					reattached += 1;
+				}
+			}),
+			continuationParams((r) => rejections.push(r))
+		);
+
+		const state = get(chatSession);
+		expect(rejections).toEqual([{ message: 'Message has already been continued', code: 'continuation_conflict' }]);
+		expect(reattached).toBe(0);
+		expect(state.error).toBe('');
+		expect(state.isGenerating).toBe(false);
+		expect(state.messages.map((m) => m.id)).toEqual(['a0']);
+	});
+
+	it('routes a stream error event to onRejected instead of the banner', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		chatSession.addMessage({ id: 'a0', role: 'assistant', content: 'proposal', timestamp: 1 });
+		const rejections: unknown[] = [];
+		await sendMessage(
+			deps({
+				sendChatMessageStream: async (_sid, _payload, onEvent) => {
+					await onEvent!({ type: 'error', data: { error: 'tool_execution_pending', message: 'still pending' } });
+				}
+			}),
+			continuationParams((r) => rejections.push(r))
+		);
+
+		const state = get(chatSession);
+		expect(rejections).toEqual([{ message: 'still pending', code: 'tool_execution_pending' }]);
+		expect(state.error).toBe('');
+		expect(state.messages.map((m) => m.id)).toEqual(['a0']);
+	});
+});
+
 describe('item 1: startNewSession ownership', () => {
 	it('publishes success and adopts the created session when nothing switched', async () => {
 		const turnSeq = chatSession.beginTurn();

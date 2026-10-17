@@ -84,6 +84,8 @@ class TestScopeModeShape:
         assert "{{#if" not in prompt
         assert "{{/if" not in prompt
         assert "add_prompt, edit_prompt and delete_prompt" in prompt
+        assert "exactly as written" in prompt
+        assert "Compose or improve a prompt only when the user asks you to" in prompt
 
 
 class TestScopeModeRegistration:

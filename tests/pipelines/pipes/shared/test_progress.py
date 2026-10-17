@@ -19,6 +19,13 @@ class TestProgressEmitterStep:
         assert out.progress.current == 3
         assert out.progress.max == 10
 
+    def test_step_carries_step_counts(self):
+        emitted = []
+        ProgressEmitter(emitted.append).step(3, 8, state="TXT2IMG")
+
+        assert emitted[0].current_step_num == 3
+        assert emitted[0].total_steps == 8
+
     def test_step_forwards_icon(self):
         emitted = []
         progress = ProgressEmitter(emitted.append)

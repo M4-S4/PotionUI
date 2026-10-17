@@ -1,6 +1,8 @@
 import { MODEL_TYPES, allowedTypes, can, isUnrestricted, normalizeMe } from './capabilities.js';
 import { callPlugin, getMe } from './client.js';
-import { baseName, downloadWarnings, sizeProblem } from './downloadForm.js';
+import { baseName, downloadWarnings, sizeProblem, suggestedModelType } from './downloadForm.js';
+
+export { suggestedModelType };
 import { formatBytes, formatDate, modelTypeLabel } from './format.js';
 
 export const POLL_INTERVAL_MS = 15_000;
@@ -256,8 +258,38 @@ export function cancelRequest(api, id) {
 	return callPlugin(api, 'delete', requestPath(id));
 }
 
-export function initialRequestForm(me, detail) {
-	return { modelType: allowedTypes(me, detail?.mb_type, { purpose: 'request' }).selected, note: '' };
+export function initialRequestForm(me, detail, file = null) {
+	return { modelType: allowedTypes(me, suggestedModelType(detail, file), { purpose: 'request' }).selected, note: '' };
+}
+
+export function requestKey(source, modelId, versionId, fileId) {
+	return [source, modelId, versionId, fileId].map(idText).join('\u0000');
+}
+
+export function pendingKeys(listing) {
+	const keys = new Set();
+	for (const request of listing?.requests ?? []) {
+		if (isOpen(request)) keys.add(requestKey(request.source, request.source_model_id, request.source_version_id, request.file_id));
+	}
+	return keys;
+}
+
+export async function fetchPendingKeys(api) {
+	const result = await callPlugin(api, 'get', '/requests/pending');
+	if (!result.ok) return null;
+	const keys = new Set();
+	for (const entry of Array.isArray(result.data?.keys) ? result.data.keys : []) {
+		if (isObject(entry)) keys.add(requestKey(entry.source, entry.model_id, entry.version_id, entry.file_id));
+	}
+	return keys;
+}
+
+export function withPending(keys, request) {
+	const normalized = normalizeRequest(request);
+	if (!normalized.id || !isOpen(normalized)) return keys;
+	const next = new Set(keys);
+	next.add(requestKey(normalized.source, normalized.source_model_id, normalized.source_version_id, normalized.file_id));
+	return next;
 }
 
 export function noteProblem(note) {

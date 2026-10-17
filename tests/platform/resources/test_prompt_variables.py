@@ -72,12 +72,12 @@ class TestRenderPromptVariableLines:
         ])
         assert lines == ["keep: z"]
 
-    def test_variable_count_cap(self):
+    def test_variable_count_is_uncapped(self):
         variables = [
             {"name": f"v{i}", "type": "text", "value": str(i)} for i in range(40)
         ]
         lines = render_prompt_variable_lines(variables)
-        assert len(lines) == 24  # _MAX_VARIABLES
+        assert len(lines) == 40
 
     def test_option_count_cap_adds_ellipsis(self):
         options = [f"opt{i}" for i in range(20)]
@@ -309,12 +309,11 @@ class TestValidateVariablesMap:
         }
         assert validate_variables_map(variables) == []
 
-    def test_too_many_variables_is_rejected(self):
-        from src.platform.resources.prompt_variables import validate_variables_map, MAX_VARIABLES
+    def test_many_variables_validate(self):
+        from src.platform.resources.prompt_variables import validate_variables_map
 
-        variables = {f"v{i}": {"type": "text", "value": "x"} for i in range(MAX_VARIABLES + 1)}
-        errors = validate_variables_map(variables)
-        assert any("Too many prompt variables" in e for e in errors)
+        variables = {f"v{i}": {"type": "text", "value": "x"} for i in range(30)}
+        assert validate_variables_map(variables) == []
 
 
 class TestBuildVariablesForSubmit:

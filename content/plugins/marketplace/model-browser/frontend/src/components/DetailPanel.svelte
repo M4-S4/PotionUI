@@ -2,6 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import HostUi from '../../../../../sdk/HostUi.svelte';
 	import Icon from './Icon.svelte';
+	import Tip from './Tip.svelte';
 	import DetailAside from './DetailAside.svelte';
 	import DetailMain from './DetailMain.svelte';
 	import { getInstalled, getModel } from '../lib/client.js';
@@ -17,6 +18,7 @@
 		modelId,
 		item = null,
 		revealCache,
+		pending = new Set(),
 		reloadToken = 0,
 		installedToken = 0,
 		onClose,
@@ -183,7 +185,7 @@
 						<option value={tab.id}>{tab.label}</option>
 					{/each}
 				</select>
-				<span class="font-mono text-2xs text-fg-subtle">{tabs.length} versions</span>
+				<span class="font-mono text-xs text-fg-subtle">{tabs.length} versions</span>
 			</div>
 		{/if}
 
@@ -202,32 +204,34 @@
 		<div hidden>
 			<div bind:this={actionsEl} class="flex items-center gap-2">
 				{#if sourceUrl}
-					<a
-						class="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-surface-3 px-2.5 py-1 text-xs font-medium text-fg transition-colors duration-100 hover:bg-line-hover"
-						href={sourceUrl}
-						target="_blank"
-						rel="noopener noreferrer"
-						aria-label={redLink
-							? 'Open on civitai.red, the CivitAI site that shows NSFW models (new tab)'
-							: `Open on ${sourceHost || 'the source'} (new tab)`}
-						title={redLink ? 'civitai.red: the CivitAI site that shows NSFW models' : `Open this model on ${sourceHost}`}
-					>
-						<span class="hidden sm:inline">Open on</span>
-						{sourceHost || 'the source'}
-						{#if redLink}<span class="hidden sm:inline">(NSFW site)</span>{/if}
-						<Icon name="external-link" class="h-3.5 w-3.5" />
-					</a>
+					<Tip text={redLink ? 'civitai.red: the CivitAI site that shows NSFW models' : `Open this model on ${sourceHost}`}>
+						<a
+							class="inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-surface-3 px-2.5 py-1 text-xs font-medium text-fg transition-colors duration-100 hover:bg-line-hover"
+							href={sourceUrl}
+							target="_blank"
+							rel="noopener noreferrer"
+							aria-label={redLink
+								? 'Open on civitai.red, the CivitAI site that shows NSFW models (new tab)'
+								: `Open on ${sourceHost || 'the source'} (new tab)`}
+						>
+							<span class="hidden sm:inline">Open on</span>
+							{sourceHost || 'the source'}
+							{#if redLink}<span class="hidden sm:inline">(NSFW site)</span>{/if}
+							<Icon name="external-link" class="h-3.5 w-3.5" />
+						</a>
+					</Tip>
 				{/if}
-				<button
-					type="button"
-					class="inline-flex min-h-8 min-w-8 items-center justify-center rounded p-1.5 text-fg-muted transition-colors duration-100 hover:bg-surface-3/50 hover:text-fg"
-					aria-label="Close the details"
-					title="Close (Esc)"
-					data-autofocus
-					onclick={() => onClose?.()}
-				>
-					<Icon name="close" class="h-4 w-4" />
-				</button>
+				<Tip text="Close (Esc)">
+					<button
+						type="button"
+						class="inline-flex min-h-8 min-w-8 items-center justify-center rounded p-1.5 text-fg-muted transition-colors duration-100 hover:bg-surface-3/50 hover:text-fg"
+						aria-label="Close the details"
+						data-autofocus
+						onclick={() => onClose?.()}
+					>
+						<Icon name="close" class="h-4 w-4" />
+					</button>
+				</Tip>
 			</div>
 			<div bind:this={mainEl} class="flex flex-col gap-4">
 				{#if detail}
@@ -238,6 +242,7 @@
 						{installed}
 						{sourceLabel}
 						{revealCache}
+						{pending}
 						{onDownload}
 						{onRequest}
 						onPreview={(media) => (preview = media)}

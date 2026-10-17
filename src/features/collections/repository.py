@@ -136,7 +136,46 @@ class CollectionRepository:
             collection.item_count = counts.get(collection.id, 0)
         return collections
 
+    def _history_smart_counts(self, user_id: str) -> Dict[str, int]:
+        member_table, item_column, _item_table, _base = _SCOPE_ITEMS["history"]
+        representative = (
+            "(SELECT r0.id FROM generations r0 WHERE r0.grid_id = t.grid_id "
+            "ORDER BY r0.grid_y, r0.grid_x LIMIT 1)"
+        )
+
+        def visible(predicate: str = "1 = 1") -> str:
+            return (
+                f"(t.grid_id IS NULL OR t.id = {representative} OR NOT EXISTS ("
+                f"SELECT 1 FROM generations r WHERE r.id = {representative} AND r.user_id = ? AND {predicate}))"
+            )
+
+        def unsorted(item_ref: str) -> str:
+            return unsorted_clause(
+                tree_table="collections",
+                member_table=member_table,
+                item_column=item_column,
+                item_ref=item_ref,
+                scope_column="scope",
+            )
+
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT COALESCE(SUM(CASE WHEN {visible()} THEN 1 ELSE 0 END), 0) AS total,
+                       COALESCE(SUM(CASE WHEN t.is_favorite = 1 AND {visible('r.is_favorite = 1')} THEN 1 ELSE 0 END), 0) AS favorites,
+                       COALESCE(SUM(CASE WHEN {unsorted('t.id')} AND {visible(unsorted('r.id'))} THEN 1 ELSE 0 END), 0) AS unsorted
+                FROM generations t
+                WHERE t.user_id = ?
+                """,
+                (user_id, user_id, user_id, "history", user_id, user_id, "history", user_id),
+            )
+            row = cursor.fetchone()
+        return {"all": row["total"], "favorites": row["favorites"], "unsorted": row["unsorted"]}
+
     def smart_counts(self, user_id: str, scope: str) -> Dict[str, int]:
+        if scope == "history":
+            return self._history_smart_counts(user_id)
         member_table, item_column, item_table, base = _SCOPE_ITEMS[scope]
         unsorted = unsorted_clause(
             tree_table="collections",

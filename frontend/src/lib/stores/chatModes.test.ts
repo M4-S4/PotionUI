@@ -95,6 +95,32 @@ describe('toolsForMode', () => {
 			'plugin_tool'
 		]);
 	});
+
+	it('shows a multi-mode tool in each of its modes and nowhere else', () => {
+		const multi: ChatToolInfo[] = [
+			...tools,
+			{ name: 'prompt_tool', description: '', hint: '', mode: 'generation', modes: ['generation', 'prompts'] }
+		];
+		expect(toolsForMode(multi, 'prompts').map((t) => t.name)).toEqual(['global_tool', 'prompt_tool']);
+		expect(toolsForMode(multi, 'generation').map((t) => t.name)).toEqual([
+			'global_tool',
+			'gen_tool',
+			'prompt_tool'
+		]);
+		expect(toolsForMode(multi, 'dataset-generator').map((t) => t.name)).toEqual([
+			'global_tool',
+			'plugin_tool'
+		]);
+	});
+
+	it('treats a null modes list like the single mode field', () => {
+		const list: ChatToolInfo[] = [
+			{ name: 'a', description: '', hint: '', mode: 'generation', modes: null },
+			{ name: 'b', description: '', hint: '', mode: null, modes: null }
+		];
+		expect(toolsForMode(list, 'generation').map((t) => t.name)).toEqual(['a', 'b']);
+		expect(toolsForMode(list, 'prompts').map((t) => t.name)).toEqual(['b']);
+	});
 });
 
 describe('resolveModeName', () => {

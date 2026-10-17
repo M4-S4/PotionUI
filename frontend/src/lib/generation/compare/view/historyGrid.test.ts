@@ -41,6 +41,22 @@ describe('history grid entries', () => {
 		).toEqual({ title: 'Prompt: find and replace × Seed', count: '12 cells' });
 	});
 
+	it('titles the stack with the axis labels the grid summary carries', () => {
+		const grid = {
+			...stack.grid,
+			axes: [
+				{ field: 'cfg_scale', label: 'CFG' },
+				{ field: '__prompt__', label: 'prompt' }
+			]
+		};
+		expect(stackInfo({ ...stack, axis_values: { cfg_scale: '7', __prompt__: 'dawn' }, grid })?.title).toBe(
+			'CFG × Prompt: find and replace'
+		);
+		expect(stackInfo({ ...stack, grid: { ...stack.grid, axes: [{ field: 'cfg_scale', label: '' }] } })?.title).toBe(
+			'Cfg scale'
+		);
+	});
+
 	it('numbers a loose cell row-major when the column count is known', () => {
 		expect(cellChip({ ...loose, grid_cols: 4 })).toBe('cell 7');
 	});

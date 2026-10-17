@@ -6,6 +6,9 @@ import {
 	effectiveMode,
 	effectiveModes,
 	isRevealable,
+	masksText,
+	modeHint,
+	MASKED_TITLE,
 	mediaState,
 	nsfwInfo
 } from './nsfw.js';
@@ -151,4 +154,25 @@ test('createRevealCache turns a thrown error into an error result, and reset for
 	cache.reset();
 	await cache.urlFor('civitai', '1', '1');
 	assert.equal(calls, 3);
+});
+
+test('masksText hides the text of NSFW models under Blur until revealed, and only when it can be revealed', () => {
+	assert.equal(masksText({ nsfw: true }, 'blur', false, true), true);
+	assert.equal(masksText({ nsfw: true }, 'blur', true, true), false);
+	assert.equal(masksText({ nsfw: true }, 'blur'), false);
+	assert.equal(masksText({ nsfw: true }, 'blur', false, false), false);
+	assert.equal(masksText({ nsfw: true }, 'show', false, true), false);
+	assert.equal(masksText({ nsfw: true }, 'hide', false, true), false);
+	assert.equal(masksText({ nsfw: false }, 'blur', false, true), false);
+	assert.equal(masksText({}, 'blur', false, true), false);
+	assert.equal(masksText(null, 'blur', false, true), false);
+});
+
+test('modeHint talks in plain language and never shows the setting key', () => {
+	const allowed = modeHint(nsfwInfo(me('allowed', 'blur')));
+	assert.ok(!allowed.includes('media_nsfw_filter_mode'));
+	assert.ok(!/[a-z]+_[a-z]+/.test(allowed));
+	assert.match(allowed, /History/);
+	assert.ok(!allowed.includes('content policy'));
+	assert.match(modeHint(nsfwInfo(me('blur', 'blur'))), /content policy allows blurred/);
 });

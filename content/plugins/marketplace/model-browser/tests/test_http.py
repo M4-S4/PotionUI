@@ -267,16 +267,37 @@ async def test_concurrent_requests_start_at_least_the_interval_apart():
     starts = []
 
     async def fetch(url, params):
-        starts.append(time.monotonic())
+        starts.append(time.perf_counter())
         await asyncio.sleep(0.01)
         return 200, {}, b"{}"
 
     client = SourceHttp(fetch=fetch, limits={"civitai": (0.05, 4)})
     await asyncio.gather(*(client.get_json("civitai", URL) for _ in range(4)))
 
+    timer_tick = 0.016
     gaps = [later - earlier for earlier, later in zip(starts, starts[1:])]
     assert len(starts) == 4
-    assert all(gap >= 0.045 for gap in gaps), gaps
+    assert all(gap >= 0.05 - timer_tick for gap in gaps), gaps
+    assert starts[-1] - starts[0] >= 3 * 0.05 - timer_tick, starts
+
+
+async def test_a_late_wake_never_lets_the_next_request_start_early():
+    now = [100.0]
+    starts = []
+    overshoot = [0.0, 0.013, 0.0]
+
+    async def sleep(seconds):
+        now[0] += seconds + overshoot.pop(0)
+
+    async def fetch(url, params):
+        starts.append(now[0])
+        return 200, {}, b"{}"
+
+    client = SourceHttp(fetch=fetch, limits={"civitai": (0.05, 4)}, clock=lambda: now[0], sleep=sleep)
+    await asyncio.gather(*(client.get_json("civitai", URL) for _ in range(4)))
+
+    gaps = [later - earlier for earlier, later in zip(starts, starts[1:])]
+    assert all(gap >= 0.05 - 1e-9 for gap in gaps), gaps
 
 
 async def test_requests_in_flight_are_capped_per_source():

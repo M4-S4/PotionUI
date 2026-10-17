@@ -208,6 +208,17 @@ describe('grid cell viewer', () => {
 		expect(cells[5].getAttribute('aria-current')).toBe('true');
 	});
 
+	it('names each axis row by the axis label, not the field key', async () => {
+		const cfg = { field: 'cfg_scale', type: 'number', label: 'CFG', values: ['3', '7'].map((v) => ({ value: v, label: v })) };
+		const grid = makeGrid();
+		grid.config = { ...grid.config, y: cfg };
+		grid.cells = grid.cells.map((cell) => ({ ...cell, axisValues: { sampler: cell.axisValues.sampler, cfg_scale: '7' } }));
+		mounted = mountViewer({ grid });
+		await flush();
+		expect(mounted.text()).toContain('CFG');
+		expect(mounted.text()).not.toContain('Cfg scale');
+	});
+
 	it('shows the server elapsed time in the cell card', async () => {
 		mounted = mountViewer({ grid: makeGrid({ 5: { elapsedSeconds: 22.2 } }), seconds: 99 });
 		await flush();

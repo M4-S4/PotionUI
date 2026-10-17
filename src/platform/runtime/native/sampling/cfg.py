@@ -95,6 +95,23 @@ class NoCFG:
         return model_fn(x, sigma, {**cond, "skip_layers": skip_layers})
 
 
+class FlowMapGuidance:
+    zero_init_steps = 0
+
+    def __init__(self, sigmas: Tensor) -> None:
+        self.sigmas = sigmas
+        self.last_cond_v: Tensor | None = None
+
+    def __call__(self, model_fn, x, sigma, cond, uncond, step_index) -> Tensor:
+        expected = float(self.sigmas[step_index])
+        if abs(float(sigma.reshape(-1)[0]) - expected) > 1e-6:
+            raise ValueError(
+                "flow-map checkpoints only run on the schedule's own sigmas: use the 'euler' sampler"
+            )
+        target = self.sigmas[step_index + 1].reshape(1).expand(x.shape[0])
+        self.last_cond_v = model_fn(x, sigma, {**cond, "flow_map_target": target})
+        return self.last_cond_v
+
 class EmbeddedGuidance:
     """Flux distilled guidance: one forward, scale injected into conditioning.
 

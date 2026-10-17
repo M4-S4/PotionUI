@@ -1,18 +1,10 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-tool-approval';
 const BEAT = 450;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
-
-// An approval-gated tool call surfaces in the docked ApprovalDock above the
-// composer (tool label · action · target · items + Approve/Reject), not
-// inline in the transcript, and resolving it either way continues the
-// conversation with a narrated outcome instead of dead-ending. The LLM is a
-// scripted fake OpenAI server: turn 1 emits a create_phrasebook_category
-// tool_call (streamed tool_calls fragments), the post-approval narration
-// turn is plain text.
 
 let fake: FakeLLMServer;
 
@@ -26,9 +18,6 @@ test.afterEach(async () => {
 
 async function openChatPanel(page: Page) {
 	await page.goto('/models');
-	// Sidebar.svelte's AI Chat trigger has no `title` attribute (its tooltip
-	// text comes from a wrapping <Tooltip>, not a native title) — only its
-	// accessible name, "AI Chat" (via aria-label), identifies it.
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
@@ -37,7 +26,7 @@ async function openChatPanel(page: Page) {
 	return composer;
 }
 
-async function sendMessage(page: Page, composer: ReturnType<Page['locator']>, text: string) {
+async function sendMessage(page: Page, composer: Locator, text: string) {
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
 	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
 	await chipInput.click();
@@ -45,117 +34,129 @@ async function sendMessage(page: Page, composer: ReturnType<Page['locator']>, te
 	await composer.locator('button[aria-label="Send message"]').click();
 }
 
-test.fixme('approval-gated tool docks above the composer; approve and reject both continue the conversation', async ({
-	page
-}) => {
-	test.setTimeout(120000);
+async function seedChat(page: Page) {
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
 	await seedFakeLlmConfig(page.request, BACKEND, token, fake.url);
+	return token;
+}
 
-	// The tool call targets 'camera.angles'; its parent category must exist for
-	// the proposal to reach the pending_approval path.
-	const parent = await page.request.post(`${BACKEND}/api/phrasebook/categories`, {
+async function seedMemoryNote(page: Page, token: string, key: string) {
+	const response = await page.request.post(`${BACKEND}/api/chat/memory`, {
 		headers: { Authorization: `Bearer ${token}` },
-		data: { name: 'camera', path: 'camera', description: '' }
+		data: { key, content: 'prefers painterly fantasy scenes over photorealism', scope: 'global' }
 	});
-	expect(parent.ok(), `parent category create -> ${parent.status()}`).toBeTruthy();
+	expect(response.ok(), `memory note create -> ${response.status()}`).toBeTruthy();
+	const body = await response.json();
+	expect(body.success, JSON.stringify(body)).toBeTruthy();
+	return body.data.id as string;
+}
 
+async function memoryNoteIds(page: Page, token: string) {
+	const response = await page.request.get(`${BACKEND}/api/chat/memory`, {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	expect(response.ok()).toBeTruthy();
+	const body = await response.json();
+	return ((body.data?.notes ?? []) as Array<{ id: string }>).map((n) => n.id);
+}
+
+function proposeDelete(noteId: string) {
+	fake.enqueue({ kind: 'tool_call', name: 'delete_memory', arguments: { note_id: noteId } });
+}
+
+function toolResultsSentToModel(): string {
+	return JSON.stringify(fake.requests.filter((r) => r.servedAs === 'queued-turn').map((r) => r.messages));
+}
+
+test('approving an inline card applies it and the reply streams below the card', async ({ page }) => {
+	test.setTimeout(120000);
+	const token = await seedChat(page);
+	const noteId = await seedMemoryNote(page, token, 'e2e-approve-style');
 	const composer = await openChatPanel(page);
 
-	// --- Pass 1: Approve ---
-	fake.enqueue({
-		kind: 'tool_call',
-		name: 'create_phrasebook_category',
-		arguments: { path: 'camera.angles', name: 'Angles', description: 'Camera angle vocabulary' }
-	});
-	await sendMessage(page, composer, 'Save camera angles as a phrasebook category');
+	proposeDelete(noteId);
+	await sendMessage(page, composer, 'Forget my style preference');
 
-	const card = page.locator('.question-dock');
-	await expect(card).toBeVisible({ timeout: 30000 });
+	const card = page.locator('[data-testid="action-card"]').last();
+	await expect(card).toHaveAttribute('data-state', 'pending', { timeout: 30000 });
+	await expect(card).toContainText('Needs approval');
+	await expect(card).toContainText('Delete memory note');
+	await expect(card).toContainText('e2e-approve-style');
+	await expect(page.locator('.question-dock')).toHaveCount(0);
 
-	// The dock states intent: tool label + action + target + items + explicit actions.
-	await expect(card).toContainText('Create Phrasebook Category');
-	await expect(card).toContainText('Create category');
-	await expect(card).toContainText('under camera');
-	await expect(card).toContainText('camera.angles');
-	await expect(card).toContainText('from reply');
-	const approveButton = card.getByRole('button', { name: 'Approve' });
-	const rejectButton = card.getByRole('button', { name: 'Reject' });
-	await expect(approveButton).toBeVisible();
-	await expect(rejectButton).toBeVisible();
-
-	// The composer is gated while an approval is pending.
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
 	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
-	await expect(chipInput).toHaveAttribute('aria-placeholder', 'Resolve approvals to continue…');
+	await expect(chipInput).toHaveAttribute('aria-placeholder', 'Reply, or tell it what to change instead…');
 
 	await page.waitForTimeout(BEAT);
-	await screenshot(page, JOURNEY, 'approval-card-pending');
+	await screenshot(page, JOURNEY, 'card-pending');
 
-	fake.enqueue({
-		kind: 'text',
-		text: 'Created the camera.angles category. New markers can use #camera.angles.'
-	});
-	await approveButton.click();
+	fake.enqueue({ kind: 'text', text: 'Deleted the e2e-approve-style note from memory.' });
+	await card.locator('.action-btn.is-approve').click();
 
-	// Card resolves away and the conversation continues with the outcome message.
-	await expect(card).toBeHidden({ timeout: 30000 });
-	await expect(page.getByText('Created the camera.angles category')).toBeVisible({
-		timeout: 30000
-	});
+	await expect(card).toHaveAttribute('data-state', 'applied', { timeout: 30000 });
+	await expect(card).toContainText('Applied');
+	await expect(page.getByText('Deleted the e2e-approve-style note from memory.')).toBeVisible({ timeout: 30000 });
+	await expect(page.getByText('(fake-llm: no scripted turn left)')).toHaveCount(0);
 	await page.waitForTimeout(BEAT);
-	await screenshot(page, JOURNEY, 'after-approve');
+	await screenshot(page, JOURNEY, 'card-applied');
 
-	// The approved action actually ran on the backend.
-	const categories = await page.request.get(`${BACKEND}/api/phrasebook/categories`, {
-		headers: { Authorization: `Bearer ${token}` }
-	});
-	expect(categories.ok()).toBeTruthy();
-	const categoriesText = JSON.stringify(await categories.json());
-	expect(categoriesText, 'camera.angles exists after approve').toContain('camera.angles');
+	expect(await memoryNoteIds(page, token), 'note is gone after approve').not.toContain(noteId);
+});
 
-	// --- Pass 2: Deny (fresh session) ---
-	await page.locator('button[aria-label="New chat"]').click();
+test('rejecting with a reason sends the reason back and nothing is deleted', async ({ page }) => {
+	test.setTimeout(120000);
+	const token = await seedChat(page);
+	const noteId = await seedMemoryNote(page, token, 'e2e-reject-style');
+	const composer = await openChatPanel(page);
+
+	proposeDelete(noteId);
+	await sendMessage(page, composer, 'Forget my style preference');
+
+	const card = page.locator('[data-testid="action-card"]').last();
+	await expect(card).toHaveAttribute('data-state', 'pending', { timeout: 30000 });
+
+	fake.enqueue({ kind: 'text', text: 'Understood - I kept the e2e-reject-style note.' });
+	await card.getByRole('button', { name: 'Reject' }).first().click();
+	const reason = card.getByRole('textbox', { name: 'Reason (optional)' });
+	await expect(reason).toBeFocused();
+	await reason.fill('Keep it until the series is finished');
 	await page.waitForTimeout(BEAT);
+	await screenshot(page, JOURNEY, 'card-reject-reason');
+	await reason.press('Enter');
 
-	fake.enqueue({
-		kind: 'tool_call',
-		name: 'create_phrasebook_category',
-		arguments: { path: 'camera.moves', name: 'Moves', description: 'Camera move vocabulary' }
-	});
-	await sendMessage(page, composer, 'Also save camera moves as a category');
-
-	await expect(card).toBeVisible({ timeout: 30000 });
-	await expect(card).toContainText('Create category');
-	await expect(card).toContainText('camera.moves');
+	await expect(card).toHaveAttribute('data-state', 'rejected', { timeout: 30000 });
+	await expect(card).toContainText('"Keep it until the series is finished"');
+	await expect(page.getByText('I kept the e2e-reject-style note.')).toBeVisible({ timeout: 30000 });
 	await page.waitForTimeout(BEAT);
-	await screenshot(page, JOURNEY, 'deny-card-pending');
+	await screenshot(page, JOURNEY, 'card-rejected');
 
-	fake.enqueue({
-		kind: 'text',
-		text: 'Understood - I did not create the camera.moves category.'
-	});
-	await card.getByRole('button', { name: 'Reject' }).click();
+	expect(toolResultsSentToModel()).toContain('Keep it until the series is finished');
+	expect(await memoryNoteIds(page, token), 'note still exists after reject').toContain(noteId);
+});
 
-	await expect(card).toBeHidden({ timeout: 30000 });
-	await expect(page.getByText('I did not create the camera.moves category')).toBeVisible({
-		timeout: 30000
-	});
+test('typing a message while a card is pending rejects it with that message as the reason', async ({ page }) => {
+	test.setTimeout(120000);
+	const token = await seedChat(page);
+	const noteId = await seedMemoryNote(page, token, 'e2e-reply-style');
+	const composer = await openChatPanel(page);
+
+	proposeDelete(noteId);
+	await sendMessage(page, composer, 'Forget my style preference');
+
+	const card = page.locator('[data-testid="action-card"]').last();
+	await expect(card).toHaveAttribute('data-state', 'pending', { timeout: 30000 });
+
+	fake.enqueue({ kind: 'text', text: 'Keeping the note. Here are three painterly references instead.' });
+	await sendMessage(page, composer, 'Actually keep it, just suggest three references');
+
+	await expect(card).toHaveAttribute('data-state', 'rejected', { timeout: 30000 });
+	await expect(card).toContainText('"Actually keep it, just suggest three references"');
+	await expect(page.getByText('Here are three painterly references instead.')).toBeVisible({ timeout: 30000 });
 	await page.waitForTimeout(BEAT);
-	await screenshot(page, JOURNEY, 'after-deny');
+	await screenshot(page, JOURNEY, 'card-rejected-by-reply');
 
-	const categoriesAfterDeny = await page.request.get(`${BACKEND}/api/phrasebook/categories`, {
-		headers: { Authorization: `Bearer ${token}` }
-	});
-	const afterDenyText = JSON.stringify(await categoriesAfterDeny.json());
-	expect(afterDenyText, 'camera.moves must NOT exist after deny').not.toContain('camera.moves');
-
-	await screenshot(page, JOURNEY, 'conversation-final');
-
-	console.log(
-		`[${JOURNEY}] approve: card (action+target+items) -> resolved -> narrated outcome -> category created; ` +
-			`deny: card -> rejected -> narrated acknowledgement -> category NOT created; ` +
-			`fake-llm requests=${fake.requests.length}, unconsumed turns=${fake.pending()}`
-	);
+	expect(await memoryNoteIds(page, token), 'note still exists after replying instead').toContain(noteId);
+	console.log(`[${JOURNEY}] fake-llm requests=${fake.requests.length}, unconsumed turns=${fake.pending()}`);
 });

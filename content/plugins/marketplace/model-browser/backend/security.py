@@ -94,12 +94,58 @@ def _safe_href(value: Optional[str]) -> Optional[str]:
     return value
 
 
+_PROSE_WORDS = 6
+_PROSE_CHARS = 60
+
+
+def _is_prose(text: str) -> bool:
+    text = text.strip()
+    return len(text) > _PROSE_CHARS or len(text.split()) >= _PROSE_WORDS
+
+
+class _Table:
+    def __init__(self, out_start: int, open_start: int) -> None:
+        self.out_start = out_start
+        self.open_start = open_start
+        self.has_image = False
+        self.keep = False
+        self._cell: List[str] = []
+        self._cell_loose: List[str] = []
+        self._cell_image = False
+        self._cell_header = False
+
+    def start_cell(self, header: bool) -> None:
+        self.end_cell()
+        self._cell_header = header
+
+    def text(self, data: str, in_link: bool) -> None:
+        self._cell.append(data)
+        if not in_link:
+            self._cell_loose.append(data)
+
+    def image(self) -> None:
+        self.has_image = True
+        self._cell_image = True
+
+    def end_cell(self) -> None:
+        text = " ".join("".join(self._cell).split())
+        loose = "".join(self._cell_loose).strip()
+        if text and (_is_prose(text) or (loose and not self._cell_image and not self._cell_header)):
+            self.keep = True
+        self._cell = []
+        self._cell_loose = []
+        self._cell_image = False
+        self._cell_header = False
+
+
 class _Sanitizer(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._out: List[str] = []
         self._open: List[Tuple[str, str]] = []
         self._skipping: List[str] = []
+        self._tables: List[_Table] = []
+        self._links = 0
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
@@ -108,6 +154,16 @@ class _Sanitizer(HTMLParser):
             return
         if self._skipping:
             return
+        if tag == "table":
+            self._tables.append(_Table(len(self._out), len(self._open)))
+        elif tag in _CELLS and self._tables:
+            self._tables[-1].start_cell(tag == "th")
+        elif tag == "img" and self._tables:
+            for table in self._tables:
+                table.has_image = True
+            self._tables[-1].image()
+        elif tag == "a":
+            self._links += 1
         name = _RENAMED.get(tag, tag)
         if name in _VOID_KEPT:
             self._out.append(f"<{name}>")
@@ -131,6 +187,17 @@ class _Sanitizer(HTMLParser):
                 while self._skipping and self._skipping.pop() != tag:
                     pass
             return
+        if tag == "a" and self._links:
+            self._links -= 1
+        if tag in _CELLS and self._tables:
+            self._tables[-1].end_cell()
+        if tag == "table" and self._tables:
+            table = self._tables.pop()
+            table.end_cell()
+            if table.has_image and not table.keep:
+                del self._out[table.out_start:]
+                del self._open[table.open_start:]
+                return
         if tag in _BLOCKS:
             self._line_break()
             return
@@ -148,6 +215,8 @@ class _Sanitizer(HTMLParser):
     def handle_data(self, data):
         if not self._skipping:
             self._out.append(html.escape(data, quote=False))
+            if self._tables:
+                self._tables[-1].text(data, self._links > 0)
 
     def _line_break(self) -> None:
         if self._out and self._out[-1] != "<br>":

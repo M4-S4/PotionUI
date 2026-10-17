@@ -232,3 +232,23 @@ def test_qwen_image21_spec_shift_matches_diffusers_dynamic_mu():
         expected = 0.5 + (0.9 - 0.5) * (tokens - 256) / (8192 - 256)
         assert _anchored_mu(dyn, tokens) == pytest.approx(expected, abs=2e-3)
     assert spec.sampling_settings["shift"] == pytest.approx(math.exp(_anchored_mu(dyn, 4096)), abs=0.01)
+
+
+def test_flux3_shift_is_the_constant_shift_curve_at_693():
+    from src.platform.runtime.native.detect.registry import arch_registry
+
+    alpha = 6.93
+    t = torch.linspace(1.0, 0.0, 17)
+    expected = alpha * t / (1.0 + (alpha - 1.0) * t)
+    assert torch.allclose(build_sigmas(16, shift=alpha), expected, atol=1e-6)
+    for variant in ("flux3_klein_base", "flux3_klein"):
+        settings = arch_registry.get("flux3", variant).sampling_settings
+        built = build_sigmas(
+            16,
+            shift=settings.get("shift"),
+            base_shift=settings.get("base_shift"),
+            max_shift=settings.get("max_shift"),
+            dynamic_shift=settings.get("dynamic_shift"),
+            fixed_mu=settings.get("fixed_mu"),
+        )
+        assert torch.allclose(built, expected, atol=1e-6)

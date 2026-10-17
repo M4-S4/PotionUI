@@ -183,7 +183,7 @@ class PluginRegistry:
 
         # Discovery state
         self._discovered = False
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
         # Track which plugins have registered which hooks
         self._plugin_hooks: Dict[str, Set[str]] = {}  # plugin_id -> set of hook names
@@ -213,15 +213,6 @@ class PluginRegistry:
 
         Runs with `self._lock` held: it calls the lock-free enable/disable
         internals directly, never the public methods.
-
-        Lifecycle events: an unchanged plugin sees no transition at all - no
-        teardown, no re-enable, and none of the `plugin.enable`/`plugin.disable`
-        hooks a user-driven toggle fires. A changed plugin is rebuilt through
-        the registry's own teardown and enable transaction, which likewise fires
-        no user-facing transition events; those belong to the admin actions in
-        `src.features.plugins.operations.lifecycle`. `scan_plugins` fires the
-        per-process boot hook for a plugin the rescan brought back up, because
-        its modules were evicted with the teardown.
         """
         logger.info("Starting plugin discovery...")
 
@@ -304,7 +295,7 @@ class PluginRegistry:
     def _drop_plugin(self, plugin_id: str) -> None:
         """Forget a plugin whose directory is gone, tearing down anything it
         still owns."""
-        self._rollback_partial_enable(plugin_id)
+        self._teardown_plugin(plugin_id)
         self._plugins.pop(plugin_id, None)
         self._plugin_states.pop(plugin_id, None)
         self._plugin_errors.pop(plugin_id, None)
@@ -319,7 +310,7 @@ class PluginRegistry:
         was_enabled = previous_state == PluginState.ENABLED
 
         if was_enabled:
-            self._rollback_partial_enable(plugin_id)
+            self._teardown_plugin(plugin_id)
 
         self._admit_plugin(manifest, fingerprint)
 
@@ -500,7 +491,7 @@ class PluginRegistry:
     def _fail_enable(self, plugin_id: str, error_msg: str, exc_info: bool = False) -> bool:
         """The single exit for a failed enable: roll back, record, return False."""
         logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}", exc_info=exc_info)
-        self._rollback_partial_enable(plugin_id)
+        self._teardown_plugin(plugin_id)
         self._plugin_states[plugin_id] = PluginState.ERROR
         self._plugin_errors[plugin_id] = error_msg
         return False
@@ -1024,6 +1015,20 @@ class PluginRegistry:
                 return str(e)
         return None
 
+    def _teardown_plugin(self, plugin_id: str) -> None:
+        if self._plugin_states.get(plugin_id) == PluginState.ENABLED:
+            try:
+                self.hook_chain.execute(
+                    PLUGIN_LIFECYCLE_HOOKS.disable,
+                    initial_data={"plugin_id": plugin_id},
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error running disable hook for plugin {plugin_id}: {e}", exc_info=True
+                )
+        self._ready_fired.discard(plugin_id)
+        self._rollback_partial_enable(plugin_id)
+
     def _rollback_partial_enable(self, plugin_id: str) -> None:
         """Tear down everything the plugin registered: hooks, field types,
         model attributes, LLM chat extensions (tools/modes/resources),
@@ -1381,7 +1386,7 @@ class PluginRegistry:
         try:
             # Unregister everything this plugin registered - the same
             # teardown a partial enable rolls back.
-            self._rollback_partial_enable(plugin_id)
+            self._teardown_plugin(plugin_id)
 
             # Update state
             self._plugin_states[plugin_id] = PluginState.DISABLED
@@ -1526,6 +1531,9 @@ class PluginRegistry:
         if not self.disable_plugin(plugin_id):
             return False
 
-        # Re-enable
-        return self.enable_plugin(plugin_id)
+        if not self.enable_plugin(plugin_id):
+            return False
+        self.run_boot_hook(plugin_id)
+        self.run_ready_hook(plugin_id)
+        return True
 

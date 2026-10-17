@@ -144,7 +144,9 @@ class ToolExecution:
     arguments: Dict[str, Any]
     result: ToolResult
     duration_ms: int
-    pending_approval: bool = False
+    approval_status: Optional[str] = None
+    skipped: bool = False
+    tool_call_id: Optional[str] = None
 
 
 class BaseTool(ABC):

@@ -74,3 +74,20 @@ def convert_vae_state_dict(sd: dict[str, torch.Tensor]) -> dict[str, torch.Tenso
                 new_sd[k] = _reshape_for_conv(new_sd[k])
 
     return new_sd
+
+
+_NESTED_QUANT_CONVS = (
+    ("encoder.quant_conv.", "quant_conv."),
+    ("decoder.post_quant_conv.", "post_quant_conv."),
+)
+
+
+def hoist_nested_quant_convs(sd: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    out = {}
+    for key, value in sd.items():
+        for nested, flat in _NESTED_QUANT_CONVS:
+            if key.startswith(nested):
+                key = flat + key[len(nested):]
+                break
+        out[key] = value
+    return out

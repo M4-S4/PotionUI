@@ -93,14 +93,35 @@ export interface ToolApprovalPreview {
 	rows?: ToolApprovalTimelineRow[] | null;
 }
 
+export type ToolApprovalStatus = 'pending' | 'approved' | 'rejected' | 'failed';
+
+export type ToolResolveStatus = 'approved' | 'rejected' | 'failed' | 'stale' | 'already_resolved';
+
+export interface ToolResolveRequest {
+	message_id: string;
+	tool_index: number;
+	approved: boolean;
+	reason?: string;
+	context_metadata?: Record<string, any>;
+	force?: boolean;
+}
+
+export interface ToolResolveResponse {
+	status: ToolResolveStatus;
+	execution: ToolExecution;
+	message_id: string;
+	tool_index: number;
+}
+
 export interface ToolExecution {
 	tool_name: string;
 	arguments: Record<string, unknown>;
 	result: { success: boolean; data: string; error?: string };
 	duration_ms: number;
 	status?: 'running' | 'done';
-	pending_approval?: boolean;
-	rejected?: boolean;
+	approval_status?: ToolApprovalStatus | null;
+	approval_reason?: string | null;
+	skipped?: boolean;
 	preview?: ToolApprovalPreview | null;
 	/** Assigned by the stream reducers to interleave with trace_steps in chronological order. */
 	seq?: number;
@@ -221,6 +242,7 @@ export interface ChatToolInfo {
 	hint: string;
 	requires_approval?: boolean;
 	mode?: string | null;
+	modes?: string[] | null;
 	icon?: string | null;
 	label?: string | null;
 	group?: string | null;

@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.platform.resources.prompt_variables import (
-    MAX_VARIABLES,
     VALID_MODES,
     dependency_prefix,
     format_option,
@@ -206,13 +205,6 @@ def _validate_operations(
         if reason:
             row["reason"] = reason
         preview_rows.append(row)
-
-    if len(working) > MAX_VARIABLES:
-        errors.append(
-            f"Too many prompt variables: {len(working)} (max {MAX_VARIABLES}). "
-            "Remove some before adding more."
-        )
-        return [], [], errors
 
     return validated_ops, preview_rows, errors
 

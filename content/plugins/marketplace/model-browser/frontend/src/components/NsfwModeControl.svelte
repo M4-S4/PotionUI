@@ -1,17 +1,14 @@
 <script>
 	import HostUi from '../../../../../sdk/HostUi.svelte';
 	import Icon from './Icon.svelte';
-	import { effectiveModes, nsfwInfo } from '../lib/nsfw.js';
+	import { effectiveModes, modeHint, nsfwInfo } from '../lib/nsfw.js';
 
 	let { me, busy = false, onChange } = $props();
 
 	const uid = $props.id();
 	const info = $derived(nsfwInfo(me));
 	const items = $derived(effectiveModes(me).map((item) => ({ ...item, disabled: item.disabled || busy })));
-	const hint = $derived(
-		`App-wide setting (${info.settingKey}): it also applies to History and the other pages.` +
-			(info.ceiling === 'blur' ? ' Your content policy allows blurred NSFW media at most.' : '')
-	);
+	const hint = $derived(modeHint(info));
 </script>
 
 <div class="flex flex-shrink-0 items-center gap-2">
@@ -30,7 +27,7 @@
 					name="SegmentedControl"
 					props={{
 						variant: 'toggle',
-						ariaLabel: 'Sensitive content (app-wide setting)',
+						ariaLabel: 'Sensitive content',
 						items,
 						selected: info.mode,
 						onSelect: (id) => {
