@@ -164,7 +164,8 @@ close that gap:
   a weights budget stay resident on the GPU; the remainder stream from **pinned** CPU RAM with
   `non_blocking=True` H2D copies, one layer at a time per forward, through the existing ops seam
   (`comfy_cast_weights` + `stream_non_blocking` on the streamed leaves — no arch or `denoise_loop`
-  change). Embeddings and nvfp4 layers are always kept resident. This is ComfyUI's `model_patcher`
+  change). Embeddings are always kept resident; nvfp4 layers too, except under the text encoder's
+  partial residency below, which opts in to streaming them. This is ComfyUI's `model_patcher`
   lowvram approach, scoped to the native engine. `NativeGenerator._stream_dit_to_gpu` computes the
   budget (live free VRAM − sampling headroom, after evicting foreign residents) and streams only
   the overflow; an OOM backstop re-streams at a zero budget (only the small fixed tensors resident).
@@ -177,6 +178,60 @@ close that gap:
   `auto`); `auto` only triggers in the "doesn't fit bf16, fits fp8" window. Prefer resident-fp8 over
   streamed-bf16: fp8 is both faster and higher PCIe throughput than streaming, at a small grid-level
   precision cost.
+- **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
+  `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the GPU
+  for its encode (one that fits may stay co-resident afterwards, evictable by the DiT), so its
+  placement is decided for that phase alone. An
+  encoder whose honest footprint does not fit the VRAM available to it is no longer moved whole with
+  `.to(device)`: its real module(s) are placed with `NativeModel.stream_to(device, budget)`, exactly
+  like a DiT that does not fit (leaves resident up to the budget, the rest streamed per forward from
+  pinned RAM, prefetch included), then torn down right after the encode (unpinned, host RAM
+  reclaimed, wrapper pointed back at the CPU) so the DiT gets the whole card back. nvfp4 leaves are
+  streamed too: their packed buffers stay pinned and a forward pre-hook stages them onto the GPU for
+  the call, so the dequant runs on the GPU from the 0.81 B/elem form. Both encode sites take this
+  path: the pipes' `run_text_encode` / `run_text_encode_batch` (after the existing co-resident and
+  evict steps, path `"streamed"` on the `te.encode` mark; an OOM retries fully streamed, then encodes
+  on the CPU as before) and `NativeGenerator.encode_prompt` (torn down by `_maybe_offload_te`).
+
+  **Footprint formula** (`text_encoder_footprint`; the same weight figure `_estimate_text_encoder_gb`
+  reports): weights are every parameter and buffer the modules own, counted once — nvfp4 holds the
+  packed U8 codes (0.5 B/elem) + the fp32 natural scale precomputed at load (4/16) + the fp8 swizzled
+  block scale (1/16) ≈ **0.81 B/elem against 0.5625 on disk**, so a 14.6 GB nvfp4 checkpoint holds
+  ≈ 21 GB on the device; int8 and fp8 hold 1 B/elem plus their scales. On top, the largest
+  dequantisation transient: layers dequantise one at a time, so `dequant_peak = max over quantised
+  layers of out × in × k`, `k` = 10 B for nvfp4 (int32 code index + two fp32 LUT gathers + the fp32
+  weight) and 8 B for int8/fp8 (fp32 cast + scaled product) — ≈ 1.2 GB for a Qwen3-32B MLP projection.
+
+  **Decision.** `available` = live free VRAM after the step-2 eviction + what the encoder already holds
+  on the device, capped by the backend's `gpu_max_vram` (pipes); the generator uses its placement
+  budget (`vram_gb` or device total) bounded the same way. With `reserve` =
+  `minimum_inference_memory_gb()` (or the caller's `reserve_gb`), the encoder streams when
+  `weights + dequant_peak + reserve > available`, with `budget = max(0, available − reserve −
+  dequant_peak)` for its resident leaves. The decision lives in `plan_placement`
+  (`text_encoder_mode=...` → `PlacementPlan.text_encoder.streamed` / `stream_budget_gb`); without that
+  argument the plan is the sampling-phase plan it always was.
+
+  **Option** `text_encoder_placement` on the native backend (`auto` | `gpu` | `stream`, default
+  `auto`), handed to the engine by `NativeBackend.prepare_pipes` with `gpu_max_vram`
+  (`configure_text_encoder_placement`); `NativeGenerator(text_encoder_placement=...)` overrides it
+  for standalone use. `gpu` is the historical whole move, unconditionally; `stream` always uses
+  partial residency (and skips the co-resident attempt); `auto` streams only when the encoder does not
+  fit. An encoder that fits follows the historical path call for call, for every family
+  (`tests/platform/runtime/native/test_te_placement_regression.py` pins the sequence and passes on the
+  engine before this change too). There is no `NATIVE_TEXT_ENCODER_PLACEMENT` environment variable:
+  the engine reads no setting from the environment at runtime any more (`NATIVE_*` variables were
+  seeded once into the backend's engine settings, then ignored), so the backend field is the one
+  source.
+
+  **Limits.** A streamed encode is slower than a resident one: every streamed leaf crosses PCIe on
+  each forward (≈ 0.81 B/elem for nvfp4, 1 B for int8/fp8, 2 B for bf16), still far faster than the
+  CPU fallback it replaces (a 32B encoder on the CPU took ~190 s). `NATIVE_STREAM_PREFETCH` overlaps
+  the next weight-backed leaf's copy with compute; nvfp4 leaves are staged on demand by their own
+  hook, not prefetched. Pinning the streamed share needs that much free host RAM (+2 GB), guarded
+  like the DiT's. On Windows/WSL2 a whole move that overflows the card can "succeed" through the
+  driver's shared-memory fallback and then fail inside a kernel with an uncatchable `CUDA error: out
+  of memory` that poisons the CUDA context — the case streaming now avoids, since the encoder is
+  never moved whole when it does not fit.
 
 Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 
@@ -273,7 +328,7 @@ still no branch on family name.
 | bf16 / fp16 | native dtype | **Supported** | `disable_weight_init` (storage == compute) or `manual_cast` (storage != compute) namespace, picked by `ops/dtype.py:pick_dtypes`. |
 | fp8-scaled (legacy `scale_weight`) | `float8_e4m3fn`/`e5m2` + one f32 scale per Linear | **Supported** | `fp8_ops.Linear` (`Fp8ScaledLinear`) dequantises on forward: `weight.to(compute) * weight_scale`. Detected via a `*.scale_weight` sidecar key or a top-level `scaled_fp8` marker tensor. |
 | fp8-scaled (modern `weight_scale`/`input_scale`) | as above, per-tensor `weight_scale` + `input_scale` | **Supported** | Same `Fp8ScaledLinear`; `input_scale` is captured for a future native-fp8 matmul path but unused by the current dequant-on-forward path. Detected via a `_quantization_metadata` header entry or `*.weight_scale`/`*.input_scale` sidecar keys — `vendor/gpl/comfyui/ops.py:detect_quant_format`. Verified against the real `flux-2-klein-9b-fp8.safetensors` checkpoint. |
-| nvfp4 | 4-bit packed U8 weight + fp8 block scale + f32 tensor scale (`*.weight_scale_2` sidecar) | **Supported** | `vendor/gpl/comfyui/ops.py:dequantize_nvfp4` + `Nvfp4Linear` (extends `Fp8ScaledLinear`): un-swizzles NVIDIA's `to_blocked` scale layout, dequantises `e2m1_LUT * unblock(scale) * weight_scale_2` per 16-element block. A checkpoint may be *mixed* fp8/nvfp4 across layers (the local `qwen_3_8b_fp8mixed` is one) — `pick_operations` routes the whole module to `fp8_ops` and each Linear independently detects its own format from which sidecar keys it has. Tested against a `Nvfp4Linear` load+forward-parity case and a mixed fp8/nvfp4/plain module (`tests/core/native/test_nvfp4.py`), and **verified end-to-end** via the real `qwen_3_8b_fp8mixed` TE in the GPU-validated Klein run (the 8B TE is exactly this mixed fp8/nvfp4 checkpoint). |
+| nvfp4 | 4-bit packed U8 weight + fp8 block scale + f32 tensor scale (`*.weight_scale_2` sidecar) | **Supported** | `vendor/gpl/comfyui/ops.py:dequantize_nvfp4` + `Nvfp4Linear` (extends `Fp8ScaledLinear`): un-swizzles NVIDIA's `to_blocked` scale layout, dequantises `e2m1_LUT * unblock(scale) * weight_scale_2` per 16-element block. On the device a layer holds ≈ 0.81 B per weight element (the packed codes, the fp32 natural scale precomputed at load and the fp8 block scale), ~1.45× its on-disk size, plus a ~10 B/elem transient while it dequantises — see "Text encoder: partial residency for the encode". A checkpoint may be *mixed* fp8/nvfp4 across layers (the local `qwen_3_8b_fp8mixed` is one) — `pick_operations` routes the whole module to `fp8_ops` and each Linear independently detects its own format from which sidecar keys it has. Tested against a `Nvfp4Linear` load+forward-parity case and a mixed fp8/nvfp4/plain module (`tests/core/native/test_nvfp4.py`), and **verified end-to-end** via the real `qwen_3_8b_fp8mixed` TE in the GPU-validated Klein run (the 8B TE is exactly this mixed fp8/nvfp4 checkpoint). |
 | GGUF | k-quant blocks | **Unsupported, explicit error** | `io/safetensors_loader.py:load_torch_file` rejects any non-`.safetensors`/`.sft` suffix by name, `GGUF / pickle checkpoints are not supported.` Deferred by design, not a bug. |
 | Pickle (`.pt`/`.ckpt`) | — | **Unsupported, explicit error** | Same rejection path — the native engine never runs untrusted pickle. |
 
