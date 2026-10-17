@@ -13,6 +13,10 @@ pipe's CLIP adapter) and ``NativeGenerator.encode_prompt`` (standalone use):
   what its weights really occupy on the device, plus the largest transient a
   quantised layer allocates while it dequantises.
 
+Whether the encoder fits is still each site's historical test; the budget and
+the dequantisation transient only size the resident share of an encoder that
+does not fit.
+
 Footprint formula (bytes per weight element of a layer ``out x in``):
 
 * nvfp4 (``Nvfp4Linear``): packed U8 codes ``0.5`` + the fp32 natural scale

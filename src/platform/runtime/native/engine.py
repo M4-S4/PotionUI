@@ -242,8 +242,9 @@ def _estimate_text_encoder_gb(encoder: Any) -> float | None:
     their scales (formula in ``memory/text_encoder.py``). It stays the RESTING
     footprint because ``estimated_vram_gb`` also sizes host-RAM accounting and
     the residency registry; the per-layer dequantisation transient the encode
-    adds on top is ``text_encoder_footprint(...).dequant_peak_gb``, which the
-    encode-phase placement (``tiering.plan_text_encoder_placement``) charges.
+    adds on top is ``text_encoder_footprint(...).dequant_peak_gb``, which sizes
+    the resident share of a streamed encoder (``tiering.plan_text_encoder_placement``)
+    and never enters its fit test.
     """
     footprint = text_encoder_footprint(encoder)
     return footprint.weights_gb if footprint is not None else None
@@ -1387,23 +1388,25 @@ class NativeGenerator:
         return text_encoder_placement_settings().mode
 
     def _te_available_gb(self, device: str, target: Any) -> float | None:
-        """VRAM the encoder may use on ``device`` for this encode: the placement
-        budget (``vram_gb`` override, else the device total), bounded by live free
-        VRAM plus what the encoder already holds there. ``None`` off-CUDA."""
-        budget = self._budget_gb()
-        if budget is None:
+        """VRAM the encoder could occupy on ``device`` right now: live free VRAM
+        plus what it already holds there. ``None`` off-CUDA or unmeasurable."""
+        if self._budget_gb() is None:
             return None
         free = free_vram_gb(device)
         if free is None:
-            return budget
-        return min(budget, free + encoder_gb_on_device(target, device))
+            return None
+        return free + encoder_gb_on_device(target, device)
 
     def _te_encode_plan(self, device: str, target: Any, footprint: TextEncoderFootprint) -> ComponentPlacement | None:
         """Encode-phase placement of the text encoder, through ``plan_placement``.
 
-        ``None`` means "move it whole, as always": mode ``gpu``, a CPU run, no
-        measurable budget. An explicit ``placement`` decides on its own (its
-        ``text_encoder.streamed`` defaults to ``False``).
+        ``encode_prompt`` always moved the encoder whole, so ``auto`` streams only
+        when that move cannot succeed: weights larger than the VRAM the encoder
+        could occupy (no reserve, no dequantisation peak, no budget in the test;
+        those only size the resident share). ``None`` means "move it whole, as
+        always": mode ``gpu``, a CPU run, nothing measurable. An explicit
+        ``placement`` decides on its own (its ``text_encoder.streamed`` defaults to
+        ``False``).
         """
         if self._explicit_placement is not None:
             return self._explicit_placement.text_encoder
@@ -1418,20 +1421,24 @@ class NativeGenerator:
             "text_encoder": footprint.weights_gb,
             "vae": self.vae.estimated_vram_gb or 0.0,
         }
+        budget = self._budget_gb()
         plan = plan_placement(
-            self._budget_gb() or available, sizes, self.dit.quant_format, self.device_plan,
+            budget or available, sizes, self.dit.quant_format, self.device_plan,
             text_encoder_mode=mode,
             text_encoder_available_gb=available,
             text_encoder_dequant_gb=footprint.dequant_peak_gb,
             text_encoder_headroom_gb=minimum_inference_memory_gb(),
+            text_encoder_fit_headroom_gb=0.0,
+            text_encoder_resident_cap_gb=budget,
         )
         return plan.text_encoder
 
     def _place_te_for_encode(self, device: str) -> bool:
-        """Place the encoder with partial residency when the encode plan says it
-        does not fit; ``False`` (nothing touched) leaves the whole move to the
-        caller. Foreign residents are evicted first and the budget re-read, and
-        a placement that still OOMs retries fully streamed (budget 0)."""
+        """Place the encoder with partial residency when the encode plan says the
+        whole move cannot succeed; ``False`` (nothing touched) leaves the whole
+        move to the caller. Nothing is evicted for it (the historical path never
+        evicted either); a placement that still OOMs retries fully streamed
+        (budget 0)."""
         if self._explicit_placement is None and (
             self._te_placement_mode() == "gpu" or not str(device).startswith("cuda")
         ):
@@ -1443,13 +1450,7 @@ class NativeGenerator:
         te_plan = self._te_encode_plan(device, target, footprint)
         if te_plan is None or not te_plan.streamed:
             return False
-        reserve = minimum_inference_memory_gb() + footprint.dequant_peak_gb
         budget = te_plan.stream_budget_gb or 0.0
-        if self._explicit_placement is None:
-            self._ensure_room_for(footprint.encode_gb + minimum_inference_memory_gb(), device)
-            available = self._te_available_gb(device, target)
-            if available is not None:
-                budget = max(0.0, available - reserve)
         streaming = TextEncoderStreaming(target)
         try:
             streaming.apply(device, budget)
@@ -1698,9 +1699,10 @@ class NativeGenerator:
         Normalises the raw TE output to the ``context``/``y``/``attention_mask``
         cond-dict contract.
 
-        An encoder that fits takes the whole ``.to(te_device)``; one whose honest
-        footprint does not (or mode ``stream``) is placed with partial residency
-        (:meth:`_place_te_for_encode`) and torn down by ``_maybe_offload_te``.
+        The encoder takes the whole ``.to(te_device)`` as always, unless its
+        weights cannot fit the VRAM it could occupy (or mode ``stream``): then it
+        is placed with partial residency (:meth:`_place_te_for_encode`) and torn
+        down by ``_maybe_offload_te``.
         """
         te_device = self.device_plan.te_device
         streamed = self._place_te_for_encode(te_device)

@@ -296,7 +296,7 @@ def test_generator_streams_a_te_that_does_not_fit_and_tears_it_down(monkeypatch,
     assert gen._te_streaming is None
 
 
-def test_generator_evicts_foreign_residents_before_sizing_the_te_budget(monkeypatch, fake_streaming):
+def test_generator_never_evicts_other_families_for_the_encode(monkeypatch, fake_streaming):
     log = fake_streaming
     registry, _ = _fake_card(monkeypatch, log, capacity_gb=12.0, others_gb=2.0)
     foreign = _Resident(log, "foreign")
@@ -305,7 +305,36 @@ def test_generator_evicts_foreign_residents_before_sizing_the_te_budget(monkeypa
 
     _generator(encoder, vram_gb=12.0).encode_prompt("prompt")
 
-    assert log[:2] == [("foreign.offload",), ("stream.apply", _DEV, _h3_budget(10.0))]
+    assert ("foreign.offload",) not in log
+    assert log[0] == ("stream.apply", _DEV, _h3_budget(6.0))
+    assert registry.resident_gb(_DEV) == 4.0
+
+
+def test_generator_moves_whole_an_encoder_whose_weights_fit_even_without_the_reserve(monkeypatch, fake_streaming):
+    log = fake_streaming
+    encoder = minimax_h3_te(log)
+    weights = text_encoder_footprint(encoder).weights_gb
+    _fake_card(monkeypatch, log, capacity_gb=weights + 0.5, others_gb=0.0)
+
+    _generator(encoder, vram_gb=weights + 0.5).encode_prompt("prompt")
+
+    assert log[0] == ("encoder.to", _DEV)
+    assert not [entry for entry in log if entry[0].startswith("stream.")]
+
+
+def test_pipe_path_backend_cap_never_streams_an_encoder_that_fits_the_freed_vram(monkeypatch, fake_streaming):
+    configure_text_encoder_placement("auto", vram_budget_gb=4)
+    log = fake_streaming
+    registry, _ = _fake_card(monkeypatch, log, capacity_gb=16.0, others_gb=0.5)
+    klein = next(f for f in FAMILIES if f.family == "klein")
+    encoder = klein.build(log)
+    dit = _Resident(log, "dit")
+    registry.note_resident(dit, _DEV, 12.0)
+
+    run_text_encode(encoder, _DEV, lambda: encoder.encode(["prompt"]))
+
+    assert not [entry for entry in log if entry[0].startswith("stream.")]
+    assert log[-1][:2] == ("mark", "after-evict")
 
 
 def test_generator_gpu_mode_keeps_the_whole_move(monkeypatch, fake_streaming):

@@ -134,18 +134,18 @@ hard native-v2 runtime cap. See [Model Inference Path](/admin?tab=docs&doc=dev/m
 
 `text_encoder_placement` (`auto` | `gpu` | `stream`, default `auto`) decides how the native engine
 puts the text encoder on the GPU for the prompt encode. `auto` moves it whole when it fits and, when
-its honest footprint (weights as they sit on the device plus the largest dequantisation transient)
-does not fit, keeps as much of it on the GPU as fits and streams the rest per forward from pinned RAM,
+it does not, keeps as much of it on the GPU as fits and streams the rest per forward from pinned RAM,
 the way an oversized DiT is already placed; `gpu` always moves it whole (the behaviour before this
-option); `stream`
-always streams. The text encoder is placed by the engine itself, not by a pipe, so
-`NativeBackend.prepare_pipes` hands the mode — with `gpu_max_vram` as the encoder's VRAM ceiling — to
-the engine before each run (`configure_text_encoder_placement`), next to `set_vram_cap_gb()`, rather
-than as a pipe config key. It is part of `GET /api/backends/{id}` and is changed with
-`PUT /api/backends/{id}` like any other field (an unknown value is a `400 backend_validation_failed`);
-a config saved before the option existed loads as `auto`. Only the in-process `native.local` driver
-carries it. The formula, the decision and the limits are in
-[Native Engine → Memory tiers & low-VRAM](/admin?tab=docs&doc=dev/native-engine).
+option); `stream` always streams. "Fits" is the test the engine already applied (weights + the
+inference reserve against free VRAM), unchanged. The text encoder is placed by the engine itself,
+not by a pipe, so `NativeBackend.prepare_pipes` hands the mode to the engine before each run
+(`configure_text_encoder_placement`), next to `set_vram_cap_gb()`, rather than as a pipe config key.
+It also passes `gpu_max_vram`, which only caps the resident share of an encoder that is already
+being streamed: it never decides whether the encoder fits. The option is part of
+`GET /api/backends/{id}` and is changed with `PUT /api/backends/{id}` like any other field (an
+unknown value is a `400 backend_validation_failed`); a config saved before the option existed loads
+as `auto`. Only the in-process `native.local` driver carries it. The formula, the decision and the
+limits are in [Native Engine → Memory tiers & low-VRAM](/admin?tab=docs&doc=dev/native-engine).
 
 Consequence: with more than one GPU, `device` is per-backend rather than per-installation. The
 native engine is a singleton today, so that is latent, not useful — but it is the right shape.

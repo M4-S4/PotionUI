@@ -181,9 +181,8 @@ close that gap:
 - **Text encoder: partial residency for the encode** (`memory/text_encoder.py`,
   `tiering.plan_text_encoder_placement`, `engine.TextEncoderStreaming`). The encoder only needs the GPU
   for its encode (one that fits may stay co-resident afterwards, evictable by the DiT), so its
-  placement is decided for that phase alone. An
-  encoder whose honest footprint does not fit the VRAM available to it is no longer moved whole with
-  `.to(device)`: its real module(s) are placed with `NativeModel.stream_to(device, budget)`, exactly
+  placement is decided for that phase alone. An encoder that does not fit (see **Decision** below) is
+  no longer moved whole with `.to(device)`: its real module(s) are placed with `NativeModel.stream_to(device, budget)`, exactly
   like a DiT that does not fit (leaves resident up to the budget, the rest streamed per forward from
   pinned RAM, prefetch included), then torn down right after the encode (unpinned, host RAM
   reclaimed, wrapper pointed back at the CPU) so the DiT gets the whole card back. nvfp4 leaves are
@@ -201,24 +200,36 @@ close that gap:
   dequantisation transient: layers dequantise one at a time, so `dequant_peak = max over quantised
   layers of out × in × k`, `k` = 10 B for nvfp4 (int32 code index + two fp32 LUT gathers + the fp32
   weight) and 8 B for int8/fp8 (fp32 cast + scaled product) — ≈ 1.2 GB for a Qwen3-32B MLP projection.
+  The peak is kept out of the fit test; it only sizes a streamed encoder's resident share.
 
-  **Decision.** `available` = live free VRAM after the step-2 eviction + what the encoder already holds
-  on the device, capped by the backend's `gpu_max_vram` (pipes); the generator uses its placement
-  budget (`vram_gb` or device total) bounded the same way. With `reserve` =
-  `minimum_inference_memory_gb()` (or the caller's `reserve_gb`), the encoder streams when
-  `weights + dequant_peak + reserve > available`, with `budget = max(0, available − reserve −
-  dequant_peak)` for its resident leaves. The decision lives in `plan_placement`
-  (`text_encoder_mode=...` → `PlacementPlan.text_encoder.streamed` / `stream_budget_gb`); without that
-  argument the plan is the sampling-phase plan it always was.
+  **Decision.** The fit test is the one each site already had, with the same quantities; streaming
+  only takes over where the historical whole move could not have worked. `available` = live free VRAM
+  + what the encoder already holds on the device, and `reserve` = `minimum_inference_memory_gb()` (or
+  the caller's `reserve_gb`).
+  - Pipes (`run_text_encode`): step 1 (co-resident) is unchanged. Step 2, after its eviction, re-reads
+    `available` and applies step 1's own test: the encoder streams only when `size + reserve >
+    available` (`size` = `module_size_gb`, the figure step 1 compares).
+  - `NativeGenerator.encode_prompt`, which always moved the encoder whole and never evicted anything,
+    streams only when the weights alone exceed `available`. It still evicts nothing.
+
+  Neither the backend's `gpu_max_vram` nor the dequantisation peak enters these tests, so they never
+  turn an encoder that fit into a streamed one. They only size a streamed encoder's resident share:
+  `budget = max(0, min(available, cap) − reserve − dequant_peak)`, where `cap` is `gpu_max_vram` for
+  the pipes and the placement budget (`vram_gb` or device total) for the generator. The decision lives
+  in `plan_placement` (`text_encoder_mode=...` → `PlacementPlan.text_encoder.streamed` /
+  `stream_budget_gb`, through `plan_text_encoder_placement`'s `fit_headroom_gb` / `resident_cap_gb`);
+  without that argument the plan is the sampling-phase plan it always was.
 
   **Option** `text_encoder_placement` on the native backend (`auto` | `gpu` | `stream`, default
   `auto`), handed to the engine by `NativeBackend.prepare_pipes` with `gpu_max_vram`
   (`configure_text_encoder_placement`); `NativeGenerator(text_encoder_placement=...)` overrides it
   for standalone use. `gpu` is the historical whole move, unconditionally; `stream` always uses
   partial residency (and skips the co-resident attempt); `auto` streams only when the encoder does not
-  fit. An encoder that fits follows the historical path call for call, for every family
-  (`tests/platform/runtime/native/test_te_placement_regression.py` pins the sequence and passes on the
-  engine before this change too). There is no `NATIVE_TEXT_ENCODER_PLACEMENT` environment variable:
+  fit by the test above. An encoder that fits follows the historical path call for call, for every
+  family and with the production `gpu_max_vram` configured
+  (`tests/platform/runtime/native/test_te_placement_regression.py` and
+  `test_review_te_fit_side_effects.py` pin the sequence; both pass on the engine before this change
+  too). There is no `NATIVE_TEXT_ENCODER_PLACEMENT` environment variable:
   the engine reads no setting from the environment at runtime any more (`NATIVE_*` variables were
   seeded once into the backend's engine settings, then ignored), so the backend field is the one
   source.
@@ -230,8 +241,9 @@ close that gap:
   hook, not prefetched. Pinning the streamed share needs that much free host RAM (+2 GB), guarded
   like the DiT's. On Windows/WSL2 a whole move that overflows the card can "succeed" through the
   driver's shared-memory fallback and then fail inside a kernel with an uncatchable `CUDA error: out
-  of memory` that poisons the CUDA context — the case streaming now avoids, since the encoder is
-  never moved whole when it does not fit.
+  of memory` that poisons the CUDA context. Streaming avoids that when the encoder clearly does not
+  fit. An encoder within the historical fit region is still moved whole, as before, so a transient
+  beyond the reserve (very long prompt, many vision tiles) can still overflow there.
 
 Tier fallback (sizes unknown) and the low-VRAM regime each tier lands in:
 

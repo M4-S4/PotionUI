@@ -236,38 +236,43 @@ def plan_text_encoder_placement(
     mode: str = "auto",
     dequant_peak_gb: float = 0.0,
     working_headroom_gb: float = _WORKING_HEADROOM_GB,
+    fit_headroom_gb: float | None = None,
+    resident_cap_gb: float | None = None,
 ) -> ComponentPlacement:
     """Encode-phase placement of the text encoder: whole on ``device`` or streamed.
 
-    ``available_gb`` is the VRAM the encoder may use there for this encode (the
-    backend budget and live free VRAM, net of what stays resident, plus what the
-    encoder already holds on the device). ``mode``:
+    ``available_gb`` is the VRAM the encoder could occupy there right now (live
+    free VRAM plus what it already holds on the device). ``mode``:
 
       * ``"gpu"`` — never streams: the historical whole ``.to(device)``.
       * ``"stream"`` — always streams.
-      * ``"auto"`` — streams only when ``weights_gb + dequant_peak_gb +
-        working_headroom_gb > available_gb``; an encoder that fits takes the
-        whole move, exactly as before.
+      * ``"auto"`` — streams only when ``weights_gb + fit_headroom_gb >
+        available_gb`` (``fit_headroom_gb`` defaults to ``working_headroom_gb``).
+        That is the caller's historical fit test, unchanged: neither the
+        dequantisation peak nor ``resident_cap_gb`` ever enters it, so an
+        encoder that fit before still takes the whole move.
 
-    A streamed plan's ``stream_budget_gb`` is ``available_gb -
-    working_headroom_gb - dequant_peak_gb`` (floored at 0): the resident leaves'
-    share, every other leaf streams from pinned RAM. Off-CUDA, or with no
-    measurable ``available_gb``, it never streams.
+    Those two only size a streamed plan: ``stream_budget_gb`` is
+    ``min(available_gb, resident_cap_gb) - working_headroom_gb -
+    dequant_peak_gb`` (floored at 0), the resident leaves' share; every other
+    leaf streams from pinned RAM. Off-CUDA, or with no measurable
+    ``available_gb``, it never streams.
     """
     if mode not in ("auto", "gpu", "stream"):
         raise ValueError(f"unknown text encoder placement mode: {mode!r}")
     whole = ComponentPlacement(device=device, ops_mode="standard", resident=True)
     if mode == "gpu" or available_gb is None or not str(device).startswith("cuda"):
         return whole
-    reserve = max(0.0, working_headroom_gb) + max(0.0, dequant_peak_gb)
-    if mode == "auto" and weights_gb + reserve <= available_gb:
+    fit_headroom = working_headroom_gb if fit_headroom_gb is None else fit_headroom_gb
+    if mode == "auto" and weights_gb + max(0.0, fit_headroom) <= available_gb:
         return whole
+    sized = available_gb if resident_cap_gb is None else min(available_gb, resident_cap_gb)
     return ComponentPlacement(
         device=device,
         ops_mode="standard",
         resident=False,
         streamed=True,
-        stream_budget_gb=max(0.0, available_gb - reserve),
+        stream_budget_gb=max(0.0, sized - max(0.0, working_headroom_gb) - max(0.0, dequant_peak_gb)),
     )
 
 
@@ -282,6 +287,8 @@ def plan_placement(
     text_encoder_available_gb: float | None = None,
     text_encoder_dequant_gb: float = 0.0,
     text_encoder_headroom_gb: float | None = None,
+    text_encoder_fit_headroom_gb: float | None = None,
+    text_encoder_resident_cap_gb: float | None = None,
 ) -> PlacementPlan:
     """Build a PlacementPlan for the DiT device's VRAM budget.
 
@@ -294,9 +301,9 @@ def plan_placement(
     :func:`plan_text_encoder_placement` (``text_encoder.streamed`` /
     ``stream_budget_gb``), against ``text_encoder_available_gb`` (default: the
     whole ``vram_gb`` when the encoder shares the DiT's device),
-    ``text_encoder_dequant_gb`` and ``text_encoder_headroom_gb`` (default:
-    ``working_headroom_gb``). Left ``None``, the plan is exactly the
-    sampling-phase plan it always was.
+    ``text_encoder_headroom_gb`` (default: ``working_headroom_gb``) and its
+    ``fit_headroom_gb`` / ``resident_cap_gb`` / ``dequant_peak_gb`` siblings.
+    Left ``None``, the plan is exactly the sampling-phase plan it always was.
     """
     dit_gb = float(model_memory_gb.get("dit", 0.0))
     te_gb = float(model_memory_gb.get("text_encoder", 0.0))
@@ -337,6 +344,8 @@ def plan_placement(
             mode=text_encoder_mode,
             dequant_peak_gb=text_encoder_dequant_gb,
             working_headroom_gb=working_headroom_gb if text_encoder_headroom_gb is None else text_encoder_headroom_gb,
+            fit_headroom_gb=text_encoder_fit_headroom_gb,
+            resident_cap_gb=text_encoder_resident_cap_gb,
         )
         text_encoder = replace(text_encoder, streamed=encode.streamed, stream_budget_gb=encode.stream_budget_gb)
 

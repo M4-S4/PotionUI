@@ -181,11 +181,27 @@ def test_auto_streams_an_encoder_that_does_not_fit_with_the_remaining_budget():
     assert plan.stream_budget_gb == pytest.approx(10.0 - 1.0 - 1.22)
 
 
-def test_dequant_transient_alone_can_tip_the_decision():
-    fits = plan_text_encoder_placement(10.0, 8.5, device="cuda:0", dequant_peak_gb=0.0, working_headroom_gb=1.0)
-    tipped = plan_text_encoder_placement(10.0, 8.5, device="cuda:0", dequant_peak_gb=1.2, working_headroom_gb=1.0)
+def test_dequant_peak_never_shrinks_the_fit_region_it_only_sizes_the_resident_share():
+    fits = plan_text_encoder_placement(10.0, 9.0, device="cuda:0", dequant_peak_gb=1.2, working_headroom_gb=1.0)
+    streamed = plan_text_encoder_placement(10.0, 9.1, device="cuda:0", dequant_peak_gb=1.2, working_headroom_gb=1.0)
     assert fits.streamed is False
-    assert tipped.streamed is True
+    assert streamed.streamed is True
+    assert streamed.stream_budget_gb == pytest.approx(10.0 - 1.0 - 1.2)
+
+
+def test_resident_cap_never_decides_it_only_bounds_the_resident_share():
+    fits = plan_text_encoder_placement(15.5, 14.1, device="cuda:0", working_headroom_gb=1.0, resident_cap_gb=14.0)
+    streamed = plan_text_encoder_placement(10.0, 19.2, device="cuda:0", working_headroom_gb=1.0, resident_cap_gb=8.0)
+    assert fits.streamed is False
+    assert streamed.stream_budget_gb == pytest.approx(7.0)
+
+
+def test_fit_headroom_can_differ_from_the_sizing_headroom():
+    whole = plan_text_encoder_placement(14.6, 14.1, device="cuda:0", working_headroom_gb=1.0, fit_headroom_gb=0.0)
+    streamed = plan_text_encoder_placement(14.0, 14.1, device="cuda:0", working_headroom_gb=1.0, fit_headroom_gb=0.0)
+    assert whole.streamed is False
+    assert streamed.streamed is True
+    assert streamed.stream_budget_gb == pytest.approx(13.0)
 
 
 def test_gpu_mode_never_streams():

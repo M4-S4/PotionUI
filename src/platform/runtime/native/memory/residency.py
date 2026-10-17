@@ -844,18 +844,19 @@ def _run_text_encode_uncached(
     ``0.0``/silent omission.
 
     **Partial residency** (``text_encoder_placement``, see
-    ``memory/text_encoder.py``). With the default ``auto``, an encoder that still
-    does not fit once step 2 has evicted is no longer moved whole: its honest
-    footprint (weights + the largest dequantisation transient) is compared with
-    the VRAM it may use (live free + what it already holds there, capped by the
-    backend budget), and when that does not fit it is placed like a streamed DiT
-    (``engine.TextEncoderStreaming`` → ``NativeModel.stream_to``), encoded, then
-    torn down at once so the pinned host RAM and the resident share go back
-    before the DiT needs them (``path="streamed"``). An OOM retries fully
-    streamed, then falls back to the CPU encode. ``gpu`` keeps the whole move
-    unconditionally (steps 1-3 above, unchanged); ``stream`` skips the
-    co-resident attempt and always streams. An encoder that fits follows steps
-    1-3 exactly as before.
+    ``memory/text_encoder.py``). With the default ``auto``, step 2 re-reads free
+    VRAM after its eviction and applies step 1's own test with step 1's own
+    quantities: ``size_gb + reserve <= free + what the encoder already holds on
+    the device``. An encoder that passes takes the whole move exactly as before;
+    no backend cap and no dequantisation peak enter that test. One that fails is
+    placed like a streamed DiT (``engine.TextEncoderStreaming`` →
+    ``NativeModel.stream_to``), encoded, then torn down at once so the pinned host
+    RAM and the resident share go back before the DiT needs them
+    (``path="streamed"``); the backend's ``gpu_max_vram`` and the dequantisation
+    peak only size its resident share. An OOM retries fully streamed, then falls
+    back to the CPU encode. ``gpu`` keeps the whole move unconditionally (steps
+    1-3 above, unchanged); ``stream`` skips the co-resident attempt and always
+    streams. An encoder that fits follows steps 1-3 exactly as before.
     """
     from src.platform.observability.profiling import get_profiler
 
@@ -929,11 +930,11 @@ def _run_text_encode_uncached(
     manager.ensure_free(dev, size_gb * _TE_ACTIVATION_FACTOR + reserve, free, exclude=[encoder])
     torch.cuda.empty_cache()
     if settings.mode != "gpu":
-        te_plan, footprint, live_free = _plan_encode_after_evict(encoder, dev, settings, reserve)
+        te_plan, footprint, live_free = _plan_encode_after_evict(encoder, dev, settings, size_gb, reserve)
         if te_plan is not None and te_plan.streamed and footprint is not None:
             return _run_streamed_encode(
                 encoder, dev, encode_fn, te_plan, footprint,
-                size_gb=size_gb, free_gb=live_free, needed_gb=footprint.encode_gb + reserve,
+                size_gb=size_gb, free_gb=live_free, needed_gb=needed_gb,
                 count_fields=count_fields,
             )
     try:
@@ -961,10 +962,14 @@ def _plan_encode_after_evict(
     encoder: Any,
     device: str,
     settings: TextEncoderPlacementSettings,
+    size_gb: float,
     reserve_gb: float,
 ) -> tuple[ComponentPlacement | None, TextEncoderFootprint | None, float | None]:
     """Step 2's partial-residency decision, read after the eviction.
 
+    The fit test is step 1's (``size_gb + reserve_gb``, same ``size_gb``)
+    against the freed VRAM plus what the encoder already holds there; the
+    backend cap and the dequantisation peak only size a streamed share.
     Returns ``(plan, footprint, live_free_gb)``; ``plan`` is ``None`` when the
     encoder has no measurable module or the device no free-VRAM reading, which
     keeps the historical whole move.
@@ -975,15 +980,13 @@ def _plan_encode_after_evict(
     live_free = free_vram_gb(device)
     if live_free is None:
         return None, footprint, None
-    available = live_free + encoder_gb_on_device(encoder, device)
-    if settings.vram_budget_gb is not None:
-        available = min(available, settings.vram_budget_gb)
     plan = plan_text_encoder_placement(
-        available, footprint.weights_gb,
+        live_free + encoder_gb_on_device(encoder, device), size_gb,
         device=device,
         mode=settings.mode,
         dequant_peak_gb=footprint.dequant_peak_gb,
         working_headroom_gb=reserve_gb,
+        resident_cap_gb=settings.vram_budget_gb,
     )
     return plan, footprint, live_free
 
