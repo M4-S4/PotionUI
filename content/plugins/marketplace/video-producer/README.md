@@ -1,0 +1,879 @@
+# Video Producer
+
+Video Producer brings a film workflow to AI video inside PotionUI: write a synopsis, split it into shots, generate draft takes for each shot, choose the best take, turn it into a final, then cut, match color, mix sound and deliver. It all happens in one page with five workspaces (Media, Director IA, Storyboard, 3D scene, Mix). Admins and users can both use it. An admin decides which engines and video presets exist (this machine, a studio server or a cloud model), sets a few plugin settings and, through plans, how many GPU minutes each user gets per month. The interface is in English by default and in French; each user picks the language and it is saved per user.
+
+This page is the administration guide. Every user can read the user guide, in English (`docs/user-guide.md`) and in French (`docs/user-guide.fr.md`). Everything described here is delivered: takes are real PotionUI generations, with a real estimate, quota, finals and follow-up (see Generation); the assistant is a PotionUI chat mode with four tools (see The assistant mode); the four files for other software (Final Cut Pro, OpenTimelineIO, EDL, SRT), the web and social videos that ffmpeg assembles on the server and the seam frame are real too (see Exports). Seven functions are simulated, and the page marks them (see What stays simulated). The figures measured on a real machine, and what they mean for the hardware you plan, are under Hardware.
+
+## Requirements
+
+- PotionUI with plugins enabled, and an admin account to enable this one.
+- At least one video engine: the native engine on this machine, a Remote Native worker, or a cloud provider with a video model. See Engines below.
+- At least one Video Director preset, installed and assigned to the users who will generate: Wan, LTX, MiniMax-H3 or a cloud video preset. See Models and presets below.
+- The model files that these presets need, downloaded. Video Producer picks them itself from the recommendations of each preset (see Generation › Required models); a preset with a missing file is blocked for generation.
+- The SeedVR2 preset and its model files, assigned to the users, to turn a chosen draft take into a final. A take of the base MiniMax-H3 preset is enlarged by the upscale mode of its own preset instead.
+- ffmpeg and ffprobe on the PotionUI server, to deliver a video file and to extract a frame of a take at a given time. See ffmpeg below.
+- For a local engine, a GPU that meets PotionUI's own Hardware Requirements page: a Turing or newer NVIDIA card, driver 580 or newer, 8 GB of VRAM and 16 GB of system RAM as the supported minimum, 16 to 24 GB of VRAM and 32 GB of RAM recommended. Video families need more than the floor; that page has a verdict per family. What Video Producer measured on a 12 GB card, and the system RAM it needs, is under Hardware.
+- For a cloud engine, an account and an API key with the provider (OpenRouter or Google AI Studio).
+- For the assistant, a language model configured in PotionUI (Admin → LLM / Assistant) and assigned to the users, able to call tools. Ollama or an online provider such as OpenAI is recommended; the Native client is not recommended on a 12 GB card. See The assistant mode › Which language model.
+- The `jsonschema` Python package, which checks the project documents. The plugin relies on it; the PotionUI image already contains it, and its version is pinned in `constraints.txt`. There is nothing to install.
+
+## Hardware
+
+Generation runs on the machines you give it, so the figures below decide what your users can do. They were measured on one machine and are not guarantees for another: an NVIDIA RTX 4070 Ti with 12 GB of VRAM (12,282 MiB), a host with 128 GB of RAM of which 67 GB were given to the PotionUI container, and the native engine of PotionUI. Not measured: cloud models (no API key was available), LTX, a Studio server and cards with more than 12 GB. A dash means that no figure was recorded or that the step does not use the card.
+
+| What was run | VRAM peak | System RAM peak | Measured time | Notes |
+|---|---|---|---|---|
+| MiniMax-H3-Fast (12 GB): 5.17 s draft at 832×480, 24 fps, 124 frames, 8 steps | 11,879 MiB | 25.9 GB | 5 min 57 s, then 5 min 53 s on a second run | The text encoder streams from RAM: encoding the prompt took 83 s. H.264 with AAC stereo sound. |
+| MiniMax-H3 (12 GB): the same shot, 20 steps | 11,818 MiB | 25.1 GB | 7 min 26 s (about 18 s per step) | H.264 with AAC stereo sound. |
+| MiniMax-H3-Fast without the 12 GB profile, tried before the text encoder could stream from RAM | out of memory | — | Failed after 2 min 08 s | CUDA out of memory in the 32B text encoder. The CUDA context then stayed unusable until the container was restarted. The base and VDN presets load the same text encoder and were not run, and the core presets were not run again after the streaming change. |
+| Wan 2.1 / 2.2 (14B, fp8, about 35.6 GB of files): 5 s draft at 832×480, 16 fps, 81 frames | 11,274 to 11,673 MiB | 41.75 GiB | 25 min 49 s, 27 min 19 s and 25 min 58 s on three runs | Most of the model streams from RAM. H.264. |
+| SeedVR2: upscale of that Wan draft to 1080p (file of 1872×1072, 6.5 MB) | — | — | 2 h 27 min 45 s | The re-render of the same shot at 1280×720 with the same seed was stopped at 23 % after 83 min (more than 4 hours extrapolated). |
+| Web video: the 29 s starter sequence at 1080p | — | — | 11 s (about 6 to assemble and mix, 5 to convert) | 3.2 MB. Needs ffmpeg and ffprobe, not the GPU. |
+
+What to plan for:
+
+- **12 GB of VRAM.** For MiniMax-H3, install and assign the two 12 GB presets (see Memory profiles): the Fast preset without that profile ran out of memory on this card before the text encoder could stream from RAM, and the base and VDN presets load the same text encoder. Wan 2.1 / 2.2 runs, slowly. The estimate says so before the user starts: it announced 37.1 GB for Wan and between 41.75 and 42.85 GB for the 12 GB presets against a budget of 10 GB, with the warning "Will stream through host RAM, slower" and no block.
+- **64 GB of system RAM.** The 12 GB presets stream their text encoder from system RAM (the `text_encoder_placement` option, see Memory profiles), and the part of the DiT that does not fit on the card stays there too. Plan on 64 GB. The container peaks seen were 25.1 to 25.9 GB with the 12 GB presets and 41.75 GiB with Wan 2.1 / 2.2. The `requires` of the 12 GB presets declares VRAM only.
+- **Time.** On this card a 5-second draft takes about 6 to 7.5 minutes with the 12 GB presets and about 26 minutes with Wan, and a final by SeedVR2 upscale to 1080p takes more than two hours. Tell your users, and set **Max generations in flight per user** and the monthly GPU minutes with this in mind.
+- **After an out-of-memory error.** The native engine can keep an unusable CUDA context after a CUDA out of memory error. If every take then fails within seconds, restart PotionUI.
+- **The assistant.** Do not give it the video GPU: see The assistant mode › Which language model.
+- **Disk.** The Wan starter recipe downloads about 35.6 GB; the SeedVR2 files are listed under SeedVR2 for finals.
+
+## Install and activate
+
+In Admin → Plugins, enable **Video Producer**. A **Video Producer** entry appears in the sidebar; it opens the page `/plugins/video-producer`. The plugin keeps its own database tables (`video_producer_*`, created when the application starts); they hold the projects, the takes, the time measures and the video exports (see Projects and media, Generation › Tables and Exports › Tables). A background task that follows running generations is started once the application is ready and stopped when the plugin is disabled (see Generation › Following the takes); another one works through the queue of video exports (see Exports › The assembled video).
+
+Admin → Plugins shows a **Setup needed** badge on the plugin until its setup steps are done, and the Overview tab opens with a **Setup** section that links to this page (it is the first entry of the plugin's documentation). The same page is under Admin → Documentation as **Video Producer: administration**. The user guides are in the **User Guide** section of the Documentation page that every signed-in user sees, as **Video Producer: user guide** and **Video Producer : guide utilisateur**; each one starts with a link to the other, because PotionUI has no notion of language for documents.
+
+## The editor
+
+The page is a complete editor with five workspaces: Media (the images, videos and audio files of the project, imported from the PotionUI library and gallery), Director IA (direction, references and results), Storyboard (the synopsis and one card per shot), 3D scene and Mix. Around them are ten menus, the project bar, the Production bar, the Inspector, the timeline (the mixing console takes its place in Mix), the status bar and the windows: prompt library and composer, Advanced workshop, Sound design workshop, export, preferences, keyboard shortcuts and command search.
+
+The interface exists in English and in French. Each user picks the language in Video Producer › Preferences… or with the `EN` or `FR` reminder of the status bar; it is saved per user, and until a user chooses, the page follows the language of the browser (French for a French browser, English otherwise). Keyboard shortcuts show the notation of the user's system (⌘, ⌥ and ⇧ on a Mac, Ctrl, Alt and Shift elsewhere). The single-letter shortcuts (A, R, B, I, O, M and N) can be turned off in the Preferences.
+
+What the page offers:
+
+- The page opens the project that the user opened last, otherwise their most recent project. On a first visit, or when the user has no project left, it creates the starter project "Dawn at the harbour" ("Aube sur le port" in French) and opens it: a synopsis, the global direction in five fields, five shots of 5 seconds to generate, each with its shot prompt, a title, a marker and four empty audio tracks. It has no media, no take, no reference and no 3D scene (a button creates a sample point cloud on demand, marked simulated). Its name, synopsis, shot names, title and marker follow the language of the interface; its global direction and shot prompts follow the prompt language of the project, English by default. Projects are saved on the server as the user works, with a history of versions: File › New project… saves the current project, then starts an empty one, and File › Open… and File › Version history… are real. See Projects and media.
+- The user imports images and videos from the PotionUI library (File › Import files…) and from the gallery (File › From the PotionUI gallery), and audio files from the library, with the multi-select pickers of PotionUI. The page resolves each pick with `POST /media/resolve`, shows real thumbnails and durations (and the frame rate when the library knows it), and plays the real video, images and audio. A media that is already in the project, with the same origin, is not imported twice.
+- The **Generation engine** pop-up of the Production bar is filled from `GET /me` with the engines and presets that the user may run (see Engines). **Generate selection** starts real takes: they are PotionUI generations, and their videos play in the viewer, the Inspector and the Results tab. The estimate shows the time (measured on previous takes of the same preset, engine and resolution), the memory, the quota and, for admins only, the cloud cost. The status bar shows a GPU quota only when a plan sets a limit for the user. A shot with the FL2VA profile and no frame is not blocked: the page warns that it will be generated from text only, and the take card says "text only". When the shot has a previous shot with a finished take, an icon next to the warning, "Use the previous shot’s last frame", gives it that take's last image as its first frame (see Exports › Seam frames).
+- The Assistant button, the Window menu (PotionUI assistant) and Ctrl+J open the PotionUI chat in the Video Producer assistant mode, which has four tools: write the prompt of a shot, fix the conflicts with the direction, split the synopsis into shots and check the continuity. Every change waits for the user's approval; the Direction tab lists what the continuity check found under To check. See The assistant mode.
+- The Final Cut Pro, OpenTimelineIO, EDL and SRT files are real downloads, built by the server from the saved project. The web and social videos are real too: ffmpeg assembles the sequence in the background, the MP4 is kept in the export folder of the user and copied to the user's library, and a notification tells when it is ready. The master file, the archive and the audio stems stay simulated. A shot can take the last image of the previous shot's take as its first frame, and any frame of a take can become the first or last frame of a shot. See Exports.
+- The mixing console plays the audio files that the user imported, for real. It synthesizes (WebAudio) the sounds that the Sound design workshop prepares.
+
+## Setup checks
+
+Admin → Plugins → Video Producer → Overview lists five setup steps, each backed by a check. Each one reads the state of the instance as it is now, so the list updates as you work through it.
+
+| Step | Done when | What to do | Where |
+|---|---|---|---|
+| **Enable a native backend or a cloud video model** (`VideoEngineReady`) | An engine that can run Video Director presets is enabled: This machine, a Studio server, or a cloud backend with a video model turned on. ComfyUI backends do not count. | This machine: nothing to add, check that it is enabled. Studio server: add a Remote Native backend. Cloud: install the provider plugin, add its backend with the API key, turn on a video model in its catalog. | Admin → Backends, Admin → Plugins |
+| **Install and assign at least one Video Director preset (Wan, MiniMax-H3, LTX or a cloud video preset)** (`VideoPresetsReady`) | At least one installed preset that declares Video Director is assigned to a user or a group. | Install the preset, then assign it to the people who will generate. Download its model files. | Admin → Presets, Admin → Downloads, Admin → Models |
+| **Install SeedVR2 for final takes** (`UpscalerReady`) | The SeedVR2 preset is installed. The check does not look at its model files; its text tells whether the preset is also assigned. | Install the SeedVR2 preset, assign it to the people who make finals and download its model files (a DiT, a VAE and a prompt embedding). | Admin → Presets, Admin → Downloads, Admin → Models |
+| **Install ffmpeg for video delivery** (`FfmpegReady`) | The PotionUI server process finds `ffmpeg` on its `PATH`. The check also looks for `ffprobe`, next to `ffmpeg` or on the `PATH`, which the export needs too (see ffmpeg). | Install ffmpeg and ffprobe so that they are on the `PATH` of the PotionUI process, then restart PotionUI. In Docker, check the image. While the step is not done it offers a **Read the guide** button that opens this page. | The server |
+| **If a MiniMax-H3 preset is installed, install its five model files (DiT, text encoder, video VAE, audio VAE, and the latent upscaler of its Upscale mode)** (`MiniMaxH3Ready`) | No MiniMax-H3 preset is installed, or every installed one has its four files, and, for a preset that has an Upscale mode (the base MiniMax-H3 preset, not Fast or VDN), the file of its latent upscaler (`upscale_model`). Each file is recognised by its SHA-256, or else by its file name, among the files that the preset's model pickers recommend. | Download the files, and read the MiniMax-H3 reminder below before you do. | Admin → Downloads, Admin → Models |
+
+How the steps behave, as PotionUI defines them:
+
+- The text under a step comes from the check itself, so it tells you what is missing. An action button appears only when the check offers one, and it disappears once the step is done.
+- Each check has three outcomes: done, still to do, and could not be checked. The table below gives the text of each.
+- A check that cannot read the state of the instance shows as a step still to do. It says, for example, "Could not check the backends; see the server log.", and offers the button of the Admin page to look at. If a check itself fails, PotionUI shows its own text, "This step could not be checked. See the server log."
+- The checks run on every visit to Admin → Plugins. They only read local state and never call out to the network.
+
+| Check | Done (text) | Still to do (text, then button) | Could not be checked (button) |
+|---|---|---|---|
+| `VideoEngineReady` | "Takes can run on …." It names each native backend, and each cloud backend with its number of video models. | A cloud backend without a video model: "No video model is turned on in …. Turn one on in the backend's catalog, or enable a native backend." (**Open catalog**). Nothing enabled: "Enable the native backend of this machine or a native remote worker, or add a cloud backend and turn on a video model in its catalog." (**Open backends**). | "Could not check the backends; see the server log." (**Open backends**) |
+| `VideoPresetsReady` | "Installed and assigned: …. A user sees only the presets assigned to them or to one of their groups, which this check cannot verify user by user." | Installed but assigned to no one: "Installed but assigned to no one: …. Assign one to the users or groups who will use Video Producer." (**Assign presets**). Not installed: "Install a Video Director preset (…), then assign it. Cloud video presets come with their provider plugins." (**Open presets**). None available: "No Video Director preset is available. Enable a plugin that ships one, such as a cloud provider." (**Open presets**). | "Could not check the presets; see the server log." (**Open presets**) |
+| `UpscalerReady` | "… is installed and assigned.", or "… is installed. Assign it to the users or groups who make final takes." | Not available on the instance: "The SeedVR2 preset is not available on this instance; final takes need it." (**Open presets**). Not installed: "Final takes are upscaled with …. Install it, then assign it to the users or groups who make final takes." (**Open …**). | "Could not check the SeedVR2 preset; see the server log." (**Open presets**) |
+| `FfmpegReady` | "ffmpeg is available." (ffmpeg and ffprobe are both found) | "Video Producer joins takes and exports the cut with ffmpeg, and reads media with ffprobe; ffprobe is missing. Install ffmpeg with ffprobe on the server so both are on the PATH, then restart PotionUI." (or "ffmpeg is missing") (**Read the guide**) | "Could not check ffmpeg; see the server log." (**Read the guide**) |
+| `MiniMaxH3Ready` | "No MiniMax-H3 preset is installed; nothing to check.", or "The DiT, text encoder, video VAE and audio VAE files, and the latent upscaler of the Upscale mode, are on disk for …." | "… is missing its DiT and text encoder. Download one of the files its model pickers recommend; the check recognises those files by their SHA-256 or their file name, not other quantizations." (**Open …**) | "Could not check the MiniMax-H3 model files; see the server log." (**Open presets**) |
+
+In these texts and buttons, "…" stands for the names of the backends or presets concerned.
+
+`tests/test_setup_checks.py` tests every check in its three outcomes with a fake PotionUI context (text, button label and link), the ffmpeg check also with ffprobe missing, and that the manifest declares the five checks with the labels of the first table. The manifest test of the PotionUI core reads the report of the setup with its five steps still to do and their links.
+
+## Settings
+
+In Admin → Plugins → Video Producer → Settings:
+
+- **Draft resolution** (`draft_resolution`, default 832×480): the size of draft takes: 832×480, 960×544 or 1280×720. For a native preset, a draft is made at this size, turned to the orientation of the project (a portrait project gets the reversed size), when the preset offers it among the resolutions that fit the aspect ratio of the project; otherwise the preset's option that is closest in area is used. A cloud model uses its own default resolution (its smallest one when it declares no default). The final quality and a re-render use the largest option of the preset or of the model, whatever this setting says. It does not set the frame rate. A take keeps the frame rate of its preset (16 fps for Wan, 24 fps for MiniMax H3), while the timeline and the exports use the frame rate of the project.
+- **Max generations in flight per user** (`max_parallel_jobs`, default 2): how many takes of one user PotionUI holds at once, whether running or waiting in its own queue, across all the projects of that user. Takes past that number stay **Queued** in Video Producer, with no PotionUI generation yet, and the follow-up task hands them over as soon as a place frees up (it looks every 2 seconds while takes are active). A waiting take already reserves its GPU minutes when its user's minutes are limited. See Quotas and Generation › Following the takes.
+- **Export cache per user (MB)** (`export_dir_quota_mb`, default 2048): the size budget of each user's export folder (`video_producer/exports/<user id>/` in the file storage directory), where the web and social videos are kept. It is per user, not for the whole instance, and it is checked when an export is requested. See Exports › Storage and quota.
+- **Versions kept per project** (`versions_kept`, default 50): how many saved versions each project keeps, from 5 to 500. When a project goes over it, the oldest versions are deleted. See Projects and media.
+
+The first one is a choice between three values; the other three are numbers. Values are saved as text, and the form itself does not enforce a minimum or a maximum, so the plugin applies its own bounds: 1 to 16 parallel generations, 1 to 1,048,576 MB of export budget and 5 to 500 versions. A number outside its range is brought back to the nearest bound; an empty value, or one that is not a whole number, falls back to the default.
+
+The language is not a setting here: each user chooses English or Français in the Preferences of the page, and it is stored for that user. Until a user chooses, the page follows the language of the browser. The language of the prompts is not a setting here either: each project has its own (see Projects and media).
+
+## Quotas
+
+Admin → Users → Plans can limit one thing for this plugin: **Video Producer GPU minutes per month** (`video-producer.gpu_minutes`). It is a count in minutes, in a monthly window. To use it:
+
+1. Open Admin → Users → Plans and open a plan you created. The built-in plans cannot take new limits: their **Add limit** button is disabled.
+2. Click **Add limit** and pick **Video Producer GPU minutes per month**.
+3. Enter the number of minutes, then assign the plan to groups or users in the same editor.
+
+A plan without this limit means unlimited minutes. The **Admins are exempt** switch in the plans list applies as usual. For a user without a limit and for an exempt admin, Video Producer reserves, adjusts and refunds no minute: nothing is recorded in the ledger for their takes, so a limit that you add later counts only what is recorded from then on.
+
+How it is applied:
+
+- Video Producer applies the limit itself, when a take is created. PotionUI does not count these minutes on its own: the plugin records them in the usage ledger of the limit, and the limit's total is the sum of what it recorded in the month.
+- **Reservation.** Each native take of a user whose minutes are limited (a plan limit, and not an exempt admin) reserves minutes as soon as it is created, even while it waits for a free place (`max_parallel_jobs`). The reservation is the measured time of the preset, backend and resolution when there is one (see Generation › Time calibration), otherwise 10 seconds of GPU work for every second of video: a 5-second shot reserves about 0.83 minute.
+- **Check.** The estimate that the Production bar shows before generating includes the quota (`quota.needed_minutes` against `quota.remaining`). When it is not enough, Generate selection is refused with the block `quota_exceeded`, and the server applies the same check to a generation, a final and a retry, whatever the page says. Of the three things the estimate measures (time, memory, quota), only the quota blocks: not enough memory only warns. A plan without a limit, and an exempt admin, are never blocked; their takes keep `units_reserved` at 0, and their end neither adjusts nor refunds anything.
+- **Adjustment.** When a take that reserved minutes ends, its reservation is brought to the real duration of the generation: if it ran longer, the difference is recorded on top (reference suffixed `:adjust`); if it ran shorter, the reservation is refunded and the real duration is recorded (reference suffixed `:actual`).
+- **Refund.** A take that fails, is cancelled or is refused by PotionUI gets its whole reservation back, if it had one. Deleting a take cancels it first when it is in flight, and deleting a project cancels its takes in flight and refunds their reservations before it deletes the rows.
+- A generation that is already running is never stopped by a quota; only the next ones are refused.
+- Cloud engines do not use GPU minutes (`quota.applies` is false, the reservation is 0). Their spending belongs to the PotionUI limit **Cloud spend per month** (`cloud_spend_usd_month`), which you add to a plan in the same way.
+
+## Engines
+
+Video Producer offers the engines that you enabled for it:
+
+- **This machine** (`native.local`): the native engine of the PotionUI server, always present. Nothing to add; check that it is enabled in Admin → Backends.
+- **Studio server** (`native.remote`): a Remote Native backend, that is another machine or rented compute that runs a PotionUI Remote Native worker. In Admin → Backends add a Remote Native backend and paste the URL of the worker, or provision one from the backend's Infrastructure tab. The model files must also be on the worker; the backend's Models tab shows the exact per-file paths. The Remote Native documentation describes the worker.
+- **Cloud**: the presets **OpenRouter Video** and **Gemini Video**. Install the `openrouter-provider` or the `google-gemini-provider` plugin, add its backend with your API key ("Add an OpenRouter backend with your API key" or "Add a Google Gemini backend with your AI Studio API key" in that plugin's setup), then turn on a video model in the backend's Catalog tab. Each shot is one paid request to the provider.
+
+ComfyUI is not offered as an engine. Video Producer builds one Video Director document per shot, and a ComfyUI preset does not run Video Director documents: it keeps its own per-batch prompt relay.
+
+What the **Generation engine** pop-up of the Production bar lists, for a given user:
+
+- Under the highest-priority enabled native backend (This machine or a Studio server), each Video Director preset that is assigned to the user. A MiniMax-H3 preset is shown as **MiniMax H3**, **MiniMax H3 Fast** or **MiniMax H3 VDN (experimental)**.
+- Under each enabled cloud backend, each video model turned on in its catalog, by the name of the model. A cloud model runs through the cloud preset whose driver (`cloud.openrouter` or `cloud.google`) matches the backend.
+
+The routing of a native take belongs to PotionUI: Video Producer submits the request of the preset and PotionUI chooses the backend that runs it, by its own priority and eligibility rules. The take records the backend it ran on (`backend_id`), and the take card shows it. The pop-up does not pin a take to a backend.
+
+The choice is saved with the project (`engine.backend`, `engine.preset` and, for a cloud model, `engine.model`). When a project saved by an earlier version opens, the page migrates its old engine value: `local` becomes the first local engine, `studio` the first remote one, `cloud` the first cloud one, and anything else the first engine that exists. An engine that is no longer available shows "Engine no longer available" and blocks the generation until the user picks another one. The pop-up is hidden in a window narrower than 1400 pixels; the user then chooses the engine in the Advanced workshop (Production › Generation engine…). When the user has no engine, the pop-up shows "No engine", the bar says "No generation engine: an administrator must enable a video preset or a cloud model." and an admin gets the link "Open plugin settings".
+
+Cloud cost: PotionUI records the cost of every cloud job and shows it to admins only (Admin → Generations, and the spend statistics). Video Producer follows the same rule: only an admin sees a cost estimate, and a price that the provider does not publish is never invented (see Generation › Cloud cost).
+
+## Models and presets
+
+Video Producer can generate with every installed preset that declares Video Director, once it is assigned to the user: Wan, LTX-2, LTX-2.5, MiniMax-H3 (and its Fast and VDN variants, and the two 12 GB presets the plugin ships, see Memory profiles), OpenRouter Video and Gemini Video. The frame rate of a take is set by the preset, and a user sees only the presets assigned to them.
+
+| Preset | Profiles | What Video Producer asks of it |
+|---|---|---|
+| Wan 2.1 / 2.2, LTX-2 / 2.3, LTX-2.5 | FL2VA | Mode `video` of the preset, with a text-only, first-frame or first-and-last-frame composition. Wan runs at 16 fps by default. |
+| MiniMax-H3 | FL2VA, Ref2VA, Hybrid AV | Mode `video` for FL2VA and Hybrid AV, mode `refs` for Ref2VA, mode `upscale` for a final. Fixed 24 fps, clips up to 15 seconds. |
+| MiniMax-H3 Fast, MiniMax-H3 VDN, MiniMax-H3 (12 GB) and MiniMax-H3-Fast (12 GB) | FL2VA, Hybrid AV | Mode `video` only. They have no `refs` mode, so no Ref2VA, and no `upscale` mode, so their finals go through SeedVR2 like those of Wan. Fixed 24 fps. |
+| OpenRouter Video, Gemini Video | FL2VA | Mode `txt2video`, or `img2video` when the shot has a first frame and the model accepts one. |
+
+The profiles that a preset cannot generate are greyed in the page and marked "MiniMax H3 only" (Ref2VA and Hybrid AV need a MiniMax H3 preset, and Ref2VA the base one), and the server answers the block `profile_unsupported` if a client asks for one anyway.
+
+### Wan
+
+- The preset defaults to 832×480 at 16 fps, which is also the default draft resolution of the plugin.
+- PotionUI's hardware page lists Wan 2.2 14B (two experts) at 16 GB of VRAM or more, and the 5B variant as the realistic option for a small card (12 GB or more).
+
+### LTX
+
+- PotionUI's hardware page lists the LTX family as not yet recommended at any tier, because GPU validation is still open. LTX-2 and 2.3 are one all-in-one checkpoint of about 27 GB; LTX-2.5 uses separate files.
+
+### MiniMax-H3: read before enabling
+
+Video Producer offers MiniMax-H3 as soon as its presets are installed and assigned, on the same footing as Wan. The interface shows no warning badge, so this reminder is for admins. The page writes the name of the model as **MiniMax H3** in the engine pop-up, on the take cards and in its messages (for example "MiniMax H3 only" next to the profiles that need it).
+
+- **Validation status.** PotionUI's own documentation says that no end-to-end run on real weights has been performed for the MiniMax-H3 family, that GPU validation is pending, and that the family is not recommended on any card size until that is done. Video Producer does not change that status.
+- **License.** The weights are published under the MiniMax H3 Community License, not an open-source license. Its Applicable Territory excludes the European Union, the United Kingdom, the United States and the Republic of Korea, and the exclusion extends to what the model generates. Use there needs an individual authorization from MiniMax (https://platform.minimax.io/h3-license). A separate written authorization is required above US$20M of annual revenue, and a commercial product's interface must display "MiniMax H3" prominently. PotionUI ships no weights: the license is between you and MiniMax. The Fast and VDN variants carry the same terms. Showing the name in the pop-up and on the cards is a display choice of the page; whether it meets the license for your use is for you to judge.
+- **Files.** Four separate files are needed: the DiT, the text encoder, the video VAE and the audio VAE. The base MiniMax-H3 preset needs a fifth one for its Upscale mode, the latent upscaler; the fifth setup step lists all of them. The Video mode needs the `fl2va` DiT file and the References mode the `ref2va` one. PotionUI cannot tell them apart, so check the file name: a wrong pick runs without an error and ignores the references. The Fast and VDN variants have neither a References mode nor an Upscale mode (their finals go through SeedVR2).
+- **Clips.** MiniMax-H3 runs at a fixed 24 fps, for clips up to 15 seconds; its release notes recommend 5 seconds or more. Picture and soundtrack come out of one pass. A shot longer than 15 seconds is cut and the estimate warns `duration_clamped`.
+- **Hardware.** It is the heaviest family that PotionUI documents. If the card cannot hold it, the engine streams the overflow from host RAM, which is slower; that needs the size of the overflow plus about 2 GB of free host RAM and refuses to start without it. The Production bar warns "will stream through host RAM, slower" and does not block.
+
+In Video Producer, the reference-guided profile (Ref2VA) uses the References mode of MiniMax-H3. If a user says that references are ignored, check the DiT file first. In Admin → Presets → Configuration, the MiniMax-H3 preset has tag filters for its DiT, text encoder and VAE pickers if you want to narrow the choices.
+
+### Memory profiles
+
+Video Producer ships two presets of its own for a card with **12 GB of VRAM**: **MiniMax-H3 (12 GB)** and **MiniMax-H3-Fast (12 GB)**. They live in the plugin's `presets` folder (declared by `presets:` in `manifest.yml`), so Admin → Presets lists them as soon as the plugin is enabled; install and assign them like any other preset. `GET /me` gives every preset a `profile`: `"12 GB"` for these two, read from `vars.video_producer.profile` of the preset, and `null` for the others.
+
+- **Why.** On a 12 GB card, MiniMax-H3 fails before sampling: its 32B text encoder (14.6 GB in nvfp4) is moved to the GPU in one piece and runs out of memory. These presets keep the model, its pipeline and its controls, and change what loads and where the form starts.
+- **What they reuse.** MiniMax-H3 (12 GB) is the Video mode of the core MiniMax-H3 preset, MiniMax-H3-Fast (12 GB) the core MiniMax-H3-Fast preset. The LoRA and Enhance tabs (and the Advanced tab of Fast) and the resolution lists are read from the core presets. The pipeline, the Generation tab (and the Advanced tab of the base model) are copies, because the loader reads them from the preset's own folder and a default cannot be overridden by reference; the copies only change defaults and recommendations, and the tests fail if a copy drifts from the core preset. Video Director capabilities, prompt templates and the assistant's prompt guide are the core ones. Neither preset has a References or an Upscale mode, so their finals go through SeedVR2.
+
+**Files.** Each model picker recommends one tier, recognised by SHA-256 or else by file name, so the Wan2GP name works before the catalog has hashed the file. The int4 `convrot_w4a4` DiT is not recommended: the native engine cannot read it.
+
+| Model | MiniMax-H3 (12 GB) | MiniMax-H3-Fast (12 GB) |
+|---|---|---|
+| DiT | `minimax_h3_fl2va_pruned_int8_convrot.safetensors` (Comfy-Org) or `MiniMax-H3-FL2VA-pruned_rank8_int8_convrot.safetensors` (Wan2GP) | `fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors` |
+| Text encoder | `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | the same |
+| Video VAE | `minimax_h3_video_vae_int8_convrot.safetensors` | the same |
+| Audio VAE | `minimax_h3_audio_vae_fp32.safetensors` | the same |
+
+- **Settings.** 832×480 (480×832, 960×544 and 544×960 are offered, and 1344×768 stays in the list), 124 frames (5.17 s at 24 fps), one clip, sampler Res multistep with the Simple scheduler, a keyframe detail budget of 1× the output area, and the engine's automatic memory handling. The base model runs 20 steps (the Custom speed profile; Quality and Turbo are still there), Fast its fixed 8. In Video Producer a draft follows the `draft_resolution` setting (832×480 by default) and a re-rendered final of a 16:9 project takes 1344×768.
+- **Prerequisites.** The native backend option `text_encoder_placement`, delivered by the core change "Stream the text encoder from host RAM when it does not fit in VRAM" (pull request M4-S4/PotionUI#2, merged into this branch): leave it on `auto`, which streams a text encoder that does not fit from system RAM, or set it to `stream`. Without that option the presets load but the text encoder still runs out of GPU memory. Plan on 64 GB of system RAM: the streamed encoder, the part of the 20 GB DiT that does not fit on the card and the rest of the process share it. `requires` declares 12 GB of VRAM (minimum and recommended) and no RAM figure.
+- **Speed.** Everything that does not fit on the card streams from system RAM, so expect the prompt encoding and every step to take noticeably longer than on a card that holds the model; the estimate warns `vram_stream` and does not block. Measured on a 12 GB card (see Hardware): a 5-second draft took 5 min 57 s with MiniMax-H3-Fast (12 GB) and 7 min 26 s with MiniMax-H3 (12 GB), with a peak of about 11.9 GB of VRAM and 25 to 26 GB of container RAM.
+
+### SeedVR2 for finals
+
+- Making a take final upscales it. For a Wan, LTX, MiniMax-H3 Fast, MiniMax-H3 VDN, 12 GB MiniMax-H3 or cloud take that is SeedVR2 (its `video_upscale` mode), to 720p, 1080p, 1440p or 2160p (shown as 4K); for a take of the base MiniMax-H3 preset, which has an `upscale` mode, it is the upscale mode of that preset itself, whose Target Size only has two values, so 720p and 1080p give HD and 1440p and 2160p give 2K. The other choice of the **Make final** window, **Re-render at full resolution**, generates the shot again at the highest resolution of the preset with the same seed. See Generation › Final takes.
+- The DiT comes in four sizes: 3B fp8 (3.39 GB), 3B fp16 (6.78 GB), 7B fp8 (8.24 GB) and 7B fp16 (16.48 GB), plus a VAE of about 501 MB. SeedVR2 also needs a prompt embedding file. PotionUI's hardware page says it scales down cleanly to small cards: the batch size follows about 72 % of the free VRAM and is halved on an out-of-memory error.
+- When no SeedVR2 preset is assigned to a user, the Upscale choice of the Make final window shows "Upscaler not available" and only the re-render is offered. A take of the base MiniMax-H3 preset still upscales, because its preset has an `upscale` mode. The Fast and VDN variants and the 12 GB presets have none: without SeedVR2 their takes can only be re-rendered, and a client that asks for the upscale anyway gets 409 `blocked` with the block `upscale_unsupported`, whose message invites to install SeedVR2 or to render the take again.
+- Time: on the 12 GB card of the Hardware measures, the upscale of a 5-second Wan draft to 1080p took 2 h 27 min 45 s. Plan quotas and expectations on that scale.
+
+### Cloud presets
+
+- **OpenRouter Video** and **Gemini Video** come with their provider plugins. Install and assign them like any other preset, and turn on a video model in the backend's catalog. The page lists each enabled model by name under its backend.
+- Their resolution, duration and aspect ratio come from the parameters that the model declares (the canonical parameters `resolution`, `duration_s` and `aspect_ratio` of the cloud catalog). A draft takes the default resolution of the model, a final the largest; the duration is the closest the model accepts, and a shot longer than the model's maximum is cut with `duration_clamped`. A model that can only start from an image blocks a shot without a first frame (`no_model`).
+- The preset is tied to a backend through its driver. `GET /me` gives each preset its `driver` and, for a cloud preset, `backend_id`, the first enabled backend with that driver.
+
+## Generation
+
+This section is the reference for how a take is made, estimated, finished and followed, and for its routes, codes and tables. The routes sit under `/api/plugins/video-producer` and need a signed-in user.
+
+### How a take is made
+
+A **take** is one video of one shot, made by one PotionUI generation. **Generate selection** asks for one take per shot and per variant (A, B, and so on), each with its own seed and its own generation. The letters continue for each shot and each quality: a second generation of a shot at the same quality gets the next free letters (C, D…), and a letter freed by deleting a take can be used again. A retry and a final keep the letter of the take they come from, so a failed take and its retry share a letter; Video Producer never asks a generation for several outputs (`quantity` stays 1).
+
+1. The page saves the project, then sends `POST /projects/{id}/generate`. The server builds the requests from the saved project, so a refused save means no generation ("The project could not be saved: generation not started.").
+2. For each shot the server builds a Video Director document (`schema_version` 1) with the mode, the settings (frame rate, duration, resolution, seed), one segment and the media. The prompt is the shot prompt linked to the shot, or else the global prompt that covers most of its interval, followed by the five fields of the global direction that are filled in (world, characters, photography, palette, pacing), one per line. Nothing is translated and no label is added.
+3. The composition follows the profile. FL2VA: first and last frames linked to the shot give `flf`, a first frame alone gives `i2v`, and no frame gives `t2v` with the warning `fl2va_no_frame`. Ref2VA: mode `refs` of the base MiniMax-H3 preset, with the shot's own references followed by the global ones (at most 9 images, 3 videos and 3 audio files); a shot with no usable reference is blocked (`no_references`). Hybrid AV: the same document as FL2VA on a MiniMax-H3 preset, whose model makes the sound itself; the audio driver of the workshop is not sent.
+4. The duration is the one of the shot, cut to the maximum of the preset (`duration_clamped`). The resolution follows the Settings section. The seed is drawn by the server for each take (and kept); a retry and a re-render reuse the seed of the take they come from.
+5. The request goes to PotionUI as the owner of the project, even when an admin asks, with the idempotency key `vp:<take id>`. A take past `max_parallel_jobs` is created `queued` with no generation and is submitted later by the follow-up task, from the request that was frozen in its `request` column.
+
+From the project, a take uses the direction, the shot prompts, the frames, the references, the aspect ratio and the shots; from the page it takes the engine, the quality and the number of variants. The other controls of the Advanced workshop are not sent (see What stays simulated).
+
+### Required models
+
+For each `model` field that the chosen mode of the preset requires, Video Producer takes the first recommended file of the preset that is installed and reachable, and passes it as `model:<id>`. The recommendations are matched by SHA-256, and else by file name: when a preset gives no SHA-256 (the SeedVR2 case) or the catalog has not hashed the file (the Wan2GP DiT of MiniMax-H3 (12 GB)). A field with no installed recommendation blocks the generation with `missing_models`, and `data.fields` lists the fields. The fields are:
+
+- Wan: `text_encoder`, `vae`, then `t2v_high_noise_model` (and `t2v_low_noise_model` when it is installed) for text-only shots, `i2v_high_noise_model` (and `i2v_low_noise_model`) for first-frame and first-and-last-frame shots.
+- MiniMax H3: `model`, `text_encoder`, `video_vae`, `audio_vae`. The upscale mode of a final of the base MiniMax-H3 preset also needs `upscale_model`, which the fifth setup step checks too.
+- SeedVR2: `diffusion_model`, `vae`, `prompt_embedding`. These are also the files of the finals of Wan, LTX, MiniMax-H3 Fast and VDN and cloud takes.
+
+A file that exists on this machine but not on the Studio server worker passes the check and then fails on the worker (see Troubleshooting).
+
+### The estimate
+
+`POST /projects/{id}/estimate` takes the same body as `generate` (`shots`, `quality`, `variants`, `preset_id`, `model_id`) and answers without starting anything:
+
+| Key | Content |
+|---|---|
+| `shots` | One entry per shot: `shot_id`, `director_mode` (`t2v`, `i2v`, `flf` or `refs`), `seconds`, `resolution`, `fps`. |
+| `vram` | `estimate_gb`, `free_gb`, `total_gb`, `streams`, `unknown`, `backend_id`. See GPU memory. |
+| `time` | `seconds`, the expected total for all shots and variants, or `null` with no measure, and `samples`, the number of measures behind it. See Time calibration. |
+| `quota` | `limit`, `used`, `remaining`, `exempt`, `needed_minutes`, `applies` (false for a cloud engine) and `blocks`. |
+| `cost` | For an admin and a cloud model: `total_usd`, `known`, `message`. `null` for a user who is not an admin and for a native preset. |
+| `blocks` | What stops the generation. |
+| `warnings` | What the user should know. |
+
+The page asks for it half a second after the last change, once the project is saved, with one request in flight at a time ("The estimate updates once the project is saved."). The Production bar shows the time, the memory and the quota (or the cost, for an admin) in a short line; hovering it gives the detail, for example "Time ≈ 4 min on MiniMax H3 (measured on 3 takes)" or "Time: — (no measure yet on MiniMax H3)", "Memory ≈ 22.5 GB, 16.0 GB free on Local Generation", "Quota: 5 min needed, 40 of 60 min left this month" ("Quota: exempt" for an exempt admin, "Cloud: no GPU quota used" for a cloud engine) and, for an admin, "Cost ≈ $0.84" or "Cost: unknown for this model".
+
+### Blocks and warnings
+
+`generate`, `final` and `retry` check the blocks again on the server. When one applies, the answer is 409 `blocked` and `detail.data.blocks` lists them, each as `{code, message, data?}`. The `message` is English; the page writes its own translated text from the `code` for every block, `upscale_unsupported` included (the keys `generation.block.*` of its dictionaries), and falls back to the English message for a code it does not know. The Make final window already greys the Upscale choice for a take that cannot be upscaled, so such a request is rarely sent.
+
+| Block | When | `data` |
+|---|---|---|
+| `no_shots` | None of the shots exists in the project. | |
+| `no_preset` | The preset is unknown, not assigned to the user, or has no mode that the Video Director can run. Also, for an upscale: SeedVR2 is not available to the user and the take does not come from an assigned MiniMax-H3 preset. | `preset_id` |
+| `upscale_unsupported` | An upscale of a take of an assigned MiniMax-H3 variant that has no `upscale` mode (Fast, VDN, the 12 GB presets), when SeedVR2 is not available to the user. The message invites to install SeedVR2 for final takes, or to render the take again at full resolution. The page shows its own sentence, "Upscaling this take needs SeedVR2: ask an administrator to install it, or render the take again at full resolution." (`generation.block.upscaleUnsupported`; in French "Agrandir cette prise demande SeedVR2 : demandez à un administrateur de l’installer, ou générez la prise à nouveau en pleine résolution."): in the Make final window under the **Upscaler not available** badge, as the tooltip of the Make final button of the take card, and in the message of a refused request. | `preset_id` |
+| `profile_unsupported` | Ref2VA or Hybrid AV on a preset that cannot generate it. | `profile`, `preset_id` |
+| `missing_models` | A required model field has no installed recommended file. | `fields` |
+| `quota_exceeded` | The takes need more minutes than the user has left. | `needed_minutes`, `remaining` |
+| `no_model` | A cloud preset without a valid video model, or a model that needs a first frame for a shot that has none. | `model_id` or `shot_id` |
+| `no_references` | Ref2VA on a shot with no usable reference. | `shot_id` |
+| `source_unavailable` | The video of the take to upscale is no longer in the PotionUI history. | |
+
+| Warning | When | `data` |
+|---|---|---|
+| `vram_stream` | The estimated memory is above the free VRAM: the model will stream through host RAM, slower. | `estimate_gb`, `free_gb` |
+| `vram_unknown` | PotionUI could not estimate the memory. | |
+| `time_unknown` | No take of this preset was measured at this resolution yet. | |
+| `fl2va_no_frame` | The shot has no first frame: it is generated from text only. | `shot_id` |
+| `duration_clamped` | The shot is longer than the preset or the model allows: it is cut. | `shot_id`, `max` |
+
+The page shows the first block in the Production bar (it disables the buttons) and the first warning next to it, with the full list in the tooltip. `vram_unknown` and `time_unknown` only appear in the estimate tooltip.
+
+### Time calibration
+
+The plugin keeps its own time measures in `video_producer_calibration`. A row is written when a take finishes: the preset, the backend PotionUI used (`backend_id`), the resolution, the seconds of video and the duration of the generation in milliseconds (`duration_ms`). An upscale take is measured under the upscaler preset, at the size it produces.
+
+The estimate is the median of `duration_ms / 1000 / seconds` over the last 20 rows of the preset, the backend and the resolution, times the seconds asked for and the number of variants. A measure serves only the backend that rendered it: two native backends never share their rows, and with no backend known there is no measure. The backend is the one that the memory preview names (a cloud model uses its own backend); when that preview fails, or when there is no row, the time is `null`, the page shows "—" and the estimate carries `time_unknown`. `time.samples` is the number of rows behind it. The same ratio sets the minutes that a take reserves from the quota (see Quotas); for a `final` or a `retry` it is the one measured on the backend of the take they come from. The table is shared by all the users of the instance, and the plugin never deletes its rows, not even with the project or the take they came from.
+
+### GPU memory
+
+For a native preset, the server asks PotionUI for a memory preview of the first shot (`preview_memory`) without starting anything. It reports a checkpoint-based estimate, which is a lower bound made from the size of the model files and an activation term, never a guarantee, and the free and total VRAM of the device of the backend that would run it. `streams` is true when the estimate is above the free VRAM: the native engine then streams the overflow from host RAM, which is slower, and the estimate carries `vram_stream` ("Will stream through host RAM, slower."). It is a warning, never a block. If PotionUI cannot give an estimate the answer is `unknown: true` with `vram_unknown`, again without blocking. A cloud engine has no memory figure.
+
+The overflow needs its size plus about 2 GB of free host RAM; without it the engine refuses to start and the take fails (the core classifies it as `host_ram_oom`).
+
+### Cloud cost
+
+For an admin and a cloud model, the server asks PotionUI for the cost of the shots (`estimate_cloud_cost`). The prices are those of the catalog of the backend, filled in by the provider plugin. When the provider publishes no price for the model, `known` is false and the page says "Cost: unknown for this model". The cost is computed in the name of the admin who calls the estimate; a user who is not an admin gets `cost: null`. Spending is limited by the PotionUI plan limit **Cloud spend per month**, not by the GPU minutes.
+
+### Final takes
+
+`POST /projects/{id}/takes/{take}/final` (202) starts a new take, of quality `final`, linked to the take it comes from (`parent_take_id`) and carrying the same variant letter. The source take must be finished (409 `take_not_done` otherwise). The body is `{method, target}`.
+
+- **`upscale`** enlarges the video of the source take as it is. For a Wan, LTX, MiniMax-H3 Fast, MiniMax-H3 VDN, 12 GB MiniMax-H3 or cloud take: SeedVR2, mode `video_upscale`, with the source video as `input_video`, `resolution_target` set to the target, `restoration_intent` `faithful` and a random seed. For a take of the base MiniMax-H3 preset, whose preset has an `upscale` mode: that mode, with the source video and its Target Size (`hd720` and `fhd1080` give `hd`, `qhd1440` and `uhd2160` give `2k`, or the nearest value the mode offers). The take has `kind` `upscale`; its `resolution` is the size it is expected to produce and its real size is written when it ends.
+- **`render`** generates the shot again, with the same seed, preset, profile and model, at the largest resolution of the preset (for a cloud model, the largest the model declares). The request is rebuilt from the current project. The take has `kind` `render`.
+- `target` is one of `hd720`, `fhd1080`, `qhd1440`, `uhd2160`, shown as 720p, 1080p, 1440p and 4K. It is required but a render ignores it. The window proposes the resolution of the project as the default.
+- A final reserves GPU minutes like any native take and is checked against the quota. The page puts a finished final on the shot at once, in place of the draft (toast "Final version ready and applied to the shot").
+
+### Following the takes
+
+The task that follows the takes (`backend/tracker.py`) runs on the application loop. It is started by the hook `plugin.lifecycle.ready`, stopped by `plugin.lifecycle.disable` for this plugin, and started again by the first `generate`, `final` or `retry` if it is not running (for example when the plugin was enabled after the application started). While takes are `queued` or `running` it runs every 2 seconds, otherwise every 10 seconds. Each round:
+
+- reads the state of the generation of every active take and updates its progress, step (`current_step` or `message`), start time and backend, or ends it;
+- hands the queued takes of each user to PotionUI while that user has fewer than `max_parallel_jobs` takes in flight.
+
+A take ends as:
+
+- **done**: the first video file of the generation becomes the take (path, file id, width, height, duration, frame rate, thumbnail), its URL is `/api/media/generations/<generation id>/<file name>` and its thumbnail the same URL with `?size=medium`. The server writes the calibration row, adjusts the reservation of the quota (when the take has one) and sends the notification `video-producer.take_done`.
+- **failed**: `error_code` and `error_message` come from PotionUI (the safe user message), the reservation is refunded and the notification `video-producer.take_failed` is sent. A generation that was running when the server restarted is marked failed by PotionUI and the take follows.
+- **cancelled**: the reservation is refunded.
+
+Every end is applied once. The two hooks below do the same job as the task, as soon as PotionUI fires them, and whichever comes first wins:
+
+| Hook (manifest) | Handler | Effect |
+|---|---|---|
+| `generation.after_complete` | `hooks.generation_hooks.on_after_complete` | Ends the take of a generation that completed or was cancelled. |
+| `generation.failed` | `hooks.generation_hooks.on_failed` | Ends the take of a generation that failed, with the error code and the message of PotionUI. |
+
+The manifest also declares `plugin.lifecycle.boot` (creates the tables), `plugin.lifecycle.ready`, `plugin.lifecycle.disable` and `notification_type.register`. Calls to PotionUI that need a user are made as the owner of the project (`src.plugin_api.identity`); an owner who no longer exists fails the take with `user_not_found`.
+
+The page follows the takes by the generation progress of PotionUI (`window.__potionui.generation.subscribe`) and, whatever it gives, by `GET /projects/{id}/queue` every 5 seconds while takes are active. Closing the page does not stop the generations: the takes are there when the user comes back.
+
+### Routes
+
+Answers are `{success: true, data}`; errors are described under Projects and media › Errors. A take route needs the project to be the caller's, or the caller to be an admin; otherwise the answer is 404 `project_not_found` or `take_not_found`.
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /projects/{id}/takes` | | `{takes}`, oldest first. |
+| `POST /projects/{id}/estimate` | `{shots, quality, variants, preset_id, model_id?}` | The estimate above. `shots` is a list of shot ids, `quality` `draft` or `final`, `variants` an integer from 1 to 16, `model_id` the catalog id of a cloud model or `null`. |
+| `POST /projects/{id}/generate` (202) | The same, and `label?` (at most 200 characters, validated and not stored) | `{takes}`: one per shot and variant. 409 `blocked` when a block applies. |
+| `GET /projects/{id}/queue` | | `{takes, slots}`: the queued and running takes, and `slots` with `in_flight` (the owner's takes handed to PotionUI) and `max` (`max_parallel_jobs`). |
+| `POST /projects/{id}/takes/{take}/choose` | `{chosen}` | `{take}`. Choosing a take unchooses the others of the shot; only a finished take can be chosen (409 `take_not_done`). |
+| `POST /projects/{id}/takes/{take}/flag` | `{flag}`: `keep`, `reject` or `null` | `{take}`. |
+| `POST /projects/{id}/takes/{take}/final` (202) | `{method, target}` | `{take}`, the new final take. |
+| `DELETE /projects/{id}/takes/{take}` | | `{deleted}`, the id. A take in flight is cancelled first and its reservation refunded; the PotionUI generation and its video stay in the history of the user. |
+| `POST /takes/{take}/cancel` | | `{take}`. Cancels the generation if it was handed over, refunds the reservation, and the take becomes `cancelled`. |
+| `POST /takes/{take}/retry` (202) | | `{take}`, a new take with the same shot, seed, quality, preset and profile (a render is rebuilt from the current project). Only for a failed or cancelled take (409 `take_not_retryable`); the old one stays. |
+
+`GET /me` is extended for generation. `engines` lists the enabled native and cloud backends (among others `id`, `name`, `kind` `local`, `remote` or `cloud`, `driver`, `execution_device`, `vram_total_gb`, `vram_free_gb` and `is_default`), and a cloud backend carries its enabled video models in `models` (`id`, `name`, `provider_model_id`, `tasks`, `typical_seconds`, `max_seconds`). `presets` lists the video presets and the upscaler preset that the user may run; a video preset carries `requires`, `profile` (the memory profile it is set up for, such as `"12 GB"`, or `null`), `modes`, `video_director`, `resolutions` (the options of the resolution field of the main mode), `fps`, `fps_locked`, `limits` (`default_duration`, `max_duration`), `director_modes`, `profiles` (the ones it can generate), `upscaler`, `driver` and, for a cloud preset, `backend_id`. `features.upscaler` tells whether an upscaler preset is assigned to the user, and `upscale_targets` lists the four targets. `settings` carries the plugin settings, among them `draft_resolution` and `max_parallel_jobs`.
+
+### Take errors
+
+These codes complete the table of Projects and media › Errors:
+
+| Code | Status | When |
+|---|---|---|
+| `blocked` | 409 | `generate`, `final` or `retry` is refused. `data.blocks` lists the blocks. |
+| `take_not_found` | 404 | The take does not exist, is not in that project, or the caller cannot reach its project. |
+| `take_not_done` | 409 | Choosing a take that is not finished, making final a take that is not finished, or retrying an upscale whose source is no longer finished. |
+| `take_not_retryable` | 409 | Retrying a take that is not failed or cancelled. |
+| `owner_not_found` | 409 | An admin acts on a project whose owner no longer exists. |
+| `invalid_request` | 422 | A body that is not a JSON object, or a missing or malformed `shots`, `quality`, `variants`, `preset_id`, `model_id`, `label`, `chosen`, `flag`, `method` or `target`. |
+
+When a take itself fails, its `error_code` is one of the plugin's own codes or the category that PotionUI gives the failure:
+
+- the plugin's: `preset_not_available`, `duplicate_submission`, `invalid_request`, `no_backend` (PotionUI has no backend that can run it now), `submit_failed`, `user_not_found`, `generation_not_found`, `no_output` (the generation ended without a video) and `generation_failed` (no more precise code);
+- PotionUI's categories: `cuda_oom` (out of GPU memory), `host_ram_oom` (out of host RAM while streaming weights), `missing_model_file`, `disk_full`, `corrupt_weights`, `auth_required`, `backend_unreachable`, `banned_prompt`, `content_blocked`, `content_check_unavailable`, `unclassified`, and for cloud models `cloud_auth`, `cloud_credits`, `cloud_refused`, `cloud_rate_limited`, `cloud_invalid_request`, `cloud_unavailable`, `cloud_timeout`, `cloud_failed` and `cloud_expired`.
+
+The page translates 28 of these codes (all but `invalid_request`) into a sentence in the language of the user: the keys `generation.failed.<code>` of its dictionaries, for example `cuda_oom`: "The server’s GPU ran out of memory: try a lower resolution or fewer frames." For any other code it shows the stored `error_message` (English), and "The generation failed" followed by the code in brackets, when there is none. The translated codes are the list `FAILURE_CODES` of `frontend/src/lib/generation.js`, and a test of the page fails when a code has no sentence in both languages.
+
+### Tables
+
+The tables are described under Projects and media › Tables (`video_producer_takes`, `video_producer_jobs`, `video_producer_calibration`). The table of the video exports, `video_producer_export_jobs`, is described under Exports › Tables.
+
+## ffmpeg
+
+Video Producer calls `ffmpeg` and `ffprobe`, as found on the `PATH` of the PotionUI process, for two things:
+
+- **The assembled video.** One ffmpeg run joins the shots, the sound and the look of the sequence into an intermediate H.264 file, then PotionUI's own video converter (`transcode_video` of `src.plugin_api`) writes the MP4 that the user downloads. See Exports › The assembled video. ffmpeg needs the `libx264` and `aac` encoders. The plugin's tests ran with ffmpeg 6.1; a build that lacks a filter or an option of the graph (for example `colortemperature`, or `normalize` of `amix`) fails the job with `ffmpeg_failed` and the message of ffmpeg.
+- **A frame at a given time.** "Extract a frame at the playhead" asks for the frame at a number of seconds, and PotionUI reads the frame rate of the take with ffprobe to turn that time into a frame number. Without ffprobe the route answers 502 `extract_failed` ("The video's frame rate could not be read"). Without ffprobe the video export also treats every shot file as silent, because it cannot tell whether a file has a soundtrack: only the audio items of the timeline are mixed. The last image of the previous shot needs neither: PotionUI reads it with OpenCV.
+
+How the install is checked and shown:
+
+- The fourth setup step (`FfmpegReady`) is done when `ffmpeg` and `ffprobe` are both found (ffprobe next to ffmpeg, else on the `PATH`). While it is not done it says "Video Producer joins takes and exports the cut with ffmpeg, and reads media with ffprobe; ffmpeg is missing." (or "ffprobe is missing") followed by "Install ffmpeg with ffprobe on the server so both are on the PATH, then restart PotionUI." and offers **Read the guide**, which opens this page.
+- `GET /me` carries `ffmpeg`: `true` when ffmpeg and ffprobe are both found, `false` otherwise. When it is `false`, the Video tab of the export window shows "ffmpeg is missing on the server: web and social exports need it." with a **Read the guide** link to this page for an admin and "Ask an administrator to install it." for anyone else, and the **Export** button is disabled. The server refuses a video export by itself with 409 `ffmpeg_unavailable`. The files for other software and the last-image seam frame work without ffmpeg.
+- If you run PotionUI in Docker, check that the image contains ffmpeg and ffprobe.
+
+## Exports
+
+Three things are described here: four files for other software, built when the user asks; the assembled video, a background job; and the seam frame, an image taken from a take that joins two shots. The routes sit under `/api/plugins/video-producer` and need a signed-in user. As for every project route, the project must be the caller's, or the caller an admin; otherwise the answer is 404 `project_not_found` (see Projects and media › Access).
+
+### Files for other software
+
+`GET /projects/{id}/exports/{format}`, with `format` one of `fcpxml`, `otio`, `edl` and `srt` and the query parameter `media`: `path` (the default) or `name`. It is a GET and not a POST because the host's `api.download` only sends GET requests. Any other `format` or `media` answers 422 `invalid_request`, and `media` is checked for the SRT too although it changes nothing there.
+
+The server builds the file from the project as saved (`projects.get_project`) and from the table of takes, never from what the page shows. The page saves the project before it asks, and a failed save stops the export ("The project could not be saved: nothing was exported."). The answer is the file as an attachment: `Content-Disposition: attachment; filename="<slug>.<extension>"; filename*=UTF-8''<name>`. The slug is the project name in ASCII: spaces become `_`, accents are dropped, each run of other characters becomes one `_`, and `video-producer` stands in when nothing is left ("Aube sur le port" gives `Aube_sur_le_port.edl`); the second name keeps the accents.
+
+| Format | Content-Type | Extension | What the file holds |
+|---|---|---|---|
+| `fcpxml` | `application/xml` | `.fcpxml` | Final Cut Pro XML 1.10. One `format` resource named `FFVideoFormat<resolution><fps>` (for example `FFVideoFormat1080p25`), sized from the project resolution taken as a 16:9 frame (1280×720, 1920×1080 or 3840×2160); one `asset` per shot that has a file (the name of the shot, the length of its source, a `media-rep` whose `src` is a `file://` address); an event named "Video Producer" with a project named after the project and a sequence as long as the project (1 second at least). The spine holds an `asset-clip` per shot (`offset` its start in the sequence, `start` its in point in the source, `duration`) or a `gap` for a shot without file. Times are `frames/fps s`, rounded to the frame. Video only: no audio, title, fade or color. |
+| `otio` | `application/json` | `.otio` | An OpenTimelineIO `Timeline.1` named after the project, whose `Stack.1` holds the track `V1` (Video) and one Audio track per track of the console, named `<id> · <name>`. `V1` has a `Clip.2` per shot (the name, the `source_range`, an `ExternalReference.1` whose `target_url` is the file, and `metadata.video_producer` with the `stage` and the `take` of the shot) or a `Gap.1` for a shot without file. An audio track has its items in time order with `Gap.1` between them; each item is a `Clip.2` with its name, its range and `metadata.video_producer` (`role`, `gain_db`), and no file reference. Times are `RationalTime.1` at the frame rate of the project. |
+| `edl` | `text/plain; charset=utf-8` | `.edl` | CMX 3600, `FCM: NON-DROP FRAME`, CRLF line ends, the title in capitals. One event per shot, V track only: `001  VP001    V     C        <source in> <source out> <record in> <record out>`, then `* FROM CLIP NAME: <shot>` and, when the shot has a file, `* SOURCE FILE: <file>`. A shot without file is an event on the reel `BL` with no `SOURCE FILE` line. Timecodes are non-drop at the frame rate of the project; source timecodes count from the start of the file and record timecodes start at 00:00:00:00. |
+| `srt` | `application/x-subrip` | `.srt` | SubRip cues, numbered, `HH:MM:SS,mmm --> HH:MM:SS,mmm`, UTF-8. The cues are the transcripts of the audio items (`transcript` of the asset, preceded by `<character>: ` when the asset has a character, `<character> : ` in French) and the titles of the sequence (the text, then the subtitle on a second line), sorted by start time; each cue lasts as long as its item. The language is the one the user picked in the page. |
+
+Which file a shot has (`fileOf`, the same rule on the page and on the server):
+
+- A shot with no asset, or whose asset has no file, has none: a `gap` in FCPXML, `Gap.1` in OTIO, the reel `BL` in the EDL.
+- Otherwise the server looks for the file in this order: the finished take of the asset (its `resultId`, else the generation and file of its history origin), whose `file_path` is the file; the media that the asset's origin resolves to (a library item or a history file, resolved as the owner of the project); finally the name at the end of the asset's `src`, without its query string, which gives a name and no path. A generated asset whose take is unknown keeps the name `<label>_<quality>_<resultId>.mov`.
+- `media=path` writes the absolute path of the file on the server's disk: as is in the EDL (`* SOURCE FILE:`) and in OTIO (`target_url`), as a percent-encoded `file://` address in FCPXML. When the storage is not a local disk (object storage) no path exists and the name is written instead; FCPXML then points to `file:///Video%20Producer/<name>`.
+- `media=name` writes the base name of the stored file: the file of the take, or for a library source the stored name (`<uuid>.mp4`), not the name the user uploaded it under. The page never asks for it; it exists for clients that relink by name. The files of generated takes all have the same name, `1.mp4`, in different generation folders, so a name does not tell two takes apart.
+
+The page builds the same four files in the browser (`frontend/src/lib/exchange.js`), for the preview in the export window. That copy names files by their base name, so the preview shows names where the downloaded file shows paths. Both generators are tested against the same golden files (see Development).
+
+Opening them elsewhere: in Final Cut Pro, File › Import › XML… takes the `.fcpxml`, and the project arrives in the event "Video Producer". The addresses in the files are paths on the PotionUI server, so if the editing software runs on another computer the user copies the media there and relinks it. The window says the `.otio` opens in Resolve, in Premiere with a plugin and in Nuke Studio, and the `opentimelineio` Python package reads it. The plugin's tests check the form of the files (well-formed XML with every `asset-clip` pointing at a declared asset, one CMX event per shot, numbered cues, the OTIO read by `opentimelineio` when that package is installed); no test opens them in Final Cut Pro or Resolve.
+
+### The assembled video
+
+`POST /projects/{id}/exports/video` with the body `{"format": "web" | "social", "resolution": "720p" | "1080p" | "4K"}` queues an export and answers `202 {"job": …}`. `format` is required. `resolution` is optional and defaults to the resolution of the project, then to 1080p. `master` and `archive` are the simulated formats of the window and, like any other value, answer 422 `invalid_request`. After the body is checked, the refusals are: 409 `ffmpeg_unavailable` (no ffmpeg on the `PATH`), 409 `nothing_to_export` (no shot has a file that can be found), 409 `export_running` (an export of the same project is queued or running) and 429 `export_quota` (see Storage and quota).
+
+| Format | Frame |
+|---|---|
+| `web` | The aspect ratio of the project. The shots are fitted inside it and the unused area is black (bars at the sides or at the top and bottom). |
+| `social` | 9:16 whatever the project. The shots fill the frame and are cropped around their center. |
+
+The short side of the frame comes from the resolution (720, 1080 or 2160 pixels), the long side from the aspect ratio, rounded to an even number. A 16:9 `web` export is 1280×720, 1920×1080 or 3840×2160; a 9:16 one, and every `social` export, 720×1280, 1080×1920 or 2160×3840.
+
+A job is returned as:
+
+| Key | Content |
+|---|---|
+| `id`, `project_id`, `format`, `resolution` | The job and what it renders. |
+| `status` | `queued`, `running`, `done`, `failed` or `cancelled`. |
+| `progress` | 0 to 100, with one decimal. |
+| `step` | `assemble`, `mix`, `transcode` or `store` while it runs, otherwise `null`. |
+| `file` | When `done`: `{name, size, url}`. `name` is `<slug>_<resolution>.mp4` and `url` is `/api/plugins/video-producer/exports/<job id>/file`. Otherwise `null`. |
+| `media` | When `done`: `{kind: "library", item_id, url}`, the copy in the user's library (`url` is `/api/media/uploads/<file>`). Otherwise `null`. |
+| `error` | When it failed or was cancelled: `{code, message}`. Otherwise `null`. |
+| `created_at`, `finished_at` | Times in ISO 8601, UTC. |
+
+How the sequence is assembled, from the saved document, in one ffmpeg run with one `filter_complex` graph:
+
+- **Shots.** The shots of `clips` in document order, each at its `start`. Black, with silence, fills a shot that has no file, the holes between shots and the time between the last shot and the end of the sequence (the end of the last shot, audio item or title). A shot that has a file is cut from its `srcIn` for its duration, fitted to the frame (see above), and set to the frame rate of the project. An image is held for the duration of the shot, and a file that is shorter than the shot is held on its last image.
+- **Look and fades.** The Color settings of the shot, only when they are not neutral: `eq=contrast=<contrast/100>:saturation=<saturation/100>:brightness=<exposure*0.125>` and, when the temperature is not 0, `colortemperature=temperature=<6500 - temperature*20>`. Then the fade in and fade out of the shot.
+- **Sound.** The soundtrack of each shot's own file, when it has one, at 0 dB, and silence otherwise; the viewer does not play that sound but the export keeps it. On top, the audio items of the timeline: cut at their `srcIn`, delayed to their start, set to their gain plus the fader of their track in dB, with their fades. Muted tracks are left out, and when any track is soloed only the soloed tracks play. The sum is made by `amix` with `normalize=0`, without automatic leveling. The pan, the inserts (equalizer, compressor, filter), the sends, the automation and the master bus of the console are not applied.
+- **Not in the video.** The titles and markers of the timeline, the prompts, reference frames, Control videos and 3D shots. The subtitles are never burned in: the SRT is a separate export.
+- **Intermediate file.** `mezzanine.mp4` in the job folder: H.264 (`libx264 -preset veryfast -crf 14 -pix_fmt yuv420p`), AAC 192 k stereo at 48 kHz, as long as the sequence.
+- **Delivery file.** PotionUI's converter turns the intermediate file into `<slug>_<resolution>.mp4`: MP4 H.264 at the frame rate of the project, no wider than the frame, `faststart`, CRF 26 and preset `slow`, AAC 96 k. The plugin cannot change those values, and the converter stops an ffmpeg call after 600 seconds. The intermediate file is deleted once the converter has succeeded.
+
+| Stage | Progress | What runs |
+|---|---|---|
+| `queued` (a status, `step` is `null`) | 0 % | The job waits for its turn. |
+| `assemble` | 0 to 50 % | The ffmpeg run. Its progress is the time written (`-progress`) over the length of the sequence, scaled to 0–70 %. |
+| `mix` | 50 to 70 % | The same run: the mix is in the same graph and only the label changes from 50 %. |
+| `transcode` | 70 % | The converter. It reports no progress, so the figure stays at 70 % until it ends. |
+| `store` | 95 to 100 % | The copy in the user's library, then `done` at 100 %. |
+
+Jobs:
+
+- **Table and queue.** A job is a row of `video_producer_export_jobs` and, while it runs, a process kept in memory so that it can be killed. The queue is first in, first out, and one job runs at a time on the server, whoever owns it. A project has at most one export queued or running. The runner is a task of the application loop (`run_on_app_loop`): the first export request starts it, and so does the start of the application when jobs are waiting. A job reads the saved project when it starts to run, not when it was requested.
+- **Cancel.** `DELETE /exports/{job}` on a queued or running job cancels it: the job becomes `cancelled` with the error code `cancelled`, the ffmpeg process is killed and the folder is deleted. Nobody is notified. The converter cannot be interrupted: during the `transcode` step the job shows `cancelled` at once, but the server finishes the conversion before it frees the folder and takes the next job. A cancel during the last step can leave the copy in the library.
+- **Restart.** At startup, a job a stop left `running` becomes `failed` (`ffmpeg_failed`, "The server stopped during the export.") and its owner is notified; queued jobs go on. Disabling the plugin kills the ffmpeg process and stops the runner without ending the job, which becomes `failed` at the next start.
+- **Library copy.** The final MP4 is stored as a video of the library of the user who asked, through `save_user_media`; if that fails, because the storage plan of the user is full for example, the job fails with `store_failed`. The routes serve the file from the export folder, and the library holds its own copy that survives the deletion of the job.
+- **Notifications.** When a job ends the owner of the export gets **Video Producer: export ready** (`video-producer.export_done`) or **Video Producer: export failed** (`video-producer.export_failed`). The text reads "<project name>: the web video (1080p) is ready." or "…could not be exported." followed by the reason, and the metadata carry `project_id`, `job_id` and, for a success, the `url` of the file. Both types are on by default, and each user can tune them in their notification preferences. A cancelled export notifies nobody.
+- **The page.** The export window asks `GET /exports/{job}` every second while it is open and every three seconds while it is closed, as long as a job of the project is queued or running; the export goes on without the window, a toast with **Download** appears when it ends, and the tracking resumes when the page loads a project (after a reload, from the moment the project opens). Reopening the window lists the jobs again and picks up the active one. When the job ends while the window is open and the host has no library window to show, a toast "<file> is ready" offers **Download**.
+- **An admin** who exports another user's project gets the job, the folder and the library copy under their own account, and the media are resolved as the owner of the project.
+
+As one measure, on the test server the 29-second starter sequence at 1080p took 11 seconds (about 6 to assemble and mix, about 5 to convert) and gave a 3.2 MB file. A long 4K sequence on a slow machine can reach the 600 seconds of the converter.
+
+### Seam frames
+
+A seam frame is an image taken from a take and stored in the library, that the page sets as the first or last frame of a shot. It lets a shot start from where the previous one ended: the FL2VA profile starts a take on its first frame.
+
+`POST /projects/{id}/shots/{shot_id}/seam-frame`. The body is optional. `{"source": "previous_last"}`, the default, takes the last frame of a take of the shot that comes just before `shot_id` in the order of `clips`. `{"source": {"take_id": "…", "at": "last" | <seconds>}}` takes the frame of that take at that time, `at` being `"last"` or a number of seconds from the start of the take's video, 0 or more.
+
+- **Which take by default.** The take chosen for the previous shot (`clips[].take`) when it is finished and has a file, otherwise the most recent finished take of that shot that has a file.
+- **What is stored.** PotionUI cuts the frame (OpenCV) and stores it as a PNG upload in the library of the project owner, even when an admin asks. The file is named after the video of the take, followed by `-frame-last` or `-frame-<seconds>s`, and it counts in the storage plan of the owner.
+- **Answer.** `200 {"media": {…}}`: `kind` `library`, `item_id`, `media_type` `image`, `url` (`/api/media/uploads/<file>`), `filename`, `width`, `height` and `origin` (`{"kind": "library", "itemId": …}`), the shape of the answer of `POST /media/resolve`.
+- **Errors.** See Export errors: 404 `shot_not_found`, 404 `take_not_found`, 409 `no_previous_take`, 422 `invalid_request`, 502 `extract_failed`. The code of PotionUI's media error is in `detail.data.code` (for example `not_found`, `not_a_video`, `extract_failed`, or `limit_exceeded` when the storage plan is full); the page reads it as `err.data.code`.
+- **The route writes nothing in the document** (a test checks it). The page does: it adds an asset of `kind` `image` (name: the file name, or "Seam frame · <shot>"; `src`: the URL; `origin`: `{kind: "library", itemId}`; width, height and `res`) and a frame `{id, shotId, time, assetId, role, strength: 100}` as one undoable change, and the usual autosave saves it. `role` is `first` for "Use the previous shot’s last frame" and for an extraction in the first half of the shot, `last` for the second half; `time` is the start of the shot for `first` and the end of the shot minus 0.04 s for `last`, on the 0.04 s grid. For "Extract a frame at the playhead" the page sends `at` as the position of the playhead in the shot, plus the `srcIn` of the shot when that take is the one the shot plays; a playhead outside the shot counts as its start or its end.
+- **Replacement.** A shot keeps one `first` and one `last` frame image. If one exists, the page asks "Replace the first frame?" or "Replace the last frame?" (buttons **Replace** and **Keep the current one**), then changes the frame in place (same id) and removes duplicates of that role. The earlier asset stays in the project's assets.
+- **What reads it.** The generation takes the frames with the role `first` and `last` (older documents wrote `Début` and `Fin`, read the same way): a first frame alone gives an image-to-video take, both give a first-and-last-frames take. The color measure of the page (the **Match** fix and the continuity alerts) also uses them: for a seam it measures the last frame image of the previous shot and the first frame image of the shot when they exist, and the thumbnail of the shot for a side that has no frame image. The tooltip of the **Measured** badge of the assistant's check says which: "Measured by this page on the seam frames: last image of the previous shot, first image of this one" or "Measured by this page on the shots’ thumbnails".
+
+Where the page offers the action: **Use the previous shot’s last frame** on each alert of Director IA › Direction › To check and of the Storyboard › Continuity, on the assistant's "no first frame" lines, in the **Frames** section of the shot in the Inspector, and as an icon next to the FL2VA warning of the Production bar; **Extract a frame at the playhead** on the card of a finished take.
+
+### Storage and quota
+
+- **Where.** A job works in `<file storage directory>/video_producer/exports/<user id>/<job id>/`, the user being the one who asked for the export. While it runs the folder holds `mezzanine.mp4` and, when the storage is not a local disk, a local copy of every source file it reads. A done job keeps only its MP4, `<slug>_<resolution>.mp4`. The folder of a failed or cancelled job is deleted.
+- **Budget.** **Export cache per user (MB)** (`export_dir_quota_mb`) is the size of the whole `exports/<user id>/` folder, counted over every file in it. It is checked at each `POST …/exports/video`, before the job is created. When the folder is at or over the budget, the finished jobs of that user (done, failed, cancelled) are deleted with their folders, the oldest first, until it is under; a job that is queued or running is never deleted. If it cannot get under, the answer is 429 `export_quota` with `data.quota_mb`. The check comes before the job, so one export can take the folder over the budget; the next request then clears room.
+- **Not counted.** The copy in the library belongs to the storage plan of the user in PotionUI, not to this budget; deleting or evicting a job leaves it there. The files for other software are not stored: they are built at each download.
+- **Other deletions.** The user can delete a finished export from the export window (`DELETE`): its folder goes and the library copy stays. Deleting a project cancels its queued or running exports and deletes all its jobs and folders.
+
+### Routes
+
+Answers are `{success: true, data}`; errors are described under Export errors. A job can be read by the user who started it, by an admin, and by the owner of the project; for anyone else the answer is 404 `job_not_found`.
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /projects/{id}/exports/{format}?media=path\|name` | | The file, as an attachment. `format` is `fcpxml`, `otio`, `edl` or `srt`. |
+| `GET /projects/{id}/exports` | | `{jobs}`: the video exports of the project, newest first. |
+| `POST /projects/{id}/exports/video` (202) | `{format, resolution?}` | `{job}`. |
+| `GET /exports/{job}` | | `{job}`. |
+| `GET /exports/{job}/file` | | The MP4 (`video/mp4`) as an attachment named `<slug of the project name>_<resolution>.mp4`. 409 `not_ready` until the job is done; 404 `job_not_found` when the file is no longer on the disk. |
+| `DELETE /exports/{job}` | | On a queued or running job: cancels it and answers `{job}`. On a finished one: deletes the job and its folder and answers `{deleted}`, the id. |
+| `POST /projects/{id}/shots/{shot}/seam-frame` | `{source?}` | `{media}`. |
+| `GET /me` | | Also `ffmpeg`, `true` when ffmpeg and ffprobe are found, else `false`. |
+
+### Export errors
+
+| Code | Status | When |
+|---|---|---|
+| `project_not_found` | 404 | See Projects and media › Errors. |
+| `job_not_found` | 404 | The job does not exist, is not one the caller may read, or its file is gone. |
+| `invalid_request` | 422 | An unknown `format` or `media`; a body that is not a JSON object, or a `format` or `resolution` outside the lists; a seam-frame `source` that is neither `"previous_last"` nor `{take_id, at}`, or an `at` that is neither `"last"` nor a number of seconds. |
+| `ffmpeg_unavailable` | 409 | `ffmpeg` is not on the `PATH`. |
+| `nothing_to_export` | 409 | No shot of the sequence has a file. |
+| `export_running` | 409 | An export of the project is queued or running. |
+| `export_quota` | 429 | The export folder is over its budget and nothing more can be evicted. `data.quota_mb` is the budget. |
+| `not_ready` | 409 | The file of a job that is not `done`. |
+| `owner_not_found` | 409 | An admin acts on a project whose owner no longer exists. |
+| `shot_not_found` | 404 | The shot is not in the saved project. |
+| `take_not_found` | 404 | The `take_id` is not a take of the project. |
+| `no_previous_take` | 409 | The shot is the first, or the shot before it has no finished take with a file, or the take named has no finished file. |
+| `extract_failed` | 502 | PotionUI could not cut or store the frame. `detail.data.code` carries its code. |
+
+A job that ends badly carries `error.code`: `ffmpeg_failed` (the assembly failed, no shot file could be read, the project or its owner is gone, or the server stopped), `transcode_failed` (the converter failed), `store_failed` (the library copy failed) or `cancelled`. `error.message` is the last useful line of ffmpeg's error output, 300 characters at most. The page writes its own sentence from the code ("ffmpeg could not assemble the video.", "The video could not be converted.", "The video could not be saved to your library.", "The export was cancelled.") and shows the message under it.
+
+### Tables
+
+`video_producer_export_jobs`: one row per video export: `id`, `project_id`, `user_id` (the user who asked), `format`, `resolution`, `status`, `progress`, `step`, `file_name`, `file_size`, `media_item_id` and `media_url` (the library copy), `error_code`, `error_message`, `created_at`, `started_at`, `finished_at`. The table is created at startup with the others; deleting a project deletes its rows and folders.
+
+## Storage and exports
+
+- The web and social videos are written under `video_producer/exports/` and copied to the library of the user; the other exports are built at each download and stored nowhere. See Exports › Storage and quota.
+- Takes are ordinary PotionUI generations: their files and thumbnails stay in the user's history and gallery, under the user who owns the project, and the page plays them from `/api/media/generations/<generation id>/<file name>`. Deleting a take, or its project, in Video Producer does not delete the generation or its files. A user who deletes the generation from the gallery breaks the playback of the take.
+- Projects are rows of the database, not files (see Projects and media). Imported media are not copied: a project keeps a reference to the library item or to the generation file.
+- Seam frames and the copy of each export are library items of the user, and count in that user's storage plan.
+
+## Projects and media
+
+The projects of every user are saved on the server, in the plugin's tables, as the user works. This section is the reference for the tables, the setting, the routes and their error codes, the document schema, the media resolution and the access rules. The routes sit under `/api/plugins/video-producer` and need a signed-in user.
+
+### Tables
+
+| Table | What it holds |
+|---|---|
+| `video_producer_projects` | One row per project: `id`, `user_id` (the owner), `name` (a copy of the name inside the document), `doc` (the document, as canonical JSON text), `version` (1 at creation, +1 per save), `created_at`, `updated_at`. |
+| `video_producer_versions` | One row per stored version: `project_id`, `version`, `doc`, `label`, `source_version`, `created_at`. `source_version` is filled only for a version created by a restore, with the number of the version restored; the column is added at startup to a database that lacks it. |
+| `video_producer_takes` | One row per take: `id`, `project_id`, `shot_id`, `user_id` (the owner of the project), `generation_id`, `quality` (`draft` or `final`), `kind` (`render` or `upscale`), `parent_take_id`, `preset_id`, `mode` (the mode of the preset that was submitted), `director_mode` (`t2v`, `i2v`, `flf` or `refs`, the mode really used), `backend_id`, `model_id` (a cloud model), `seed`, `resolution`, `status` (`queued`, `running`, `done`, `failed` or `cancelled`), `progress`, `step`, `variant`, `chosen`, `flag` (`keep` or `reject`), `profile`, `prompt_text`, `file_path`, `thumb_path`, `file_id`, `width`, `height`, `duration_s`, `fps`, `error_code`, `error_message`, `units_reserved` (the GPU minutes reserved; 0 for a cloud take, an exempt user or a user without a limit), `request` (the frozen request, as JSON), `created_at`, `started_at`, `finished_at`. |
+| `video_producer_jobs` | One row per hand-over of a take to PotionUI: `id`, `take_id`, `generation_id`, `limit_ref_id` (the reference of the quota event, `video-producer:<take id>`), `units_reserved`, `started_at`, `finished_at`. |
+| `video_producer_calibration` | One row per finished take, for the time estimate: `preset_id`, `backend_id`, `resolution`, `seconds`, `duration_ms`, `created_at`. See Generation › Time calibration. |
+| `video_producer_export_jobs` | One row per video export: `id`, `project_id`, `user_id`, `format`, `resolution`, `status`, `progress`, `step`, `file_name`, `file_size`, `media_item_id`, `media_url`, `error_code`, `error_message`, `created_at`, `started_at`, `finished_at`. See Exports › Tables. |
+
+The columns of the takes table beyond the first version (`director_mode`, `model_id`, `progress`, `step`, `variant`, `chosen`, `flag`, `profile`, `prompt_text`, `file_id`, `units_reserved`, `started_at`, `user_id`, `request`) are added at startup to a database that lacks them.
+
+The document is stored as canonical JSON: sorted keys, compact, UTF-8; NaN and infinity are refused. A save whose canonical text equals the latest stored version stores nothing: the answer carries `unchanged: true` and the current version. Deleting a project cancels the takes it has in flight (their PotionUI generations are cancelled and their reserved minutes refunded), then cancels its queued or running video exports and deletes their rows and folders (see Exports › Storage and quota), then deletes its rows, with those of its versions, takes and jobs; the library items and the generations it used, the generations of its takes included, and the copies of its exported videos, stay in the user's library and gallery, and the calibration rows stay.
+
+### Versions and the `versions_kept` setting
+
+Each save that changes the document adds a row to `video_producer_versions` with the next version number and updates the project row. The page saves by itself less than a second after each change, so one editing session produces many versions.
+
+**Versions kept per project** (`versions_kept`, 5 to 500, default 50) caps the history. After every save and every restore, a project keeps its most recent N versions and the older rows are deleted; the current version is always one of them. Lowering the setting takes effect at the next save of each project. Every version holds the whole document (at most 4 MiB), so a project can use about N times the size of its document. Restoring a version that was pruned answers 404 `version_not_found`.
+
+A restore never rewrites history: restoring version V stores the document of V as the next version, with `source_version` set to V. It is pruned like any other save.
+
+### Concurrent saves
+
+A save names the version the page read (`version` in the body). The write succeeds only if the project is still at that version. Otherwise nothing is written and the answer is 409 `version_conflict`, with the current version in `data.version`. The page then reloads the project from the server, shows a message and drops what was not saved in that page: there is no merge. Two tabs of the same user on the same project are enough to trigger it. If the project was deleted in the meantime, the save answers 404 `project_not_found` instead: the page stops saving that project, says so, and opens the most recently modified project of the user, or creates the starter project.
+
+### Routes
+
+| Route | Body | Answer |
+|---|---|---|
+| `GET /projects` | | `{projects}`: the caller's own projects, last updated first, each with `id`, `name`, `version`, `created_at`, `updated_at`, `shots` and `duration_s`. |
+| `POST /projects` (201) | `{doc, name?}` | `{project}` at version 1, with its document. `name`, when given (at most 200 characters), replaces the name inside the document. |
+| `GET /projects/{id}` | | `{project}` with its document. |
+| `PUT /projects/{id}` | `{doc, version, label?}` | `{project}` with `id`, `name`, `version`, `updated_at` and `unchanged`. `version` is the integer the page read; `label`, when given, is at most 200 characters, is stored as given with the version and is returned by `GET /projects/{id}/versions` (`null` without one). The page sends none; the assistant's tools store `Assistant` through the same function. |
+| `DELETE /projects/{id}` | | `{deleted}`, the id. Cancels the takes in flight and refunds their reservations, then deletes the versions, takes and jobs of the project. |
+| `GET /projects/{id}/versions` | | `{versions}`, latest first, each with `id`, `version`, `label`, `source_version`, `created_at` and `shots`. |
+| `POST /projects/{id}/versions/{version}/restore` | | `{project}` with the restored document, as the next version. |
+| `POST /media/resolve` | `{origin}` | `{media}` with `kind`, `media_type`, `url`, `filename` and `origin`. See Media resolution. |
+| `GET /me` | | `{locale, last_project_id, is_admin, limits, settings, plugin, engines, presets, features, upscale_targets, ffmpeg}`: the language and the last project of the user, whether they are an admin, their GPU minutes (`limits.gpu_minutes`), the plugin settings, and the engines, presets and features described under Generation › Routes and Exports › Routes. |
+| `PUT /me` | `{locale?, last_project_id?}` | `{locale, last_project_id}`. `locale` is `en` or `fr`; `last_project_id` is one of the caller's projects or `null`. See below. |
+
+The routes of the takes, of the estimate and of the generation are in Generation › Routes; those of the exports and of the seam frame are in Exports › Routes.
+
+`GET /me` and `PUT /me` also carry the last project of the user: `last_project_id`, a per-user plugin setting like the locale. `GET /me` returns it as `null` when the stored project no longer exists or is not the caller's, and lists `versions_kept` among its `settings`. `PUT /me` takes `{locale?, last_project_id?}`; a key left out stays as it is, and `last_project_id: null` forgets the project. A body with neither key answers 422 `invalid_locale`.
+
+### Errors
+
+An error answers with its HTTP status and a body `detail` shaped `{"success": false, "error": <code>, "message": <text>, "data": <object, when there is one>}`. The page maps the codes to its own messages. The codes of the projects and media routes:
+
+| Code | Status | When |
+|---|---|---|
+| `project_not_found` | 404 | No such project, or a project of another user (the caller is neither its owner nor an admin). Also `PUT /me` with a `last_project_id` that is not the caller's, an admin included. |
+| `version_not_found` | 404 | The project has no such version: it was pruned, never existed, or the number is not an integer. |
+| `version_conflict` | 409 | The project moved on since the version the caller read. `data.version` is the current version. A restore can raise it only when another save lands at the same moment. |
+| `invalid_doc` | 422 | The document breaks the schema or holds a value that JSON cannot carry (NaN). The message starts with the JSON path of the offending value, for example `$.clips[0].dur: …`, and is cut to 300 characters. |
+| `doc_too_large` | 422 | The canonical document is over 4 MiB (4,194,304 bytes). |
+| `invalid_request` | 422 | The body is not a JSON object, has no `doc` (or no `origin`), has a `version` that is not an integer, has a `name`, a `label` or a `last_project_id` of the wrong type, or has a `name` or a `label` over 200 characters. |
+| `invalid_ref` | 422 | The media origin has an unknown `kind`, keys other than exactly those of its kind, or an id that is not a non-empty string. |
+| `invalid_locale` | 422 | `PUT /me` with a body that is not an object, with neither `locale` nor `last_project_id`, or with a `locale` other than `en` or `fr`. |
+| `media_not_found` | 404 | The generation, the file or the library item does not exist, was removed, or is not the caller's to read. |
+
+The codes of the takes, the estimate and the generation are in Generation › Take errors; those of the exports and of the seam frame are in Exports › Export errors.
+
+### The document
+
+The document is the JSON that the page edits: the project settings (`name`, `fps`, `aspect`, `resolution`, `promptLanguage`), the direction and the synopsis, the shots (`clips`), `audio`, `titles`, `prompts`, `frames`, `controls`, `plans3d`, `markers`, `references`, `scenes`, the console (`lanes`, `aux`, `master`), `profiles`, `engine`, `hybrid` and the `assets`, which are the media. Its schema is `DOC_SCHEMA` in `backend/projects.py`, a JSON Schema (draft 2020-12) checked with the `jsonschema` library when a project is created or saved, not when it is read.
+
+The key `results`, where older pages kept simulated takes, is no longer part of the schema. A document that still holds it is accepted: the backend drops the key when it reads a project or a version, when it restores a version and when it creates or saves a project, without an error, so a browser tab opened before the update goes on saving; a document that differs from the stored one only by `results` answers `unchanged`. Only the schema check itself (`validate_doc`) refuses it.
+
+The schema is strict. Every object lists all its fields as required and refuses any other one (`additionalProperties: false`), at every level, with one exception: `engine.preset` and `engine.model` are optional, so that a document saved by an older page, which did not write them, is still accepted. Fixed vocabularies are enumerations: the clip `stage` and `flag`, the audio roles (`Dialogue`, `Musique`, `Ambiance`, `SFX`), the lane `automation`, the insert types, the reference `space` and `scope`, the scene kinds, the control `source`, and the asset `kind`, `role` and `synth`. Other fields are free text or numbers without bounds (for example `aspect`, `resolution`, `fps`, the marker `kind`, the clip `preset` or the engine `quality`), and `engine.seed`, `steps`, `guidance` and `variants` may be null.
+
+`engine` holds the choice of engine: `backend` (the id of one of the engines of `GET /me`), `preset` (the id of the preset, or null) and `model` (the catalog id of the cloud model, or null for a native preset), and the number of `variants`. A clip holds in `take` the id of the take it plays (a row of `video_producer_takes`). The takes themselves are not in the document.
+
+An asset has `id`, `kind` (`video`, `image` or `audio`), `name`, `src` (the address the page plays, or null), `origin` (`{kind: "history", generationId, fileId}`, `{kind: "library", itemId}` or null), `srcDur`, `width`, `height`, `fps`, `res`, `generated`, `quality`, `resultId`, `role`, `synth`, `transcript`, `character` and `lipSync`. The video of a take that is placed on the timeline is the asset `gen-<take id>`: `kind` `video`, `src` the URL of the take, `origin` the generation and the file, `generated` true, `quality` `draft` or `final` and `resultId` the id of the take.
+
+A refusal (422 `invalid_doc`) means that the document sent does not match the schema of the backend. The page and the backend ship in the same plugin, so it usually means a browser tab opened before the plugin was updated, or a client other than the page: a tab that still runs an older page writes `results` and no `engine.preset` or `engine.model`, which is accepted, but a new page against an older backend (whose schema requires `results`) is refused. The page then shows "The project could not be saved: its content was refused." and keeps the changes in memory; the message of the answer, visible in the network tools of the browser, gives the path of the offending value.
+
+The language of the prompts is the field `promptLanguage` (`en` or `fr`, required, `en` by default in the page). It is a choice per project, independent of the language of the interface, which stays a per-user setting. The backend stores it, and the assistant's tools read it to pick the contradiction rules; the page uses it for the text of the starter project, the templates and the composer of the prompt library, the contradiction rules, and the assistant, which writes shot prompts in it (see The assistant mode). Changing it never rewrites existing text.
+
+### Media resolution
+
+The PotionUI pickers (the library for images, videos and audio, the gallery for images and videos) hand the page an origin: `{kind: "history", generationId, fileId}` or `{kind: "library", itemId}`. The page sends it to `POST /media/resolve`, which asks PotionUI to resolve the reference as the signed-in user and answers with what the page plays:
+
+- `url`: `/api/media/generations/{generationId}/{file name}` for a gallery file, `/api/media/uploads/{file name}` for a library item. These routes belong to PotionUI; the plugin serves no media.
+- `media_type`: `image`, `video` or `audio`, in lowercase.
+- `filename`: the original file name. `kind`: the kind of the origin. `origin`: the origin as it was sent.
+
+The page stores `url` and `origin` in the asset of the document. Nothing is copied: a project holds references, so removing a file from the library or the history breaks the media of every project that uses it, and `POST /media/resolve` answers 404 `media_not_found` for it from then on. The origin must have exactly the keys of its kind, with non-empty string ids. An origin of another kind answers 422 `invalid_ref` without calling PotionUI. The same resolution is used to give the references and frames of a shot to a generation, and the source video of an upscale.
+
+### Access
+
+A project belongs to the user who created it, and every route checks it.
+
+- The list shows only the caller's own projects, admins included.
+- Reading, saving, deleting, listing the versions, restoring, and every route of the takes, the estimate, the generation, the exports and the seam frame need the project to be the caller's, or the caller to be an admin. For anyone else the answer is 404 `project_not_found` (or `take_not_found`, `job_not_found`), never 403, so the existence of a project is not revealed. An admin who knows a project id can therefore read or change any project through the API, and start takes on it: they run as the owner of the project, with the owner's presets, quota and history. An admin who exports a project gets the job, the folder and the library copy under their own account, with the media resolved as the owner; a seam frame is stored in the owner's library. The page offers no way to list the projects of other users.
+- `PUT /me` accepts only the caller's own projects as `last_project_id`, admins included.
+- `POST /media/resolve` resolves only what the caller can read in PotionUI: their own library items and the generations that are visible to them.
+
+### Liveness
+
+`GET /health` answers `{success: true, data: {status: "ok", plugin: "video-producer", version}}` to any signed-in user and 401 to anyone else. It reads and writes nothing; it only tells that the API of the plugin is mounted. The page does not call it, and `tests/test_health.py` covers it.
+
+## Notifications
+
+Video Producer sends a PotionUI notification to the owner of a take when it is ready (**Video Producer: take ready**, type `video-producer.take_done`) and when it fails (**Video Producer: take failed**, type `video-producer.take_failed`). The text reads "<project name>: the draft take A is ready." or "<project name>: the final take B failed." followed by the reason, and carries `project_id`, `take_id` and `shot_id` as metadata. Both types are on by default, and each user can tune them in their notification preferences. The page also shows a toast when the takes it follows end ("2 draft takes ready", "1 take failed").
+
+A video export sends its own two notifications to the user who asked for it: **Video Producer: export ready** (`video-producer.export_done`) and **Video Producer: export failed** (`video-producer.export_failed`). Both are on by default and tunable like the first two; their text and metadata are described under Exports › The assembled video.
+
+## The assistant mode
+
+The assistant is the PotionUI chat, working in a chat mode that this plugin contributes. The **Assistant** button of the project bar, **Window › PotionUI assistant** and Ctrl+J (⌘J on a Mac) open the chat, and a conversation started from a page under `/plugins/video-producer` is in the mode **Video Producer assistant**. The assistant reads the project that is open on the page and has four tools: write the prompt of a shot, fix the contradictions with the global direction, cut a synopsis into shots and check the continuity between shots. It proposes and the user approves: the three tools that write or propose show a preview card in the chat, and nothing changes until the user approves it. The mode has no plugin setting: the model, the tool switches and the chat belong to PotionUI.
+
+### Requirements
+
+- **A language model, configured and assigned.** In Admin → LLM / Assistant, click **Add configuration**, pick a type (Ollama or OpenAI are recommended, see Which language model), then assign the configuration to the users or groups who use Video Producer. The plugin calls no model itself: the chat uses the model that PotionUI gives the user, like for every other chat mode. Without an assigned configuration the chat is empty: an admin reads "No enabled LLM configurations", a user "Chat is currently unavailable".
+- **A model that can call tools.** The four actions are tools. A model that cannot call them only answers in text.
+- **Tools on.** In the composer of the chat, **Tools** must be on (its tooltip reads "Tools ON" or "Tools OFF"). An admin can also turn a tool off, or lock it on, for one configuration: Admin → LLM / Assistant, open the configuration, tab **Toolset**, group **Video Producer**.
+- **Where the text goes.** The context block described below is sent to the model with every message. With a hosted provider such as OpenAI it leaves your server for that provider; with a model that runs on your own machines (Native, or an Ollama that you host) it does not.
+
+### Which language model
+
+The chat sends the context block and the definitions of the four tools with every message, and the tools only work when the model calls them correctly. The model must also fit in memory next to whatever else runs on the machine.
+
+- **Recommended: Ollama, or an online provider such as OpenAI.** Ollama on a machine other than the video GPU, or a provider, leaves the whole video card to the engine. Neither was tried during validation (no Ollama instance and no API key were available): the assistant was validated end to end against a scripted OpenAI-compatible server (mode, context, tools, approval cards, writes, page updates). Check one conversation with the model you choose, and pick a model that supports tool calls.
+- **Not recommended on a 12 GB card: the Native client.** Measured on the RTX 4070 Ti 12 GB, with the tools sent as part of the prompt (`force_prompt_tools`):
+  - Qwen3 4B in nf4 loads (129 s the first time, about 4.4 GB of VRAM for the model) and answers a short question, but the first real turn of the assistant ran out of GPU memory while the prompt was processed: peak 11,971 MiB, CUDA out of memory after 91 s, no tool called. With the thinking mode of the model on, the turn had not ended after 12 minutes. The context block is not the cause (about 1,500 characters for a project of four shots): the native client does not bound its attention memory while it processes the prompt. After the error the CUDA context of the PotionUI process stayed unusable, so every following turn failed within seconds until the container was restarted.
+  - Qwen3 1.7B in nf4 loads in 29 s (about 2.6 GB) and never ran out of memory (peak 4.6 GB), and its turns lasted 5 to 91 s, but it produced one well-formed tool call in nine attempts and no approval card: it is too small for the tool protocol.
+  - The `nf4` and `int8` quantizations of the Native client need the optional Python package `bitsandbytes`, which the PotionUI image does not contain. The 4B model without quantization (bf16, 7.5 GB) did not fit either.
+
+### Mode and context
+
+The mode is declared in `manifest.yml` under `chat_modes`: `id` `video-producer`, `name` "Video Producer assistant", `icon` `film`, `default_route_prefixes` `/plugins/video-producer`, `context_contributor` `backend.chat.context.build_context`, and a `system_prompt` in English that ends with `{{TOOL_HINTS}}`. The four tools are declared under `tools:` with `modes: ["video-producer"]`, so they are visible in this mode only; disabling the plugin removes the mode and its tools.
+
+- **The mode follows the route.** The chat takes the mode whose route prefix is the longest match for the current page, so the page calls no `declareMode`. A conversation keeps the mode it was started in. When the chat holds a conversation started in another mode, its header says "Started in …" and offers **start a new chat**; until then the Video Producer tools and context are not in that conversation.
+- **The system prompt** tells the model to ground its answers in the context block and to name shots by their label; to ask the user to open a project when the block says the page is not open; to write every shot instruction, rewrite and proposed shot in the prompt language of the project and to answer the user in the user's own language, without translating what the user wrote; to keep an instruction to one to three sentences (subject and action, framing, camera movement, light) that does not repeat the global direction; to call the tool instead of writing the new text in its reply; to say nothing is done before the user approves; and, when a tool answers `project_not_found`, `shot_not_found` or `version_conflict`, to say so plainly and suggest reloading the project.
+- **The context.** The page registers the provider `video_producer` when it mounts (`startAssistant` in `frontend/src/lib/assistant.svelte.js`) and removes it when it unmounts. With each message, the host adds its result to the request and `build_context` (`backend/chat/context.py`) turns it into one system block. The provider returns fourteen keys: `projectId`, `projectVersion`, `name`, `promptLanguage`, `workspace`, `selection`, `playhead`, `range`, `synopsis`, `direction`, `production`, `shots` (per shot: `id`, `label`, `start`, `dur`, `stage`, `promptId`, `prompt` cut at 300 characters, `hasFirstFrame`, `hasLastFrame`, `take`), `issues` (the conflicts the page flags: `shotId`, `level`, `text`) and `seams` (the continuity the page measured: `fromShotId`, `toShotId`, `issues` with `kind` and `text`, `measured`).
+- **The block** holds, in this order: the project (name, id, saved version), the prompt language, where the user is (workspace, playhead and the shot under it, selection, range), the synopsis, the direction (generation profile and the five fields), the shots in timeline order (id, label, start and end, stage, take id, frames `none`, `first`, `last` or `first+last`, prompt), the conflicts of the page, the continuity it measured and the production state (state, progress, mode, quality, target, queue). It is bounded to 8,000 characters: the synopsis to 800, each direction field to 240, each shot prompt to 160, 40 shots, 20 conflicts and 20 continuity lines. When it is too long, the list of shots gives way first and ends with "… N more shots not shown." With no `projectId` the block is one fixed line, "Video Producer: the page is not open on a project this turn, so there is no project context."
+- **What is not sent.** Media files and thumbnails, take videos, references, audio tracks, titles, markers, 3D scenes, the engine and the other projects of the user. The model sees no image.
+
+### Tools
+
+Each tool is a class of `backend/chat/tools.py`, in the group **Video Producer**. The label is the one shown on the approval card and in the **Toolset** tab. A successful result is JSON in `ToolResult.data` and carries `project_id`. The project is read from the database with `projects.get_project`, from the `projectId` of the page context; the caller must own it or be an admin, the same rule as the routes (see Projects and media › Access).
+
+| Tool | Label | Approval | Arguments | What it does |
+|---|---|---|---|---|
+| `vp_write_shot_prompt` | Write shot prompt | Yes | `shot_id` (string, an id from the context), `text` (string, 1 to 4,000 characters, the complete new instruction) | Writes the instruction of one shot. Creates the prompt linked to the shot when it has none, otherwise replaces its `text`. The text is stored as given. Result: `project_id`, `shot_id`, `prompt_id`, `text`, `version`. |
+| `vp_fix_conflicts` | Fix conflicts | Yes | `rewrites`: a list of `{shot_id, text}`, 1 to 100 entries, one per shot (a repeated shot is refused) | Rewrites several instructions in one change, typically the conflicts listed in the context. Result: `project_id`, `changes` (each `shot_id`, `prompt_id`, `before`, `after`), `version`. |
+| `vp_split_synopsis` | Split synopsis | Yes | `shots`: a list of `{label, prompt, duration_s}`, 1 to 24 entries; `label` 1 to 34 characters, `prompt` not empty (at most 4,000 characters), `duration_s` from 2 to 15 | Proposes a cut of the synopsis (or of a story the user tells) into shots. Writes nothing. Result: `project_id`, `proposal` (the validated shots). |
+| `vp_check_continuity` | Check continuity | No | None | Reads the project and lists the seams to check. Writes nothing. Result: `project_id`, `seams`, `checked_at`. |
+
+What the user sees on the approval card (`ToolApprovalPreview`):
+
+- `vp_write_shot_prompt`: kind `text_edit`, action "Write shot prompt", target the label of the shot, one block labelled with the shot, carrying the new text and, as `old_text`, the instruction now in force (the shot's own prompt, else the sequence prompt that covers most of the shot), so that PotionUI shows the old and the new text and refuses a stale confirmation.
+- `vp_fix_conflicts`: kind `text_edit`, action "Fix conflicts", target "N shots", one block per shot, labelled with the shot, with `old_text` so that PotionUI shows the old and the new text.
+- `vp_split_synopsis`: kind `timeline`, action "Split synopsis", target "N shots, T s", one row per shot with its time range and "label: beginning of the prompt" (90 characters).
+
+`vp_check_continuity` returns, in timeline order, only the seams that have a problem, each as `from_shot_id`, `to_shot_id`, `from_label`, `to_label` and `issues` (`kind`, `text`, `fix`, and `shot_id` or `rule` when they apply). `text` and `fix` are English sentences. The page writes its own translated text from `kind` and keeps the English one as a fallback. Shots at the stage `source` are skipped. The kinds are:
+
+| `kind` | Made by | When |
+|---|---|---|
+| `no_instruction` | The server | A shot has no instruction: no prompt of its own and no sequence prompt covering it, or an empty one. |
+| `conflict` | The server | The instruction breaks a contradiction rule against the global direction (the issue carries `rule`, see Contradiction rules below). |
+| `duration` | The server | The shot lasts less than 2 s or more than 15 s. |
+| `fl2va_no_frame` | The server | The project profile is FL2VA and the shot has no first frame. |
+| `camera_change` | The server | Two consecutive shots each name a camera move and share none. |
+| `lum`, `warm` | The page | A brightness or color temperature jump between two shots, measured on their thumbnails and sent in `seams`. |
+| `identity` | The page | The similarity score between two takes, sent in `seams`. It stays simulated (see What stays simulated). |
+
+### Approvals and writes to the database
+
+- **Approval.** `vp_write_shot_prompt`, `vp_fix_conflicts` and `vp_split_synopsis` have `requires_approval`. Their `execute` builds the preview and writes nothing; `execute_confirmed` runs once, when the user clicks **Approve** on the card. **Reject**, with or without a reason, runs nothing. `vp_check_continuity` has no approval and runs as soon as the model calls it.
+- **What is written.** Only `vp_write_shot_prompt` and `vp_fix_conflicts` write. They change the `text` of the prompt linked to the shot in the `prompts` of the project document, or add a prompt to it (new ULID `id`, `shotId`, the `start` and `dur` of the shot, `strength` 75, `text`). `vp_fix_conflicts` does all its shots in the same document. Neither tool adds, moves or deletes a shot, nor touches the direction, the synopsis, the media, the takes or `engine`, and neither starts a generation.
+- **One version per approved call.** The document is saved through `projects.save_project`, with the version the tool has just read and the label `Assistant`, so it goes through the same schema check as a save from the page, adds one row to `video_producer_versions` (the **Version history** window shows "Assistant" in it) and counts toward **Versions kept per project**. Nothing is stored when the text did not change.
+- **Concurrent saves.** `execute_confirmed` reads the latest stored document, not the one of the preview, so a save made after the preview is kept and the change goes on top of it. If the project is saved elsewhere between that read and the tool's own save, the save is refused with a version conflict; the tool reads the document again, applies the change again, and fails with `version_conflict` only when that second attempt is refused too.
+- **No write for the other two.** `vp_split_synopsis` and `vp_check_continuity` write no row. The split is applied by the user, on the page, from the Storyboard.
+
+### What the page does with a result
+
+The page registers `onToolApplied` for each of the four tools (`frontend/src/lib/assistant.svelte.js`). A tool that needs approval reaches its handler when the user approves; `vp_check_continuity` reaches it when the assistant's reply is final. A result is delivered once: opening an earlier conversation does not replay it.
+
+- **`vp_write_shot_prompt`, `vp_fix_conflicts`.** A result whose `project_id` is not the open project is `stale`: the chat shows "The assistant changed another project, not the one open here." in place of the assistant's narration. A `version` older than the page's own is a `noop`. Otherwise the page applies the same text to its own document as one undoable change, takes the returned `version` as its saved version (no autosave, the server already has it), and shows "Prompt of “…” updated by the assistant" or "N prompts rewritten by the assistant". It reloads the project (`openProject`) instead when the `version` is more than one ahead of its own, when a shot is missing from its document, or when the user has unsaved edits on the same prompts, with "Project reloaded with the assistant’s changes"; a reload drops unsaved local changes and the undo history.
+- **`vp_split_synopsis`.** The proposal (kept, numbered, with ULID ids) fills `ui.storyProposal`, the page opens the Storyboard and shows "N shots proposed in Storyboard". The user ticks, renames and clicks **Add N shots at the end** in the **Proposed breakdown**, the same list as the **Propose a breakdown** button. For another project, `stale` with "This answer is about another project, so nothing was shown here."
+- **`vp_check_continuity`.** The seams fill the **To check** section of the Direction tab (a dot appears on the tab), and a toast says "N continuity points to check", with a **Show** button when the Direction tab is not on screen, or "Continuity checked: nothing to fix". The section stays until the user dismisses it, leaves the page or opens another project.
+- A host that predates the delivery of tools without approval to `onToolApplied` (see "When `onToolApplied` runs" in `docs/plugin-api.md`) passes the page only the approved calls. The chat still works, but the continuity check shows no **To check** list on the page.
+
+### Errors
+
+A failed call returns `ToolResult(success=False)` with `error` set to `<code>: <message>`, the code first and stable. A failure at the preview goes back to the model, which tells the user; a failure after **Approve** puts the card in the state **Failed** with this text, and the user can click **Retry**.
+
+| Code | When |
+|---|---|
+| `project_not_found` | The page context names no project (the page is not open on one), the project does not exist, or it belongs to another user and the caller is not an admin. |
+| `shot_not_found` | A `shot_id` is not a shot of the stored project: it was deleted, or not saved yet. |
+| `invalid_arguments` | An argument breaks the limits above: missing or empty `shot_id` or `text`, text over 4,000 characters, empty, repeated or more than 100 `rewrites`, more than 24 shots or a label over 34 characters or a duration outside 2 to 15 s in a split. |
+| `version_conflict` | The project was saved elsewhere between the moment the tool read it and the moment it saved, twice in a row (see Concurrent saves). |
+| `invalid_doc`, `doc_too_large` | The save was refused for the reasons of Projects and media › Errors. |
+
+### Contradiction rules and prompt language
+
+The tool and the page apply the same contradiction rules, in the same tables. The tables live in `backend/chat/rules.json`: `flags`, `conflicts` (for `en` and for `fr`, a list of `{id, global, local}` where `global` is a pattern for the direction and `local` a pattern for an instruction), `cameraWords` (one pattern per language, the camera moves) and `messages` (one English sentence per rule `id`). There are four rules, in both languages: `noNeon`, `noText`, `naturalColors` and `stableCamera`. A rule fires when the filled fields of the global direction, joined by spaces, match `global` and the instruction matches `local`.
+
+- **Two copies, one parity test per side.** The backend reads `backend/chat/rules.json` through `backend/chat/rules.py`. The page bundles an identical copy, `frontend/src/lib/rules.json`, through `lib/rules.js`. `tests/test_chat_rules.py` fails when the copies differ, and so does `frontend/src/lib/rules.test.js`. The patterns are JavaScript regular expression sources with the flag `i`; `rules.py` rewrites `\b` so that Python matches the same text as the browser.
+- **Which table applies.** The language of the prompts of the project (`promptLanguage`, `en` when the value is missing or unknown) picks the table, for the page and for the tools, which read it from the stored document. A text written in the other language is not checked.
+- **Where the text of a rule comes from.** The page shows its own translated sentence for a rule (the keys `lib.issue.*` of its dictionaries); the tool result carries the rule `id` and the English `messages` sentence.
+- **Camera moves.** `cameraWords` serves the page (a camera instruction under a Control video) and `camera_change`, which compares the first move named in two consecutive instructions.
+- **What the model writes.** The plugin translates nothing. The block tells the model the prompt language, the model writes in it, and a text is stored as given.
+
+### Suggestions and `chat.prefill`
+
+Three places of the page start the chat with a request already typed: the button **Ask the assistant to check continuity** (Director IA, tab Direction), the link **Ask the PotionUI assistant** of the prompt library and the link **Ask the assistant** of the Sound design workshop. Each calls `suggest(text)`, which calls `chat.prefill(text)` and then `chat.open()`. The texts are in the language of the interface, from the `assistant.suggest.*` keys. Nothing in the page sends a message for the user: `chat.send` is wired in `frontend/src/lib/host.js` and no button uses it.
+
+| Host | What a suggestion does |
+|---|---|
+| It offers `chat.prefill` (the second plugin API batch, pull request M4-S4/PotionUI#4: https://github.com/M4-S4/PotionUI/pull/4, merged into this branch and described in `docs/plugin-api.md`) | The chat opens, focused on the composer, with the text in it and not sent. A draft that the user already typed is kept, and the suggestion is then not added. |
+| It does not | `prefill` returns false and `open()` alone runs: the chat opens with an empty composer and the user types the request. |
+
+There is nothing to configure for this: the page tests for `chat.prefill` itself before it calls it.
+
+## What stays simulated
+
+Seven things are simulated. **Help › Simulated features** lists exactly these seven, in this order and under the titles of the first column, and chapter 17 of both user guides repeats the list. The page marks them with a gray dashed badge, **Simulated**, never a yellow one. What the engine you picked cannot do is not a simulation: it has a plain gray badge instead ("MiniMax H3 only" on a profile, "Upscaler not available", "Not sent with this engine"). The Advanced workshop gives that last badge the same dashed outline as **Simulated**, because the setting it marks stays in the project and changes nothing.
+
+| Item (title in the window) | What the window says | What is real next to it | Why, and what it means |
+|---|---|---|---|
+| Identity score | The identity similarity between two shots, in the continuity check and in the assistant’s review, is simulated. The color match really analyzes the images. | The color match is measured on real images: the seam frames of the shots when they have some, the thumbnails of the takes otherwise. Reference-guided generation (Ref2VA) is real with MiniMax-H3. | PotionUI offers no identity measure to plugins. The assistant's continuity check passes on the identity points of the page (`identity`), which come from this score. |
+| Lip sync | No lip sync is computed: the lip sync options of the Sound design workshop and of the Advanced workshop stay in the project and change neither the takes nor the export. | The text of the dialogue feeds the subtitles. | MiniMax-H3 makes picture and soundtrack in one pass, so there is no separate lip-sync step to drive. |
+| Gaussian Splat and 3D scene render | A referenced Gaussian Splat file is not loaded and the sample scene is a generated point cloud. The camera, the trajectories, the keyframes and the frame captures work, but no Control video is rendered from the scene, and the “3D render” and “3D render + AI” output modes start nothing. | The camera, the trajectories, the keyframes and the frame captures. AI generation itself is real. | The scene stays a 2D point preview. The control video is not rendered from the scene and an imported one is not sent to an engine, so the two 3D output modes start nothing. |
+| Generated voices and dialogue | The Sound design workshop generates no voice, dialogue or sound: preparing is simulated and what you hear is a simple synthesis in the browser. The dialogue text feeds the subtitles, and imported audio files play for real. | The audio files that users import play for real through the console, and the dialogue text feeds the subtitles. | PotionUI's marketplace has no speech or sound-effect preset, and the song preset (MiniMax-Music3) is not connected to the workshop. The sounds that the workshop prepares are synthesized by the browser (WebAudio). |
+| Console automation and processing | The Auto button only switches a mode: no automation curve is recorded. Pan, inserts, sends and the master bus are heard in the browser but are not applied to the exported video, which keeps the gain, the track faders, mute, solo and the fades. | The console plays the audio files that users import. The web and social videos apply gain, track faders, mute, solo and fades (see Exports › The assembled video). | No curve is recorded, and the export does not apply pan, inserts (equalizer, compressor, filter), sends or the master bus. |
+| ProRes, H.265 and stems | The master file (ProRes), the archive (H.265) and the audio stems are simulated: no file is written. The web and social MP4 videos and the Final Cut, OTIO, EDL and SRT files are real. | The web and social MP4 videos, and the Final Cut Pro, OpenTimelineIO, EDL and SRT files. | PotionUI's video converter writes H.264 MP4 or VP9 WebM only, and Video Producer offers its web and social exports as H.264 MP4 only. Nothing renders audio per role. The Video tab of the export window ends these formats with "Simulated render complete: no file is written for this format." |
+| Engine settings with no counterpart in the preset | The settings marked “Not sent with this engine” in the Advanced workshop stay in the project but do not change the takes: the seed (each take draws its own), the final resolution, steps, CFG, LoRA, windows, consistency, post-processing and the Hybrid AV audio driver, as well as the Hybrid builder weights and the guidance of the Control videos. | What the server reads from the project to generate: the direction, the shot prompts, the frames, the references, the shots and the choice of engine, plus the quality and the number of variants. | A preset exposes only the controls it declares; MiniMax-H3, for example, has no guidance and no negative prompt. See the list below. |
+
+Everything else in `engine` stays in the project and drives nothing: `seed`, `quality`, `resolution`, `steps`, `guidance`, `overlap`, `windowLen`, `loras`, `post.*`, `consistency`, `lockIdentity`, `motionPriority`, `audioDriver`, `lipSync`, `offset`, `followCut`, `naming` and `autoInsert`, as well as `hybrid` and `profiles`. The Advanced workshop greys these controls, in its three steps and in the expert settings, and marks them with the badge "Not sent with this engine", whose tooltip says that the setting stays in the project but does not change the takes; **Variants per window** stays active. The Hybrid builder weights and the guidance of a Control video are not sent either, and carry no badge. The seed of a take is drawn by the server.
+
+The button **Propose a breakdown** and **Production › Split synopsis into shots…** are not on the list: they are a plain function that cuts the synopsis into sentences, one sentence per shot. The breakdown that understands the story is the assistant's tool `vp_split_synopsis`, whose proposal fills the same Proposed breakdown list.
+
+Everything else works for real: saved projects with their versions, imports through the PotionUI pickers and the gallery, thumbnails, the playback of video, images and audio, and the mixing console playing the audio files that users import; takes as real video files, finals by upscale (SeedVR2 or MiniMax H3) or by re-render, the estimate, the quota, the time calibration and the notifications; the PotionUI chat assistant, in the Video Producer assistant mode with its four tools; the Final Cut Pro, OpenTimelineIO, EDL and SRT files, built by the server from the saved project with the real files of the shots, with the dialogue text in the subtitles; the web and social videos, assembled with ffmpeg; the seam frames; and the color analysis on the thumbnails of the takes and on the seam frames. The page keeps no simulated take: a shot whose media has no source any more shows "Media offline" in the viewer and on the timeline, and a document that still holds `results` is read without it.
+
+## Troubleshooting
+
+- **No engine in the Production bar**: the first setup step is not done, or the backend is turned off, or no video preset is assigned to the user, or a cloud backend has no video model turned on in its catalog. ComfyUI backends are never offered. The pop-up says "No engine" and, for an admin, links to the plugin settings.
+- **The estimate shows "—" for the time**: no timing has been measured yet for this preset, engine and resolution on this machine (the calibration table has no row for them). It fills in after a few generations.
+- **"Will stream through host RAM, slower"**: the estimated memory is above what the engine has. The generation is not blocked. Check the VRAM cap of the backend (`gpu_max_vram`, Admin → Backends); if the server lacks free RAM for the overflow, the engine refuses to start and the take fails with `host_ram_oom`.
+- **A submit is refused for a limit** (409 `blocked`, block `quota_exceeded`): the user reached the monthly **Video Producer GPU minutes** set in Admin → Users → Plans. Takes in flight and takes waiting for a place count with their reservation; failed and cancelled takes are refunded. Until a preset has been measured, each second of video reserves 10 seconds of GPU, so the quota can look consumed faster than the real runs (the adjustment at the end of each take corrects it).
+- **Generate selection is disabled**: there is no valid range, or no direction and no shot prompt in the range, or a prompt is empty, or the engine is gone or missing, or the server reports a block (the bar shows the first one): missing models ("Models to install for this preset: …"), a profile the preset cannot generate, a cloud model to pick, a quota spent. The rules are applied on the server too.
+- **A take stays Queued**: a take past `max_parallel_jobs` waits for a place, and the user's other takes have to end first. Look at `GET /projects/{id}/queue` (`slots.in_flight` against `slots.max`) and raise **Max generations in flight per user** if the machine can take more. If nothing is in flight, check that the follow-up task is running: the server log shows "[VIDEO-PRODUCER] Take tracker started" after the application is ready, and the next generation starts it again. A take that is also Queued in PotionUI's own queue stays Queued here until its generation runs.
+- **A take failed with `missing_model_file`**: a model file that the preset needs is not where PotionUI looks for it. Re-download it in Admin → Downloads or Admin → Models, and check that it was not moved or deleted. For a Studio server, the file must be on the worker too: the plugin only checks the files of this machine.
+- **A take failed with `cuda_oom`**: the card ran out of memory. The memory estimate is a lower bound and only warns. Lower the draft resolution (**Draft resolution**), use a shorter shot, close the other applications that use the GPU, or switch to a lighter preset or a cloud model. `host_ram_oom` is the same problem on the host RAM that streaming needs.
+- **The Upscale choice says "Upscaler not available"**: no SeedVR2 preset is assigned to the user (third setup step), or its model files are missing; the user can still re-render. A take of the base MiniMax-H3 preset does not depend on SeedVR2, but on its own latent upscaler file (fifth setup step). A final that fails to start with `missing_models` names the SeedVR2 fields (`diffusion_model`, `vae`, `prompt_embedding`) that have no installed file.
+- **References are ignored in a MiniMax-H3 run**: the `fl2va` DiT file was picked for the References mode (see the reminder above).
+- **A take failed after PotionUI restarted**: a generation that was running when the server stopped is marked failed and cannot resume. The user can start it again with Retry.
+- **The export window says "ffmpeg is missing on the server: web and social exports need it."** (or a request answers 409 `ffmpeg_unavailable`): `ffmpeg` is not on the `PATH` of the PotionUI process. Install ffmpeg and ffprobe, make sure that process sees them, and restart PotionUI; the fourth setup step turns green and `GET /me` answers `ffmpeg: true`. In Docker, check the image. The page reads `ffmpeg` when it opens, so the user reloads it.
+- **"No shot has a video file to export yet."** (409 `nothing_to_export`): no shot of the saved project has a file the server can find, for example because every shot is still "To generate", or the imported media were removed from the library or the gallery. The user generates or imports the shots and exports again. A single missing shot does not stop an export: it is black in the video.
+- **"An export of this project is already running."** (409 `export_running`): a project has one export in flight. The user waits for it, or cancels it in the export window.
+- **"The export folder is full: delete older exports and try again."** (429 `export_quota`): the folder of the user is over **Export cache per user (MB)** and nothing finished can be evicted, so the space is held by a job that is queued or running. Raise the setting, or wait for that job. The user can delete exports one by one in the export window (Previous exports).
+- **An export stays Queued**: the server runs one export at a time, whoever asks, so it waits for the others. If nothing runs, the runner did not start: look for "[VIDEO-PRODUCER] Could not start the export runner" in the server log; the next export request, or a restart, starts it again.
+- **An export seems stuck at 70 % ("Converting to MP4")**: the conversion reports no progress. It stops after 600 seconds and the job then fails with `transcode_failed` ("ffmpeg timed out"): a long 4K sequence on a slow machine can get there. Export at 1080p or 720p.
+- **An export fails with `ffmpeg_failed`**: the message under the failure is the last line of ffmpeg's error output. Typical causes: a source file ffmpeg cannot read, an ffmpeg build without a filter or an encoder of the graph (see ffmpeg), or a restart of PotionUI during the export ("The server stopped during the export."). The user can start it again.
+- **An export fails with `store_failed`**: the MP4 was made but PotionUI refused to store it in the library of the user, for example because the storage plan of that user is full. Free some library space and export again.
+- **A shot is black, or has no sound, in the video**: a shot with no file the server can find is black and silent (see Exports › Files for other software, "Which file a shot has"). A shot whose file has no soundtrack is silent too, and so is every shot when ffprobe is missing.
+- **The sound differs from the console**: the export applies gain, track faders, mute and solo, and fades, not pan, inserts, sends, automation or the master bus. The levels are added without automatic leveling, so loud tracks can clip.
+- **A Final Cut Pro, OpenTimelineIO or EDL file does not find its media**: the paths in the file are paths on the PotionUI server. The user copies the media to the editing computer and relinks them. The files of generated takes are all called `1.mp4`; the folder tells them apart.
+- **"This export no longer exists." or "The video is not ready yet." when downloading**: the export was deleted or evicted to make room, or it is not finished. The user exports again.
+- **A seam frame is refused**: "This shot has no previous shot." (the first shot cannot use one); "“Shot” has no finished take yet." or "The previous shot has no finished take with a file." (409 `no_previous_take`: the previous shot has no finished take with a file); "The image could not be extracted from the take." (502 `extract_failed`: read `detail.data.code` in the network tools, `limit_exceeded` meaning that the storage plan of the project owner is full, and a frame at a given time also fails without ffprobe); "This shot is not in the saved project." (404 `shot_not_found`: save the project and try again).
+- **A user's changes do not save ("Not saved — retry")**: read the answer of the failing `PUT /projects/{id}` in the network tools of the browser. 422 `invalid_doc` gives the path of the refused value (usually a tab opened before a plugin update: the user copies what they need, then reloads); 422 `doc_too_large` means the document is over 4 MiB; 409 `version_conflict` is handled by the page (see below); a 401 means the session expired.
+- **"This project was deleted elsewhere"**: a save answered 404 `project_not_found` because the project had been deleted, from another tab or device or through the API. Nothing to fix: the page stopped saving it and opened the most recent project of the user, or created the starter project.
+- **"Project reloaded: it changed elsewhere"**: the same project was saved from another tab, window or device, so the save of this page was refused with 409 `version_conflict` and the page loaded the saved version. Nothing to fix: the unsaved changes of that page are dropped, and the other versions are in the history.
+- **A user cannot find an earlier version**: the history keeps only the **Versions kept per project** latest versions (50 by default). Raise the setting; versions already pruned do not come back.
+- **Imported media do not show or play**: the library item or the generation was removed, so its URL no longer answers (and a new import of it answers 404 `media_not_found`). The user imports the media again. A take whose generation was deleted from the gallery no longer plays either.
+- **A user sees the wrong language**: it is stored per user. Change it in Video Producer › Preferences… of the page, or with the `EN` or `FR` reminder of the status bar. Until a user chooses, the page follows the language of the browser.
+- **The chat says "Chat is currently unavailable" (an admin reads "No enabled LLM configurations")**: no language model configuration is enabled and assigned to the user. Add one in Admin → LLM / Assistant and assign it to the user or to a group (see The assistant mode › Requirements).
+- **The assistant answers in text and never shows an approval card**: **Tools** is off in the composer of the chat (tooltip "Tools OFF"), or the tool is off for that configuration (Admin → LLM / Assistant, the configuration, tab **Toolset**, group **Video Producer**), or the model cannot call tools.
+- **The assistant knows nothing of the project, or the chat header says "Started in …"**: the conversation was started in another mode and keeps it. The user opens the chat from the Video Producer page and clicks **start a new chat**.
+- **The assistant says the page is not open on a project**: the page sends its context only while it is open on a project. The user opens a project in Video Producer and asks again; a tool called without a project answers `project_not_found`.
+- **A card shows Failed with `version_conflict`, `project_not_found` or `shot_not_found`**: the project was saved elsewhere at the very moment of the save, or was deleted, or the shot is no longer in the saved project. The user reloads the project and clicks **Retry** on the card, or asks again (see The assistant mode › Errors).
+- **A change is approved and the page shows nothing**: the result was for another project (the chat shows "The assistant changed another project, not the one open here."). Nothing else to fix: the user opens that project.
+- **A suggestion opens the chat with an empty box**: the host has no `chat.prefill` (see The assistant mode › Suggestions), or the composer already held a draft, which is kept.
+- **A shot says "Media offline"**: the page cannot play the file of that shot any more, because the library item or the generation file was removed, or the shot kept no source. The viewer shows "Media offline" and says that the source file of the media is no longer available (import it again or choose a take). The user imports the media again or chooses a take. The export looks for the file again on the server, and a shot with no file is black and silent in the video.
+- **Every take fails within seconds after an out-of-memory error** (native engine): the CUDA context of the PotionUI process can stay unusable after a `cuda_oom` (seen on a 12 GB card, with MiniMax-H3 before the 12 GB presets and with the Native language model). Restart PotionUI, then use the 12 GB presets or a lighter model (see Hardware).
+- **The assistant ends with "CUDA out of memory" or never shows a card on the Native language model**: see The assistant mode › Which language model. Move the configuration to Ollama or to an online provider.
+
+
+## Development
+
+Run the tests of the plugin from the root of the PotionUI repository, with the Python 3.12 environment of the repository:
+
+```bash
+python -m pytest content/plugins/marketplace/video-producer/tests -q -m "not requires_gpu and not requires_models and not gc_sensitive"
+python -m pytest tests/architecture tests/plugin_api tests/plugins/marketplace -q
+```
+
+When this page was written the first command ran 2,037 tests that pass, 2 that are skipped and 3 expected failures (xfail). The second one runs `tests/plugins/marketplace/test_video_producer_manifest.py` (60 tests), which loads the mode and the four tools through the plugin registry, and checks the routes of the exports, the export notification types, the five setup steps (their exact labels, and the report of the setup with the five steps still to do and their links) and the `FfmpegReady` step.
+
+The first command covers:
+
+- **The API, in one matrix.** `tests/test_routes_matrix.py` reads the three `### Routes` sections of this page (do not rename those headings) and fails when the routes that the plugin serves and the routes documented there differ; `GET /health` is left out of that comparison and described under Liveness. Every documented route has a success test, a test with no session (401), a refusal test and, for every route that takes a body or a validated parameter, a test with an invalid one. The refusal is that of a signed-in user who is not an admin and does not own the project (404 `project_not_found`, `take_not_found`, `job_not_found` or `media_not_found`; the lists and `GET /me` show nothing of another user's data), and every refusal checks that nothing was written. The routes also have their own files: `tests/test_routes_projects.py`, `test_routes_takes.py`, `test_routes_generation.py`, `test_routes_exports.py`, `test_routes_me.py` and `test_routes_media.py`.
+- **The setup checks.** `tests/test_setup_checks.py` (see Setup checks).
+- **Projects and generation.** `tests/test_projects.py` and `tests/test_routes_projects.py` check the document, the versions (a label is stored as given and returned by the history, `null` without one), and a document that still holds `results`: it is read without it, saved without it, and a save that differs only by `results` answers `unchanged`. `tests/test_estimate.py` and `tests/test_generation.py` check that the time measure and the quota reservation follow the backend that rendered the take.
+- **The assistant.** `tests/test_chat_tools.py` (the four tools, their previews, writes and error codes), `tests/test_chat_context.py` (the context block and its bounds) and `tests/test_chat_rules.py` (the rule tables and their parity with the page copy).
+- **The exports and the seam frame.** `tests/test_exports.py` (the four formats against the golden files of `tests/fixtures/exports/`, byte for byte, then their form; the file of a shot with `media=path` and `media=name`; the slug), `tests/test_exports_video.py` (the ffmpeg arguments built without running ffmpeg: trims, fades, look, black shots, mix, solo and mute; the jobs, the queue, the quota and eviction, cancel and restart; and, marked `requires_ffmpeg`, real assemblies of clips that ffmpeg generates, which check duration and size), `tests/test_routes_exports.py` (access, refusals, `Content-Disposition`, 202, `not_ready`, `export_running`, `GET /me`) and `tests/test_seam_frame.py` (the route, the choice of take, the errors, with the frame extraction replaced by a stand-in). The `requires_ffmpeg` tests are skipped when `ffmpeg` and `ffprobe` are not on the `PATH`, and the test that reads the OTIO file back is skipped when the `opentimelineio` package is not installed.
+
+The presets of the `presets` folder go through the linter of the PotionUI presets, which also renders their pipelines:
+
+```bash
+python scripts/preset_lint.py --render content/plugins/marketplace/video-producer/presets
+```
+
+The backend imports only `src.plugin_api` and its submodules. The few reads that `plugin_api` does not offer yet (the media path on disk, the state of a preset, the catalog of cloud models, the stored row of a generation) go through `backend/core_bridge.py`, where they are gathered to be replaced one by one. The frontend is a Svelte 5 bundle that is built and committed; rebuild it after any change in `frontend/src`:
+
+```bash
+cd content/plugins && npm ci && node ../../scripts/build-plugins.mjs video-producer
+```
+
+Two release builds in a row must produce the same bytes: build twice and compare the sha256 of `frontend/dist/VideoProducerPage.js`. The plugin build does not compile the Tailwind classes of the page: the build of the PotionUI app does, because the `content` list of its `tailwind.config.js` scans `frontend/src` of every plugin. After adding or changing a class, run from the root of the PotionUI repository:
+
+```bash
+cd frontend && npm run build
+```
+
+The tests of the page run with Node, from the folder of the plugin (`content/plugins/marketplace/video-producer`):
+
+```bash
+node --test "frontend/src/i18n/*.test.js"
+node --test "frontend/src/lib/*.test.js"
+```
+
+The first command checks the two dictionaries. Every string of the page goes through `t()` with a key declared in `frontend/src/i18n/en/<domain>.json` and `fr/<domain>.json`, English being the default and French complete, and the test fails on: a key missing from one language, different parameters between the two languages, a `t()` key that does not exist, and a declared key that nothing uses. A key counts as used when a literal `t()` call names it or when it sits under one of the declared dynamic prefixes (`shell.error.`, `shell.menu.`, `commands.cmd.`, `generation.failed.`), and each prefix must really be used. It also checks that `generation.failed.<code>` matches the failure codes of the take cards, that every command and menu of `lib/commands.js` has a label, and that Help › Simulated features lists the seven items of What stays simulated, each with a title and a text.
+
+The second one covers the shortcut notation per platform, the keyboard focus rules, the icons, the engine and take helpers of `lib/generation.js`, the assistant helpers of `lib/assistant.js` (the context, how a tool result is applied, proposals and the check list), the shared rules of `lib/rules.js`, with the parity of `lib/rules.json`, the export helpers of `lib/exports.js` (job normalizing, file names, polling), the seam-frame helpers of `lib/seam.js`, the progress announcements of `lib/announce.js` (a screen reader hears the export and the generation progress at each 10 % or each change of step, and at most once every 3 seconds), and `lib/exchange.test.js`, which rebuilds the four files in the browser from the document of `tests/fixtures/exports/reference-project.json` and compares them byte for byte with the golden files `reference.fcpxml`, `reference.otio`, `reference.edl` and `reference.srt` that the Python tests also check, so that the page and the server cannot drift apart.
+
+To change a contradiction rule, edit `backend/chat/rules.json`, copy the file to `frontend/src/lib/rules.json` and rebuild the page: the Python and node parity tests fail while the two copies differ.
+
+This page and the two user guides are listed under `docs:` in the manifest, with this page first because the Setup section links to the first entry.
+
+## License
+
+GPL-3.0, like PotionUI. The licenses of the models that you use with it are separate: see the MiniMax-H3 reminder above.
