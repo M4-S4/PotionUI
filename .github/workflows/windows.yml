@@ -2,7 +2,7 @@ name: Windows
 
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
   pull_request:
 
 permissions:
@@ -186,6 +186,15 @@ jobs:
           set PYTEST_EXIT=%ERRORLEVEL%
           type pytest-windows-${{ matrix.shard.name }}-serial.log
           exit /b %PYTEST_EXIT%
+
+      - name: Install ffmpeg and ffprobe (Chocolatey)
+        if: matrix.shard.name == 'rest'
+        timeout-minutes: 10
+        shell: cmd
+        run: |
+          choco install ffmpeg -y --no-progress || exit /b
+          ffmpeg -version | findstr /b /c:"ffmpeg version" || exit /b
+          ffprobe -version | findstr /b /c:"ffprobe version" || exit /b
 
       - name: pytest (marketplace plugin test suites)
         if: matrix.shard.name == 'rest'
