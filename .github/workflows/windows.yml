@@ -303,11 +303,13 @@ jobs:
         run: npm ci
 
       - name: npm run build:plugins + drift check
-        shell: cmd
+        shell: bash
         working-directory: frontend
         run: |
-          npm run build:plugins || exit /b
-          git -C .. diff --exit-code --stat -- "content/plugins/*/*/frontend/dist"
+          npm run build:plugins
+          git diff --exit-code --stat -- ':(top,glob)content/plugins/*/*/frontend/dist/**'
+          untracked=$(git ls-files --others --exclude-standard -- ':(top,glob)content/plugins/*/*/frontend/dist/**')
+          test -z "$untracked" || { echo "Plugin dist files built but not committed:"; echo "$untracked"; exit 1; }
 
   frontend-build:
     name: frontend build (Windows, shared by e2e shards)

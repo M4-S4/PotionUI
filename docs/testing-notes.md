@@ -90,6 +90,13 @@ first's for the whole session. Locally:
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/plugins/run_suites.py -q --no-cov
 ```
 
+The `plugin-dist` job rebuilds every plugin frontend with the toolchain
+pinned in `content/plugins/package-lock.json` (`npm ci && npm run build` in
+`content/plugins`) and fails when a committed `frontend/dist/` file differs
+from the build, or when the build writes a dist file that is not committed.
+A change to a plugin's `frontend/` or to `content/plugins/sdk` ships with its
+rebuilt dist.
+
 ## Windows CI
 
 `.github/workflows/windows.yml` runs on `windows-latest`. Treat a red run here as real signal, not flake.
@@ -114,9 +121,9 @@ What it proves:
 - `release-gate` — `tests/release/release_gate.py --skip-gpu` (recipe lint,
   layering, setup/recipes suites, preset lint budget).
 - `frontend` — `npm run check`, `test:unit`, `test:component`, `build`, then
-  `build:plugins` with a `git diff --exit-code` over the committed
-  `frontend/dist/` trees: a plugin bundle that builds differently on Windows
-  is drift, not noise.
+  `build:plugins` with the same check as the Linux `plugin-dist` job (a
+  changed or uncommitted `frontend/dist/` file fails): a plugin bundle that
+  builds differently on Windows is drift, not noise.
 - `e2e` — the HTTP journeys (`tests/e2e/journeys/run.py`) and the Playwright
   UI journeys (`tests/e2e/ui/run.py`, Chromium) against a throwaway backend.
   Linux CI does not run these; Windows is the only place they run unattended.

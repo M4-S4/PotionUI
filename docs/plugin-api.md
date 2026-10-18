@@ -2455,7 +2455,7 @@ Every plugin frontend (a `pages[].component`, a `field_types[].component`, an
 major), driven by `scripts/build-plugins.mjs`:
 
 ```bash
-cd content/plugins && npm install    # once
+cd content/plugins && npm ci    # once
 node ../../scripts/build-plugins.mjs [pluginId ...]   # or: npm run build:plugins from frontend/
 ```
 
@@ -2472,6 +2472,12 @@ Two build modes:
 
 Both modes preserve upstream license notices (`legalComments: 'eof'`) from the bundled
 Svelte runtime and any other bundled dependency.
+
+A release build gives the same bytes on Linux and Windows, whichever directory it is started
+from and whether the checkout has LF or CRLF line endings. CI rebuilds every plugin on both
+(`plugin-dist` in `backend-tests.yml`, `frontend` in `windows.yml`) and fails when a committed
+`frontend/dist/` file differs from the build, or when the build writes a file that is not
+committed.
 
 ## Related
 

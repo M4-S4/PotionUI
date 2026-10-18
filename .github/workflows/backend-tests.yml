@@ -183,3 +183,28 @@ jobs:
       - name: npm run test:component
         working-directory: frontend
         run: npm run test:component
+
+  plugin-dist:
+    name: plugin dist matches its sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: content/plugins/package-lock.json
+
+      - name: npm ci (plugin toolchain)
+        working-directory: content/plugins
+        run: npm ci
+
+      - name: npm run build + drift check
+        working-directory: content/plugins
+        run: |
+          npm run build
+          git diff --exit-code --stat -- ':(top,glob)content/plugins/*/*/frontend/dist/**'
+          untracked=$(git ls-files --others --exclude-standard -- ':(top,glob)content/plugins/*/*/frontend/dist/**')
+          test -z "$untracked" || { echo "Plugin dist files built but not committed:"; echo "$untracked"; exit 1; }

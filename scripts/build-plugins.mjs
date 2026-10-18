@@ -77,6 +77,8 @@ const BUILD_OPTIONS = {
 	...(DEBUG_BUILD ? { minify: false, sourcemap: true } : { minify: true, sourcemap: false })
 };
 
+const LF_MARKUP = { markup: ({ content }) => ({ code: content.replace(/\r\n?/g, '\n') }) };
+
 function buildOptions(plugin) {
 	return { ...BUILD_OPTIONS, preserveSymlinks: lstatSync(plugin.dir).isSymbolicLink() };
 }
@@ -165,6 +167,7 @@ async function buildPagePlugin(plugin, srcDir, distDir) {
 		format: 'esm',
 		plugins: [
 			sveltePlugin({
+				preprocess: LF_MARKUP,
 				compilerOptions: { css: 'injected', generate: 'client', runes }
 			})
 		],
@@ -206,6 +209,7 @@ async function buildComponentPlugin(plugin, srcDir, distDir, skip = new Set()) {
 				// runtime. Without it the host's runtime would have to mount a
 				// component compiled against the bundled copy - two Svelte 5
 				// runtimes cannot share a mount, it crashes in template init.
+				preprocess: LF_MARKUP,
 				compilerOptions: { generate: 'dom', hydratable: false, css: 'injected', compatibility: { componentApi: 4 } }
 			})
 		],
@@ -233,6 +237,8 @@ async function buildPlugin(plugin) {
 }
 
 async function main() {
+	// esbuild-svelte hashes scoped CSS on the file path relative to the cwd
+	process.chdir(REPO_ROOT);
 	const pluginIdFilter = process.argv.slice(2).filter((arg) => arg !== '--debug');
 	const plugins = discoverPlugins(pluginIdFilter);
 
