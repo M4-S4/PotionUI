@@ -47,7 +47,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # Ubuntu 24.04's system python3 is 3.12 (potionui's MIN_PYTHON). The lib*
 # set is the opencv-python / Pillow / kornia runtime closure Dockerfile.dev
-# already proved out. curl stays for the HEALTHCHECK.
+# already proved out. curl stays for the HEALTHCHECK. gcc and libc6-dev stay
+# in the image for the Triton kernels the native engine compiles at runtime
+# (SLA sparse attention): without a C compiler SLA is disabled for the process.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
         python3-venv \
@@ -61,6 +63,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxext6 \
         libxrender-dev \
         libgomp1 \
+        gcc \
+        libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
