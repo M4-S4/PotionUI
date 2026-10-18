@@ -32,6 +32,8 @@ from typing import Any, Dict, List, Optional
 from src.features.forms.binding import bind_form
 from src.features.presets.form_serializer import PresetFormSerializer
 from src.features.presets.templates import default_form_name
+from src.features.video_director import apply_preset_mode_overlay
+from src.features.video_director.normalize import allowed_durations
 from src.platform.templating import TemplateProcessor
 
 # These field types can never carry a real fixture value (models aren't known
@@ -44,6 +46,7 @@ MEDIA_FIELD_TYPES = frozenset({"image", "video", "audio", "media", "file"})
 MEDIA_EXTENSIONS = {"image": "png", "video": "mp4", "audio": "wav", "media": "png", "file": "bin"}
 TEXT_FIELD_TYPES = frozenset({"string", "textbox"})
 TEXT_FIELD_PLACEHOLDER = "SETUP-CHECK placeholder text"
+VIDEO_DIRECTOR_FIXTURE_PROMPT = "a calm lake at sunrise, gentle ripples, soft morning light"
 
 
 class RequiredModelMissing(Exception):
@@ -229,6 +232,33 @@ def _resolve_model_fields(
         form_data[name] = make_model_ref(model.id)
 
 
+def _fixture_video_director(
+    preset_template, mode: str, form_data: Dict[str, Any], prompt: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    capabilities = (getattr(preset_template, "vars", None) or {}).get("video_director") or {}
+    if mode not in (capabilities.get("preset_modes") or []):
+        return None
+    capabilities = apply_preset_mode_overlay(capabilities, mode)
+    if "t2v" not in (capabilities.get("modes") or {}):
+        return None
+    limits = capabilities.get("limits") or {}
+    durations = allowed_durations(limits)
+    seed = form_data.get("seed")
+    text = prompt or VIDEO_DIRECTOR_FIXTURE_PROMPT
+    return {
+        "schema_version": 1,
+        "mode": "t2v",
+        "settings": {
+            "fps": form_data.get("fps") or limits.get("default_fps", 24),
+            "duration": min(durations) if durations else 1,
+            "resolution": form_data.get("resolution") or "",
+            "seed": seed if isinstance(seed, int) and not isinstance(seed, bool) else -1,
+        },
+        "segments": [{"id": "setup-check", "prompt": text, "negative_prompt": ""}],
+        "media": [],
+    }
+
+
 def build_fixture_form_data(
     preset_template,
     mode: str,
@@ -239,6 +269,7 @@ def build_fixture_form_data(
     recipe: Optional[Any] = None,
     model_repository: Optional[Any] = None,
     selections: Optional[Dict[str, str]] = None,
+    prompt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Fixture form data for `preset_template`'s `mode`, with `overrides`
     (e.g. a recipe's `smoke:` field values) applied on top before binding.
@@ -287,6 +318,11 @@ def build_fixture_form_data(
 
     if overrides:
         form_data.update(overrides)
+
+    if not isinstance(form_data.get("video_director"), dict):
+        document = _fixture_video_director(preset_template, mode, form_data, prompt)
+        if document is not None:
+            form_data["video_director"] = document
 
     bound = bind_form(
         preset_template, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=None
