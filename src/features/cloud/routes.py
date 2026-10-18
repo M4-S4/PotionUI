@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -15,6 +15,12 @@ from src.platform.security.current_user import get_current_active_user, get_curr
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
+
+
+def estimate_cost(capabilities: CloudCapabilities, model_id: str, request: DirectorEstimateRequest) -> Dict[str, Any]:
+    """What `POST /api/cloud/models/{model_id}/estimate` answers for `request`."""
+    shots = [shot.model_dump() for shot in request.shots]
+    return capabilities.estimate(model_id, shots, request.driver)
 
 
 class CloudCatalogController(BaseController):
@@ -88,9 +94,8 @@ class CloudCapabilitiesController(BaseController):
         return self.success_response(data=data)
 
     async def estimate(self, model_id: str, request: DirectorEstimateRequest) -> APIResponse:
-        shots = [shot.model_dump() for shot in request.shots]
         try:
-            data = self.capabilities.estimate(model_id, shots, request.driver)
+            data = estimate_cost(self.capabilities, model_id, request)
         except ModelNotFoundException:
             self.error_response(error="model_not_found", message=f"Model '{model_id}' not found", status_code=404)
         except DirectorEstimateError as error:

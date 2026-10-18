@@ -14,10 +14,13 @@ cannot, which is a fact about the engine, not a failure. `BackendModel.confidenc
 derives from what you set on `size`/`sha256` - it's one of `CONFIDENCE_VERIFIED`,
 `CONFIDENCE_REPORTED` or `CONFIDENCE_NAME_ONLY`.
 
+`list_backends` reads the backends an admin has enabled, with what their
+running instances report about devices, concurrency and VRAM.
+
 See docs/backends.md.
 """
 
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from src.features.backends.backend_config import (
     BaseBackendConfig,
@@ -36,6 +39,36 @@ from src.features.backends.model_listing import (
 )
 from src.features.generation.routing.contracts import Candidate, RoutingRequest, RoutingRule
 from src.platform.plugins.hooks import HookContext
+from src.platform.plugins.runtime_registries import get_container
+
+
+def list_backends() -> List[Dict[str, Any]]:
+    """Every enabled backend, highest priority first. Each entry is what
+    `GET /api/backends/enabled` returns for it (its settings with credentials
+    redacted, `configured`, `is_default`, `quick_actions`) plus what its
+    running instance reports: `execution_device` (`"this_host_gpu"`,
+    `"no_gpu"`, `"remote"` or `"unestablished"`), `max_concurrent_runs`, and
+    `vram_total_gb` / `vram_free_gb`, which are `None` whenever the
+    application cannot read that backend's own GPU. A backend that is enabled
+    but not running reports `"unestablished"` and a `None` capacity."""
+    from src.features.backends.routes import enabled_backends_payload
+    from src.features.generation.memory_advisory import resolve_device_evidence
+
+    container = get_container()
+    registry = container.backend_registry
+    listed = []
+    for entry in enabled_backends_payload(registry.backend_config_store):
+        backend = registry.get_backend(entry["id"])
+        device = resolve_device_evidence(backend, container.gpu_monitor)
+        running = backend is not None
+        listed.append({
+            **entry,
+            "execution_device": backend.resolve_execution_device().kind if running else "unestablished",
+            "max_concurrent_runs": backend.max_concurrent_runs if running else None,
+            "vram_total_gb": device.total_gb,
+            "vram_free_gb": device.free_gb,
+        })
+    return listed
 
 
 def register_routing_rule(context: HookContext, rule: RoutingRule, position: Optional[str] = None) -> None:
@@ -63,5 +96,6 @@ __all__ = [
     "RoutingRequest",
     "RoutingRule",
     "deduplicate",
+    "list_backends",
     "register_routing_rule",
 ]

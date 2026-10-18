@@ -10,6 +10,9 @@ import pytest
 from src.features.content_safety.gate import ContentGate
 from src.features.content_safety.ledger_repository import ContentLedger
 from src.features.content_safety.manager import ContentSafetyManager
+from src.features.backends.backend_registry import NoBackendForEngineError
+from src.features.forms.binding import FormBindingError
+from src.features.forms.exceptions import FormNotFoundException
 from src.features.generation.output_broadcaster import GenerationOutputBroadcaster
 from src.features.generation.dto import GenerationRequest
 from src.features.generation.exceptions import GenerationNotFoundException
@@ -17,11 +20,14 @@ from src.features.generation.file_repository import FileRepository
 from src.features.generation.history_query import GenerationHistoryQuery
 from src.features.generation.records import File, Generation
 from src.features.generation.repository import GenerationRepository
+from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
+from src.features.presets.repository import DatabasePresetRepository
 from src.features.sessions.dto import Session
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import SessionVersionRepository
+from src.features.user_groups.repository import UserGroupRepository
 from src.platform.database.rows import now_utc
 from src.platform.plugins import runtime_registries
 from src.platform.security.user import AccountType, User
@@ -29,6 +35,14 @@ from src.plugin_api import generation as api
 from tests.features.content_safety.fakes import FakeResolver, FakeSettings, FakeTagger
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+PREVIEW = {
+    "estimate": {"checkpoint_estimate_gb": 12.0},
+    "coverage": {"active_set_resolved": True},
+    "device": {"kind": "local", "free_gb": 20.0, "total_gb": 24.0, "provenance": "this host's GPU monitor"},
+    "budget": {"configured_gb": 20.0, "source": "backend gpu_max_vram + device free VRAM", "pipe_hints_gb": []},
+    "backend": {"id": "native", "name": "Local Generation", "engine": "native", "driver": "native.local"},
+}
 
 
 def _user(user_id, account_type=AccountType.USER):
@@ -54,6 +68,10 @@ class World:
         self.uploads = UploadRepository()
         self.sessions = SessionRepository()
         self.versions = SessionVersionRepository()
+        self.presets = DatabasePresetRepository()
+        self.groups = UserGroupRepository()
+        self.presets.install_preset("p")
+        self.presets.assign_preset_to_user("p", "owner")
         settings = FakeSettings()
         self.ledger = ContentLedger(settings)
         manager = ContentSafetyManager(
@@ -69,6 +87,7 @@ class World:
                 "generation_id": "g-new", "status": {"status": "pending"}, "queue_position": 2,
             }),
             cancel_generation=AsyncMock(return_value=True),
+            preview_memory=AsyncMock(return_value=PREVIEW),
         )
         self.hub = SimpleNamespace(broadcast_to_generation=AsyncMock())
         self.container = SimpleNamespace(
@@ -85,6 +104,7 @@ class World:
             ),
             session_repository=self.sessions,
             session_version_repository=self.versions,
+            preset_collaborators=SimpleNamespace(db_repo=self.presets),
         )
 
     def generation(self, generation_id, user_id="owner"):
@@ -192,6 +212,112 @@ async def test_submit_lets_the_routes_exceptions_through(world):
 
     with pytest.raises(ValueError):
         await api.submit_generation(world.owner, GenerationRequest(preset_id="p"))
+
+
+@pytest.mark.asyncio
+async def test_submit_refuses_a_preset_that_is_not_assigned_to_the_user(world):
+    with pytest.raises(PermissionError, match="Preset 'p' is not available to this user"):
+        await api.submit_generation(world.other, GenerationRequest(preset_id="p"))
+
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_submit_refuses_an_unknown_preset_the_same_way_without_confirming_it_exists(world):
+    with pytest.raises(PermissionError, match="Preset 'nope' is not available to this user"):
+        await api.submit_generation(world.other, {"preset_id": "nope"})
+
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_submit_accepts_a_preset_assigned_through_one_of_the_users_groups(world):
+    world.presets.install_preset("q")
+    group = world.groups.create_group("studio")
+    world.groups.add_user_to_group(group.id, "other")
+    world.groups.assign_preset_to_group(group.id, "q")
+
+    await api.submit_generation(world.other, GenerationRequest(preset_id="q"))
+
+    world.orchestrator.start_generation.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_an_admin_submits_a_preset_assigned_to_nobody(world):
+    world.presets.install_preset("q")
+
+    await api.submit_generation(world.admin, GenerationRequest(preset_id="q"))
+
+    assert world.orchestrator.start_generation.await_args[0][0].preset_id == "q"
+
+
+@pytest.mark.asyncio
+async def test_submit_without_a_preset_id_reaches_the_orchestrator_as_before(world):
+    world.orchestrator.start_generation.side_effect = ValueError("Preset '' not found")
+
+    with pytest.raises(ValueError, match="Preset '' not found"):
+        await api.submit_generation(world.other, GenerationRequest(preset_id=""))
+
+    world.orchestrator.start_generation.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_preview_goes_through_the_orchestrators_memory_preview(world):
+    request = GenerationRequest(preset_id="p", form_data={"width": 1024})
+
+    result = await api.preview_memory(world.owner, request)
+
+    assert result == PREVIEW
+    world.orchestrator.preview_memory.assert_awaited_once_with(request, "owner")
+    world.orchestrator.start_generation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_preview_accepts_a_plain_dict(world):
+    await api.preview_memory(world.owner, {"preset_id": "p", "mode": "img2img"})
+
+    submitted = world.orchestrator.preview_memory.await_args[0][0]
+    assert isinstance(submitted, GenerationRequest)
+    assert submitted.mode == "img2img"
+
+
+@pytest.mark.asyncio
+async def test_preview_refuses_a_missing_user(world):
+    with pytest.raises(PermissionError):
+        await api.preview_memory(None, GenerationRequest(preset_id="p"))
+
+    world.orchestrator.preview_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [
+    ValueError("Preset 'x' not found"),
+    FormNotFoundException("p", "txt2img", "wide"),
+    FormBindingError(["width: must be a number"], field_errors={"width": ["must be a number"]}),
+    NoBackendForEngineError("No enabled backend provides engine 'native'"),
+    NoEligibleBackendError("native", SimpleNamespace(candidates=[])),
+])
+async def test_preview_lets_the_routes_exceptions_through(world, error):
+    world.orchestrator.preview_memory.side_effect = error
+
+    with pytest.raises(type(error)) as raised:
+        await api.preview_memory(world.owner, GenerationRequest(preset_id="p"))
+
+    assert raised.value is error
+
+
+@pytest.mark.asyncio
+async def test_preview_does_not_check_preset_assignment_any_more_than_its_route(world):
+    await api.preview_memory(world.other, GenerationRequest(preset_id="p"))
+
+    world.orchestrator.preview_memory.assert_awaited_once()
+
+
+def test_preview_memory_is_importable_from_the_package_root():
+    import src.plugin_api as root
+
+    assert root.preview_memory is api.preview_memory
+    assert "preview_memory" in root.__all__
 
 
 @pytest.mark.asyncio

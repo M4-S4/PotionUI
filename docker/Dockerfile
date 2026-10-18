@@ -24,6 +24,18 @@
 # its own CUDA runtime; the base exists so nvidia-container-toolkit mounts a
 # driver userspace consistent with a bare-metal install of the same CUDA).
 
+# --- Plugin sources for Tailwind (a wildcard COPY would flatten the tree) --
+FROM node:20-bookworm-slim AS plugin-sources
+COPY content/plugins /tmp/plugins
+RUN mkdir -p /content/plugins \
+    && cd /tmp/plugins \
+    && for src in sdk */*/frontend/src; do \
+        case "$src" in node_modules/*) continue ;; esac; \
+        [ -d "$src" ] || continue; \
+        mkdir -p "/content/plugins/$src" && cp -a "$src/." "/content/plugins/$src/"; \
+    done \
+    && find /content/plugins -type d -name node_modules -prune -exec rm -rf {} +
+
 # --- Frontend build stage -------------------------------------------------
 # Node lives only here; the final image never gets a node runtime.
 FROM node:20-bookworm-slim AS frontend-builder
@@ -31,6 +43,7 @@ FROM node:20-bookworm-slim AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
+COPY --from=plugin-sources /content /content
 COPY frontend/ ./
 RUN npm run build
 

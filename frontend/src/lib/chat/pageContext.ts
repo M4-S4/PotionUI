@@ -3,8 +3,8 @@
  * (`$lib/plugin-api/host.ts`). A plugin-hosted page (e.g. the ComfyUI import
  * wizard) uses this to feed the chat assistant page-scoped context, take over
  * the resolved chat mode while it's the active surface, and react to a tool
- * result the user approved — without UnifiedAIChat.svelte knowing the plugin
- * exists.
+ * result (approved by the user, or executed without approval) — without
+ * UnifiedAIChat.svelte knowing the plugin exists.
  *
  * Module-scope state here is per-browser-session content (which page/mode is
  * active), not per-user data, but it's reset on an identity switch anyway via
@@ -12,6 +12,7 @@
  * a stale registration from a previous user's session never lingers.
  */
 import { derived, writable } from 'svelte/store';
+import { logger } from '$lib/utils/logger';
 
 export type ContextProvider = () => Record<string, unknown> | null;
 
@@ -40,6 +41,7 @@ interface ModeDeclaration {
 
 const contextProviders = new Map<string, ContextProvider>();
 const toolAppliedHandlers = new Map<string, Set<ToolAppliedHandler>>();
+const dispatchedToolResults = new Set<string>();
 
 let nextDeclarationId = 1;
 const modeDeclarations = writable<ModeDeclaration[]>([]);
@@ -88,7 +90,7 @@ export function declareMode(modeId: string): () => void {
 }
 
 /**
- * Register a handler for a confirmed/approved tool result. Every handler
+ * Register a handler for a tool result, approved or executed without approval. Every handler
  * registered for `toolName` runs (in registration order) before any
  * hardcoded dispatch for that tool. Returns an unregister function.
  */
@@ -129,9 +131,76 @@ export function dispatchToolApplied(
 	return outcome ?? true;
 }
 
+export interface ExecutedTool {
+	tool_name: string;
+	result?: { success?: boolean; data?: string } | null;
+	status?: string;
+	approval_status?: string | null;
+	skipped?: boolean;
+}
+
+export interface MessageWithTools {
+	id?: string | null;
+	tool_executions?: ExecutedTool[] | null;
+}
+
+export interface DispatchedToolResult {
+	data: unknown;
+	outcome: ToolAppliedOutcome | boolean;
+}
+
+export function toolResultId(messageId: string, index: number): string {
+	return `${messageId}:${index}`;
+}
+
+export function dispatchToolResult(resultId: string, toolName: string, rawData: unknown): DispatchedToolResult | null {
+	if (dispatchedToolResults.has(resultId) || typeof rawData !== 'string') return null;
+	let data: unknown;
+	try {
+		data = JSON.parse(rawData);
+	} catch {
+		return null;
+	}
+	dispatchedToolResults.add(resultId);
+	return { data, outcome: dispatchToolApplied(toolName, data as Record<string, unknown>) };
+}
+
+function isUnapplied(outcome: ToolAppliedOutcome | boolean): outcome is ToolAppliedOutcome {
+	return isToolAppliedOutcome(outcome) && (outcome.status === 'stale' || outcome.status === 'partial');
+}
+
+const UNDELIVERED_APPROVALS = new Set(['pending', 'rejected', 'failed']);
+
+function deliverable(execution: ExecutedTool | null | undefined): execution is ExecutedTool {
+	return (
+		!!execution &&
+		!UNDELIVERED_APPROVALS.has(execution.approval_status ?? '') &&
+		!execution.skipped &&
+		execution.status !== 'running' &&
+		execution.result?.success !== false
+	);
+}
+
+export function dispatchExecutedToolResults(message: MessageWithTools): ToolAppliedOutcome | null {
+	const messageId = message.id;
+	if (!messageId) return null;
+	let unapplied: ToolAppliedOutcome | null = null;
+	for (const [index, execution] of (message.tool_executions ?? []).entries()) {
+		if (!deliverable(execution)) continue;
+		try {
+			const dispatched = dispatchToolResult(toolResultId(messageId, index), execution.tool_name, execution.result?.data);
+			if (dispatched && isUnapplied(dispatched.outcome)) unapplied = dispatched.outcome;
+		} catch (error) {
+			logger.error(`onToolApplied handler for ${execution.tool_name} failed:`, error);
+		}
+	}
+	return unapplied;
+}
+
 /** Drop all registrations. Called on SPA user switch (see `applyIdentityGuard`). */
 export function resetPageContext(): void {
 	contextProviders.clear();
 	toolAppliedHandlers.clear();
+	dispatchedToolResults.clear();
 	modeDeclarations.set([]);
 }
