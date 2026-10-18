@@ -1438,7 +1438,7 @@ class NativeGenerator:
         whole move cannot succeed; ``False`` (nothing touched) leaves the whole
         move to the caller. Nothing is evicted for it (the historical path never
         evicted either); a placement that still OOMs retries fully streamed
-        (budget 0)."""
+        (budget 0). Any other failure undoes the placement before it propagates."""
         if self._explicit_placement is None and (
             self._te_placement_mode() == "gpu" or not str(device).startswith("cuda")
         ):
@@ -1453,16 +1453,20 @@ class NativeGenerator:
         budget = te_plan.stream_budget_gb or 0.0
         streaming = TextEncoderStreaming(target)
         try:
-            streaming.apply(device, budget)
-        except torch.cuda.OutOfMemoryError:
-            logger.warning(
-                "streamed text-encoder placement OOM'd (budget %.1fGB); streaming every leaf", budget,
-            )
+            try:
+                streaming.apply(device, budget)
+            except torch.cuda.OutOfMemoryError:
+                logger.warning(
+                    "streamed text-encoder placement OOM'd (budget %.1fGB); streaming every leaf", budget,
+                )
+                streaming.teardown()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                streaming = TextEncoderStreaming(target)
+                streaming.apply(device, 0.0)
+        except BaseException:
             streaming.teardown()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            streaming = TextEncoderStreaming(target)
-            streaming.apply(device, 0.0)
+            raise
         self._te_streaming = streaming
         logger.info(
             "[NATIVE] text encoder streamed for encode: %.1fGB resident, %.1fGB streamed (budget %.1fGB, footprint %.1fGB)",

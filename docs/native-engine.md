@@ -169,6 +169,12 @@ close that gap:
   lowvram approach, scoped to the native engine. `NativeGenerator._stream_dit_to_gpu` computes the
   budget (live free VRAM − sampling headroom, after evicting foreign residents) and streams only
   the overflow; an OOM backstop re-streams at a zero budget (only the small fixed tensors resident).
+  Pinning is best effort: when the host refuses to page-lock a streamed leaf (`pin_memory()` raises
+  a plain `RuntimeError`, as on the capped page-locked memory of WSL2 / Docker Desktop),
+  `ModuleStreamer.apply` repeats the placement unpinned (`pin=False`, synchronous copies, no
+  prefetch), releases the pinned pool and logs one warning per process. The streamed forward is
+  slower but the generation does not fail, for the DiT and the text encoder alike. Any other
+  failure mid-placement is rolled back completely (hooks, cast flags, pinned tensors).
 - **On-the-fly fp8 quantise-at-load** (`ops/fp8_quant.py`). When a bf16/fp16 DiT would not fit
   resident but *would* as fp8 (e.g. Krea-2 24.5GB → ~12.5GB), the loader quantises its big 2D Linear
   weights to per-tensor scaled e4m3 (`weight` fp8 + a `weight_scale` sidecar — the exact format
@@ -190,7 +196,8 @@ close that gap:
   the call, so the dequant runs on the GPU from the 0.81 B/elem form. Both encode sites take this
   path: the pipes' `run_text_encode` / `run_text_encode_batch` (after the existing co-resident and
   evict steps, path `"streamed"` on the `te.encode` mark; an OOM retries fully streamed, then encodes
-  on the CPU as before) and `NativeGenerator.encode_prompt` (torn down by `_maybe_offload_te`).
+  on the CPU as before) and `NativeGenerator.encode_prompt` (torn down by `_maybe_offload_te`; a
+  placement that fails for any reason is torn down before the error propagates).
 
   **Footprint formula** (`text_encoder_footprint`; the same weight figure `_estimate_text_encoder_gb`
   reports): weights are every parameter and buffer the modules own, counted once — nvfp4 holds the

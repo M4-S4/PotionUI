@@ -65,6 +65,7 @@ logger = logging.getLogger(__name__)
 # single run instead of once per process.
 _warned_prefetch_setup_failed = False
 _warned_prefetch_failed = False
+_warned_pin_fallback = False
 
 _BYTES_PER_GB = 1024 ** 3
 
@@ -74,6 +75,11 @@ _BYTES_PER_GB = 1024 ** 3
 # ``_PINNED_RELEASE_FLOOR_GB``: pools smaller than this are worth keeping warm,
 # so they are also not worth draining incrementally.
 _TEARDOWN_RELEASE_CHUNK_GB = 2.0
+
+
+class PinnedMemoryUnavailableError(RuntimeError):
+    """``Tensor.pin_memory()`` failed: the host could not page-lock the allocation."""
+
 
 def stream_prefetch_enabled() -> bool:
     return bool(runtime_flag("native_stream_prefetch"))
@@ -123,6 +129,38 @@ def _record_stream_on(tensor: torch.Tensor, stream) -> None:
     rec = getattr(tensor, "record_stream", None)
     if callable(rec):
         rec(stream)
+
+
+def _pin(data: torch.Tensor) -> torch.Tensor:
+    """Page-lock ``data`` and count it; ``PinnedMemoryUnavailableError`` if the host refuses."""
+    try:
+        pinned = data.pin_memory()
+    except Exception as exc:
+        raise PinnedMemoryUnavailableError(
+            f"pin_memory() failed for {data.numel() * data.element_size()} bytes ({type(exc).__name__}: {exc})"
+        ) from exc
+    add_pinned_bytes(pinned.numel() * pinned.element_size())
+    return pinned
+
+
+def _unpinned_copy(data: torch.Tensor) -> torch.Tensor:
+    plain = torch.empty_like(data, pin_memory=False)
+    plain.copy_(data)
+    return plain
+
+
+def _note_pin_fallback(exc: BaseException) -> None:
+    global _warned_pin_fallback
+    if _warned_pin_fallback:
+        logger.info("pinned host memory unavailable (%s); placing without page-locked copies", exc)
+        return
+    _warned_pin_fallback = True
+    logger.warning(
+        "pinned host memory unavailable (%s); streaming from pageable host memory with synchronous "
+        "host-to-device copies, slower than pinned streaming (page-locked memory can be capped, "
+        "e.g. under WSL2 or Docker Desktop)",
+        exc,
+    )
 
 
 def _own_tensor_bytes(module: nn.Module) -> int:
@@ -326,11 +364,41 @@ class ModuleStreamer:
         pin: bool = True,
         non_blocking: bool = True,
     ) -> None:
-        """Place ``root`` for ``plan`` on ``device`` (streamed leaves stay pinned/CPU)."""
+        """Place ``root`` for ``plan`` on ``device`` (streamed leaves stay pinned/CPU).
+
+        A page-lock failure repeats the placement unpinned with synchronous
+        copies; any other failure rolls it back.
+        """
+        try:
+            self._place(device, plan, pin=pin, non_blocking=non_blocking)
+            return
+        except PinnedMemoryUnavailableError as exc:
+            _note_pin_fallback(exc)
+        except BaseException:
+            self._abort_placement()
+            raise
+        pinned_before_failure = sum(_own_tensor_bytes(m) for m in self._streamed)
+        try:
+            self._place(device, plan, pin=False, non_blocking=False)
+        except BaseException:
+            self._abort_placement()
+            raise
+        if pinned_before_failure:
+            self._release_vacated_pinned(pinned_before_failure)
+
+    def _place(
+        self,
+        device: str | torch.device,
+        plan: PartialResidencyPlan,
+        *,
+        pin: bool,
+        non_blocking: bool,
+    ) -> None:
         streamed_ids = {id_ for id_ in map(_module_id_by_name(self.root), plan.streamed_names)}
         can_pin = pin and torch.cuda.is_available()
         self._remove_stagers()
         self._streamed = []
+        self._pinned = can_pin
         streamed_bytes = 0
 
         for name, module in self.root.named_modules():
@@ -359,7 +427,6 @@ class ModuleStreamer:
         # placement signature into this residency.
         release_derived_caches(self.root)
         self._streamed_bytes = streamed_bytes
-        self._pinned = can_pin
         self._active = True
         self._maybe_setup_prefetch(device, non_blocking)
         logger.debug(
@@ -367,6 +434,15 @@ class ModuleStreamer:
             "(pin=%s, non_blocking=%s, prefetch=%s)",
             len(self._streamed), device, can_pin, non_blocking, self._prefetcher is not None,
         )
+
+    def _abort_placement(self) -> None:
+        self._streamed_bytes = sum(_own_tensor_bytes(m) for m in self._streamed)
+        self._active = True
+        try:
+            self.teardown()
+        except Exception:
+            logger.debug("streamer: placement rollback failed", exc_info=True)
+            self._active = False
 
     def _maybe_setup_prefetch(self, device: str | torch.device, non_blocking: bool) -> None:
         """Construct the copy-stream prefetcher, or leave it ``None`` (on-demand).
@@ -749,14 +825,17 @@ def _place_streamed_nvfp4(module: nn.Module, device: str | torch.device, *, pin:
     """Streamed nvfp4 leaf: buffers to (pinned) CPU RAM, its params (the bias) on ``device``."""
     for p in module.parameters(recurse=False):
         p.data = p.data.to(device)
+    placed: dict[str, torch.Tensor] = {}
     for name, buf in list(module._buffers.items()):
         if buf is None:
             continue
         data = buf if buf.device.type == "cpu" else buf.to("cpu")
         if pin and not data.is_pinned():
-            data = data.pin_memory()
-            add_pinned_bytes(data.numel() * data.element_size())
-        module._buffers[name] = data
+            data = _pin(data)
+        elif not pin and data.is_pinned():
+            data = _unpinned_copy(data)
+        placed[name] = data
+    module._buffers.update(placed)
 
 
 def _unpin_own_buffers(module: nn.Module) -> None:
@@ -782,8 +861,7 @@ def _move_own_tensors(module: nn.Module, device: str | torch.device, *, pin: boo
         data = p.data
         if is_cpu:
             if pin and data.device.type == "cpu" and not data.is_pinned():
-                data = data.pin_memory()
-                add_pinned_bytes(data.numel() * data.element_size())
+                data = _pin(data)
             elif data.device.type != "cpu":
                 data = data.to("cpu")
             elif not pin and data.is_pinned():
