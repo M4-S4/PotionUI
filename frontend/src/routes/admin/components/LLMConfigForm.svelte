@@ -125,6 +125,7 @@
 	};
 
 	const openaiOptions = {
+		context_window: { default: null, type: 'number', label: 'Context window (tokens)', description: 'The capacity the context budget preflight uses for this config — not a promise the model actually fits that many tokens. Set it to the server\'s context size (e.g. llama-server -c). Leave blank for a conservative unknown-capacity default.' },
 		top_p: { default: null, type: 'number', label: 'Top-P', description: 'Nucleus sampling threshold (0-1). Leave blank to use the model default.' },
 		presence_penalty: { default: null, type: 'number', label: 'Presence Penalty', description: 'Penalizes tokens already present in the text so far (-2 to 2). Leave blank to use the model default.' },
 		frequency_penalty: { default: null, type: 'number', label: 'Frequency Penalty', description: 'Penalizes tokens by how often they already appear (-2 to 2). Leave blank to use the model default.' },
@@ -495,6 +496,9 @@
 
 {#snippet ollamaFields()}
 	{@render optionsFields(ollamaOptions, 'ollama')}
+	{#if draft.provider_options.num_ctx == null}
+		<p class="text-xs text-warning/70 mt-3">Context Size is blank: Ollama then uses its own default (4,096 tokens on GPUs under 24 GB in recent versions), too small for tool-calling chats such as the assistant modes.</p>
+	{/if}
 {/snippet}
 
 {#snippet openaiFields()}
