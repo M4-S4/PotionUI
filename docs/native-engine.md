@@ -239,7 +239,9 @@ close that gap:
   CPU fallback it replaces (a 32B encoder on the CPU took ~190 s). `NATIVE_STREAM_PREFETCH` overlaps
   the next weight-backed leaf's copy with compute; nvfp4 leaves are staged on demand by their own
   hook, not prefetched. Pinning the streamed share needs that much free host RAM (+2 GB), guarded
-  like the DiT's. On Windows/WSL2 a whole move that overflows the card can "succeed" through the
+  like the DiT's. Size the host accordingly: on a 12 GB card the MiniMax-H3 encoder streams about
+  12 GB and a whole run peaks near 26 GB of process RAM, so plan 64 GB of host RAM for the 12 GB
+  profiles. On Windows/WSL2 a whole move that overflows the card can "succeed" through the
   driver's shared-memory fallback and then fail inside a kernel with an uncatchable `CUDA error: out
   of memory` that poisons the CUDA context. Streaming avoids that when the encoder clearly does not
   fit. An encoder within the historical fit region is still moved whole, as before, so a transient
