@@ -33,7 +33,7 @@ export class PluginApiError extends Error {
 	}
 }
 
-const DOWNLOAD_URL_LIFETIME_MS = 1000;
+const DOWNLOAD_URL_LIFETIME_MS = 60_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === 'object' && !Array.isArray(value);

@@ -205,7 +205,9 @@ describe('createPluginApi: download', () => {
 		expect(clicked[0].href).toBe('blob:export-1');
 		expect(clicked[0].isConnected).toBe(false);
 		expect(URL.revokeObjectURL).not.toHaveBeenCalled();
-		vi.runAllTimers();
+		vi.advanceTimersByTime(59_999);
+		expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+		vi.advanceTimersByTime(1);
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:export-1');
 	});
 
