@@ -25,13 +25,19 @@ rest stream from pinned CPU RAM. Separately, the loader may **quantise a bf16 Di
 to fp8 at load** (``ops/fp8_quant.py``) so it fits resident — preferred over
 streaming. This module still only decides *resident vs not* and the ops mode; the
 partial split and the fp8 decision live in the generator / loader respectively.
+
+**The text encoder's encode phase** gets the same treatment
+(:func:`plan_text_encoder_placement`): an encoder whose honest footprint does not
+fit the VRAM available to it is placed with partial residency instead of moved
+whole. ``ComponentPlacement.streamed`` / ``stream_budget_gb`` carry that decision;
+``resident`` keeps its sampling-phase meaning.
 See ``docs/native-engine.md`` → "Memory tiers & low-VRAM".
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED
@@ -159,11 +165,19 @@ _TIER_VAE_OFFLOAD_MAX = 16.0
 
 @dataclass(frozen=True)
 class ComponentPlacement:
-    """Placement decision for one component."""
+    """Placement decision for one component.
+
+    ``streamed`` / ``stream_budget_gb`` describe the text encoder's encode phase
+    only: ``streamed`` places it with partial residency (``NativeModel.stream_to``)
+    and ``stream_budget_gb`` is the VRAM its resident leaves may use. Both keep
+    their defaults for every other component and for an encoder that fits.
+    """
 
     device: str
     ops_mode: OpsMode
     resident: bool  # False = kept on CPU, moved to GPU only while its phase runs
+    streamed: bool = False
+    stream_budget_gb: float | None = None
 
 
 @dataclass(frozen=True)
@@ -214,6 +228,54 @@ def _tier_from_residency(dit_r: bool, te_r: bool, vae_r: bool) -> Tier:
     return "resident"
 
 
+def plan_text_encoder_placement(
+    available_gb: float | None,
+    weights_gb: float,
+    *,
+    device: str,
+    mode: str = "auto",
+    dequant_peak_gb: float = 0.0,
+    working_headroom_gb: float = _WORKING_HEADROOM_GB,
+    fit_headroom_gb: float | None = None,
+    resident_cap_gb: float | None = None,
+) -> ComponentPlacement:
+    """Encode-phase placement of the text encoder: whole on ``device`` or streamed.
+
+    ``available_gb`` is the VRAM the encoder could occupy there right now (live
+    free VRAM plus what it already holds on the device). ``mode``:
+
+      * ``"gpu"`` — never streams: the historical whole ``.to(device)``.
+      * ``"stream"`` — always streams.
+      * ``"auto"`` — streams only when ``weights_gb + fit_headroom_gb >
+        available_gb`` (``fit_headroom_gb`` defaults to ``working_headroom_gb``).
+        That is the caller's historical fit test, unchanged: neither the
+        dequantisation peak nor ``resident_cap_gb`` ever enters it, so an
+        encoder that fit before still takes the whole move.
+
+    Those two only size a streamed plan: ``stream_budget_gb`` is
+    ``min(available_gb, resident_cap_gb) - working_headroom_gb -
+    dequant_peak_gb`` (floored at 0), the resident leaves' share; every other
+    leaf streams from pinned RAM. Off-CUDA, or with no measurable
+    ``available_gb``, it never streams.
+    """
+    if mode not in ("auto", "gpu", "stream"):
+        raise ValueError(f"unknown text encoder placement mode: {mode!r}")
+    whole = ComponentPlacement(device=device, ops_mode="standard", resident=True)
+    if mode == "gpu" or available_gb is None or not str(device).startswith("cuda"):
+        return whole
+    fit_headroom = working_headroom_gb if fit_headroom_gb is None else fit_headroom_gb
+    if mode == "auto" and weights_gb + max(0.0, fit_headroom) <= available_gb:
+        return whole
+    sized = available_gb if resident_cap_gb is None else min(available_gb, resident_cap_gb)
+    return ComponentPlacement(
+        device=device,
+        ops_mode="standard",
+        resident=False,
+        streamed=True,
+        stream_budget_gb=max(0.0, sized - max(0.0, working_headroom_gb) - max(0.0, dequant_peak_gb)),
+    )
+
+
 def plan_placement(
     vram_gb: float,
     model_memory_gb: dict[str, float],
@@ -221,12 +283,27 @@ def plan_placement(
     device_plan: DevicePlan,
     *,
     working_headroom_gb: float = _WORKING_HEADROOM_GB,
+    text_encoder_mode: str | None = None,
+    text_encoder_available_gb: float | None = None,
+    text_encoder_dequant_gb: float = 0.0,
+    text_encoder_headroom_gb: float | None = None,
+    text_encoder_fit_headroom_gb: float | None = None,
+    text_encoder_resident_cap_gb: float | None = None,
 ) -> PlacementPlan:
     """Build a PlacementPlan for the DiT device's VRAM budget.
 
     ``model_memory_gb`` maps ``"dit"`` / ``"text_encoder"`` / ``"vae"`` to
     estimated resident sizes in GB. ``quant_format`` is the DiT quantisation
     (``"fp8_scaled"`` -> fp8 ops). ``device_plan`` decides co-location.
+
+    ``text_encoder_mode`` (``auto`` | ``gpu`` | ``stream``) additionally decides
+    the encoder's ENCODE-phase placement through
+    :func:`plan_text_encoder_placement` (``text_encoder.streamed`` /
+    ``stream_budget_gb``), against ``text_encoder_available_gb`` (default: the
+    whole ``vram_gb`` when the encoder shares the DiT's device),
+    ``text_encoder_headroom_gb`` (default: ``working_headroom_gb``) and its
+    ``fit_headroom_gb`` / ``resident_cap_gb`` / ``dequant_peak_gb`` siblings.
+    Left ``None``, the plan is exactly the sampling-phase plan it always was.
     """
     dit_gb = float(model_memory_gb.get("dit", 0.0))
     te_gb = float(model_memory_gb.get("text_encoder", 0.0))
@@ -252,17 +329,33 @@ def plan_placement(
     if not vae_colocated:
         vae_r = True
 
+    text_encoder = ComponentPlacement(
+        device=device_plan.te_device,
+        ops_mode="standard",
+        resident=te_r,
+    )
+    if text_encoder_mode is not None:
+        available = text_encoder_available_gb
+        if available is None and te_colocated:
+            available = vram_gb
+        encode = plan_text_encoder_placement(
+            available, te_gb,
+            device=device_plan.te_device,
+            mode=text_encoder_mode,
+            dequant_peak_gb=text_encoder_dequant_gb,
+            working_headroom_gb=working_headroom_gb if text_encoder_headroom_gb is None else text_encoder_headroom_gb,
+            fit_headroom_gb=text_encoder_fit_headroom_gb,
+            resident_cap_gb=text_encoder_resident_cap_gb,
+        )
+        text_encoder = replace(text_encoder, streamed=encode.streamed, stream_budget_gb=encode.stream_budget_gb)
+
     plan = PlacementPlan(
         dit=ComponentPlacement(
             device=device_plan.dit_device,
             ops_mode=_dit_ops_mode(quant_format, dit_r),
             resident=dit_r,
         ),
-        text_encoder=ComponentPlacement(
-            device=device_plan.te_device,
-            ops_mode="standard",
-            resident=te_r,
-        ),
+        text_encoder=text_encoder,
         vae=ComponentPlacement(
             device=device_plan.vae_device,
             ops_mode="standard",
@@ -272,8 +365,8 @@ def plan_placement(
         tier=tier,
     )
     logger.debug(
-        "placement tier=%s dit(res=%s,%s) te(res=%s) vae(res=%s,tiling=%s) vram=%.1f sizes=%s",
-        tier, dit_r, plan.dit.ops_mode, te_r, vae_r, plan.vae_tiling, vram_gb,
+        "placement tier=%s dit(res=%s,%s) te(res=%s,stream=%s) vae(res=%s,tiling=%s) vram=%.1f sizes=%s",
+        tier, dit_r, plan.dit.ops_mode, te_r, plan.text_encoder.streamed, vae_r, plan.vae_tiling, vram_gb,
         model_memory_gb if sizes_known else "unknown",
     )
     return plan
