@@ -1,4 +1,5 @@
 import json
+import re
 from unittest.mock import Mock
 
 import pytest
@@ -188,13 +189,27 @@ async def test_refreshing_a_disabled_backend_is_a_409(cloud_env, container):
     assert response.json()["detail"]["error"] == "cloud_backend_inactive"
 
 
-PRICE_WORDS = ("pricing", "price", "usd", "cost", "0.04", "0.40")
+PRICE_WORDS = ("pricing", "price", "usd", "cost")
+PRICE_AMOUNTS = ("0.04", "0.40")
 
 
 def assert_no_price(payload):
     text = json.dumps(payload, default=str).lower()
     for word in PRICE_WORDS:
         assert word not in text, word
+    for amount in PRICE_AMOUNTS:
+        assert not re.search(rf"(?<![\d.]){re.escape(amount)}(?!\d)", text), amount
+
+
+@pytest.mark.parametrize("payload", [{"at": "2026-10-18T14:42:50.045129+00:00"}, {"at": "2026-10-18T14:42:50.400000"}, {"size": 10.04}, {"size": 0.0405}])
+def test_a_number_that_only_contains_a_price_is_not_a_price(payload):
+    assert_no_price(payload)
+
+
+@pytest.mark.parametrize("payload", [{"amount": "0.04"}, {"amounts": ["0.40"]}, {"amount": 0.04}, {"amount": "0.04 per image"}])
+def test_a_price_written_as_a_number_is_found(payload):
+    with pytest.raises(AssertionError):
+        assert_no_price(payload)
 
 
 async def test_the_picker_payload_for_users_carries_no_price(refreshed):

@@ -1,5 +1,6 @@
 import logging
 import json
+import re
 from dataclasses import replace
 
 import pytest
@@ -108,8 +109,9 @@ async def test_the_capabilities_carry_no_price(refreshed, container):
     async with client_as(container, AccountType.ADMIN) as client:
         text = json.dumps((await client.get(url(model_id))).json()).lower()
 
-    for word in ("pricing", "price", "usd", "cost", "0.04"):
+    for word in ("pricing", "price", "usd", "cost"):
         assert word not in text
+    assert not re.search(r"(?<![\d.])0\.04(?!\d)", text)
 
 
 async def test_a_user_without_access_to_the_model_gets_a_404(refreshed, container, mock_db):

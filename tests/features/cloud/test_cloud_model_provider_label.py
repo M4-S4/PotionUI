@@ -1,4 +1,5 @@
 import json
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -11,7 +12,8 @@ from src.features.models.repository import model_repo
 from src.platform.security.user import AccountType
 
 IMAGE = "fake/image-1"
-PRICE_WORDS = ("pricing", "price", "usd", "cost", "0.04")
+PRICE_WORDS = ("pricing", "price", "usd", "cost")
+PRICE_AMOUNTS = ("0.04",)
 
 
 def user(account_type, user_id="u1"):
@@ -55,6 +57,8 @@ def assert_no_price(payload):
     text = json.dumps(payload, default=str).lower()
     for word in PRICE_WORDS:
         assert word not in text, word
+    for amount in PRICE_AMOUNTS:
+        assert not re.search(rf"(?<![\d.]){re.escape(amount)}(?!\d)", text), amount
 
 
 @pytest.mark.parametrize("admin", [False, True])
