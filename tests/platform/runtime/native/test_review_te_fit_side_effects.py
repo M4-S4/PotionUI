@@ -202,6 +202,16 @@ def test_after_evict_quantised_encoder_within_the_reserve_keeps_the_whole_move(m
     assert log == _after_evict_expectation(encoder, size)
 
 
+@pytest.mark.parametrize("case", COMFORTABLE[:4] + BUDGET_BAND[:2], ids=_ids)
+def test_after_evict_encoder_that_fits_only_without_the_reserve_keeps_the_whole_move(monkeypatch, case):
+    weights = module_size_gb(case.build([]))
+    sized = Case(case.name, weights + RESERVE_GB / 2 + CTX_GB, case.builder)
+
+    log, encoder, size = _run_after_evict(monkeypatch, sized, budget=None)
+
+    assert log == _after_evict_expectation(encoder, size)
+
+
 def test_cpu_device_never_moves_the_encoder_whatever_the_mode(monkeypatch):
     log: list = []
     encoder = L.qwen3_8b(log)

@@ -967,9 +967,11 @@ def _plan_encode_after_evict(
 ) -> tuple[ComponentPlacement | None, TextEncoderFootprint | None, float | None]:
     """Step 2's partial-residency decision, read after the eviction.
 
-    The fit test is step 1's (``size_gb + reserve_gb``, same ``size_gb``)
-    against the freed VRAM plus what the encoder already holds there; the
-    backend cap and the dequantisation peak only size a streamed share.
+    The fit test is the historical whole move's, as ``encode_prompt``'s: the
+    encoder alone (``size_gb``, no reserve) against the freed VRAM plus what it
+    already holds there, so an encoder that fits still moves whole; the
+    reserve, the backend cap and the dequantisation peak only size a streamed
+    share.
     Returns ``(plan, footprint, live_free_gb)``; ``plan`` is ``None`` when the
     encoder has no measurable module or the device no free-VRAM reading, which
     keeps the historical whole move.
@@ -986,6 +988,7 @@ def _plan_encode_after_evict(
         mode=settings.mode,
         dequant_peak_gb=footprint.dequant_peak_gb,
         working_headroom_gb=reserve_gb,
+        fit_headroom_gb=0.0,
         resident_cap_gb=settings.vram_budget_gb,
     )
     return plan, footprint, live_free
