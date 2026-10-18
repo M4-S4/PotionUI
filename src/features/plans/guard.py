@@ -321,10 +321,46 @@ class LimitGuard:
             self._maybe_prune(now)
             return recorded
 
-    def refund(self, ref_id: Optional[str]) -> int:
+    def admit_units(self, user_id: str, kind_key: str, units: float = 1, ref_id: Optional[str] = None) -> str:
+        with self._lock:
+            now = self.clock()
+            kind = self.registry.get(kind_key)
+            subject = self.plans.subject(user_id) if kind is not None else None
+            if subject is not None:
+                self._enforce_units(kind, subject, float(units), now)
+            event_id = self.events.record(user_id, kind_key, units, ref_id, now)
+            self._maybe_prune(now)
+            return event_id
+
+    def _enforce_units(self, kind: LimitKind, subject: PlanSubject, units: float, now: datetime) -> None:
+        settings = self.settings.read()
+        if self.is_exempt(subject, settings):
+            return
+        limit = self.resolve(subject).value(kind.key)
+        if limit is None:
+            return
+        try:
+            measured = self.measure(kind, subject.user_id, settings.day_timezone, now)
+        except Exception:
+            if kind.source == "core":
+                raise
+            logger.exception("Limit kind %s failed to measure; not enforcing it", kind.key)
+            return
+        if not exceeded(limit, measured.used, units):
+            return
+        point = kind.enforce_at[0]
+        refusal = self._refusal(kind, limit, measured, settings, point, now, units)
+        if not kind.hides_values:
+            refusal["needed"] = _number(units)
+            refusal["remaining"] = _number(max(0.0, limit - measured.used))
+        self._refuse(AdmissionRequest(point=point, user_id=subject.user_id), [refusal], settings)
+
+    def refund(self, ref_id: Optional[str], kind: Optional[str] = None) -> int:
         if not ref_id:
             return 0
-        return self.events.refund(ref_id, self.clock())
+        if kind is None:
+            return self.events.refund(ref_id, self.clock())
+        return self.events.refund(ref_id, self.clock(), kind)
 
     def on_generation_terminal(self, record: Any) -> None:
         state = getattr(getattr(record, "state", None), "value", getattr(record, "state", None))

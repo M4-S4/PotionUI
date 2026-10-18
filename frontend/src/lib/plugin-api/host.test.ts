@@ -2,8 +2,9 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import { initHostApi, createGenerationEvents, type PotionUIHostApi, type GenerationEvent } from './host';
-import { chatPanelStore } from '$lib/stores/chatPanel';
+import { chatPanelStore, CHAT_READY_TIMEOUT_MS, type ChatComposer } from '$lib/stores/chatPanel';
 import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContext';
+import { activeConfirm, cancelAllConfirms, settleConfirm } from '$lib/stores/confirm';
 import {
 	isKeyboardSuppressed,
 	suppressKeyboard,
@@ -80,6 +81,109 @@ describe('window.__potionui.chat', () => {
 		expect(chat.provideContext).toBe(provideContext);
 		expect(chat.declareMode).toBe(declareMode);
 		expect(chat.onToolApplied).toBe(onToolApplied);
+	});
+});
+
+describe('window.__potionui.chat composer', () => {
+	function fakeComposer(send: (text: string) => Promise<void> = async () => {}): ChatComposer & {
+		prefills: Array<[string, boolean]>;
+		sends: string[];
+	} {
+		const prefills: Array<[string, boolean]> = [];
+		const sends: string[] = [];
+		return {
+			prefills,
+			sends,
+			prefill: (text, replace) => {
+				prefills.push([text, replace]);
+			},
+			send: (text) => {
+				sends.push(text);
+				return send(text);
+			}
+		};
+	}
+
+	let detach: (() => void) | undefined;
+
+	afterEach(() => {
+		detach?.();
+		detach = undefined;
+		chatPanelStore.reset();
+		vi.useRealTimers();
+	});
+
+	it('opens the panel on prefill and hands the text over once the chat is ready', () => {
+		host().chat.prefill('Plan five shots');
+		host().chat.prefill('Rewrite it', { replace: true });
+		expect(host().chat.isOpen()).toBe(true);
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.prefills).toEqual([
+			['Plan five shots', false],
+			['Rewrite it', true]
+		]);
+		host().chat.prefill('Again');
+		expect(composer.prefills.at(-1)).toEqual(['Again', false]);
+	});
+
+	it('opens the panel on send and resolves once the chat has sent the message', async () => {
+		const pending = host().chat.send('Make the intro shorter');
+		expect(host().chat.isOpen()).toBe(true);
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		await expect(pending).resolves.toBeUndefined();
+		expect(composer.sends).toEqual(['Make the intro shorter']);
+	});
+
+	it('passes on the rejection of a chat that cannot send', async () => {
+		detach = chatPanelStore.attachComposer(fakeComposer(() => Promise.reject(new Error('No chat model is configured'))));
+		await expect(host().chat.send('hello')).rejects.toThrow('No chat model is configured');
+	});
+
+	it('rejects an empty text without opening the panel', async () => {
+		await expect(host().chat.send('   ')).rejects.toThrow(TypeError);
+		expect(host().chat.isOpen()).toBe(false);
+	});
+
+	it('rejects a send when the panel is closed before the chat is ready', async () => {
+		const pending = host().chat.send('hello');
+		host().chat.close();
+		await expect(pending).rejects.toThrow('closed');
+		const composer = fakeComposer();
+		detach = chatPanelStore.attachComposer(composer);
+		expect(composer.sends).toEqual([]);
+	});
+
+	it('rejects a send when the chat never becomes ready', async () => {
+		vi.useFakeTimers();
+		const pending = host().chat.send('hello');
+		const settled = expect(pending).rejects.toThrow('The chat is not available');
+		vi.advanceTimersByTime(CHAT_READY_TIMEOUT_MS);
+		await settled;
+	});
+
+	it('queues again once the chat panel has detached', async () => {
+		const first = fakeComposer();
+		chatPanelStore.attachComposer(first)();
+		const pending = host().chat.send('later');
+		expect(first.sends).toEqual([]);
+		const second = fakeComposer();
+		detach = chatPanelStore.attachComposer(second);
+		await pending;
+		expect(second.sends).toEqual(['later']);
+	});
+});
+
+describe('window.__potionui.confirm', () => {
+	afterEach(() => cancelAllConfirms());
+
+	it('passes the cancel label to the app dialog and resolves false on cancel', async () => {
+		const pending = host().confirm({ message: 'Discard the storyboard?', cancelLabel: 'Keep it' });
+		const request = get(activeConfirm);
+		expect(request).toMatchObject({ message: 'Discard the storyboard?', cancelLabel: 'Keep it' });
+		settleConfirm(request!.id, false);
+		await expect(pending).resolves.toBe(false);
 	});
 });
 

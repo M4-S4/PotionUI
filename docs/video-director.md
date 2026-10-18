@@ -296,6 +296,14 @@ stored `references` key is ignored in every mode.
   reference to anchor a soundtrack). Single-shot modes (`t2v`/`i2v`/`flf`) keep the whole
   pool and leave their markers to the generation's own prompt resolution.
 
+A plugin adds references with `bind_director_media(request, "reference", media, segment_id=None,
+field=None)` (`src.plugin_api.presets`): `media` is one resolved media or a list of them
+(images, videos, audio tracks), appended once each to the pool field `field` (default: the
+first of `reference_fields`) as `{path, relative_path, type, name}`. With `segment_id` (a
+`director` document whose capability is `"per_shot"`), the segment's `prompt` also gets an
+`@[field:relative_path]` marker for each item it does not cite yet, so the shot is conditioned
+on them. A preset mode without a reference pool refuses with `references_unsupported`.
+
 ### `media`
 
 `role` is one of `first`, `last`, `keyframe`.
@@ -352,6 +360,22 @@ stored `references` key is ignored in every mode.
   `"video"` is rejected here rather than silently dropped later; a reference with no `type`
   at all counts as an image.
 - `media.media` is resolved to an on-disk path (see [Path resolution](#path-resolution-and-traversal)).
+
+A plugin places an image with `bind_director_media(request, role, media, segment_id, at=None)`
+(`src.plugin_api.presets`, `media` from `resolve_media_ref` or `extract_frame`). In a
+`director` document `segment_id` is required: `first` and `last` anchor to that segment (their
+`at` is set to its start and end), and `keyframe` takes `at` in seconds from the start of the
+segment and stores the timeline position (`start` of a timeline segment, or the frames of the
+previous chain segments over `settings.fps`, plus `at`). Binding the same role on the same
+segment, or a keyframe at the same position, replaces the image. The roles follow the rules
+above: `keyframe` needs a timeline director or `keyframes: "anywhere"`, a chain `last` needs a
+`first` on its segment, and the count stays within `max_keyframes`. The capabilities default to
+the preset's `vars.video_director` for the request's preset mode (`capabilities=` overrides
+them). Refusals raise `DirectorBindingError` with a stable `code`: `segment_required`,
+`unknown_segment`, `invalid_role`, `role_unsupported`, `unsupported_mode`, `no_capabilities`,
+`invalid_at`, `too_many_keyframes`, `first_frame_required`, `invalid_media`. Single-shot
+documents keep the `first`/`last` binding and `promote` described in
+[docs/plugin-api.md](plugin-api.md).
 
 ### `audio`
 

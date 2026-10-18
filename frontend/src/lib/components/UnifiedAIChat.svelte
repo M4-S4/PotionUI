@@ -17,6 +17,7 @@
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
+	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
 	import {
 		declaredMode,
@@ -554,7 +555,55 @@
 	// Load sessions after configs are loaded
 	$: if (configsLoaded && !sessionsLoadInitiated) {
 		sessionsLoadInitiated = true;
-		void loadRecentSessions(true);
+		void loadRecentSessions(true).then(attachHostComposer);
+	}
+
+	let detachHostComposer: (() => void) | null = null;
+
+	async function attachHostComposer() {
+		await tick();
+		if (destroyed || detachHostComposer) return;
+		detachHostComposer = chatPanelStore.attachComposer({ prefill: prefillFromHost, send: sendFromHost });
+	}
+
+	function prefillFromHost(text: string, replace: boolean) {
+		const hasDraft = userInput.trim() !== '' || Object.keys(userResources).length > 0;
+		if (replace || !hasDraft) {
+			userInput = text;
+			userResources = {};
+		}
+		void tick().then(() => inputRef?.focus());
+	}
+
+	function adoptPageMode() {
+		const mode = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
+		if (mode === $chatSession.mode) return;
+		chatSession.newConversation(mode);
+		saveActiveSessionId('');
+		applyStoredDisabledToolsForMode(mode);
+	}
+
+	function sendFromHost(text: string): Promise<void> {
+		if ($chatSession.isGenerating) {
+			return Promise.reject(new Error('The assistant is still answering the previous message'));
+		}
+		if (!selectedConfigId) return Promise.reject(new Error('No chat model is configured'));
+		adoptPageMode();
+		return new Promise<void>((resolve, reject) => {
+			let dispatched = false;
+			const onDispatched = () => {
+				dispatched = true;
+				resolve();
+			};
+			sendMessage(text, { onDispatched }).then(
+				() => {
+					if (!dispatched) reject(new Error($chatSession.error || 'The message could not be sent'));
+				},
+				(error) => {
+					if (!dispatched) reject(error instanceof Error ? error : new Error(String(error)));
+				}
+			);
+		});
 	}
 
 	async function loadRecentSessions(restoreStored = false) {
@@ -863,6 +912,7 @@
 		if (stripFlashTimer) clearTimeout(stripFlashTimer);
 		if (pinnedScrollHandle !== null) cancelFrame(pinnedScrollHandle);
 		pendingCardObserver?.disconnect();
+		detachHostComposer?.();
 	});
 
 	async function handleCommand(command: string): Promise<boolean> {
@@ -1006,7 +1056,11 @@
 	 */
 	async function sendMessage(
 		instruction: string,
-		options: { resourceRefs?: { uri: string }[]; attachedResources?: ResourceChipData[] } = {}
+		options: {
+			resourceRefs?: { uri: string }[];
+			attachedResources?: ResourceChipData[];
+			onDispatched?: () => void;
+		} = {}
 	) {
 		if (!instruction.trim() || $chatSession.isGenerating) return;
 		if (!selectedConfigId) return;
@@ -1091,7 +1145,8 @@
 			},
 			onSettled: () => {
 				inputRef?.focus();
-			}
+			},
+			onDispatched: options.onDispatched
 		});
 	}
 
