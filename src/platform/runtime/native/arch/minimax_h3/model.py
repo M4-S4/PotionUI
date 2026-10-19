@@ -88,6 +88,17 @@ _ROW_MASKED_BLOCK_LINEARS = frozenset({
     "mlp.fc2",
 })
 _AUDIO_ONLY_LINEARS = frozenset({"audio_patch_proj", "final_layer.audio_out", "final_layer.adaln_proj.linear"})
+_FFN_CHUNK_MIN_ROWS = 4096
+
+
+def default_ffn_chunk_rows(seq_len: int, hidden_size: int, ffn_dim: int) -> int:
+    chunks = math.ceil(2 * ffn_dim / hidden_size)
+    rows = max(math.ceil(seq_len / chunks), _FFN_CHUNK_MIN_ROWS)
+    return rows if rows < seq_len else 0
+
+
+def effective_mlp_chunk_rows(seq_chunk_rows: int, ffn_chunk_rows: int) -> int:
+    return min((rows for rows in (seq_chunk_rows, ffn_chunk_rows) if rows), default=0)
 
 
 def _cached_tensor_bytes(value: tuple[Tensor, Tensor] | None) -> int:
@@ -359,6 +370,11 @@ class MiniMaxH3Attention(nn.Module):
         return q_full, k_full, v_full
 
 
+def _swiglu(fc1, fc2, x: Tensor) -> Tensor:
+    gate, value = fc1(x).chunk(2, dim=-1)
+    return fc2(F.silu(gate) * value)
+
+
 class MiniMaxH3MLP(nn.Module):
     """SwiGLU feed-forward: ``fc1`` fuses the gate and value projections; the
     GATE is the FIRST half of ``fc1``'s output, the value the second.
@@ -383,16 +399,16 @@ class MiniMaxH3MLP(nn.Module):
             # Row-chunked over the sequence axis so the ``2*ffn_dim`` fc1
             # output only ever exists chunk-sized -- fc1/fc2 are per-row
             # linears, exact under chunking regardless of a ragged tail.
-            chunks = []
+            out = x.new_empty((*x.shape[:-1], self.fc2.out_features))
             start = 0
-            for x_chunk in x.split(seq_chunk_rows, dim=-2):
-                with lora_row_window(start, x_chunk.shape[-2]):
-                    gate, value = self.fc1(x_chunk).chunk(2, dim=-1)
-                    chunks.append(self.fc2(F.silu(gate) * value))
-                start += x_chunk.shape[-2]
-            return torch.cat(chunks, dim=-2)
-        gate, value = self.fc1(x).chunk(2, dim=-1)
-        return self.fc2(F.silu(gate) * value)
+            with self.fc1.prepared_linear(x) as fc1, self.fc2.prepared_linear(x) as fc2:
+                for x_chunk in x.split(seq_chunk_rows, dim=-2):
+                    rows = x_chunk.shape[-2]
+                    with lora_row_window(start, rows):
+                        out.narrow(-2, start, rows).copy_(_swiglu(fc1, fc2, x_chunk))
+                    start += rows
+            return out
+        return _swiglu(self.fc1, self.fc2, x)
 
 
 class MiniMaxH3RefinerBlock(nn.Module):
@@ -448,7 +464,7 @@ class MiniMaxH3Block(nn.Module):
 
     def forward(self, x: Tensor, temb: Tensor, adaln_indices: Tensor, rotary_emb: tuple[Tensor, Tensor],
                 sparse_attn: SolAttnContext | SlaAttnContext | None = None,
-                seq_chunk_rows: int = 0, vdn_layout=None) -> Tensor:
+                seq_chunk_rows: int = 0, vdn_layout=None, ffn_chunk_rows: int = 0) -> Tensor:
         # The AdaLN table inherits temb's fp32 (the time embedder is an fp32
         # island); applying it as-is would promote the whole packed stream to
         # fp32 for every block downstream — fp32 attention loses the flash
@@ -476,7 +492,7 @@ class MiniMaxH3Block(nn.Module):
         residual = x
         h = self.norm2(x)
         h = h * (1.0 + scale_mlp.index_select(0, adaln_indices)) + shift_mlp.index_select(0, adaln_indices)
-        h = self.mlp(h, seq_chunk_rows)
+        h = self.mlp(h, effective_mlp_chunk_rows(seq_chunk_rows, ffn_chunk_rows))
         x = residual + gate_mlp.index_select(0, adaln_indices) * h
         return x
 
@@ -778,7 +794,7 @@ class MiniMaxH3Model(NativeArchModule):
                                      generated_video_indices: Tensor, generated_audio_indices: Tensor,
                                      step_cache=None,
                                      sparse_attn: SolAttnContext | SlaAttnContext | None = None,
-                                     seq_chunk_rows: int = 0, vdn_layout=None,
+                                     seq_chunk_rows: int = 0, vdn_layout=None, ffn_chunk_rows: int = 0,
                                      ) -> tuple[Tensor, Tensor | None, bool]:
         """Run the block stack, optionally gated by FBCache (see
         ``sampling/step_cache.py``).
@@ -816,7 +832,7 @@ class MiniMaxH3Model(NativeArchModule):
         probe = None
         for i, block in enumerate(self.blocks):
             hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn,
-                                  seq_chunk_rows, vdn_layout)
+                                  seq_chunk_rows, vdn_layout, ffn_chunk_rows)
             if i == 0 and step_cache is not None:
                 probe = GroupedProbe(
                     video=hidden_states.index_select(1, generated_video_indices),
@@ -898,19 +914,6 @@ class MiniMaxH3Model(NativeArchModule):
         intermediate transients at once (the ``2*ffn_dim`` SwiGLU output and
         the fused ``3*inner_dim`` qkv projection are the two that OOM first on
         a long refine sequence). The attention core itself is never chunked.
-
-        A quantized ``qkv_proj``/``out_proj`` (fp8/int8) no longer pays a
-        redundant per-chunk weight preparation: ``Fp8ScaledLinear.
-        prepared_linear`` computes the effective weight ONCE per projection
-        call (the dequantized weight, or — with the opt-in fp8 GEMM gate on
-        and eligible — the on-demand-staged fp8 weight) and every chunk of
-        that SAME call reuses it, released when the chunk loop finishes; only
-        the chunk-dependent input quantization/GEMM still runs per chunk. The
-        interleaved SwiGLU ``fc1``/``fc2`` loop does NOT get this treatment —
-        retaining both projections' prepared operands at once for the whole
-        loop would raise the streamed working set the chunking is meant to
-        bound — so a quantized MLP still dequantizes/stages ``fc1`` and
-        ``fc2`` on every chunk; pick the chunk size with that cost in mind.
 
         ``vdn_layout`` (keyword, optional): a
         :class:`~src.platform.runtime.native.arch.minimax_h3.vdn.layout.VdnLayout`
@@ -997,6 +1000,9 @@ class MiniMaxH3Model(NativeArchModule):
         step_cache = kwargs.pop("step_cache", None)
         sparse_attn_ctx = kwargs.pop("sparse_attn_ctx", None)
         seq_chunk_rows = kwargs.pop("seq_chunk_rows", 0)
+        ffn_chunk_rows = kwargs.pop("ffn_chunk_rows", None)
+        if ffn_chunk_rows is None:
+            ffn_chunk_rows = default_ffn_chunk_rows(seq_len, self.config.hidden_size, self.config.ffn_dim)
         vdn_layout = kwargs.pop("vdn_layout", None)
         if vdn_layout is not None:
             if not getattr(self.blocks[0].attn, "vdn_branch_attached", False):
@@ -1021,7 +1027,7 @@ class MiniMaxH3Model(NativeArchModule):
                 packed, temb, adaln_indices, rotary_emb,
                 video_indices[num_condition_video_rows:], audio_indices[num_condition_audio_rows:],
                 step_cache=step_cache, sparse_attn=sparse_attn_ctx,
-                seq_chunk_rows=seq_chunk_rows, vdn_layout=vdn_layout,
+                seq_chunk_rows=seq_chunk_rows, vdn_layout=vdn_layout, ffn_chunk_rows=ffn_chunk_rows,
             )
         if skipped:
             return step_cache.record_skip()

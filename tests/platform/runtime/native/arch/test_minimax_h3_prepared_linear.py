@@ -4,10 +4,6 @@ ONE prepared weight/bias operand per projection call (see
 ``vendor/gpl/comfyui/ops.py``), instead of re-dequantising (or, with the
 opt-in fp8 GEMM gate on, re-staging) the same unchanged weight on every chunk
 of ``seq_chunk_rows`` low-VRAM sequence chunking.
-
-The interleaved MLP fc1/fc2 loop (``MiniMaxH3MLP.forward``) is explicitly OUT
-of scope for this reuse (retaining both fc1 and fc2 operands at once would
-raise the streamed working set) and is neither touched nor tested here.
 """
 
 from __future__ import annotations
@@ -172,7 +168,7 @@ def test_dequant_preparation_failure_propagates_and_subsequent_call_recovers(mon
 
     original = attn.qkv_proj._prepare_dequant_operand
 
-    def _boom(dtype, device):
+    def _boom(dtype, device, **_kwargs):
         raise RuntimeError("simulated preparation failure")
 
     monkeypatch.setattr(attn.qkv_proj, "_prepare_dequant_operand", _boom)
@@ -536,10 +532,10 @@ def test_staged_operand_weakref_dies_before_dense_fallback_on_kernel_rejection(m
     dead_before_dequant: list[bool] = []
     real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
 
-    def _spy_prepare(self, dtype, device):
+    def _spy_prepare(self, dtype, device, **kwargs):
         gc.collect()
         dead_before_dequant.append(all(r() is None for r in refs))
-        return real_prepare(self, dtype, device)
+        return real_prepare(self, dtype, device, **kwargs)
 
     monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
     monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)

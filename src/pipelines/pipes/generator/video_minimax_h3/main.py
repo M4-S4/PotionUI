@@ -133,6 +133,7 @@ from src.platform.runtime.native.sla_attn import SlaAttnContext, build_sla_attn_
 from src.platform.runtime.native.sla_attn import estimate_transient_gb as sla_estimate_transient_gb
 from src.platform.runtime.native.sol_attn import SolAttnContext, build_sol_attn_context
 from src.platform.runtime.native.sol_attn import estimate_transient_gb as sol_estimate_transient_gb
+from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows, effective_mlp_chunk_rows
 from src.platform.runtime.native.arch.minimax_h3.vdn import (
     VdnLayout,
     estimate_vdn_transient_gb,
@@ -831,6 +832,7 @@ class _MiniMaxH3Forward:
         step_cache: Optional[FirstBlockCache] = None,
         sparse_attn_ctx: Optional[SolAttnContext | SlaAttnContext] = None,
         seq_chunk_rows: int = 0,
+        ffn_chunk_rows: Optional[int] = None,
     ) -> tuple[Tensor, Tensor]:
         current_revision = self.weight_revision() if self.weight_revision is not None else None
         if self._prepared_context is None:
@@ -857,6 +859,7 @@ class _MiniMaxH3Forward:
             step_cache=step_cache,
             sparse_attn_ctx=sparse_attn_ctx,
             seq_chunk_rows=seq_chunk_rows,
+            ffn_chunk_rows=ffn_chunk_rows,
             # Spread, not a plain `vdn_layout=None`: a DiT with no branch must
             # be called exactly as it was before VDN existed.
             **({"vdn_layout": self.vdn_layout} if self.vdn_layout is not None else {}),
@@ -961,6 +964,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             "sparse_attn_dense_last_steps": 2,
             "sparse_attn_start_percent": 0.0,
             "seq_chunk_rows": 0,
+            "ffn_chunking": True,
             "sampler": "euler",
             "scheduler": SIMPLE_SCHEDULER,
             "manual_sigmas": "",
@@ -1101,11 +1105,17 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "full-length at once -- the attention core itself is unaffected. "
                 "0 (default) is off and byte-identical to a run without the "
                 "feature; a value below the packed sequence length trades a "
-                "small perf cost (quantized weights are re-dequantized per "
-                "chunk) for materially lower peak VRAM. Only worth setting on "
+                "small perf cost for materially lower peak VRAM. Only worth setting on "
                 "very long sequences (e.g. a high-resolution refine); leave off "
                 "for an ordinary generation.",
                 required=False, min_value=0,
+            ),
+            PipeConfigSpec(
+                "ffn_chunking", bool, True,
+                "Row-chunk each block's SwiGLU MLP so its transient stays below attention's peak "
+                "and the VRAM reserve can drop it; the math is unchanged. Off restores the "
+                "full-length MLP and its larger reserve.",
+                required=False,
             ),
             PipeConfigSpec(
                 "sampler", str, "euler",
@@ -2114,6 +2124,10 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         dense_start_percent = sparse_attn_start_percent(self.config)
         sparse_attn_reserve = sparse_attn_reserve_gb(sparse_attn_ctx, layout)
         seq_chunk_rows = int(self.config.get("seq_chunk_rows", 0) or 0)
+        ffn_chunk_rows = (
+            default_ffn_chunk_rows(int(layout.position_ids.shape[0]), H3_HIDDEN_SIZE, H3_FFN_DIM)
+            if self.config.get("ffn_chunking", True) else 0
+        )
 
         vdn_layout = None
         if vdn_attached(getattr(c.bundle.dit, "module", None)):
@@ -2180,6 +2194,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             video_tokens=video_rows.shape[0] + layout.text_indices.numel(), audio_tokens=audio_rows.shape[0],
             own_models=(c.bundle.dit, c.bundle.video_vae, c.bundle.audio_vae),
             inner_dim=H3_INNER_DIM, ffn_dim=H3_FFN_DIM,
+            ffn_chunk_rows=effective_mlp_chunk_rows(seq_chunk_rows, ffn_chunk_rows),
             # 0.0 unless a sparse-attention method is on: its routing and QKV
             # copies are the one piece of this generation's GPU work the
             # token-derived reserve cannot see.
@@ -2255,6 +2270,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     step_cache=None if is_final_step else step_cache,
                     sparse_attn_ctx=sparse_attn_ctx,
                     seq_chunk_rows=seq_chunk_rows,
+                    ffn_chunk_rows=ffn_chunk_rows,
                 )
 
                 # A step the cache skipped hands back the previous step's velocity;

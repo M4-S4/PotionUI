@@ -1411,13 +1411,6 @@ class Fp8ScaledLinear(manual_cast.Linear):
         dtype. Upcast to bf16 exactly as a natively fp8 checkpoint would run;
         the resolved compute dtype is returned so the caller casts its own
         input tensor(s) to the SAME dtype instead of re-deriving it.
-
-        ``deltas`` names which LoRA deltas to fold into the returned weight.
-        Omitted means all of this layer's, which is what a caller wanting a
-        self-contained operand needs (:meth:`prepared_linear`'s chunk loop
-        reuses one weight across chunks and has nowhere to add an
-        activation-side term). The single-call forward passes only the
-        weight-side ones and adds the rest to its own output.
         """
         if isinstance(deltas, _Unset):
             deltas = self.lora_deltas
@@ -1567,11 +1560,13 @@ class Fp8ScaledLinear(manual_cast.Linear):
             pqs = state["pre_quant_scale"]
             return x_chunk * pqs if pqs is not None else x_chunk
 
+        output_side, weight_side = partition_output_branch_deltas(self.lora_deltas, self.out_features)
+
         def _prepare_dequant_once() -> tuple[torch.Tensor, "torch.Tensor | None", torch.dtype]:
             if state["dequant_weight"] is None:
                 if self.lora_deltas:
-                    _note_lora_path(self, "weight-side (chunked)")
-                weight, bias, dt = self._prepare_dequant_operand(dtype, device)
+                    _note_lora_path(self, _lora_dequant_path(weight_side, "chunked", output_side))
+                weight, bias, dt = self._prepare_dequant_operand(dtype, device, deltas=weight_side)
                 state["dequant_weight"] = weight
                 state["dequant_bias"] = bias
                 state["dequant_dt"] = dt
@@ -1582,7 +1577,8 @@ class Fp8ScaledLinear(manual_cast.Linear):
             scaled = _apply_pre_quant_scale(x_chunk)
             if scaled.dtype is not dt:
                 scaled = scaled.to(dt)
-            return F.linear(scaled, weight, bias)
+            out = F.linear(scaled, weight, bias)
+            return _add_lora_output_branch(out, scaled, output_side, self.out_features, owner=self)
 
         def _run_fast(x_chunk: torch.Tensor) -> torch.Tensor:
             if state["downgraded"]:

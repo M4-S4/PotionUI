@@ -297,6 +297,21 @@ def test_model_refuses_a_layout_alongside_chunking_or_sparse_attention():
                          sparse_attn_ctx=SolAttnContext())
 
 
+def test_a_layout_runs_with_the_mlp_chunked_and_matches_the_whole_mlp():
+    hybrid, _ = _attached()
+    packed = _packed_layout()
+    torch.manual_seed(37)
+    inputs = _fbcache_inputs(TINY_FULL, packed)
+    ts = torch.tensor([0.2, 0.9])
+    vdn = _vdn_layout()
+
+    whole = _fbcache_forward(hybrid, packed, inputs, ts, vdn_layout=vdn, ffn_chunk_rows=0)
+    chunked = _fbcache_forward(hybrid, packed, inputs, ts, vdn_layout=vdn, ffn_chunk_rows=4)
+
+    for a, b in zip(whole, chunked):
+        assert torch.equal(a, b)
+
+
 def test_fbcache_identical_inputs_skip_still_replays_both_streams_with_a_layout():
     hybrid, _ = _attached()
     packed = _packed_layout()

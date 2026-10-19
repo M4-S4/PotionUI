@@ -33,8 +33,10 @@ import vendor.gpl.comfyui.ops as comfy_ops
 from src.platform.settings import runtime_flags
 from vendor.gpl.comfyui.ops import _add_lora_output_branch, _lora_output_branch
 
+from src.platform.runtime.native.arch.minimax_h3.model import default_ffn_chunk_rows
 from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
+    _ACTIVATION_SAFETY_MARGIN,
     _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _dit_lora_profile,
@@ -1033,6 +1035,69 @@ def test_ltx_reserve_byte_identical_with_and_without_ffn_dim_kwarg_present_in_si
     # existing LTX-shaped call (no inner_dim, no ffn_dim -- the historical
     # call shape from before either kwarg existed).
     assert estimate_activation_reserve_gb(110_880) == pytest.approx(9.4, rel=0.3)  # sanity vs. the audit figure
+
+
+_H3_HIDDEN_SIZE = 5376
+_H3_FFN_PLANS = ((39_800, 4.25), (103_000, 11.0))
+
+
+def _h3_reserve(tokens: int, **kwargs) -> float:
+    return estimate_activation_reserve_gb(tokens, inner_dim=_H3_INNER_DIM, **kwargs)
+
+
+@pytest.mark.parametrize("tokens, saved_gib", _H3_FFN_PLANS)
+def test_a_chunked_ffn_drops_the_whole_ffn_term_from_a_long_h3_plans_reserve(tokens, saved_gib):
+    rows = default_ffn_chunk_rows(tokens, _H3_HIDDEN_SIZE, _H3_FFN_DIM)
+    whole = _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM)
+    chunked = _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM, ffn_chunk_rows=rows)
+    raw_saving_gib = tokens * _ffn_transient_bytes_per_token(_H3_FFN_DIM) / 1024 ** 3
+
+    assert rows
+    assert raw_saving_gib == pytest.approx(saved_gib, abs=0.01)
+    assert whole - chunked == pytest.approx(raw_saving_gib * _ACTIVATION_SAFETY_MARGIN, rel=1e-9)
+    assert chunked == _h3_reserve(tokens)
+
+
+@pytest.mark.parametrize("tokens, free_gb", [(39_800, 28.0), (103_000, 32.0)])
+def test_a_chunked_ffn_keeps_more_of_a_long_h3_plans_dit_resident(tokens, free_gb):
+    rows = default_ffn_chunk_rows(tokens, _H3_HIDDEN_SIZE, _H3_FFN_DIM)
+    decisions = []
+    for chunk_rows in (0, rows):
+        dit, _calls = _dit(estimated_vram_gb=_TRACE_DIT_WEIGHT_GB)
+        patches, _manager = _patched(free_gb=free_gb)
+        with patches[0], patches[1], patches[2]:
+            decisions.append(place_dit_for_sequence(
+                dit, "cuda", video_tokens=tokens, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+                ffn_chunk_rows=chunk_rows,
+            ))
+    whole, chunked = decisions
+
+    def resident_fraction(decision):
+        return min(1.0, decision.weight_budget_gb / decision.dit_weight_gb)
+
+    assert whole.mode == "partial"
+    assert chunked.weight_budget_gb - whole.weight_budget_gb == pytest.approx(
+        whole.activation_reserve_gb - chunked.activation_reserve_gb)
+    assert resident_fraction(chunked) > resident_fraction(whole)
+
+
+def test_an_ffn_chunk_at_least_as_long_as_the_sequence_reserves_the_whole_ffn():
+    tokens = 50_000
+    whole = _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM)
+    assert _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM, ffn_chunk_rows=tokens) == whole
+    assert _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM, ffn_chunk_rows=tokens + 1) == whole
+
+
+def test_a_chunked_ffn_phase_wider_than_attention_sets_the_reserve_instead():
+    tokens = 50_000
+    attention_only = _h3_reserve(tokens)
+    near_whole = _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM, ffn_chunk_rows=tokens - 1)
+    assert attention_only < near_whole < _h3_reserve(tokens, ffn_dim=_H3_FFN_DIM)
+
+
+def test_ffn_chunk_rows_without_an_ffn_dim_changes_nothing():
+    assert _h3_reserve(50_000, ffn_chunk_rows=4096) == _h3_reserve(50_000)
+    assert estimate_activation_reserve_gb(110_880, ffn_chunk_rows=4096) == estimate_activation_reserve_gb(110_880)
 
 
 # -- LoRA delta counted as resident weight (the OTHER half of the same fix) --

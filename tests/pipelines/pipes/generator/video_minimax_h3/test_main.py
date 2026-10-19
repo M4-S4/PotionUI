@@ -826,7 +826,7 @@ def _fake_dit_module(video_patch_dim: int, audio_channels: int = 32, seen_step_c
     def forward(*, hidden_states, audio_hidden_states, encoder_hidden_states, timestep,
                 timestep_indices, token_tags, position_ids, video_indices, audio_indices, text_indices,
                 num_condition_video_rows=0, num_condition_audio_rows=0,
-                step_cache=None, sparse_attn_ctx=None, seq_chunk_rows=0,
+                step_cache=None, sparse_attn_ctx=None, seq_chunk_rows=0, ffn_chunk_rows=None,
                 prepared_context=None, weight_revision=None, compute_dtype=None, compute_device=None):
         seen_step_caches.append(step_cache)
         if seen_sol_attn is not None:

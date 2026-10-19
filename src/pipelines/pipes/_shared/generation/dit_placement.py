@@ -208,7 +208,7 @@ _LTX_ROPE_HALF_DIM = _LTX_INNER_DIM // 2
 # derived as ``inner_dim // 2``, the same ratio LTX's own constants use) so a
 # non-LTX caller gets a reserve scaled to ITS attention width rather than
 # LTX's -- see :data:`_LTX_INNER_DIM`'s docstring above.
-def _activation_reserve_bytes_per_token(inner_dim: int, ffn_dim: int | None = None) -> int:
+def _activation_reserve_bytes_per_token(inner_dim: int) -> int:
     rope_half_dim = inner_dim // 2
     total = (
         6 * inner_dim * 2         # attention transient (bf16)
@@ -216,8 +216,6 @@ def _activation_reserve_bytes_per_token(inner_dim: int, ffn_dim: int | None = No
         + 2 * rope_half_dim * 2   # held bf16 cos/sin
         + 1 * inner_dim * 2       # hidden states (x)
     )
-    if ffn_dim:
-        total += _ffn_transient_bytes_per_token(ffn_dim)
     return total
 
 
@@ -245,6 +243,24 @@ _ACTIVATION_RESERVE_BYTES_PER_TOKEN = _activation_reserve_bytes_per_token(_LTX_I
 # conservative bound built on top of a verified single term, not a guess.
 def _ffn_transient_bytes_per_token(ffn_dim: int) -> int:
     return 4 * ffn_dim * 2
+
+
+def _chunked_ffn_phase_bytes(tokens: int, inner_dim: int, ffn_dim: int, chunk_rows: int) -> int:
+    held_rope_bytes_per_token = 2 * (inner_dim // 2) * 2
+    full_length_streams_bytes_per_token = 3 * inner_dim * 2
+    return (
+        tokens * (held_rope_bytes_per_token + full_length_streams_bytes_per_token)
+        + chunk_rows * _ffn_transient_bytes_per_token(ffn_dim)
+    )
+
+
+def _activation_bytes(tokens: int, inner_dim: int, ffn_dim: int | None, ffn_chunk_rows: int) -> int:
+    attention = tokens * _activation_reserve_bytes_per_token(inner_dim)
+    if not ffn_dim:
+        return attention
+    if not ffn_chunk_rows or ffn_chunk_rows >= tokens:
+        return attention + tokens * _ffn_transient_bytes_per_token(ffn_dim)
+    return max(attention, _chunked_ffn_phase_bytes(tokens, inner_dim, ffn_dim, ffn_chunk_rows))
 
 # LoRA cost terms. A resident runtime LoRA delta (quantized-storage Linears
 # -- lora/apply.py's ``_needs_runtime_deltas``) is applied per forward by
@@ -342,7 +358,7 @@ _ACTIVATION_RESERVE_FLOOR_GB = 0.5
 
 def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
-    inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None,
+    inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None, ffn_chunk_rows: int = 0,
     quant_activation_bytes_per_token: int = 0,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
@@ -373,10 +389,10 @@ def estimate_activation_reserve_gb(
     unchanged.
     """
     s = max(0, int(video_tokens)) + max(0, int(audio_tokens))
-    bytes_per_token = _activation_reserve_bytes_per_token(inner_dim, ffn_dim)
-    bytes_per_token += lora.output_buffer_bytes_per_token
+    bytes_per_token = lora.output_buffer_bytes_per_token
     bytes_per_token += max(0, int(quant_activation_bytes_per_token))
-    raw_gb = (s * bytes_per_token + lora.weight_side_bytes) / _BYTES_PER_GB
+    activation_bytes = _activation_bytes(s, inner_dim, ffn_dim, max(0, int(ffn_chunk_rows)))
+    raw_gb = (activation_bytes + s * bytes_per_token + lora.weight_side_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
@@ -534,6 +550,7 @@ def place_dit_for_sequence(
     reserve_gb: float = 0.0,
     inner_dim: int = _LTX_INNER_DIM,
     ffn_dim: int | None = None,
+    ffn_chunk_rows: int = 0,
     fit_hint: "FitHint | None" = None,
 ) -> DitPlacementDecision:
     """Place ``dit`` on ``device`` for sampling, sized to THIS generation's
@@ -599,6 +616,7 @@ def place_dit_for_sequence(
 
     activation_reserve = estimate_activation_reserve_gb(
         video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
+        ffn_chunk_rows=ffn_chunk_rows,
         quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
     )
     extra_reserve = max(0.0, float(reserve_gb))
