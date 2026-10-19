@@ -21,6 +21,7 @@
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { appliedSegmentActions, isAppliedSegmentAction } from '$lib/stores/appliedSegmentActions';
+	import { removedSegmentActions, removedActionKey } from '$lib/stores/removedSegmentActions';
 
 	export let role: 'user' | 'assistant' | 'system';
 	export let content: string;
@@ -63,6 +64,9 @@
 	// Optional tooltip clarifying where "Apply" writes to when that isn't the
 	// obvious flat segment list — e.g. Video Director's persistent Direction prompt.
 	export let applyActionHint: string | undefined = undefined;
+	export let onUndoAction: ((actionIndex: number) => void) | undefined = undefined;
+	export let listActionsDisabled: boolean = false;
+	export let segmentTextFor: ((action: ToolAction) => string | null) | undefined = undefined;
 	export let onPromptFeedback:
 		| ((data: { actionIndex: number; verdict: 'approved' | 'rejected'; reason?: string }) => void)
 		| undefined = undefined;
@@ -123,6 +127,37 @@
 	$: appliedByIndex = markdownResult.actions.map((_, idx) =>
 		isAppliedSegmentAction($appliedSegmentActions, messageId, idx)
 	);
+
+	$: removalByIndex = markdownResult.actions.map(
+		(_, idx) => $removedSegmentActions[removedActionKey(messageId, idx)]
+	);
+
+	function actionHeading(action: ToolAction): string {
+		if (action.type === 'update_director_segment') return 'Director Segment';
+		if (action.type === 'add_segment') return action.list === 'negative' ? 'Add Negative Segment' : 'Add Segment';
+		if (action.type === 'delete_segment') return 'Delete Segment';
+		return 'Update Segment';
+	}
+
+	function actionPosition(action: ToolAction): string {
+		return action.type === 'add_segment' || action.segmentIndex < 0 ? '' : ` #${action.segmentIndex + 1}`;
+	}
+
+	function actionTag(action: ToolAction): string {
+		if (action.type === 'add_segment') return 'Suggested addition';
+		if (action.type === 'delete_segment') return 'Suggested removal';
+		return 'Suggested change';
+	}
+
+	function isReapplicable(action: ToolAction): boolean {
+		return action.type !== 'add_segment' && action.type !== 'delete_segment';
+	}
+
+	function applyLabel(action: ToolAction, applied: boolean): string {
+		if (action.type === 'add_segment') return applied ? '✓ Added' : 'Add';
+		if (action.type === 'delete_segment') return applied ? '✓ Deleted' : 'Delete';
+		return applied ? '✓ Applied' : 'Apply';
+	}
 
 	function submitPromptFeedback(actionIndex: number, verdict: 'approved' | 'rejected', reason?: string) {
 		localPromptFeedback = { ...localPromptFeedback, [actionIndex]: { verdict, reason } };
@@ -298,14 +333,11 @@
 						<div class="prompt-card-head">
 							<div class="prompt-card-title">
 								<svg class="icon"><use href="#i-edit" /></svg>
-								<strong
-									>{action.type === 'update_director_segment' ? 'Director Segment' : 'Update Segment'} #{action.segmentIndex +
-										1}</strong
-								>
-								<span class="prompt-label">Suggested change</span>
+								<strong>{actionHeading(action)}{actionPosition(action)}</strong>
+								<span class="prompt-label">{actionTag(action)}</span>
 							</div>
 							<div class="flex flex-shrink-0 items-center gap-2">
-								{#if onPromptFeedback && sessionId && messageId}
+								{#if onPromptFeedback && sessionId && messageId && action.type !== 'delete_segment'}
 									<button
 										type="button"
 										class="message-action"
@@ -330,14 +362,27 @@
 									</button>
 								{/if}
 								{#if onApplyAction}
+									{#if action.type === 'delete_segment' && applied && removalByIndex[i] && onUndoAction}
+										<button
+											type="button"
+											class="undo-button"
+											data-testid="segment-action-undo"
+											on:click={() => onUndoAction?.(i)}
+										>
+											Undo
+										</button>
+									{/if}
 									<button
 										type="button"
 										class="apply-button"
 										class:applied
-										title={applied ? 'Re-apply this variant' : applyActionHint}
+										class:destructive={action.type === 'delete_segment' && !applied}
+										data-testid="segment-action-apply"
+										disabled={!isReapplicable(action) && (applied || listActionsDisabled)}
+										title={applied ? (isReapplicable(action) ? 'Re-apply this variant' : undefined) : applyActionHint}
 										on:click={() => onApplyAction?.(action, i)}
 									>
-										{applied ? '✓ Applied' : 'Apply'}
+										{applyLabel(action, applied)}
 									</button>
 								{/if}
 							</div>
@@ -354,9 +399,15 @@
 								<button on:click={() => toggleReasonPanel(i)}>Cancel</button>
 							</div>
 						{/if}
+						{#if action.type === 'delete_segment'}
+							<div class="prompt-copy prompt-copy-removed" data-testid="segment-removed-text">
+								{removalByIndex[i]?.segment.content ?? segmentTextFor?.(action) ?? ''}
+							</div>
+						{:else}
 						<div class="prompt-copy">
 							{#each splitMarkerTokens(action.content) as token}{#if token.kind === 'phrasebook'}<span class="prompt-token" title="Phrasebook: {token.label}"><span class="prompt-token-mark">#</span>{token.label}</span>{:else if token.kind === 'variable'}<span class="prompt-token variable" title={variableChips[token.label] ?? `Variable: ${token.label}`}><span class="prompt-token-mark">$</span>{token.label}</span>{:else}{#each splitResourceTokenPreview(token.text, promptResources, resourceFormValues) as part}{#if part.kind === 'linked'}<span class="prompt-token resource" data-resource-token="linked"><span class="prompt-token-mark">@</span>{part.label}</span>{:else if part.kind === 'unresolved'}<span class="prompt-token-unresolved" data-resource-token="unresolved">{part.text}</span>{:else}{part.text}{/if}{/each}{/if}{/each}
 						</div>
+						{/if}
 						{#if promptResources.length}
 							{#each resourceTokenWarnings(action.content, { specs: promptResources, formValues: resourceFormValues, fieldLabels: resourceFieldLabels }) as warning (warning)}
 								<p class="prompt-resource-warning" data-resource-warning>{warning}</p>

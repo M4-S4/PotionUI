@@ -55,7 +55,7 @@ class ConversationRunner:
     """Orchestrates a chat turn end-to-end for both send and stream paths."""
 
     _TOOL_ACTION_CONTENT_RE = re.compile(
-        r'<tool_action\s+type="update_(?:director_)?segment"[^>]*>([\s\S]*?)</tool_action>'
+        r'<tool_action\s+type="(?:update_(?:director_)?|add_|delete_)segment"[^>]*>([\s\S]*?)</tool_action>'
     )
 
     def __init__(self, manager):

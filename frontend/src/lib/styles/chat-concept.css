@@ -978,6 +978,42 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       border: 1px solid color-mix(in srgb, rgb(var(--success)) 35%, transparent);
     }
 
+.apply-button.destructive {
+      color: rgb(var(--danger));
+      background: rgb(var(--danger) / 0.11);
+      border: 1px solid rgb(var(--danger) / 0.35);
+    }
+
+.apply-button:disabled {
+      cursor: default;
+      transform: none;
+      filter: none;
+    }
+
+.undo-button {
+      height: 28px;
+      padding: 0 11px;
+      border: 1px solid rgb(var(--line-strong));
+      border-radius: 4px;
+      color: rgb(var(--fg-muted));
+      background: transparent;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: 140ms ease;
+    }
+
+.undo-button:hover {
+      color: rgb(var(--fg));
+      border-color: rgb(var(--line-hover));
+    }
+
+.prompt-copy-removed {
+      text-decoration: line-through;
+      text-decoration-color: rgb(var(--danger) / 0.6);
+      white-space: pre-wrap;
+    }
+
 .prompt-copy {
       padding: 12px 13px 13px;
       color: rgb(var(--fg-muted));

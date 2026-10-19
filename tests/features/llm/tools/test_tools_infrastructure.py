@@ -2496,6 +2496,16 @@ class TestStreamToolCallFilter:
         assert f.feed(block) == [("text", '<tool_action type="update_segment" segment_index="0">'), ("text", "a lone hiker</tool_action>")]
         assert not f.suppressing
 
+    def test_add_and_delete_segment_tags_are_forwarded_as_text(self):
+        from src.features.llm.tools.executor import _StreamToolCallFilter
+        f = _StreamToolCallFilter({"propose_form_changes"})
+        add = '<tool_action type="add_segment" segment_id="a" list="negative">blurry</tool_action>'
+        delete = '<tool_action type="delete_segment" segment_index="1" segment_id="b"></tool_action>'
+        segments = f.feed(add + delete)
+        assert [kind for kind, _ in segments] == ["text"] * len(segments)
+        assert "".join(text for _, text in segments) == add + delete
+        assert not f.suppressing
+
     def test_tool_action_open_tag_split_across_chunks_is_held_back_until_type_known(self):
         from src.features.llm.tools.executor import _StreamToolCallFilter
         f = _StreamToolCallFilter({"propose_form_changes"})

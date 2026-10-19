@@ -9,6 +9,7 @@ export interface ToolAction {
 	 * utils/videoDirector.ts, the one consumer). Absent on every other
 	 * `tool_action` type, and on a single-shot/chain document. */
 	shotId?: string;
+	list?: 'positive' | 'negative';
 	content: string;
 }
 
@@ -425,20 +426,43 @@ export function injectToolCallChips(html: string, calls: ToolCallSpan[], isStrea
 	});
 }
 
+const TOOL_ACTION_BLOCK_RE = /<tool_action\b([^>]*)>([\s\S]*?)<\/tool_action>/g;
+const FENCED_TOOL_ACTIONS_RE = /```[a-z]*\s*((?:<tool_action\b[\s\S]*?<\/tool_action>\s*)+)```/gi;
+const TOOL_ACTION_ATTRIBUTE_RE = /([a-z_]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+
+function parseToolActionAttributes(raw: string): Record<string, string> {
+	const attributes: Record<string, string> = {};
+	for (const match of raw.matchAll(TOOL_ACTION_ATTRIBUTE_RE)) {
+		attributes[match[1].toLowerCase()] = match[2] ?? match[3] ?? '';
+	}
+	return attributes;
+}
+
+function parseSegmentIndex(raw: string | undefined): number {
+	return raw !== undefined && /^\d+$/.test(raw) ? parseInt(raw, 10) : -1;
+}
+
 export function parseToolActions(text: string): { cleanedText: string; actions: ToolAction[] } {
 	const actions: ToolAction[] = [];
-	// `shot_id` is an OPTIONAL trailing attribute (Video Director timeline
-	// style, 2+ shots only -- see ToolAction.shotId's doc comment): every
-	// other tag, and a chain/single-shot document's tag, never carries it.
-	const regex =
-		/<tool_action\s+type="([^"]+)"\s+segment_index="(\d+)"\s+segment_id="([^"]+)"(?:\s+shot_id="([^"]+)")?>([\s\S]*?)<\/tool_action>/g;
 
-	const cleanedText = text.replace(regex, (_match, type, segmentIndex, segmentId, shotId, content) => {
+	const cleanedText = text.replace(FENCED_TOOL_ACTIONS_RE, '$1').replace(TOOL_ACTION_BLOCK_RE, (match, rawAttributes: string, content: string) => {
+		const attributes = parseToolActionAttributes(rawAttributes);
+		const type = attributes.type;
+		if (!type) return match;
+		const segmentIndex = parseSegmentIndex(attributes.segment_index);
+		const segmentId = attributes.segment_id ?? '';
+		const addressed =
+			type === 'add_segment' ||
+			(type === 'delete_segment' ? segmentIndex !== -1 || segmentId !== '' : segmentIndex !== -1 && segmentId !== '');
+		if (!addressed) return match;
 		actions.push({
 			type,
-			segmentIndex: parseInt(segmentIndex, 10),
+			segmentIndex,
 			segmentId,
-			...(shotId ? { shotId } : {}),
+			...(attributes.shot_id ? { shotId: attributes.shot_id } : {}),
+			...(type === 'add_segment' && attributes.list
+				? { list: attributes.list.toLowerCase() === 'negative' ? 'negative' : 'positive' }
+				: {}),
 			content: content.trim()
 		});
 		return '';

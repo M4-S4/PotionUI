@@ -389,6 +389,24 @@ class TestRecordPromptFeedback:
         assert call["prompt_text"] == "parsed director prompt"
 
     @pytest.mark.asyncio
+    async def test_add_and_delete_tags_keep_their_action_index(self):
+        content = (
+            '<tool_action type="update_segment" segment_index="0" segment_id="a">first</tool_action>'
+            '<tool_action type="delete_segment" segment_index="1" segment_id="b"></tool_action>'
+            '<tool_action type="add_segment" segment_index="0" segment_id="a" list="negative">third</tool_action>'
+        )
+        message = make_message("am-1", content=content, metadata=None)
+        manager, repo = self._setup(message)
+
+        await manager.record_prompt_feedback(
+            session_id="session-1", user_id="user-1", message_id="am-1",
+            action_index=2, verdict="approved",
+        )
+
+        call = manager.prompt_enhancement_manager.record_feedback.await_args.kwargs
+        assert call["prompt_text"] == "third"
+
+    @pytest.mark.asyncio
     async def test_out_of_range_index_raises(self):
         message = make_message("am-1", metadata={"enhancement": {"candidates": ["only"]}})
         manager, repo = self._setup(message)

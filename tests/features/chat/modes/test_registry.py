@@ -177,6 +177,27 @@ class TestBuildGenerationMode:
         assert scoping in prompt
         assert 0 < prompt.index(scoping) - prompt.index(tag_example) < 400
 
+    def test_add_and_delete_segment_grammar_sits_with_the_update_tag(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(
+            build_generation_mode(), "- echo: Use to echo.", ["get_current_segments"]
+        )
+        assert 'type="delete_segment"' in prompt
+        assert 'type="add_segment"' in prompt
+        assert 'list="negative"' in prompt
+        update = prompt.index('type="update_segment"')
+        scoping = prompt.index("ONLY for offering prompt versions")
+        assert update < prompt.index('type="delete_segment"') < scoping
+        assert update < prompt.index('type="add_segment"') < scoping
+
+    def test_add_and_delete_segment_absent_with_only_the_video_director(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(
+            build_generation_mode(), "- echo: Use to echo.", ["get_video_director"]
+        )
+        assert "add_segment" not in prompt
+        assert "delete_segment" not in prompt
+
     def test_segment_tag_absent_without_get_current_segments(self):
         registry = ChatModeRegistry()
         prompt = registry.resolve_system_prompt(build_generation_mode(), "- echo: Use to echo.", [])

@@ -69,7 +69,9 @@ DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE = (
     "\n## Proposing prompt text\n\n"
     "{{#if get_current_segments}}"
     '<tool_action type="update_segment" segment_index="N" segment_id="ID">text</tool_action>'
-    " with the segment's index and id from get_current_segments.\n"
+    " with the segment's index and id from get_current_segments; type=\"delete_segment\" "
+    "(empty body) removes one; type=\"add_segment\" inserts after one, or appends without "
+    "index and id (list=\"negative\" for negatives).\n"
     "{{/if}}"
     "{{#if get_video_director}}"
     '<tool_action type="update_director_segment" segment_index="N" segment_id="ID">text</tool_action>'

@@ -1,5 +1,11 @@
 import type { ChipData, Segment } from '$lib/types/segments';
-import { flattenRichSegments, type SegmentJoin } from '$lib/utils/richSegments';
+import {
+	createBlankEditorSegment,
+	ensureSegmentList,
+	flattenRichSegments,
+	isPristineBlankSegment,
+	type SegmentJoin
+} from '$lib/utils/richSegments';
 import { parseChipsFromText } from '$lib/utils/chipParser';
 import { logger } from '$lib/utils/logger';
 import { deriveResourcesFromText, textHasResourceMarkers } from '$lib/utils/promptResources';
@@ -96,4 +102,99 @@ export async function applySegmentUpdate(
 		segments[idx].resources = deriveResourcesFromText(content, previousResources || {});
 	}
 	return { segments, index: idx };
+}
+
+export type SegmentListKey = 'positive' | 'negative';
+
+export interface SegmentLists {
+	positive: Segment[];
+	negative: Segment[];
+}
+
+export interface SegmentRemoval {
+	list: SegmentListKey;
+	index: number;
+	segment: Segment;
+	previousId: string | null;
+	nextId: string | null;
+}
+
+export function locateSegmentInLists(
+	lists: SegmentLists,
+	target: { segmentId: string; segmentIndex: number }
+): { list: SegmentListKey; index: number } | null {
+	if (target.segmentId) {
+		const inPositive = lists.positive.findIndex((s) => s.id === target.segmentId);
+		if (inPositive !== -1) return { list: 'positive', index: inPositive };
+		const inNegative = lists.negative.findIndex((s) => s.id === target.segmentId);
+		if (inNegative !== -1) return { list: 'negative', index: inNegative };
+	}
+	const flat = target.segmentIndex;
+	if (flat >= 0 && flat < lists.positive.length) return { list: 'positive', index: flat };
+	const negativeIndex = flat - lists.positive.length;
+	if (flat >= 0 && negativeIndex < lists.negative.length) return { list: 'negative', index: negativeIndex };
+	return null;
+}
+
+export async function applySegmentAdd(
+	lists: SegmentLists,
+	target: { segmentId: string; segmentIndex: number; content: string; list?: SegmentListKey },
+	resourceContext?: ResourceTokenContext
+): Promise<{ lists: SegmentLists; list: SegmentListKey; index: number } | null> {
+	if (!target.content.trim()) return null;
+	const anchor = locateSegmentInLists(lists, target);
+	const list: SegmentListKey = target.list ?? anchor?.list ?? 'positive';
+	const source = lists[list];
+	const blank = createBlankEditorSegment();
+	let seeded: Segment[];
+	if (source.length === 1 && isPristineBlankSegment(source[0])) {
+		seeded = [blank];
+	} else if (anchor && anchor.list === list) {
+		seeded = [...source.slice(0, anchor.index + 1), blank, ...source.slice(anchor.index + 1)];
+	} else {
+		seeded = [...source, blank];
+	}
+	const result = await applySegmentUpdate(
+		seeded,
+		{ segmentId: blank.id, segmentIndex: -1, content: target.content },
+		resourceContext
+	);
+	if (!result) return null;
+	return { lists: { ...lists, [list]: result.segments }, list, index: result.index };
+}
+
+export function applySegmentDelete(
+	lists: SegmentLists,
+	target: { segmentId: string; segmentIndex: number }
+): { lists: SegmentLists; removal: SegmentRemoval } | null {
+	const found = locateSegmentInLists(lists, target);
+	if (!found) return null;
+	const source = lists[found.list];
+	const segment = source[found.index];
+	const remaining = source.filter((_, i) => i !== found.index);
+	return {
+		lists: { ...lists, [found.list]: ensureSegmentList(remaining) },
+		removal: {
+			list: found.list,
+			index: found.index,
+			segment,
+			previousId: source[found.index - 1]?.id ?? null,
+			nextId: source[found.index + 1]?.id ?? null
+		}
+	};
+}
+
+export function restoreSegment(lists: SegmentLists, removal: SegmentRemoval): SegmentLists {
+	const source = lists[removal.list];
+	if (source.some((s) => s.id === removal.segment.id)) return lists;
+	if (source.length === 1 && isPristineBlankSegment(source[0])) {
+		return { ...lists, [removal.list]: [removal.segment] };
+	}
+	const previous = removal.previousId ? source.findIndex((s) => s.id === removal.previousId) : -1;
+	const next = removal.nextId ? source.findIndex((s) => s.id === removal.nextId) : -1;
+	const at = previous !== -1 ? previous + 1 : next !== -1 ? next : Math.min(removal.index, source.length);
+	return {
+		...lists,
+		[removal.list]: [...source.slice(0, at), removal.segment, ...source.slice(at)]
+	};
 }

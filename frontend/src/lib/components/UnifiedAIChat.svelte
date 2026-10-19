@@ -55,9 +55,18 @@
 	import type { Segment } from '$lib/types/segments';
 	import { buildVariablesSnapshot } from '$lib/utils/variableSnapshot';
 	import { flattenRichSegments, isSegmentEnabled } from '$lib/utils/richSegments';
-	import { applySegmentUpdate } from '$lib/utils/promptSegments';
+	import {
+		applySegmentAdd,
+		applySegmentDelete,
+		applySegmentUpdate,
+		locateSegmentInLists,
+		restoreSegment,
+		type SegmentListKey,
+		type SegmentLists
+	} from '$lib/utils/promptSegments';
 	import { lastAppliedSegment } from '$lib/stores/lastAppliedSegment';
 	import { appliedSegmentActions } from '$lib/stores/appliedSegmentActions';
+	import { removedSegmentActions, removedActionKey } from '$lib/stores/removedSegmentActions';
 	import { applyTitle, mapPersistedMessage } from '$lib/utils/chatStream';
 	import {
 		sendMessage as turnControllerSendMessage,
@@ -1093,12 +1102,18 @@
 			 * `applyDirectorSegmentPrompt`'s own doc comment in
 			 * utils/videoDirector.ts for the resolution rule this mirrors. */
 			shotId?: string;
+			list?: SegmentListKey;
 		},
 		messageId: string,
 		actionIndex: number
 	) {
 		const tab = contextTab;
 		if (!tab) return;
+
+		if (action.type === 'add_segment' || action.type === 'delete_segment') {
+			await applySegmentListAction(tab, action, messageId, actionIndex);
+			return;
+		}
 
 		if (action.type === 'update_director_segment') {
 			if (!videoDirectorActive || !videoDirectorCaps) return;
@@ -1155,6 +1170,64 @@
 
 		lastAppliedSegment.set(segments[idx].id);
 		appliedSegmentActions.set(segments[idx].id, messageId, actionIndex);
+	}
+
+	function segmentListsOf(tab: { promptSegments?: Segment[]; negativePromptSegments?: Segment[] }): SegmentLists {
+		return { positive: tab.promptSegments || [], negative: tab.negativePromptSegments || [] };
+	}
+
+	function commitSegmentList(tabId: string, lists: SegmentLists, list: SegmentListKey) {
+		tabsStore.updateTab(
+			tabId,
+			list === 'positive'
+				? { promptSegments: lists.positive, prompt: flattenRichSegments(lists.positive) }
+				: { negativePromptSegments: lists.negative, negativePrompt: flattenRichSegments(lists.negative) }
+		);
+	}
+
+	async function applySegmentListAction(
+		tab: NonNullable<typeof contextTab>,
+		action: { type: string; segmentIndex: number; segmentId: string; content: string; list?: SegmentListKey },
+		messageId: string,
+		actionIndex: number
+	) {
+		if (videoDirectorActive) return;
+		const lists = segmentListsOf(tab);
+
+		if (action.type === 'add_segment') {
+			const result = await applySegmentAdd(lists, action, await resourceTokenContextFor(tab));
+			if (!result) return;
+			commitSegmentList(tab.id, result.lists, result.list);
+			const added = result.lists[result.list][result.index];
+			lastAppliedSegment.set(added.id);
+			appliedSegmentActions.set(added.id, messageId, actionIndex);
+			return;
+		}
+
+		const result = applySegmentDelete(lists, action);
+		if (!result) return;
+		commitSegmentList(tab.id, result.lists, result.removal.list);
+		removedSegmentActions.set(messageId, actionIndex, result.removal);
+		appliedSegmentActions.set(result.removal.segment.id, messageId, actionIndex);
+	}
+
+	function handleUndoSegmentAction(messageId: string, actionIndex: number) {
+		const tab = contextTab;
+		const removal = $removedSegmentActions[removedActionKey(messageId, actionIndex)];
+		if (!tab || !removal || videoDirectorActive) return;
+		const restored = restoreSegment(segmentListsOf(tab), removal);
+		commitSegmentList(tab.id, restored, removal.list);
+		appliedSegmentActions.clear(removal.segment.id);
+		removedSegmentActions.clear(messageId, actionIndex);
+		lastAppliedSegment.set(removal.segment.id);
+	}
+
+	function segmentTextForAction(action: { segmentId: string; segmentIndex: number }): string | null {
+		const tab = contextTab;
+		if (!tab) return null;
+		const lists = segmentListsOf(tab);
+		const found = locateSegmentInLists(lists, action);
+		return found ? lists[found.list][found.index].content : null;
 	}
 
 	async function handlePromptFeedback(
@@ -1768,6 +1841,9 @@
 								? (action, actionIndex) =>
 										handleApplySegmentAction(action, message.id || '', actionIndex)
 								: undefined}
+							onUndoAction={(actionIndex) => handleUndoSegmentAction(message.id || '', actionIndex)}
+							segmentTextFor={segmentTextForAction}
+							listActionsDisabled={videoDirectorActive || !contextTab}
 							applyActionHint={videoDirectorActive
 								? "Applies to the Video Director's persistent Direction prompt"
 								: undefined}
