@@ -801,6 +801,70 @@ describe('tabDraftSync boot ordering', () => {
 	});
 });
 
+describe('tabDraftSync server push', () => {
+	it('merges a pushed draft into the tab and records its rev', async () => {
+		const t = setup({ seedServer: { t1: { a: text('1') } } });
+		t.sync.start();
+		await settle();
+		t.sync.receiveDraft('t1', { variables: { a: text('1'), b: text('from chat') } }, 9);
+		expect(t.tabs.variables('t1')).toEqual({ a: text('1'), b: text('from chat') });
+		expect(t.sync.revOf('t1')).toBe(9);
+		await settle(2000);
+		expect(t.calls.apply).not.toHaveBeenCalled();
+	});
+
+	it('removes a variable the server dropped when there is no pending local op for it', async () => {
+		const t = setup({ seedServer: { t1: { a: text('1'), b: text('2') } } });
+		t.sync.start();
+		await settle();
+		t.sync.receiveDraft('t1', { variables: { a: text('1') } }, 9);
+		expect(t.tabs.variables('t1')).toEqual({ a: text('1') });
+	});
+
+	it('keeps a pending local edit over the pushed value and still sends it', async () => {
+		let down = false;
+		const t = setup({
+			seedServer: { t1: { a: text('1') } },
+			api: {
+				apply: async (tabId, request) => {
+					if (down) throw networkError();
+					return { success: true, data: draft(tabId, overlayOps({}, request.ops), 20) };
+				}
+			}
+		});
+		t.sync.start();
+		await settle();
+		down = true;
+		t.tabs.edit('t1', { a: text('local') });
+		await settle(500);
+		t.sync.receiveDraft('t1', { variables: { a: text('server'), b: text('new') } }, 9);
+		expect(t.tabs.variables('t1')).toEqual({ a: text('local'), b: text('new') });
+		expect(t.sync.revOf('t1')).toBe(9);
+
+		down = false;
+		await settle(1000);
+		expect(t.outbox.pendingOps('t1')).toEqual([]);
+	});
+
+	it('ignores a push for a tab that is not open', async () => {
+		const t = setup();
+		t.sync.start();
+		await settle();
+		t.sync.receiveDraft('ghost', { variables: { a: text('1') } }, 4);
+		expect(t.sync.revOf('ghost')).toBeUndefined();
+		expect(t.tabs.variables('t1') ?? {}).toEqual({});
+	});
+
+	it('ignores a push that is not newer than the known rev', async () => {
+		const t = setup({ seedServer: { t1: { a: text('1') } } });
+		t.sync.start();
+		await settle();
+		t.sync.receiveDraft('t1', { variables: { a: text('stale') } }, 3);
+		expect(t.tabs.variables('t1')).toEqual({ a: text('1') });
+		expect(t.sync.revOf('t1')).toBe(3);
+	});
+});
+
 describe('tabDraftSync boot retry', () => {
 	it('retries a failing list with backoff and on the online event, keeping edits queued', async () => {
 		let failures = 2;

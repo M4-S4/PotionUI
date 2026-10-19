@@ -52,7 +52,12 @@
       "form_data": {
         "prompt": "portrait of a woman"
       },
-      "variables": []
+      "tab_id": "chat-eval-tab"
+    }
+  },
+  "live_tab_drafts": {
+    "chat-eval-tab": {
+      "variables": {}
     }
   }
 }

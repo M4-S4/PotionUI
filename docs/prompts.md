@@ -46,11 +46,14 @@ generate tab; there is no variables table.
 
 The LLM chat's `manage_prompt_variables` tool (`src/features/llm/tools/builtin/prompt_variables_tool.py`)
 can create, update, and remove a tab's variables, approval-gated the same way `update_form_settings`
-is. It reads the read-only `form_state.variables` snapshot the frontend sends (rendered by
-`src/platform/resources/prompt_variables.py`) to validate names, count, and option caps, and its
-confirmed result is an `apply_variable_changes` action the frontend applies via
-`frontend/src/lib/chat/applyVariableChanges.ts`. The model never invents a `${name}`: it either
-references one already in `form_state.variables`, or calls this tool first.
+is. A tab's variables live in its server-side draft (`/api/tab-drafts`, `src/features/tab_drafts/`), keyed
+by the tab id the chat sends as `form_state.tab_id`. `get_prompt_variables` and `manage_prompt_variables`
+read that draft (rendered by `src/platform/resources/prompt_variables.py`) to validate names, count, and
+option caps; an approved change is applied to the draft on the server, which then pushes
+`tab_variables_changed` to the user's notification socket so open tabs update. The same tools work over MCP
+with an explicit `tab_id`, and `list_tab_drafts` lists the caller's tabs. Only the last rolls
+(`form_state.variable_rolls`) still come from the browser. The model never invents a `${name}`: it either
+references one already in the draft, or calls this tool first.
 
 A choice option is a plain string, or `{text, when: {var, values}}` to make it eligible only
 when the referenced variable last resolved to one of `values`; the wire op passes conditioned

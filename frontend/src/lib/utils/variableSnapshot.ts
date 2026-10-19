@@ -1,177 +1,21 @@
-// The generate tab's typed prompt variables, made legible to the LLM
-// chat on two surfaces:
-//
-//   1. buildVariablesSnapshot — the compact `variables` list added to the chat
-//      form-state snapshot (frontend → backend). The backend renders it into a
-//      plain-language "Prompt variables" section for @form / get_form_state
-//      (see src/platform/resources/prompt_variables.py). Caps mirror that
-//      renderer so a padded tab can never bloat the prompt.
-//
-//   2. buildVariableChipTooltips — the per-name tooltip text a `${name}`
-//      variable chip shows inside a chat MESSAGE (see decorateVariableChips in
-//      markdown.ts). Presence of a name in the returned map is what marks it
-//      "known": an unknown `${name}` stays literal text in chat.
-//
-// Both are pure so the snapshot shape and the tooltip copy have direct test
-// coverage independent of the Svelte components that consume them.
-
 import {
 	clampNumberValue,
-	isNumberRangeValid,
 	normalizeVariableDef,
 	optionText,
-	type ChoiceVariableMode,
 	type VariableDef,
 	type VariablesMap,
-	type VariableRoll,
-	type VariableOptionWhen
+	type VariableRoll
 } from './variableDefs';
 
-// Payload discipline for the small (26B) chat model — kept identical to the
-// backend caps in src/platform/resources/prompt_variables.py.
 const MAX_OPTIONS = 12;
 const MAX_VALUE_CHARS = 80;
-
-export const SNAPSHOT_MAX_OPTIONS = 200;
-export const SNAPSHOT_MAX_OPTION_CHARS = 300;
-export const SNAPSHOT_MAX_TEXT_CHARS = 2000;
-export const SNAPSHOT_MAX_BYTES = 64 * 1024;
 
 function clip(text: string, limit = MAX_VALUE_CHARS): string {
 	return text.length > limit ? text.slice(0, limit) + '…' : text;
 }
 
-export function composeLastRoll(roll: VariableRoll): string {
-	const value = roll.value.trim();
-	const eligibility = roll.eligible !== undefined && roll.total !== undefined ? `${roll.eligible} of ${roll.total} eligible` : undefined;
-
-	if (roll.because) {
-		const because = `because $${roll.because.var} = ${roll.because.value}`;
-		return `${value} (${eligibility ? `${because}, ${eligibility}` : because})`;
-	}
-	if (eligibility) return `${value} (${eligibility})`;
-	return value;
-}
-
 function validOptions(def: Extract<VariableDef, { type: 'choice' }>): string[] {
 	return def.options.map((o) => optionText(o).trim()).filter((o) => o.length > 0);
-}
-
-/** One entry in the chat form-state snapshot's `variables` list. Compact by
- *  design — only the fields the backend renderer reads. */
-export interface VariableSnapshotEntry {
-	name: string;
-	type: 'text' | 'choice' | 'number';
-	/** text variables only — the current value, clipped. */
-	value?: string;
-	/** choice variables only — non-blank options, clipped and count-capped. */
-	options?: Array<string | { text: string; when?: VariableOptionWhen }>;
-	/** choice variables only. */
-	mode?: ChoiceVariableMode;
-	optionTotal?: number;
-	/** choice + pin only — index into `options` (post-filter). */
-	pinnedIndex?: number;
-	/** choice + shuffle only — the last client-side roll's value, if present. */
-	lastRoll?: string;
-	min?: number;
-	max?: number;
-	step?: number;
-}
-
-export interface VariableSnapshotTruncation {
-	truncated: true;
-	omitted: number;
-}
-
-export type VariableSnapshotItem = VariableSnapshotEntry | VariableSnapshotTruncation;
-
-/**
- * Build the compact `variables` array for the chat snapshot. `rolls` is the
- * tab's run-state (Tab.variableRolls); a shuffle variable's last roll is
- * surfaced so the model can say "it last rolled sunlit". Entries with no
- * usable content (a choice with no valid options) are dropped.
- */
-export function buildVariablesSnapshot(
-	variables: VariablesMap | undefined,
-	rolls?: Record<string, VariableRoll> | undefined
-): VariableSnapshotItem[] {
-	if (!variables) return [];
-	const out: VariableSnapshotItem[] = [];
-	let bytes = 0;
-	const names = Object.keys(variables).filter((n) => n.trim());
-	const entries = names.map((n) => [n, variables[n]] as const);
-	let consumed = 0;
-
-	for (const [name, stored] of entries) {
-		consumed++;
-		const before = out.length;
-		pushEntry(out, name, stored, rolls);
-		if (out.length === before) continue;
-		const size = JSON.stringify(out[out.length - 1]).length;
-		if (bytes + size > SNAPSHOT_MAX_BYTES && before > 0) {
-			out.pop();
-			out.push({ truncated: true, omitted: entries.length - consumed + 1 });
-			return out;
-		}
-		bytes += size;
-	}
-
-	return out;
-}
-
-function pushEntry(
-	out: VariableSnapshotItem[],
-	name: string,
-	stored: VariablesMap[string],
-	rolls: Record<string, VariableRoll> | undefined
-): void {
-	const def = normalizeVariableDef(stored);
-
-	if (def.type === 'text') {
-		const entry: VariableSnapshotEntry = { name, type: 'text' };
-		const value = def.value.trim();
-		if (value) entry.value = clip(value, SNAPSHOT_MAX_TEXT_CHARS);
-		out.push(entry);
-		return;
-	}
-
-	if (def.type === 'number') {
-		if (!isNumberRangeValid(def)) return;
-		const entry: VariableSnapshotEntry = { name, type: 'number', mode: def.mode, min: def.min, max: def.max, step: def.step };
-		if (def.mode === 'pin') entry.value = clampNumberValue(def);
-		const roll = rolls?.[name];
-		if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(roll.value);
-		out.push(entry);
-		return;
-	}
-
-	const opts = validOptions(def);
-	if (opts.length === 0) return;
-	const entry: VariableSnapshotEntry = {
-		name,
-		type: 'choice',
-		options: def.options
-			.filter((o) => optionText(o).trim().length > 0)
-			.slice(0, SNAPSHOT_MAX_OPTIONS)
-			.map((o) =>
-				typeof o === 'string'
-					? clip(o.trim(), SNAPSHOT_MAX_OPTION_CHARS)
-					: { text: clip(o.text.trim(), SNAPSHOT_MAX_OPTION_CHARS), when: o.when }
-			),
-		mode: def.mode
-	};
-	if (opts.length > SNAPSHOT_MAX_OPTIONS) entry.optionTotal = opts.length;
-	if (def.mode === 'pin' && def.pinnedIndex !== null) {
-		const pinnedOption = def.options[def.pinnedIndex];
-		const pinnedText = pinnedOption !== undefined ? optionText(pinnedOption).trim() : undefined;
-		if (pinnedText) {
-			const idx = opts.indexOf(pinnedText);
-			if (idx >= 0 && idx < SNAPSHOT_MAX_OPTIONS) entry.pinnedIndex = idx;
-		}
-	}
-	const roll = rolls?.[name];
-	if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(composeLastRoll(roll));
-	out.push(entry);
 }
 
 function describeVariable(def: VariableDef, roll: VariableRoll | undefined): string {

@@ -116,9 +116,13 @@
       "form_data": {
         "prompt": "portrait of a woman"
       },
-      "variables": [
-        {
-          "name": "outfit_kind",
+      "tab_id": "chat-eval-tab"
+    }
+  },
+  "live_tab_drafts": {
+    "chat-eval-tab": {
+      "variables": {
+        "outfit_kind": {
           "type": "choice",
           "options": [
             "linen sundress",
@@ -132,8 +136,7 @@
           ],
           "mode": "shuffle"
         },
-        {
-          "name": "mood",
+        "mood": {
           "type": "choice",
           "options": [
             "noir",
@@ -141,7 +144,7 @@
           ],
           "mode": "shuffle"
         }
-      ]
+      }
     }
   }
 }

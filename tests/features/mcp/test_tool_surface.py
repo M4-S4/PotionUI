@@ -25,6 +25,9 @@ from src.features.phrasebook.repository import PhrasebookCategoryRepository, Phr
 from src.features.prompt_database.records import Prompt
 from src.features.prompt_database.repository import PromptRepository
 from src.features.segments.dto import RichSegment, SavedSegment, SegmentCategory
+from src.features.tab_drafts.manager import TabDraftManager
+from src.features.tab_drafts.repository import TabDraftRepository
+from tests.fixtures.fake_tab_drafts import RecordingNotifier
 from src.features.segments.repository import (
     SavedSegmentRepository,
     SegmentCategoryRepository,
@@ -45,6 +48,7 @@ EXPECTED_TOOLS = {
     "search_models", "list_library_items",
     "write_memory", "read_memory", "update_memory", "delete_memory",
     "manage_collections", "organize_gallery", "start_generation",
+    "get_prompt_variables", "manage_prompt_variables", "list_tab_drafts",
 }
 
 
@@ -202,6 +206,9 @@ def world(mcp_db):
         content_safety=None,
     )
 
+    notifier = RecordingNotifier()
+    drafts = TabDraftManager(TabDraftRepository(), notifier=notifier)
+
     registry = ToolRegistry()
     register_builtin_tools(registry)
     llm_repository = Mock()
@@ -229,12 +236,14 @@ def world(mcp_db):
             library_collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository()),
             generation_history_facade=history,
             plugin_registry=_Registry(),
+            tab_drafts=drafts,
         ),
     )
     return SimpleNamespace(
         collaborators=collaborators, registry=registry, segment=segment, category=category,
         prompt=prompt, model=model, history=history, indexer=indexer,
         segments=segments, phrase_categories=phrase_categories, memory=memory, upload=upload,
+        drafts=drafts, notifier=notifier,
     )
 
 
@@ -407,3 +416,76 @@ class TestErrorScrubbing:
         assert result["isError"] is True
         assert "/srv/" not in result["content"][0]["text"]
         assert "cannot open" in result["content"][0]["text"]
+
+
+MOOD_OP = {"op": "set", "name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "pin", "pinned_index": 1}
+
+
+class TestTabDraftTools:
+    @pytest.mark.asyncio
+    async def test_manage_writes_the_draft_by_tab_id_and_pushes_it(self, world):
+        result = await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
+
+        assert result["isError"] is False, result["content"][0]["text"]
+        assert _payload(result) == {"status": "applied", "tab_id": "tab-a", "rev": 1, "applied_count": 1}
+        assert world.drafts.variables("user-1", "tab-a")["mood"]["pinnedIndex"] == 1
+        [(pushed_to, message)] = world.notifier.sent
+        assert pushed_to == "user-1" and message["type"] == "tab_variables_changed" and message["tab_id"] == "tab-a"
+
+    @pytest.mark.asyncio
+    async def test_get_prompt_variables_reads_the_draft_by_tab_id(self, world):
+        await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
+
+        result = await _call(world, "get_prompt_variables", {"tab_id": "tab-a", "names": ["mood"]})
+
+        detail = _payload(result)["variables"][0]
+        assert detail["name"] == "mood" and detail["pinned_value"] == "sunlit"
+
+    @pytest.mark.asyncio
+    async def test_both_tools_need_a_tab_id_over_mcp(self, world):
+        for name, arguments in (
+            ("get_prompt_variables", {}),
+            ("manage_prompt_variables", {"operations": [MOOD_OP]}),
+        ):
+            result = await _call(world, name, arguments)
+            assert result["isError"] is True and "tab_id" in result["content"][0]["text"]
+        assert world.notifier.sent == []
+
+    @pytest.mark.asyncio
+    async def test_list_tab_drafts_returns_only_the_callers_tabs(self, world):
+        await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
+        await _call(world, "manage_prompt_variables", {"tab_id": "tab-b", "operations": [MOOD_OP]}, user_id="user-2")
+
+        mine = _payload(await _call(world, "list_tab_drafts", {}))
+        theirs = _payload(await _call(world, "list_tab_drafts", {}, user_id="user-2"))
+
+        assert [t["tab_id"] for t in mine["tabs"]] == ["tab-a"]
+        assert [t["tab_id"] for t in theirs["tabs"]] == ["tab-b"]
+        assert mine["tabs"][0]["variable_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_a_second_user_cannot_read_or_change_the_first_users_tab(self, world):
+        await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
+
+        read = _payload(await _call(world, "get_prompt_variables", {"tab_id": "tab-a"}, user_id="user-2"))
+        await _call(
+            world,
+            "manage_prompt_variables",
+            {"tab_id": "tab-a", "operations": [{"op": "set", "name": "mood", "type": "text", "value": "mine"}]},
+            user_id="user-2",
+        )
+
+        assert read["variables"] == [] and read["total"] == 0
+        assert world.drafts.variables("user-1", "tab-a")["mood"]["type"] == "choice"
+        assert world.drafts.variables("user-2", "tab-a")["mood"] == {"type": "text", "value": "mine"}
+        assert [m["tab_id"] for _, m in world.notifier.sent if _ == "user-2"] == ["tab-a"]
+
+    @pytest.mark.asyncio
+    async def test_a_rejected_operation_writes_and_pushes_nothing(self, world):
+        bad = {"op": "set", "name": "age", "type": "number", "min": 0, "max": 100000}
+
+        result = await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [bad]})
+
+        assert result["isError"] is True
+        assert world.drafts.find("user-1", "tab-a") is None
+        assert world.notifier.sent == []

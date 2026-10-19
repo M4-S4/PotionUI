@@ -20,7 +20,7 @@
       "preset_id": "sdxl/base",
       "mode": "txt2img",
       "prompt_variables": [
-        "age: number from 18 to 90 in steps of 1 \u2014 shuffles each generation"
+        "age: number from 18 to 90 in steps of 1 — shuffles each generation"
       ]
     }
   },
@@ -57,17 +57,7 @@
       "form_data": {
         "prompt": "portrait of a woman, auburn hair"
       },
-      "variables": [
-        {
-          "name": "age",
-          "type": "number",
-          "min": 18,
-          "max": 90,
-          "step": 1,
-          "mode": "shuffle",
-          "value": 18
-        }
-      ]
+      "tab_id": "chat-eval-tab"
     },
     "segments": [
       {
@@ -78,5 +68,19 @@
         "content": "portrait of a woman, auburn hair"
       }
     ]
+  },
+  "live_tab_drafts": {
+    "chat-eval-tab": {
+      "variables": {
+        "age": {
+          "type": "number",
+          "min": 18,
+          "max": 90,
+          "step": 1,
+          "mode": "shuffle",
+          "value": 18
+        }
+      }
+    }
   }
 }

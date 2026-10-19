@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
@@ -7,13 +8,37 @@ from src.features.tab_drafts.records import TabDraft, TabDraftSummary
 from src.features.tab_drafts.repository import TabDraftRepository
 from src.platform.database.rows import now_utc
 
+logger = logging.getLogger(__name__)
+
 RETENTION_DAYS = 30
 
 
 class TabDraftManager:
-    def __init__(self, repository: TabDraftRepository, clock: Callable[[], datetime] = now_utc):
+    def __init__(
+        self,
+        repository: TabDraftRepository,
+        clock: Callable[[], datetime] = now_utc,
+        notifier: Optional[Any] = None,
+    ):
         self.repository = repository
         self.clock = clock
+        self.notifier = notifier
+
+    def announce(self, draft: TabDraft) -> None:
+        if self.notifier is None:
+            return
+        try:
+            self.notifier.schedule_send(
+                draft.user_id,
+                {
+                    "type": "tab_variables_changed",
+                    "tab_id": draft.tab_id,
+                    "doc": draft.doc,
+                    "rev": draft.rev,
+                },
+            )
+        except Exception:
+            logger.warning("Could not push tab draft %s to its user", draft.tab_id, exc_info=True)
 
     def get(self, user_id: str, tab_id: str) -> TabDraft:
         draft = self.find(user_id, tab_id)

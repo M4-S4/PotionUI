@@ -1458,7 +1458,9 @@ def build_container() -> AppContainer:
     from src.features.tab_drafts.repository import TabDraftRepository
     from src.features.tab_drafts.routes import TabDraftController
 
-    tab_draft_manager = TabDraftManager(TabDraftRepository())
+    from src.platform.websocket.notification_connection_hub import notification_connection_hub as tab_draft_hub
+
+    tab_draft_manager = TabDraftManager(TabDraftRepository(), notifier=tab_draft_hub)
     tab_draft_controller = TabDraftController(tab_draft_manager)
 
     from src.features.housekeeping.worker import HousekeepingWorker, build_tasks
@@ -1712,6 +1714,7 @@ def build_container() -> AppContainer:
         generation_history_facade=generation_history_facade,
         content_safety=content_safety,
         library_collaborators=library_collaborators,
+        tab_drafts=tab_draft_manager,
     )
     mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,

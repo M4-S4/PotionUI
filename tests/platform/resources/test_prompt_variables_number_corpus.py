@@ -3,8 +3,9 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.flat_variable_ops import apply_variable_operations
+
 from src.platform.resources.prompt_variables import (
-    apply_variable_operations,
     build_variable_wire_value,
     number_grid,
     render_prompt_variable_lines,

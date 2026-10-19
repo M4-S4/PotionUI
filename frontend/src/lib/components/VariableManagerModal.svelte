@@ -14,6 +14,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { copyText } from '$lib/utils/clipboard';
 	import { serializeVariables } from '$lib/utils/variablesTransfer';
+	import { applyVariableEdits } from '$lib/utils/variableEdits';
 	import {
 		normalizeVariableDef,
 		createTextVariable,
@@ -79,12 +80,12 @@
 	let previousOpen = false;
 	let nextKey = 0;
 	let openedWith: VariablesMap = {};
+	let committedEdits: VariablesMap = {};
 	const settlementGate = createConfirmSettlementGate();
 
 	$: if (isOpen !== previousOpen) {
 		previousOpen = isOpen;
 		if (isOpen) {
-			openedWith = JSON.parse(JSON.stringify(variables ?? {}));
 			listQuery = '';
 			mobileView = 'list';
 			initialize();
@@ -94,7 +95,7 @@
 
 	function handleCancel() {
 		settlementGate.settle(() => {
-			dispatch('change', openedWith);
+			dispatch('change', applyVariableEdits(variables, committedEdits, openedWith));
 			dispatch('close');
 		});
 	}
@@ -117,6 +118,8 @@
 			name,
 			def: normalizeVariableDef(stored)
 		}));
+		committedEdits = JSON.parse(JSON.stringify(Object.fromEntries(rows.map((row) => [row.name, row.def]))));
+		openedWith = JSON.parse(JSON.stringify(committedEdits));
 		if (rows.length === 0) rows = [{ key: `v${nextKey++}`, name: '', def: createTextVariable() }];
 		selectedKey = rows[0].key;
 	}
@@ -265,7 +268,10 @@
 			if (!name || !isValidVariableName(name)) continue;
 			next[name] = row.def;
 		}
-		dispatch('change', next);
+		const merged = applyVariableEdits(variables, committedEdits, next);
+		committedEdits = JSON.parse(JSON.stringify(next));
+		variables = merged;
+		dispatch('change', merged);
 	}
 
 	function addRow() {

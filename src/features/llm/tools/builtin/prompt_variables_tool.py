@@ -6,10 +6,10 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.tab_drafts.errors import TabDraftError
 from src.features.llm.tools.builtin.utils import parse_page
 from src.platform.resources.prompt_variables import (
     VALID_MODES,
-    declared_option_total,
     dependency_prefix,
     format_option,
     name_error,
@@ -17,7 +17,6 @@ from src.platform.resources.prompt_variables import (
     number_grid,
     number_grid_error,
     number_pinned_text,
-    omitted_variable_count,
     option_texts,
     render_prompt_variable_lines,
     valid_options,
@@ -69,18 +68,44 @@ def _validate_condition(
     return normalized
 
 
-def _existing_by_name(form_state: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    variables = (form_state or {}).get("variables")
-    if not isinstance(variables, (list, tuple)):
-        return {}
-    out: Dict[str, Dict[str, Any]] = {}
-    for var in variables:
-        if not isinstance(var, dict):
-            continue
-        name = var.get("name")
-        if isinstance(name, str) and name.strip():
-            out[name.strip()] = var
-    return out
+NO_TAB_ERROR = (
+    "No Generate tab is selected. Pass tab_id; list_tab_drafts shows the user's tabs."
+)
+NO_TAB_OPEN_MESSAGE = "No Generate tab is open — open the Generate page to read or change prompt variables."
+NO_DRAFT_STORE_ERROR = "Tab drafts are not available."
+TAB_ID_PARAMETER = {"type": "string", "description": "MCP only; ignored in chat."}
+
+
+def _tab_id(context: ToolContext, kwargs: Dict[str, Any]) -> Optional[str]:
+    if context.chat_session:
+        form_state = context.session_metadata.get("form_state")
+        candidate = form_state.get("tab_id") if isinstance(form_state, dict) else None
+    else:
+        candidate = kwargs.get("tab_id")
+    return candidate.strip() if isinstance(candidate, str) and candidate.strip() else None
+
+
+def _draft_error_text(exc: TabDraftError) -> str:
+    details = getattr(exc, "operations", None) or []
+    reasons = [reason for item in details for reason in item.get("errors", [])]
+    return "; ".join(reasons) if reasons else str(exc)
+
+
+def active_draft_variables(context: ToolContext) -> Dict[str, Dict[str, Any]]:
+    _tab, variables, _error = _load_variables(context, {})
+    return variables
+
+
+def _load_variables(context: ToolContext, kwargs: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Dict[str, Any]], Optional[str]]:
+    if context.tab_drafts is None:
+        return None, {}, NO_DRAFT_STORE_ERROR
+    tab_id = _tab_id(context, kwargs)
+    if tab_id is None:
+        return None, {}, NO_TAB_OPEN_MESSAGE if context.chat_session else NO_TAB_ERROR
+    try:
+        return tab_id, context.tab_drafts.variables(context.user_id, tab_id), None
+    except TabDraftError as exc:
+        return tab_id, {}, str(exc)
 
 
 def _build_choice_var(
@@ -163,15 +188,6 @@ def _validate_operations(
     operations: List[Dict[str, Any]],
     existing_by_name: Dict[str, Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[str]]:
-    """Validates operations against the existing variable snapshot.
-
-    Returns (validated_ops, preview_rows, errors). `validated_ops` is the
-    normalized wire shape the frontend's `apply_variable_changes` action
-    consumes; `preview_rows` is the `field_name`/`old_value`/`new_value` shape
-    the approval dock already renders for `update_form_settings` (see
-    `buildApprovalDiff`). A count-cap breach discards the whole batch — it is
-    a global constraint, not a per-operation one.
-    """
     working = dict(existing_by_name)
     validated_ops: List[Dict[str, Any]] = []
     preview_rows: List[Dict[str, Any]] = []
@@ -236,7 +252,8 @@ def _validate_operations(
                 continue
             new_var = built
 
-        old_desc = _describe(working.get(name))
+        previous = working.get(name)
+        old_desc = _describe(previous)
         working[name] = new_var
         new_desc = _describe(new_var)
 
@@ -249,6 +266,8 @@ def _validate_operations(
             wire_op["options"] = new_var["options"]
             wire_op["mode"] = new_var["mode"]
             wire_op["pinned_index"] = new_var["pinnedIndex"]
+        if isinstance(previous, dict) and previous.get("linked") is True and previous.get("type") == new_var["type"]:
+            wire_op["linked"] = True
         validated_ops.append(wire_op)
 
         row = {"field_name": f"${{{name}}}", "old_value": old_desc, "new_value": new_desc}
@@ -300,6 +319,7 @@ class ManagePromptVariablesTool(BaseTool):
         return {
             "type": "object",
             "properties": {
+                "tab_id": TAB_ID_PARAMETER,
                 "operations": {
                     "type": "array",
                     "description": "List of variable operations to propose",
@@ -396,15 +416,10 @@ class ManagePromptVariablesTool(BaseTool):
                 error="No operations provided. Specify at least one variable change.",
             )
 
-        form_state = context.session_metadata.get("form_state")
-        if not form_state:
-            return ToolResult(
-                success=False,
-                data="",
-                error="No form state available. The user may not have a form loaded.",
-            )
+        _tab, existing, load_error = _load_variables(context, kwargs)
+        if load_error:
+            return ToolResult(success=False, data="", error=load_error)
 
-        existing = _existing_by_name(form_state)
         _validated, preview_rows, errors = _validate_operations(operations, existing)
 
         if errors and not preview_rows:
@@ -412,6 +427,7 @@ class ManagePromptVariablesTool(BaseTool):
 
         result = {
             "status": "pending_approval",
+            "tab_id": _tab,
             "proposed_changes": preview_rows,
             "change_count": len(preview_rows),
         }
@@ -421,23 +437,31 @@ class ManagePromptVariablesTool(BaseTool):
         return ToolResult(success=True, data=json.dumps(result))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        """After user approval, return action payload for frontend to apply."""
         operations = kwargs.get("operations", [])
 
         # Approval is the USER agreeing to the change, not evidence the form
         # state is unchanged since the preview - and these arguments are
         # replayed from storage, so the preview's checks don't carry over.
         # Re-run them.
-        form_state = context.session_metadata.get("form_state")
-        existing = _existing_by_name(form_state)
+        tab_id, existing, load_error = _load_variables(context, kwargs)
+        if load_error:
+            return ToolResult(success=False, data="", error=load_error)
         validated_ops, _preview_rows, errors = _validate_operations(operations, existing)
 
         if errors and not validated_ops:
             return ToolResult(success=False, data="", error="; ".join(errors))
 
+        try:
+            draft = context.tab_drafts.apply_operations(context.user_id, tab_id, validated_ops)
+        except TabDraftError as exc:
+            return ToolResult(success=False, data="", error=_draft_error_text(exc))
+        context.tab_drafts.announce(draft)
+
         payload = {
-            "action": "apply_variable_changes",
-            "operations": validated_ops,
+            "status": "applied",
+            "tab_id": tab_id,
+            "rev": draft.rev,
+            "applied_count": len(validated_ops),
         }
         if errors:
             payload["rejected_operations"] = errors
@@ -494,7 +518,7 @@ def _summary_row(var: Dict[str, Any]) -> Dict[str, Any]:
     row["mode"] = var.get("mode") or "shuffle"
     if kind == "choice":
         options = valid_options(var.get("options"))
-        row["option_count"] = declared_option_total(var, len(options))
+        row["option_count"] = len(options)
         idx = var.get("pinnedIndex")
         if row["mode"] == "pin" and isinstance(idx, int) and 0 <= idx < len(options):
             row["pinned_value"] = options[idx]["text"]
@@ -532,9 +556,6 @@ def _detail(var: Dict[str, Any], by_name: Dict[str, Dict[str, Any]], search: str
         {"index": i, "text": o["text"], **({"when": o["when"]} if o["when"] else {})} for i, o in page
     ]
     row["options_total"] = len(indexed)
-    missing = declared_option_total(var, len(options)) - len(options)
-    if missing:
-        row["options_missing"] = missing
     row["offset"] = offset
     row["limit"] = limit
     row["has_more"] = offset + len(page) < len(indexed)
@@ -577,6 +598,7 @@ class GetPromptVariablesTool(BaseTool):
         return {
             "type": "object",
             "properties": {
+                "tab_id": TAB_ID_PARAMETER,
                 "names": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -599,14 +621,12 @@ class GetPromptVariablesTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        form_state = context.session_metadata.get("form_state")
-        if not form_state:
-            return ToolResult(
-                success=False,
-                data="",
-                error="No form state available. The user may not have a form loaded.",
-            )
-        by_name = {name: {**var, "name": name} for name, var in _existing_by_name(form_state).items()}
+        _tab, variables, load_error = _load_variables(context, kwargs)
+        if load_error == NO_TAB_OPEN_MESSAGE:
+            return ToolResult(success=True, data=json.dumps({"variables": [], "count": 0, "total": 0, "note": load_error}))
+        if load_error:
+            return ToolResult(success=False, data="", error=load_error)
+        by_name = {name: {**var, "name": name} for name, var in variables.items()}
         search = (kwargs.get("search") or "").strip().lower()
         names = _requested_names(kwargs)
         try:
@@ -628,11 +648,8 @@ class GetPromptVariablesTool(BaseTool):
                 "limit": limit,
                 "has_more": offset + len(page) < len(rows),
             }
-            omitted = omitted_variable_count(form_state.get("variables"))
-            if omitted:
-                payload["omitted_variables"] = omitted
             if not by_name:
-                payload["note"] = "This form has no prompt variables."
+                payload["note"] = "This tab has no prompt variables yet; manage_prompt_variables can add some."
             return ToolResult(success=True, data=json.dumps(payload))
 
         found = [by_name[n] for n in names if n in by_name]
@@ -657,7 +674,37 @@ class GetPromptVariablesTool(BaseTool):
         }
         if missing:
             payload["not_found"] = missing
-        omitted = omitted_variable_count(form_state.get("variables"))
-        if omitted:
-            payload["omitted_variables"] = omitted
+        return ToolResult(success=True, data=json.dumps(payload))
+
+
+class ListTabDraftsTool(BaseTool):
+    modes = ["generation"]
+    icon = "braces"
+
+    name = "list_tab_drafts"
+    group = "Form & segments"
+    user_description = "Lists the user's Generate tabs that hold prompt variables, so another tab's variables can be read."
+
+    def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
+        return form_state is None
+
+    @property
+    def description(self) -> str:
+        return (
+            "List the user's Generate tabs that have prompt variables saved on the server: tab_id, "
+            "variable count, revision and last update. Pass a tab_id to get_prompt_variables or "
+            "manage_prompt_variables to work on that tab."
+        )
+
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        return {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        if context.tab_drafts is None:
+            return ToolResult(success=False, data="", error=NO_DRAFT_STORE_ERROR)
+        tabs = [summary.to_dict() for summary in context.tab_drafts.list(context.user_id)]
+        payload: Dict[str, Any] = {"tabs": tabs, "count": len(tabs)}
+        if not tabs:
+            payload["note"] = "No Generate tab has prompt variables saved yet."
         return ToolResult(success=True, data=json.dumps(payload))

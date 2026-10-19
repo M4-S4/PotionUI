@@ -1,7 +1,5 @@
 """Plain-language rendering of the generate tab's typed prompt variables.
 
-The chat form-state snapshot carries a compact ``variables`` list alongside
-``form_data`` (see the frontend ``buildVariablesSnapshot`` helper). A prompt
 variable is a named ``${...}`` placeholder the user can reuse across their
 prompt; it is either free ``text`` or a ``choice`` of options resolved per a
 mode (shuffle once per generation / pin one option / re-roll per image).
@@ -11,10 +9,6 @@ list into short human sentences the chat model reads — e.g.::
 
     mood: one of noir, sunlit — shuffles each generation; last roll: sunlit
 
-This module is the single pure renderer shared by both surfaces. It is
-defensive about the untrusted client shape and applies the same
-count/length caps FormResourceProvider uses so a padded snapshot can never
-bloat the prompt.
 """
 
 import json
@@ -30,6 +24,8 @@ _MAX_NAME_CHARS = 60
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 VALID_MODES = {"shuffle", "pin", "per-image"}
 MAX_NUMBER_GRID = 200
+MAX_ROLL_ENTRIES = 200
+MAX_ROLL_CHARS = 300
 MAX_CHOICE_OPTIONS = 200
 MAX_OPTION_CHARS = 300
 MAX_TEXT_VALUE_CHARS = 2000
@@ -147,7 +143,7 @@ def _render_choice(name: str, var: dict) -> Optional[str]:
     if not options:
         return None
     texts = option_texts(options)
-    count = declared_option_total(var, len(texts))
+    count = len(texts)
     parts = ["choice"]
     deps = variable_dependencies(var)
     if deps:
@@ -224,30 +220,26 @@ def render_prompt_variable_lines(variables: Any) -> List[str]:
     return lines
 
 
-def omitted_variable_count(variables: Any) -> int:
-    if not isinstance(variables, (list, tuple)):
-        return 0
-    for var in variables:
-        if isinstance(var, dict) and var.get("truncated") is True:
-            omitted = var.get("omitted")
-            if isinstance(omitted, int) and not isinstance(omitted, bool) and omitted > 0:
-                return omitted
-    return 0
+def variables_as_list(variables: Any, rolls: Any = None) -> List[Dict[str, Any]]:
+    if not isinstance(variables, dict):
+        return []
+    last_rolls = rolls if isinstance(rolls, dict) else {}
+    kept_rolls = 0
+    out: List[Dict[str, Any]] = []
+    for name, definition in variables.items():
+        if not isinstance(name, str) or not isinstance(definition, dict):
+            continue
+        entry = {**definition, "name": name}
+        roll = last_rolls.get(name)
+        if isinstance(roll, str) and kept_rolls < MAX_ROLL_ENTRIES:
+            kept_rolls += 1
+            entry["lastRoll"] = roll if len(roll) <= MAX_ROLL_CHARS else roll[: MAX_ROLL_CHARS - 1] + "…"
+        out.append(entry)
+    return out
 
 
-def declared_option_total(var: Dict[str, Any], sent: int) -> int:
-    total = var.get("optionTotal")
-    if isinstance(total, int) and not isinstance(total, bool) and total > sent:
-        return total
-    return sent
-
-
-def render_prompt_variable_summary(variables: Any) -> List[str]:
-    lines = render_prompt_variable_lines(variables)
-    omitted = omitted_variable_count(variables)
-    if omitted:
-        noun = "variable" if omitted == 1 else "variables"
-        lines.append(f"{omitted} more {noun} not sent with this snapshot; call get_prompt_variables to see what is missing.")
+def render_prompt_variable_summary(variables: Any, rolls: Any = None) -> List[str]:
+    lines = render_prompt_variable_lines(variables_as_list(variables, rolls))
     return [*lines, SUMMARY_READ_HINT] if lines else []
 
 
@@ -596,62 +588,3 @@ def build_variables_for_submit(
             resolved[name] = value
 
     return wire_map
-
-
-def apply_variable_operations(variables: Any, operations: Any) -> List[Dict[str, Any]]:
-    by_name: Dict[str, Dict[str, Any]] = {}
-    order: List[str] = []
-    if isinstance(variables, (list, tuple)):
-        for var in variables:
-            if not isinstance(var, dict):
-                continue
-            name = var.get("name")
-            if isinstance(name, str) and name.strip():
-                name = name.strip()
-                by_name[name] = dict(var)
-                order.append(name)
-
-    for op in operations or []:
-        if not isinstance(op, dict):
-            continue
-        name = op.get("name")
-        if not isinstance(name, str) or not name.strip():
-            continue
-        name = name.strip()
-
-        if op.get("op") == "remove":
-            if name in by_name:
-                del by_name[name]
-                order = [n for n in order if n != name]
-            continue
-
-        if op.get("op") != "set":
-            continue
-
-        if op.get("type") == "choice":
-            mode = op.get("mode") or "shuffle"
-            entry: Dict[str, Any] = {
-                "name": name,
-                "type": "choice",
-                "options": op.get("options") or ["", ""],
-                "mode": mode,
-                "pinnedIndex": op.get("pinned_index") if mode == "pin" else None,
-            }
-        elif op.get("type") == "number":
-            entry = {
-                "name": name,
-                "type": "number",
-                "mode": op.get("mode") or "shuffle",
-                "min": op.get("min"),
-                "max": op.get("max"),
-                "step": op.get("step", 1),
-                "value": op.get("value"),
-            }
-        else:
-            entry = {"name": name, "type": "text", "value": op.get("value") or ""}
-
-        if name not in by_name:
-            order.append(name)
-        by_name[name] = entry
-
-    return [by_name[n] for n in order]

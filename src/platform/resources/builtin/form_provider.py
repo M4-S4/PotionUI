@@ -227,9 +227,10 @@ class FormResourceProvider(BaseResourceProvider):
     @staticmethod
     def _variable_lines(ctx: ResourceContext) -> List[str]:
         form_state = getattr(ctx, "form_state", None)
-        if not isinstance(form_state, dict):
+        reader = getattr(ctx, "prompt_variables", None)
+        if not isinstance(form_state, dict) or reader is None:
             return []
-        return render_prompt_variable_summary(form_state.get("variables"))
+        return render_prompt_variable_summary(reader(), form_state.get("variable_rolls"))
 
     def _model_name(self, ctx: ResourceContext, model_id: str) -> Optional[str]:
         if not ctx.model_index_manager:

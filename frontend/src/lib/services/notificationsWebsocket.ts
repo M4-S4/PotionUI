@@ -18,6 +18,8 @@ import { playNotificationChime } from '$lib/utils/notificationChime';
 import type { AppNotification } from '$lib/services/api/notifications';
 import { generationFailureErrorId, generationFailureToastMessage } from '$lib/generation/failureToast';
 import { copyText } from '$lib/utils/clipboard';
+import { tabDraftSync } from '$lib/stores/tabDraftSync';
+import type { TabDraftDoc } from '$lib/services/api/tabDrafts';
 
 class NotificationsWebSocketService extends BaseWebSocket {
 	private intentionalDisconnect = false;
@@ -96,6 +98,10 @@ class NotificationsWebSocketService extends BaseWebSocket {
 
 			case 'notifications_cleared':
 				notifications.dispatch({ type: 'notifications_cleared' });
+				break;
+
+			case 'tab_variables_changed':
+				tabDraftSync.receiveDraft(message.tab_id as string, message.doc as TabDraftDoc | undefined, message.rev as number);
 				break;
 
 			default:

@@ -14,7 +14,6 @@ from src.features.chat.exceptions import (
 from src.features.llm.tools.base import ToolContext, ToolResult, serialize_approval_preview
 from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.use_tools import USE_TOOLS_NAME
-from src.platform.resources.prompt_variables import apply_variable_operations
 
 logger = logging.getLogger(__name__)
 
@@ -278,11 +277,7 @@ class ToolCallDispatcher:
             return
 
         action = payload.get("action")
-        if action == "apply_variable_changes":
-            form_state["variables"] = apply_variable_operations(
-                form_state.get("variables"), payload.get("operations")
-            )
-        elif action == "apply_form_changes":
+        if action == "apply_form_changes":
             form_data = dict(form_state.get("form_data") or {})
             for change in payload.get("applied_changes") or []:
                 field_name = change.get("field_name") if isinstance(change, dict) else None

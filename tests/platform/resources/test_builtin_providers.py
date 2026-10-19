@@ -840,7 +840,11 @@ class TestFormProvider:
             model_index_manager=self.manager,
             form_state={
                 "preset": "01ABC", "mode": "txt2img",
-                "form_data": form_data, "variables": variables,
+                "form_data": form_data, "tab_id": "tab-1",
+                "variable_rolls": {v["name"]: v["lastRoll"] for v in variables if "lastRoll" in v},
+            },
+            prompt_variables=lambda: {
+                v["name"]: {k: val for k, val in v.items() if k not in ("name", "lastRoll")} for v in variables
             },
         )
 
@@ -876,6 +880,12 @@ class TestFormProvider:
         assert "40 options" in resolved.content
         assert options[0] not in resolved.content
         assert "option 05" not in resolved.content
+
+    @pytest.mark.asyncio
+    async def test_bare_dump_without_a_draft_reader_has_no_variables_section(self):
+        ctx = _ctx(form_state={"preset": "01ABC", "mode": "txt2img", "form_data": {"steps": 30}, "tab_id": "t"})
+        resolved = await self.provider.resolve([], ctx)
+        assert "Prompt variables" not in resolved.content
 
     @pytest.mark.asyncio
     async def test_bare_dump_no_variables_key_unchanged(self):

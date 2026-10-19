@@ -4,6 +4,9 @@ from src.platform.resources.prompt_variables import (
     SUMMARY_READ_HINT,
     render_prompt_variable_lines,
     render_prompt_variable_summary,
+    variables_as_list,
+    MAX_ROLL_CHARS,
+    MAX_ROLL_ENTRIES,
 )
 
 
@@ -113,9 +116,58 @@ class TestRenderPromptVariableLines:
         ]
 
 
+def _map(variables):
+    return {v["name"]: {k: val for k, val in v.items() if k != "name"} for v in variables}
+
+
+class TestVariablesAsList:
+    def test_names_each_definition_and_attaches_the_last_roll(self):
+        listed = variables_as_list(
+            {"mood": {"type": "choice", "options": ["a", "b"]}, "note": {"type": "text", "value": "x"}},
+            {"mood": "a (2 of 2 eligible)", "ghost": "zzz"},
+        )
+        assert listed == [
+            {"type": "choice", "options": ["a", "b"], "name": "mood", "lastRoll": "a (2 of 2 eligible)"},
+            {"type": "text", "value": "x", "name": "note"},
+        ]
+
+    def test_rolls_for_unknown_names_and_non_strings_are_dropped(self):
+        listed = variables_as_list(
+            {"a": {"type": "text"}, "b": {"type": "text"}},
+            {"a": 5, "b": ["x"], "ghost": "g"},
+        )
+        assert all("lastRoll" not in entry for entry in listed)
+        assert [entry["name"] for entry in listed] == ["a", "b"]
+
+    def test_oversized_rolls_are_cut_with_an_ellipsis(self):
+        listed = variables_as_list({"a": {"type": "text"}}, {"a": "x" * 5000})
+        assert len(listed[0]["lastRoll"]) == MAX_ROLL_CHARS
+        assert listed[0]["lastRoll"].endswith("…")
+        assert variables_as_list({"a": {"type": "text"}}, {"a": "y" * MAX_ROLL_CHARS})[0]["lastRoll"] == "y" * MAX_ROLL_CHARS
+
+    def test_only_the_first_two_hundred_rolls_are_kept(self):
+        names = {f"v{i}": {"type": "text"} for i in range(MAX_ROLL_ENTRIES + 50)}
+        listed = variables_as_list(names, {name: "r" for name in names})
+        assert sum("lastRoll" in entry for entry in listed) == MAX_ROLL_ENTRIES
+        assert len(listed) == MAX_ROLL_ENTRIES + 50
+
+    def test_a_huge_roll_map_of_unknown_names_costs_nothing(self):
+        listed = variables_as_list({"a": {"type": "text"}}, {f"n{i}": "r" for i in range(10000)})
+        assert listed == [{"type": "text", "name": "a"}]
+
+    def test_anything_but_a_map_is_no_variables(self):
+        assert variables_as_list(None) == []
+        assert variables_as_list([{"name": "a", "type": "text"}]) == []
+        assert variables_as_list({"a": "text"}) == []
+
+
 class TestRenderPromptVariableSummary:
+    def test_last_rolls_reach_the_summary_lines(self):
+        lines = render_prompt_variable_summary(_map([_choice("mood", ["a", "b"])]), {"mood": "b"})
+        assert "last roll: b" in lines[0]
+
     def test_ends_with_the_read_tool_pointer(self):
-        lines = render_prompt_variable_summary([_choice("mood", ["a", "b"])])
+        lines = render_prompt_variable_summary(_map([_choice("mood", ["a", "b"])]))
         assert lines[:-1] == render_prompt_variable_lines([_choice("mood", ["a", "b"])])
         assert lines[-1] == SUMMARY_READ_HINT
         assert "get_prompt_variables" in lines[-1]
@@ -125,29 +177,9 @@ class TestRenderPromptVariableSummary:
         assert render_prompt_variable_summary(None) == []
 
     def test_only_one_pointer_line_for_many_variables(self):
-        lines = render_prompt_variable_summary([_choice(f"v{i}", ["a", "b"]) for i in range(10)])
+        lines = render_prompt_variable_summary(_map([_choice(f"v{i}", ["a", "b"]) for i in range(10)]))
         assert len(lines) == 11
         assert sum(1 for line in lines if "get_prompt_variables" in line) == 1
-
-
-class TestTruncatedSnapshotSummary:
-    def test_marker_adds_the_omitted_line_before_the_pointer(self):
-        lines = render_prompt_variable_summary([_choice("a", ["x", "y"]), {"truncated": True, "omitted": 4}])
-        assert len(lines) == 3
-        assert lines[1].startswith("4 more variables not sent with this snapshot")
-        assert lines[2] == SUMMARY_READ_HINT
-
-    def test_singular_noun_for_one(self):
-        lines = render_prompt_variable_summary([_choice("a", ["x"]), {"truncated": True, "omitted": 1}])
-        assert lines[1].startswith("1 more variable not sent")
-
-    def test_option_total_overrides_the_sent_count(self):
-        line = render_prompt_variable_lines([_choice("big", ["a", "b", "c", "d"], optionTotal=250)])[0]
-        assert "250 options (first 3: a, b, c)" in line
-
-    def test_marker_alone_still_reports_the_omitted_variables(self):
-        lines = render_prompt_variable_summary([{"truncated": True, "omitted": 3}])
-        assert lines[0].startswith("3 more variables not sent") and lines[-1] == SUMMARY_READ_HINT
 
 
 class TestTwentyVariableFixture:
@@ -170,7 +202,7 @@ class TestTwentyVariableFixture:
         return variables
 
     def test_summary_keeps_the_outfit_kind_count_without_its_options(self):
-        lines = render_prompt_variable_summary(self.fixture())
+        lines = render_prompt_variable_summary(_map(self.fixture()))
         assert len(lines) == 21
         outfit = next(line for line in lines if line.startswith("outfit_kind:"))
         assert "40 options (first 3:" in outfit
@@ -179,7 +211,7 @@ class TestTwentyVariableFixture:
         assert max(len(line) for line in lines) < 200
 
     def test_whole_summary_stays_small(self):
-        assert sum(len(line) for line in render_prompt_variable_summary(self.fixture())) < 2200
+        assert sum(len(line) for line in render_prompt_variable_summary(_map(self.fixture()))) < 2200
 
 
 class TestSharedHelpers:

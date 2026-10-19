@@ -466,13 +466,21 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 		outbox.reset();
 	}
 
+	function receiveDraft(tabId: string, doc: TabDraftDoc | null | undefined, rev: number): void {
+		if (!started || !shadow.has(tabId)) return;
+		const known = revs.get(tabId);
+		if (typeof rev === 'number' && known !== undefined && rev <= known) return;
+		if (typeof rev === 'number') revs.set(tabId, rev);
+		mergeServer(tabId, doc?.variables ?? {});
+	}
+
 	async function flushNow(): Promise<void> {
 		if (flushTimer) clearTimeout(flushTimer);
 		flushTimer = null;
 		await flush();
 	}
 
-	return { start, stop, flushNow, revOf: (tabId: string) => revs.get(tabId) };
+	return { start, stop, flushNow, receiveDraft, revOf: (tabId: string) => revs.get(tabId) };
 }
 
 export const tabDraftSync = createTabDraftSync({

@@ -20,6 +20,7 @@ from src.features.chat.tool_transcript import replay_messages
 from src.features.chat.turns import ChatTurnRegistry
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
+from tests.fixtures.fake_tab_drafts import make_manager
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
 from src.features.llm.tools.executor import ToolExecutor, _ToolCallGuard
 from src.features.llm.tools.registry import ToolRegistry
@@ -140,7 +141,7 @@ def chat_db(mock_db):
     return mock_db
 
 
-def _manager(tools, llm, generation_orchestrator=None):
+def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None):
     registry = ToolRegistry()
     for tool in tools:
         registry.register(tool)
@@ -156,7 +157,7 @@ def _manager(tools, llm, generation_orchestrator=None):
         plugin_registry=plugins,
         chat_mode_registry=_mode_registry(),
         tool_executor=ToolExecutor(tool_registry=registry, llm_service=llm),
-        tool_services=ToolServices(generation_orchestrator=generation_orchestrator),
+        tool_services=ToolServices(generation_orchestrator=generation_orchestrator, tab_drafts=tab_drafts),
     )
     session = repo.create_session(user_id=USER_ID, llm_config_id="llm-1", mode="generation")
     return manager, repo, session.id
@@ -633,7 +634,7 @@ class TestFormStateSyncAcrossChainedApprovals:
             "preset": "preset-sdxl",
             "mode": "txt2img",
             "form_data": {"prompt": "${mood} lighting on the subject"},
-            "variables": [],
+            "tab_id": "tab-1",
         },
     }
 
@@ -644,8 +645,10 @@ class TestFormStateSyncAcrossChainedApprovals:
             {"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]},
             {"tool_calls": [_call("g1", "run_generation")]},
         ])
+        self.drafts, self.notifier = make_manager()
         manager, repo, session_id = _manager(
-            [ManagePromptVariablesTool(), RunGenerationTool()], llm, generation_orchestrator=orchestrator,
+            [ManagePromptVariablesTool(), RunGenerationTool()], llm,
+            generation_orchestrator=orchestrator, tab_drafts=self.drafts,
         )
         events = await _stream(manager, session_id, "pin mood to sunlit, then generate",
                                context_metadata=copy.deepcopy(self._CONTEXT))
@@ -656,16 +659,52 @@ class TestFormStateSyncAcrossChainedApprovals:
         return manager, repo, session_id, orchestrator, _done(events)["assistant_message"]
 
     @pytest.mark.asyncio
-    async def test_chained_run_generation_carries_the_updated_snapshot(self, chat_db):
+    async def test_the_approved_change_lands_in_the_draft_and_is_pushed(self, chat_db):
         _manager_, _repo, _sid, _orchestrator, second = await self._chain()
 
         [run_generation] = second["metadata"]["tool_executions"]
         assert run_generation["tool_name"] == "run_generation"
         assert run_generation["approval_status"] == "pending"
-        assert second["metadata"]["context_metadata"]["form_state"]["variables"] == [{
-            "name": "mood", "type": "choice", "options": ["noir", "sunlit"],
-            "mode": "pin", "pinnedIndex": 1,
-        }]
+        assert "variables" not in second["metadata"]["context_metadata"]["form_state"]
+        assert self.drafts.variables(USER_ID, "tab-1") == {
+            "mood": {"type": "choice", "options": ["noir", "sunlit"], "mode": "pin", "pinnedIndex": 1},
+        }
+        [(pushed_to, message)] = self.notifier.sent
+        assert pushed_to == USER_ID
+        assert message["type"] == "tab_variables_changed"
+        assert message["tab_id"] == "tab-1" and message["rev"] == 1
+        assert message["doc"] == {"variables": self.drafts.variables(USER_ID, "tab-1")}
+
+    @pytest.mark.asyncio
+    async def test_approving_after_switching_tabs_writes_and_pushes_the_tab_it_was_proposed_on(self, chat_db):
+        llm = _ScriptedLLM([{"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]}])
+        drafts, notifier = make_manager()
+        manager, _repo, session_id = _manager([ManagePromptVariablesTool()], llm, tab_drafts=drafts)
+        events = await _stream(manager, session_id, "pin mood", context_metadata=copy.deepcopy(self._CONTEXT))
+        message_id = _done(events)["assistant_message"]["id"]
+        switched = copy.deepcopy(self._CONTEXT)
+        switched["form_state"]["tab_id"] = "tab-2"
+
+        result = await _resolve(manager, session_id, message_id, context_metadata=switched)
+
+        assert result["status"] == "approved"
+        assert "mood" in drafts.variables(USER_ID, "tab-1")
+        assert drafts.find(USER_ID, "tab-2") is None
+        assert [m["tab_id"] for _, m in notifier.sent] == ["tab-1"]
+
+    @pytest.mark.asyncio
+    async def test_declining_the_change_writes_and_pushes_nothing(self, chat_db):
+        llm = _ScriptedLLM([{"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]}])
+        drafts, notifier = make_manager()
+        manager, _repo, session_id = _manager([ManagePromptVariablesTool()], llm, tab_drafts=drafts)
+        events = await _stream(manager, session_id, "pin mood", context_metadata=copy.deepcopy(self._CONTEXT))
+        message_id = _done(events)["assistant_message"]["id"]
+
+        result = await _resolve(manager, session_id, message_id, approved=False)
+
+        assert result["status"] != "approved"
+        assert drafts.find(USER_ID, "tab-1") is None
+        assert notifier.sent == []
 
     @pytest.mark.asyncio
     async def test_approving_the_chained_run_generation_expands_the_new_variable(self, chat_db):

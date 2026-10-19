@@ -54,7 +54,7 @@
 		ToolExecution
 	} from '$lib/types/chat';
 	import type { Segment } from '$lib/types/segments';
-	import { buildVariablesSnapshot } from '$lib/utils/variableSnapshot';
+	import { buildChatFormState } from '$lib/chat/chatFormState';
 	import { flattenRichSegments, isSegmentEnabled } from '$lib/utils/richSegments';
 	import {
 		applySegmentAdd,
@@ -92,7 +92,6 @@
 	} from '$lib/utils/musicDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import { collectFormImages, type FormImageEntry } from '$lib/chat/formMedia';
-	import { applyVariableChanges } from '$lib/chat/applyVariableChanges';
 	import {
 		loadFromStorage,
 		saveToStorage,
@@ -955,29 +954,26 @@
 				...activeSegments.map((seg, i) => mapSegment(seg, i, false)),
 				...negativeSegments.map((seg, i) => mapSegment(seg, activeSegments.length + i, true))
 			],
-			form_state: {
-				preset: generationPresetActive ? tab?.selectedPreset || null : null,
-				tab_id: generatePageActive ? tab?.id ?? null : null,
-				session_id: chatFormSessionId(tab, currentMode),
-				mode: tab?.selectedMode || null,
-				variant: tab?.selectedVariant || null,
-				form_data: generatePageActive ? tab?.formData || {} : {},
-				variables: buildVariablesSnapshot(tab?.variables, tab?.variableRolls),
-				video_director: videoDirectorActive
+			form_state: buildChatFormState({
+				tab,
+				generatePageActive,
+				generationPresetActive,
+				sessionId: chatFormSessionId(tab, currentMode),
+				videoDirector: videoDirectorActive
 					? {
 							active: true,
 							doc: normalizeDirectorValue(tab?.videoDirector, videoDirectorCaps!),
 							capabilities: videoDirectorCapsRaw
 						}
 					: { active: false, doc: null, capabilities: null },
-				music_director: musicDirectorActive
+				musicDirector: musicDirectorActive
 					? {
 							active: true,
 							doc: normalizeMusicDirectorValue(tab?.musicDirector, musicDirectorCaps!),
 							capabilities: musicDirectorCapsRaw
 						}
 					: { active: false, doc: null, capabilities: null }
-			}
+			})
 		};
 		Object.assign(contextMetadata, collectProvidedContext());
 		return contextMetadata;
@@ -1331,7 +1327,6 @@
 			if (resultData.action === 'apply_music_director_ops') handleMusicDirectorApplied(resultData.operations);
 			if (resultData.action === 'set_prompt_relay') handlePromptRelaySet(resultData);
 			if (resultData.action === 'apply_segment_updates') await handleSegmentUpdatesApplied(resultData.updates);
-			if (resultData.action === 'apply_variable_changes') handleVariableChangesApplied(resultData.operations);
 			return null;
 		} catch (err) {
 			logger.error('Failed to apply the approved change:', err);
@@ -1456,12 +1451,6 @@
 			updatedFormData[change.field_name] = change.new_value;
 		}
 		tabsStore.updateTab(tab.id, { formData: updatedFormData });
-	}
-
-	function handleVariableChangesApplied(operations: Parameters<typeof applyVariableChanges>[1]) {
-		const tab = contextTab;
-		if (!tab || !operations || operations.length === 0) return;
-		tabsStore.updateTab(tab.id, { variables: applyVariableChanges(tab.variables ?? {}, operations) });
 	}
 
 	function handleMusicDirectorApplied(operations: unknown[]) {

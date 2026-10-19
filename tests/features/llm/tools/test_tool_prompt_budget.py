@@ -9,7 +9,7 @@ from tests.evaluation.chat.tool_snapshot import build_registry
 _MAX_SCHEMA_CHARS = 2000
 
 _SCHEMA_CHAR_ALLOWANCES = {
-    "manage_prompt_variables": 3350,
+    "manage_prompt_variables": 3425,
     "update_music_director": 3450,
     "manage_collections": 3100,
     "organize_gallery": 2500,

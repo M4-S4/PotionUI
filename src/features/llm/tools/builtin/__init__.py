@@ -32,7 +32,11 @@ from src.features.llm.tools.builtin.enhance_prompt_tool import EnhancePromptTool
 from src.features.llm.tools.builtin.form_context_tool import GetCurrentSegmentsTool, GetFormStateTool
 from src.features.llm.tools.builtin.active_models_tool import GetActiveModelsTool
 from src.features.llm.tools.builtin.update_form_settings_tool import UpdateFormSettingsTool
-from src.features.llm.tools.builtin.prompt_variables_tool import GetPromptVariablesTool, ManagePromptVariablesTool
+from src.features.llm.tools.builtin.prompt_variables_tool import (
+    GetPromptVariablesTool,
+    ListTabDraftsTool,
+    ManagePromptVariablesTool,
+)
 from src.features.llm.tools.builtin.search_prompts_tool import SearchModelPromptsTool
 from src.features.llm.tools.builtin.search_gallery_tool import SearchGalleryTool
 from src.features.llm.tools.builtin.manage_prompts_tool import (
@@ -90,6 +94,7 @@ def register_builtin_tools(registry) -> None:
         UpdateFormSettingsTool(),
         GetPromptVariablesTool(),
         ManagePromptVariablesTool(),
+        ListTabDraftsTool(),
         SearchModelPromptsTool(),
         SearchGalleryTool(),
         GetPromptTool(),

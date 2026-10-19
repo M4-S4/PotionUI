@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Page, type Route, type WebSocketRoute } from '@playwright/test';
 import { loginAsOwner, scopedStorageKey, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
 
@@ -222,4 +222,54 @@ test('a draft limit shows a warning toast and keeps the edit queued', async ({ p
 	await page.setViewportSize({ width: 390, height: 844 });
 	await expect(toast).toBeVisible();
 	await screenshot(page, JOURNEY, 'limit-toast-390');
+});
+
+test('a server push of a changed draft shows up in the open tab', async ({ page }) => {
+	test.setTimeout(120000);
+	const server = await mockTabDrafts(page);
+	let socket: WebSocketRoute | null = null;
+	await page.routeWebSocket('**/ws/notifications**', (ws) => {
+		socket = ws;
+		ws.send(JSON.stringify({ type: 'connection_established', unread_count: 0 }));
+	});
+	await loginAsOwner(page);
+	if (!(await selectPresetOrSkip(page))) return;
+
+	let modal = await openVariables(page);
+	await modal.getByLabel('Variable name').fill('style');
+	await modal.getByLabel('Variable value').fill('oil painting');
+	await modal.getByRole('button', { name: 'Done' }).click();
+	await expect.poll(() => server.posts.length, { timeout: 10000 }).toBeGreaterThan(0);
+	await expect.poll(() => socket !== null, { timeout: 15000 }).toBe(true);
+	const tabId = server.posts[0].tabId;
+	const postsBefore = server.posts.length;
+
+	(socket as unknown as WebSocketRoute).send(
+		JSON.stringify({
+			type: 'tab_variables_changed',
+			tab_id: tabId,
+			rev: 99,
+			doc: {
+				variables: {
+					style: { type: 'text', value: 'oil painting' },
+					mood: { type: 'text', value: 'noir' }
+				}
+			}
+		})
+	);
+
+	await expect
+		.poll(
+			async () => {
+				const dialog = await openVariables(page);
+				const names = (await dialog.getByRole('option').allTextContents()).join(' ');
+				await dialog.getByRole('button', { name: 'Done' }).click();
+				await expect(dialog).toBeHidden();
+				return names.includes('$mood');
+			},
+			{ timeout: 20000, intervals: [500, 1000] }
+		)
+		.toBe(true);
+	await page.waitForTimeout(1500);
+	expect(server.posts.length).toBe(postsBefore);
 });

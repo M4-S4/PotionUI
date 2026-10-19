@@ -8,6 +8,7 @@ from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.presets import operations
+from src.features.llm.tools.builtin.prompt_variables_tool import NO_TAB_OPEN_MESSAGE, active_draft_variables
 from src.platform.resources.prompt_variables import render_prompt_variable_summary
 
 logger = logging.getLogger(__name__)
@@ -183,7 +184,11 @@ class GetFormStateTool(BaseTool):
 
             # Prompt variables (${name} placeholders) as compact plain-language
             # lines, e.g. "mood: one of noir, sunlit — shuffles each generation".
-            variable_lines = render_prompt_variable_summary(form_state.get("variables"))
+            variable_lines = (
+                render_prompt_variable_summary(active_draft_variables(context), form_state.get("variable_rolls"))
+                if form_state.get("tab_id")
+                else [NO_TAB_OPEN_MESSAGE]
+            )
             if variable_lines:
                 result["prompt_variables"] = variable_lines
 

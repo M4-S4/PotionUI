@@ -387,7 +387,23 @@ class ChatContextBuilder:
             generation_parameter_repository=self._m.generation_parameter_repository,
             generation_model_repository=self._m.generation_model_repository,
             form_state=form_state,
+            prompt_variables=self._draft_variable_reader(user_id, form_state),
         )
+
+    def _draft_variable_reader(self, user_id: str, form_state: Optional[Dict[str, Any]]):
+        drafts = self._m.tool_services.tab_drafts
+        tab_id = form_state.get("tab_id") if isinstance(form_state, dict) else None
+        if drafts is None or not isinstance(tab_id, str) or not tab_id:
+            return None
+
+        def read() -> Dict[str, Any]:
+            try:
+                return drafts.variables(user_id, tab_id)
+            except Exception:
+                logger.warning("Could not read the tab draft for the variable summary", exc_info=True)
+                return {}
+
+        return read
 
     async def resolve_message_resources(
         self,

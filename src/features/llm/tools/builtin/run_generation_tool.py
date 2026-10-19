@@ -15,7 +15,8 @@ from src.features.llm.tools.media_values import (
 )
 from src.features.presets import operations
 from src.features.prompt.expander import expand_prompts
-from src.platform.resources.prompt_variables import build_variables_for_submit
+from src.features.llm.tools.builtin.prompt_variables_tool import active_draft_variables
+from src.platform.resources.prompt_variables import build_variables_for_submit, variables_as_list
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ class RunGenerationTool(BaseTool):
 
     @staticmethod
     def _resolve_prompt(context, form_state, form_data, prompt_text, negative_text):
-        variables_map = build_variables_for_submit(form_state.get("variables"))
+        variables_map = build_variables_for_submit(variables_as_list(active_draft_variables(context)))
         if not variables_map:
             return prompt_text, negative_text, variables_map
         try:
@@ -228,7 +229,7 @@ class RunGenerationTool(BaseTool):
 
         prompt_text = " ".join(prompt_parts) if prompt_parts else form_data.get("prompt", "")
         negative_text = " ".join(negative_parts) if negative_parts else form_data.get("negative_prompt", "")
-        variables_map = build_variables_for_submit(form_state.get("variables"))
+        variables_map = build_variables_for_submit(variables_as_list(active_draft_variables(context)))
 
         try:
             from src.features.generation.dto import GenerationRequest, PromptPair

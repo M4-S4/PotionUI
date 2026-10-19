@@ -166,6 +166,7 @@ test.describe('number variable', () => {
 
 	test('number sheet fits a phone', async ({ page }) => {
 		await page.setViewportSize({ width: 390, height: 844 });
+		await expect(page.getByRole('button', { name: 'Prompt', exact: true })).toBeVisible();
 		const modal = await openVariableManager(page);
 		await defineNumber(modal, 'age');
 		await modal.getByRole('radio', { name: 'Per image' }).click();

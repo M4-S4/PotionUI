@@ -25,6 +25,7 @@ from src.features.llm.tools.builtin import (
     register_builtin_tools,
 )
 from src.platform.resources.prompt_variables import SUMMARY_READ_HINT
+from tests.fixtures.fake_tab_drafts import drafts_context
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 from src.features.segments.dto import RichSegment, SavedSegment, SegmentTemplate
@@ -121,6 +122,7 @@ class TestRegisterBuiltinTools:
             "update_form_settings",
             "get_prompt_variables",
             "manage_prompt_variables",
+            "list_tab_drafts",
             "search_model_prompts",
             "search_gallery",
             "get_prompt",
@@ -2460,12 +2462,12 @@ class TestGetFormStateTool:
             "preset": "sdxl-standard",
             "mode": "t2i",
             "variables": [
-                {"name": "mood", "type": "choice", "options": ["noir", "sunlit"],
-                 "mode": "shuffle", "lastRoll": "sunlit"},
+                {"name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "shuffle"},
                 {"name": "subject", "type": "text", "value": "a fox"},
             ],
+            "variable_rolls": {"mood": "sunlit"},
         }
-        ctx = make_context(session_metadata={"form_state": form_state})
+        ctx = drafts_context({"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -2493,7 +2495,7 @@ class TestGetFormStateTool:
                 },
             ],
         }
-        ctx = make_context(session_metadata={"form_state": form_state})
+        ctx = drafts_context({"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
@@ -2505,14 +2507,26 @@ class TestGetFormStateTool:
         ]
 
     @pytest.mark.asyncio
-    async def test_prompt_variables_absent_when_no_variables(self):
-        form_state = {"preset": "sdxl-standard", "mode": "t2i"}
-        ctx = make_context(session_metadata={"form_state": form_state})
+    async def test_prompt_variables_absent_when_the_tab_has_no_variables(self):
+        form_state = {"preset": "sdxl-standard", "mode": "t2i", "variables": []}
+        ctx = drafts_context({"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
         data = json.loads(result.data)
         assert "prompt_variables" not in data
+
+    @pytest.mark.asyncio
+    async def test_prompt_variables_say_no_tab_is_open_when_tab_id_is_null(self):
+        form_state = {"preset": "sdxl-standard", "mode": "t2i", "tab_id": None}
+        ctx = drafts_context({"form_state": form_state})
+
+        result = await self._tool().execute(ctx)
+
+        assert result.success
+        assert json.loads(result.data)["prompt_variables"] == [
+            "No Generate tab is open — open the Generate page to read or change prompt variables."
+        ]
 
     @pytest.mark.asyncio
     async def test_description_mentions_model_and_model_path(self):

@@ -37,6 +37,7 @@ from src.bootstrap.container import build_container
 from src.features.generation.routes import _get_generation_controller as _generation_controller
 
 run_migrations_sync()
+from src.platform.websocket.notification_connection_hub import notification_connection_hub
 c = build_container()
 r = c.chat_runtime
 indexer = c.media_indexer
@@ -106,6 +107,9 @@ report = {
     "tab_draft_wiring": {
         "controller_uses_the_container_manager": c.tab_draft_controller.manager is c.tab_draft_manager,
         "manager_has_a_repository": c.tab_draft_manager.repository is not None,
+        "chat_tools_use_the_container_manager": c.chat_runtime.tool_services.tab_drafts is c.tab_draft_manager,
+        "mcp_tools_use_the_container_manager": c.mcp_tool_collaborators.services.tab_drafts is c.tab_draft_manager,
+        "pushes_go_to_the_notification_hub": c.tab_draft_manager.notifier is notification_connection_hub,
         "housekeeping_sweeps_the_container_manager": any(
             t.name == "tab_drafts" for t in c.housekeeping_worker.tasks
         ),

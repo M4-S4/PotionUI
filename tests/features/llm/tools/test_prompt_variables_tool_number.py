@@ -4,11 +4,12 @@ import pytest
 
 from src.features.llm.tools.base import ToolContext
 from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
-from src.platform.resources.prompt_variables import apply_variable_operations
+from tests.fixtures.fake_tab_drafts import drafts_context
+from tests.fixtures.flat_variable_ops import apply_variable_operations
 
 
 def _ctx(variables=None):
-    return ToolContext(user_id="user-1", session_metadata={"form_state": {"variables": variables or []}})
+    return drafts_context({"form_state": {"variables": variables or []}})
 
 
 def _age(**extra):
@@ -20,9 +21,16 @@ async def _preview(ops, variables=None):
 
 
 async def _confirmed(ops, variables=None):
-    result = await ManagePromptVariablesTool().execute_confirmed(_ctx(variables), operations=ops)
+    ctx = _ctx(variables)
+    result = await ManagePromptVariablesTool().execute_confirmed(ctx, operations=ops)
     assert result.success, result.error
-    return json.loads(result.data)
+    stored = ctx.tab_drafts.variables("user-1", "tab-1")
+    return {"operations": [{"op": "set", "name": n, **_flatten(d)} for n, d in stored.items()]}
+
+
+def _flatten(definition):
+    flat = {("pinned_index" if k == "pinnedIndex" else k): v for k, v in definition.items()}
+    return flat
 
 
 @pytest.mark.asyncio

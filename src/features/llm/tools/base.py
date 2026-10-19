@@ -108,6 +108,7 @@ class ToolServices:
     generation_history_facade: Any = None
     content_safety: Any = None
     library_collaborators: Any = None
+    tab_drafts: Any = None
 
 
 @dataclass
@@ -150,6 +151,7 @@ class ToolContext:
     generation_history_facade: Any = None
     content_safety: Any = None
     library_collaborators: Any = None
+    tab_drafts: Any = None
     chat_session: bool = True
 
     @classmethod

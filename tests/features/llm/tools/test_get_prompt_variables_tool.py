@@ -2,6 +2,8 @@ import json
 
 import pytest
 
+from tests.fixtures.fake_tab_drafts import drafts_context
+
 from src.features.llm.tools.base import ToolContext
 from src.features.llm.tools.builtin.prompt_variables_tool import (
     DEFAULT_OPTION_LIMIT,
@@ -13,7 +15,7 @@ from src.features.llm.tools.builtin.prompt_variables_tool import (
 
 
 def _ctx(variables):
-    return ToolContext(user_id="u", session_metadata={"form_state": {"variables": variables}})
+    return drafts_context({"form_state": {"variables": variables}}, user_id="u")
 
 
 def _choice(name, options, **extra):
@@ -115,9 +117,16 @@ class TestList:
         assert result.success and data["total"] == 0 and "no prompt variables" in data["note"]
 
     @pytest.mark.asyncio
-    async def test_missing_form_state_is_an_error(self):
-        result = await GetPromptVariablesTool().execute(ToolContext(user_id="u", session_metadata={}))
-        assert not result.success and "No form state" in result.error
+    async def test_missing_tab_id_is_an_error_that_names_the_fix(self):
+        result = await GetPromptVariablesTool().execute(drafts_context({}, user_id="u", chat_session=False))
+        assert not result.success and "tab_id" in result.error and "list_tab_drafts" in result.error
+
+    @pytest.mark.asyncio
+    async def test_a_tab_without_a_draft_has_no_variables_and_a_hint(self):
+        result, data = await _run([])
+        assert result.success
+        assert data["variables"] == [] and data["total"] == 0
+        assert "no prompt variables" in data["note"]
 
 
 class TestDetail:
@@ -268,26 +277,7 @@ class TestReadsTheSessionsVariables:
         assert third["text"] in json.loads(write.data)["proposed_changes"][0]["new_value"]
 
 
-class TestTruncatedSnapshot:
-    def _truncated(self):
-        cut = _choice("big", [f"o{i}" for i in range(200)], optionTotal=260)
-        return [cut, {"truncated": True, "omitted": 7}]
-
-    @pytest.mark.asyncio
-    async def test_list_reports_the_real_count_and_omitted_variables(self):
-        _, data = await _run(self._truncated())
-        assert data["variables"][0]["option_count"] == 260
-        assert data["omitted_variables"] == 7
-        assert data["total"] == 1
-
-    @pytest.mark.asyncio
-    async def test_detail_reports_the_missing_options_instead_of_inventing_them(self):
-        _, data = await _run(self._truncated(), names=["big"], limit=200)
-        detail = data["variables"][0]
-        assert detail["options_total"] == 200
-        assert detail["options_missing"] == 60
-        assert data["omitted_variables"] == 7
-
+class TestCompleteDraft:
     @pytest.mark.asyncio
     async def test_complete_snapshot_reports_nothing_missing(self):
         _, data = await _run(_fixture(), names=["outfit_kind"])

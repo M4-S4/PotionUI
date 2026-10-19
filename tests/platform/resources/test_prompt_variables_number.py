@@ -2,9 +2,10 @@ from decimal import Decimal
 
 import pytest
 
+from tests.fixtures.flat_variable_ops import apply_variable_operations
+
 from src.platform.resources.prompt_variables import (
     MAX_NUMBER_GRID,
-    apply_variable_operations,
     build_variable_wire_value,
     build_variables_for_submit,
     number_grid,

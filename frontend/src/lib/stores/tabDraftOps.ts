@@ -16,9 +16,10 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 	}
 	const left = a as Record<string, unknown>;
 	const right = b as Record<string, unknown>;
-	const keys = Object.keys(left);
-	if (keys.length !== Object.keys(right).length) return false;
-	return keys.every((key) => key in right && deepEqual(left[key], right[key]));
+	const keys = Object.keys(left).filter((key) => left[key] !== undefined);
+	const rightKeys = Object.keys(right).filter((key) => right[key] !== undefined);
+	if (keys.length !== rightKeys.length) return false;
+	return keys.every((key) => deepEqual(left[key], right[key]));
 }
 
 export function flattenDef(stored: VariablesMap[string]): Record<string, unknown> {

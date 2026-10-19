@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from typing import Any
 
 from src.features.llm.tools.base import ToolContext, ToolResult
+from tests.fixtures.fake_tab_drafts import drafts_context
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
 from src.features.prompt.expander import expand_prompts
 
@@ -19,11 +20,9 @@ def make_context(
     session_metadata: dict = None,
     generation_orchestrator: Any = None,
 ) -> ToolContext:
-    return ToolContext(
-        user_id=user_id,
-        session_metadata=session_metadata or {},
-        generation_orchestrator=generation_orchestrator,
-    )
+    ctx = drafts_context(session_metadata, user_id=user_id)
+    ctx.generation_orchestrator = generation_orchestrator
+    return ctx
 
 
 def make_form_state(
