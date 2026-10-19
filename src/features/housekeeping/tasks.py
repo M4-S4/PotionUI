@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Tuple
 
+from src.platform.database.statistics import refresh_statistics
+
 logger = logging.getLogger(__name__)
 
 MAX_RECORDED_ERRORS = 20
@@ -130,4 +132,18 @@ def prune_llm_traces(repository, retention_days: int) -> Dict[str, Any]:
     except Exception as e:
         logger.warning("Could not prune chat LLM call traces: %s", e)
         result["errors"].append(str(e))
+    return result
+
+
+def refresh_database_statistics() -> Dict[str, Any]:
+    from src.platform.database.database import db
+
+    result: Dict[str, Any] = {"duration_ms": 0, "errors": []}
+    started = time.monotonic()
+    try:
+        refresh_statistics(db)
+    except Exception as e:
+        logger.warning("Could not refresh the query planner statistics: %s", e)
+        result["errors"].append(str(e))
+    result["duration_ms"] = round((time.monotonic() - started) * 1000)
     return result

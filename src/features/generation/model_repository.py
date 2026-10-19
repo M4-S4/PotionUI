@@ -99,7 +99,7 @@ class GenerationModelRepository:
         with db.get_cursor() as cursor:
             # Get total count
             cursor.execute("""
-                SELECT COUNT(DISTINCT g.id) FROM generations g
+                SELECT COUNT(*) FROM generations g
                 JOIN generation_models gm ON g.id = gm.generation_id
                 WHERE gm.model_id = ? AND g.user_id = ? AND g.status = 'completed'
             """, (model_id, user_id))
@@ -107,11 +107,15 @@ class GenerationModelRepository:
 
             # Get paginated generations
             cursor.execute("""
-                SELECT DISTINCT g.* FROM generations g
-                JOIN generation_models gm ON g.id = gm.generation_id
-                WHERE gm.model_id = ? AND g.user_id = ? AND g.status = 'completed'
-                ORDER BY g.created_at DESC
-                LIMIT ? OFFSET ?
+                SELECT g.* FROM generations g
+                WHERE g.id IN (
+                    SELECT page.id FROM generations page
+                    JOIN generation_models gm ON page.id = gm.generation_id
+                    WHERE gm.model_id = ? AND page.user_id = ? AND page.status = 'completed'
+                    ORDER BY page.created_at DESC, page.id DESC
+                    LIMIT ? OFFSET ?
+                )
+                ORDER BY g.created_at DESC, g.id DESC
             """, (model_id, user_id, limit, offset))
 
             generations = [Generation.from_row(row) for row in cursor.fetchall()]

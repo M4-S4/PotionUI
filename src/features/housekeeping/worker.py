@@ -23,6 +23,7 @@ from src.features.housekeeping.tasks import (
     prune_llm_traces,
     prune_run_reports,
     prune_tmp,
+    refresh_database_statistics,
     scan_tmp,
 )
 
@@ -41,9 +42,9 @@ class HousekeepingTask:
     """One pruning pass and the estimate of what it would remove."""
 
     name: str
-    setting_key: str
+    setting_key: Optional[str]
     run: Callable[[int], Dict[str, Any]]
-    preview: Callable[[int], Any]
+    preview: Optional[Callable[[int], Any]] = None
 
 
 def _now() -> str:
@@ -70,6 +71,11 @@ def build_tasks(settings, run_report_repository, run_report_recorder, trace_repo
             setting_key=SETTING_LLM_TRACE_DAYS,
             run=lambda days: prune_llm_traces(trace_repository, days),
             preview=lambda days: trace_repository.count_older_than(days) if days > 0 else 0,
+        ),
+        HousekeepingTask(
+            name="database_statistics",
+            setting_key=None,
+            run=lambda days: refresh_database_statistics(),
         ),
     ]
 
@@ -121,6 +127,8 @@ class HousekeepingWorker:
         retention = self.retention()
         preview: Dict[str, Any] = {}
         for task in self.tasks:
+            if task.preview is None:
+                continue
             try:
                 preview[task.name] = task.preview(retention[task.setting_key])
             except Exception as e:
@@ -195,7 +203,7 @@ class HousekeepingWorker:
         errors: List[str] = []
         for task in self.tasks:
             try:
-                results[task.name] = task.run(retention[task.setting_key])
+                results[task.name] = task.run(retention.get(task.setting_key, 0))
             except Exception as e:
                 logger.error("Housekeeping task %s failed: %s", task.name, e, exc_info=True)
                 results[task.name] = {"errors": [str(e)]}

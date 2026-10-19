@@ -446,8 +446,8 @@ class TagRepository:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
-                SELECT t.id, t.name, t.type, t.user_id, t.created_at FROM tags t
-                JOIN generation_tags gt ON t.id = gt.tag_id
+                SELECT t.id, t.name, t.type, t.user_id, t.created_at FROM generation_tags gt
+                CROSS JOIN tags t ON t.id = gt.tag_id
                 WHERE gt.generation_id = ?
                 ORDER BY t.name ASC
             """, (generation_id,))
@@ -472,8 +472,8 @@ class TagRepository:
                 cursor.execute(f"""
                     SELECT t.id, t.name, t.type, t.user_id, t.created_at,
                            gt.generation_id AS _bulk_generation_id
-                    FROM tags t
-                    JOIN generation_tags gt ON t.id = gt.tag_id
+                    FROM generation_tags gt
+                    CROSS JOIN tags t ON t.id = gt.tag_id
                     WHERE gt.generation_id IN ({placeholders})
                     ORDER BY t.name ASC
                 """, chunk)

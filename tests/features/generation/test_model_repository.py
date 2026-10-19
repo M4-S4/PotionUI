@@ -10,7 +10,7 @@ if project_root not in sys.path:
 
 from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.generation.model_repository import GenerationModelRepository
-from src.features.generation.records import GenerationModel
+from src.features.generation.records import Generation, GenerationModel
 
 try:
     from src.platform.util.ids import generate_ulid
@@ -19,6 +19,21 @@ except ImportError:
     import string
     def generate_ulid():
         return ''.join(random.choices(string.ascii_uppercase + string.digits, k=26))
+
+
+_DISTINCT_PAGE = """
+    SELECT DISTINCT g.* FROM generations g
+    JOIN generation_models gm ON g.id = gm.generation_id
+    WHERE gm.model_id = ? AND g.user_id = ? AND g.status = 'completed'
+    ORDER BY g.created_at DESC
+    LIMIT ? OFFSET ?
+"""
+
+_DISTINCT_COUNT = """
+    SELECT COUNT(DISTINCT g.id) FROM generations g
+    JOIN generation_models gm ON g.id = gm.generation_id
+    WHERE gm.model_id = ? AND g.user_id = ? AND g.status = 'completed'
+"""
 
 
 class TestGenerationModelRepository(PersistenceTestBase):
@@ -36,13 +51,13 @@ class TestGenerationModelRepository(PersistenceTestBase):
         self.test_model_id = generate_ulid()
         self._create_test_model(self.test_model_id)
 
-    def _create_test_model(self, model_id: str, filename: str = "test_model.safetensors"):
+    def _create_test_model(self, model_id: str, filename: str = "test_model.safetensors", sha256: str = "abc123"):
         """Create a test model in the database."""
         with self.db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO models (id, filename, file_size, model_type, sha256)
                 VALUES (?, ?, ?, ?, ?)
-            """, (model_id, filename, 1024, "checkpoint", "abc123"))
+            """, (model_id, filename, 1024, "checkpoint", sha256))
 
     def _create_completed_generation(self, gen_id: str, user_id: str) -> str:
         """Create a completed generation and return its ID."""
@@ -201,6 +216,57 @@ class TestGenerationModelRepository(PersistenceTestBase):
         )
         self.assertEqual(total, 7)
         self.assertEqual(len(generations), 1)
+
+    def _set_created_at(self, generation_id: str, value: str):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE generations SET created_at = ? WHERE id = ?", (value, generation_id))
+
+    def test_get_generations_by_model_pages_match_the_distinct_query_it_replaced(self):
+        second_model_id = generate_ulid()
+        self._create_test_model(second_model_id, "second_model.safetensors", sha256="def456")
+        for i in range(12):
+            gen_id = f"gen-{i:02d}"
+            self._create_generation_with_file(gen_id, self.test_user_id, self.test_model_id)
+            if i % 2:
+                self._create_generation_model_link(gen_id, second_model_id)
+            self._set_created_at(gen_id, f"2026-01-01 00:00:{(i * 7) % 12:02d}")
+        self._create_generation_with_file("gen-other-user", self.other_user_id, self.test_model_id)
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO generations (id, preset_id, form_data, user_id, status, created_at) "
+                "VALUES ('gen-pending', 'test_preset', '{}', ?, 'pending', '2026-01-01 00:00:30')",
+                (self.test_user_id,),
+            )
+        self._create_generation_model_link("gen-pending", self.test_model_id)
+
+        for offset in (0, 5, 10):
+            generations, total = self.repo.get_generations_by_model(
+                self.test_model_id, self.test_user_id, limit=5, offset=offset
+            )
+            with self.db.get_cursor() as cursor:
+                cursor.execute(_DISTINCT_PAGE, (self.test_model_id, self.test_user_id, 5, offset))
+                expected = [dict(row) for row in cursor.fetchall()]
+                cursor.execute(_DISTINCT_COUNT, (self.test_model_id, self.test_user_id))
+                expected_total = cursor.fetchone()[0]
+
+            self.assertEqual([g.id for g in generations], [row["id"] for row in expected])
+            self.assertEqual(
+                [(g.created_at, g.status, g.user_id) for g in generations],
+                [(Generation.from_row(row).created_at, row["status"], row["user_id"]) for row in expected],
+            )
+            self.assertEqual(total, expected_total)
+
+    def test_get_generations_by_model_breaks_created_at_ties_by_id(self):
+        for gen_id in ("gen-a", "gen-c", "gen-b"):
+            self._create_generation_with_file(gen_id, self.test_user_id, self.test_model_id)
+            self._set_created_at(gen_id, "2026-01-01 00:00:00")
+
+        pages = [
+            self.repo.get_generations_by_model(self.test_model_id, self.test_user_id, limit=1, offset=offset)[0]
+            for offset in range(3)
+        ]
+
+        self.assertEqual([page[0].id for page in pages], ["gen-c", "gen-b", "gen-a"])
 
     def test_get_by_generation_with_include_flags_does_not_raise(self):
         """get_by_generation(include_model_info/include_files) is the history

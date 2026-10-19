@@ -1,8 +1,9 @@
 import os
 import importlib.util
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set, Tuple
 from .database import db
+from .statistics import analyze
 
 class MigrationRunner:
     def __init__(self):
@@ -52,12 +53,26 @@ class MigrationRunner:
 
         print(f"Running {len(pending)} migrations...")
 
+        schema_before = self._tables_and_indexes()
         for migration_name in pending:
             print(f"Applying migration: {migration_name}")
             self._run_migration(migration_name)
             self._mark_migration_applied(migration_name)
             print(f"Migration {migration_name} applied successfully")
-    
+
+        if self._tables_and_indexes() - schema_before:
+            with db.get_connection() as conn:
+                analyze(conn)
+
+    def _tables_and_indexes(self) -> Set[Tuple[str, str, str]]:
+        with db.get_connection() as conn:
+            return {
+                (row[0], row[1], row[2] or "")
+                for row in conn.execute(
+                    "SELECT type, name, sql FROM sqlite_master WHERE type IN ('table', 'index')"
+                ).fetchall()
+            }
+
     def _run_migration(self, migration_name: str):
         """Run a specific migration"""
         migration_path = self.migrations_dir / f"{migration_name}.py"

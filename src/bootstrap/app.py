@@ -213,6 +213,14 @@ def run_migrations_sync():
         logging.info("Database already up to date")
 
 
+def ensure_database_statistics():
+    from src.platform.database.database import db
+    from src.platform.database.statistics import analyze_if_missing
+
+    if analyze_if_missing(db):
+        logging.info("Collected query planner statistics (ANALYZE)")
+
+
 # Environment variable -> `settings` table key. Both settings are read fresh
 # from the database by every call site that needs them (Settings,
 # ModelScanner, ArtifactsFetchExecutor, ...) rather than cached off the
@@ -335,6 +343,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     """Build and return the fully-assembled FastAPI application."""
     # Run database migrations BEFORE building the container (it needs DB access).
     run_migrations_sync()
+    ensure_database_statistics()
     apply_startup_env_overrides()
 
     if container is None:

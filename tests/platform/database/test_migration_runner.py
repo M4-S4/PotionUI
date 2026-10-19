@@ -65,11 +65,12 @@ class TestMigrationRunner(unittest.TestCase):
         db._initialized = True  # Mark as initialized to avoid conflicts
         
         # Monkey patch the global db instance used by migration manager
-        import src.platform.database.database
-        import src.platform.database.migration_runner
-        src.platform.database.database.db = db
-        src.platform.database.migration_runner.db = db
-        
+        import importlib
+        for module_name in ("src.platform.database.database", "src.platform.database.migration_runner"):
+            module = importlib.import_module(module_name)
+            self.addCleanup(setattr, module, "db", module.db)
+            module.db = db
+
         return db
     
     def _patch_migration_runner_db(self):
@@ -228,6 +229,61 @@ def up():
             result = cursor.fetchone()
             self.assertIsNotNone(result)
     
+    def test_a_run_that_creates_an_index_collects_planner_statistics(self):
+        self._create_test_migration("001_indexed_table", """
+def up():
+    from src.platform.database.database import db
+    with db.get_cursor() as cursor:
+        cursor.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT)")
+        cursor.executemany("INSERT INTO items (kind) VALUES (?)", [("a",), ("a",), ("b",), ("b",)])
+        cursor.execute("CREATE INDEX idx_items_kind ON items (kind)")
+""")
+
+        with patch('builtins.print'):
+            self.migration_runner.run_migrations()
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT stat FROM sqlite_stat1 WHERE idx = 'idx_items_kind'")
+            self.assertEqual(cursor.fetchone()[0], "4 2")
+
+    def test_a_run_that_redefines_an_index_under_its_old_name_collects_planner_statistics(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT)")
+            cursor.executemany("INSERT INTO items (kind) VALUES (?)", [("a",), ("a",), ("b",), ("b",)])
+            cursor.execute("CREATE INDEX idx_items_kind ON items (kind)")
+        self._create_test_migration("001_widen_items_kind", """
+def up():
+    from src.platform.database.database import db
+    with db.get_cursor() as cursor:
+        cursor.execute("DROP INDEX idx_items_kind")
+        cursor.execute("CREATE INDEX idx_items_kind ON items (kind, id)")
+""")
+
+        with patch('builtins.print'):
+            self.migration_runner.run_migrations()
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT stat FROM sqlite_stat1 WHERE idx = 'idx_items_kind'")
+            self.assertEqual(cursor.fetchone()[0], "4 2 1")
+
+    def test_a_run_that_only_changes_rows_collects_no_planner_statistics(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT)")
+            cursor.execute("CREATE INDEX idx_items_kind ON items (kind)")
+        self._create_test_migration("001_seed_items", """
+def up():
+    from src.platform.database.database import db
+    with db.get_cursor() as cursor:
+        cursor.execute("INSERT INTO items (kind) VALUES ('a')")
+""")
+
+        with patch('builtins.print'):
+            self.migration_runner.run_migrations()
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT name FROM sqlite_master WHERE name = 'sqlite_stat1'")
+            self.assertIsNone(cursor.fetchone())
+
     def test_run_migration_without_up_function(self):
         """Test running migration that doesn't have up function"""
         # Create migration without up function
