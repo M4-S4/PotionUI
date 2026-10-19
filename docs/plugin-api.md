@@ -768,8 +768,13 @@ Set `picker: {operators_by_type: {...}}` only to narrow the operators per type.
 `triggers` says when the fact's value can first be known: `item_created`, or also
 `tags_changed` for a value that arrives later (an auto-tagger), or `metadata_changed`
 for a model value that changes when its description, attributes, provider info or a
-user's own name for it is edited (`model_index.after_update_metadata`). Rules using
-such a fact are evaluated again on those changes, for items the rule has not filed yet.
+user's own name for it is edited (`model_index.after_update_metadata`), or
+`detected_tags_changed` for a generation value written by Media Tagging
+(`media_index.after_tags_written`). Rules using such a fact are evaluated again on those
+changes, for items the rule has not filed yet. A fact whose `triggers` leave out
+`item_created`, like the built-in **Detected tags**, is not evaluated when the item is
+created: a rule using it first runs when its event arrives, so a "does not have" test
+cannot file an item before its tags exist.
 
 ### What the host guarantees
 

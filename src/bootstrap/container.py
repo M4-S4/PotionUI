@@ -1173,6 +1173,7 @@ def build_container() -> AppContainer:
         gallery_vector_store=gallery_vector_store,
         text_embedding_provider=text_embedding_provider,
         gallery_prompt_vector_store=gallery_prompt_vector_store,
+        plugins=plugin_registry,
     )
     media_index_controller = MediaIndexController(media_indexer)
 
