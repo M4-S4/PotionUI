@@ -18,7 +18,7 @@ from src.plugin_api.cloud import (
 
 from .catalog import CATALOG_FILE, catalog_specs
 from .config import DEFAULT_BASE_URL, OpenAIConfig
-from .errors import lacks_listing_scope, map_error
+from .errors import CREDITS_HINT, lacks_listing_scope, map_error
 from .mapping import edit_form, parse_result, request_fields
 
 logger = logging.getLogger(__name__)
@@ -36,8 +36,7 @@ class OpenAIProvider(CloudProvider):
     label: ClassVar[str] = "OpenAI"
     config_class: ClassVar[type[CloudBackendConfig]] = OpenAIConfig
     data_notice: ClassVar[str] = DATA_NOTICE
-    supports_cancel: ClassVar[bool] = False
-    idempotent_submit: ClassVar[bool] = False
+    credits_hint: ClassVar[str] = CREDITS_HINT
     default_base_url: ClassVar[str] = DEFAULT_BASE_URL
     catalog_file: ClassVar[Path] = CATALOG_FILE
 
@@ -80,7 +79,7 @@ class OpenAIProvider(CloudProvider):
         return valid_specs(specs, "OPENAI")
 
     def _user(self, request: CloudRequest) -> Optional[str]:
-        return (request.user_ref or None) if self.config.send_user_hash else None
+        return request.user_ref or None
 
     async def submit(self, request: CloudRequest) -> CloudJob:
         moderation, user = self.config.moderation, self._user(request)
@@ -95,13 +94,11 @@ class OpenAIProvider(CloudProvider):
         result = parse_result(response.json(), request, request_id)
         return CloudJob(job_id=request_id or f"openai-{request.client_reference or 'image'}", result=result)
 
-    async def check(self) -> CloudHealth:
+    async def probe(self) -> CloudHealth:
         try:
             await self.http.request_json("GET", "/models")
         except CloudError as error:
             if lacks_listing_scope(error):
                 return CloudHealth(ok=True, message="The key works, but it may not list models. The whole catalog is offered.")
-            if error.kind in ("auth", "credits", "refused"):
-                return CloudHealth(ok=False, message=error.user_message)
             raise
         return CloudHealth(ok=True)

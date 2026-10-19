@@ -30,11 +30,6 @@ class OpenRouterConfig(CloudBackendConfig):
         title="Allowed upstream providers",
         description="Comma separated. When set, OpenRouter may only route requests to these providers. Leave empty to allow all.",
     )
-    send_user_hash: bool = Field(
-        default=False,
-        title="Send an anonymous user id",
-        description="Send an anonymous id per user so OpenRouter can tell users apart without knowing who they are. It cannot be traced back to a person without this server's secret key.",
-    )
 
     @field_validator("app_url")
     @classmethod
@@ -48,6 +43,7 @@ class OpenRouterConfig(CloudBackendConfig):
         return text
 
     engine_label: ClassVar[Optional[str]] = "OpenRouter"
+    accepts_user_hash: ClassVar[bool] = True
     api_key_source: ClassVar[str] = "Created at openrouter.ai under Keys."
 
     def upstream_list(self) -> List[str]:

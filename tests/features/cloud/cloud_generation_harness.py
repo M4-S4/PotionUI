@@ -146,7 +146,9 @@ class CloudGeneration:
         scaffold_modes: Optional[List[str]] = None,
         provider_model: str = IMAGE,
         supports_cancel: bool = True,
+        send_user_hash: bool = False,
     ) -> None:
+        self.send_user_hash = send_user_hash
         self.supports_cancel = supports_cancel
         self.scaffold_modes = scaffold_modes
         self.provider_model = provider_model
@@ -196,7 +198,7 @@ class CloudGeneration:
             generation_engine_factory=self.engine,
             plugin_registry=ScriptedPluginRegistry(FakeCloudProvider if self.supports_cancel else FakeNoCancelProvider),
         )
-        await self.registry.add_backend(FakeCloudConfig(id=BACKEND_ID, name="Fake cloud", api_key=SECRET, timeout_seconds=self.timeout_seconds, max_parallel=self.max_parallel))
+        await self.registry.add_backend(FakeCloudConfig(id=BACKEND_ID, name="Fake cloud", api_key=SECRET, timeout_seconds=self.timeout_seconds, max_parallel=self.max_parallel, send_user_hash=self.send_user_hash))
         self.backend = self.registry.get_backend(BACKEND_ID)
         self.backend.clock = self.clock
         self.backend.provider.clock = self.clock

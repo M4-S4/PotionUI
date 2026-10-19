@@ -1,7 +1,7 @@
 import re
 from typing import Any, List, Mapping, Optional
 
-from src.plugin_api.cloud import CloudError, parse_retry_after
+from src.plugin_api.cloud import CloudError, default_error_mapper, parse_retry_after
 
 MODERATION_CODES = frozenset({"moderation_blocked", "content_policy_violation"})
 BILLING_CODES = frozenset({
@@ -17,15 +17,13 @@ RESET_HEADERS = ("x-ratelimit-reset-requests", "x-ratelimit-reset-tokens")
 _DURATION_PART = re.compile(r"(\d+(?:\.\d+)?)(ms|h|m|s)")
 _UNIT_SECONDS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
 
+BRAND = "OpenAI"
+CREDITS_HINT = "An administrator can check billing at platform.openai.com."
 REFUSED = "The model's content filter refused this request. Try a different prompt or picture."
 CREDITS = "The OpenAI account is out of credit or over its spending limit. An administrator can check billing at platform.openai.com."
-AUTH = "OpenAI rejected the API key. Check it in Administration, Backends."
 FORBIDDEN = "OpenAI refused this request. The key or project may not be allowed to use this model, or the organization may need to be verified."
-RATE = "OpenAI is rate limiting requests. Try again shortly."
-DOWN = "OpenAI is having trouble at the moment. Try again shortly."
 OVERLOADED = "OpenAI is overloaded at the moment. Try again shortly."
 UNKNOWN_MODEL = "OpenAI does not offer this model to this account."
-BAD_SETTINGS = "OpenAI rejected the request settings."
 
 
 MISSING_SCOPE_WORDS = ("missing scopes", "insufficient permissions")
@@ -98,20 +96,15 @@ def map_error(status: int, headers: Mapping[str, str], body: Any) -> Optional[Cl
         return CloudError("refused", REFUSED, detail=_moderation_detail(error, headers))
     if code in BILLING_CODES or str(error.get("type") or "").lower() == "insufficient_quota":
         return CloudError("credits", CREDITS, detail=detail)
-    if status == 401:
-        return CloudError("auth", AUTH, detail=detail)
     if status == 403:
         return CloudError("refused", FORBIDDEN, detail=detail)
-    if status == 429:
-        return CloudError("rate_limited", RATE, detail=detail, retry_after_s=retry_after)
     if status == 404:
         return CloudError("invalid_request", UNKNOWN_MODEL, detail=detail)
-    if status in (408, 504):
-        return CloudError("timeout", "OpenAI took too long to answer.", detail=detail, retry_after_s=retry_after)
     if status == 503:
         return CloudError("unavailable", OVERLOADED, detail=detail, retry_after_s=retry_after)
-    if status >= 500:
-        return CloudError("unavailable", DOWN, detail=detail, retry_after_s=retry_after)
-    if status in (400, 409, 413, 415, 422):
-        return CloudError("invalid_request", BAD_SETTINGS, detail=detail)
-    return None
+    mapped = default_error_mapper(status, headers, body, BRAND, CREDITS_HINT)
+    if mapped is not None:
+        mapped.detail = detail
+        if mapped.kind in ("rate_limited", "timeout", "unavailable"):
+            mapped.retry_after_s = retry_after
+    return mapped

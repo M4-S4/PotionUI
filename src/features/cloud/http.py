@@ -37,15 +37,24 @@ _DEFAULT_PORTS = {"http": 80, "https": 443}
 _INVALID_REQUEST = frozenset({400, 404, 405, 409, 413, 415, 422})
 
 _USER_MESSAGES = {
-    "auth": "The provider rejected the API key. Check it in Administration, Backends.",
-    "credits": "The provider account is out of credits.",
-    "refused": "The provider refused this request.",
-    "timeout": "The provider took too long to answer.",
-    "rate_limited": "The provider is rate limiting requests. Try again shortly.",
-    "unavailable": "The provider is temporarily unavailable.",
-    "invalid_request": "The provider rejected the request parameters.",
-    "failed": "The provider could not complete the request.",
+    "auth": "{who} rejected the API key. Check it in Administration, Backends.",
+    "credits": "The {name} account is out of credits.",
+    "refused": "{who} refused this request.",
+    "timeout": "{who} took too long to answer.",
+    "rate_limited": "{who} is rate limiting requests. Try again shortly.",
+    "unavailable": "{who} is having trouble at the moment. Try again shortly.",
+    "invalid_request": "{who} rejected the request settings.",
+    "failed": "{who} could not complete the request.",
 }
+
+
+def user_message(kind: str, brand: str = "", credits_hint: str = "") -> str:
+    text = _USER_MESSAGES[kind].format(who=brand or "The provider", name=brand or "provider")
+    if brand and kind == "refused":
+        text += " The key may not be allowed to use this model."
+    if credits_hint and kind == "credits":
+        text += f" {credits_hint}"
+    return text
 
 
 @dataclass(frozen=True)
@@ -103,7 +112,9 @@ def _body_message(body: Any) -> str:
     return str(body)
 
 
-def default_error_mapper(status: int, headers: Mapping[str, str], body: Any) -> Optional[CloudError]:
+def default_error_mapper(
+    status: int, headers: Mapping[str, str], body: Any, brand: str = "", credits_hint: str = ""
+) -> Optional[CloudError]:
     if status < 400:
         return None
     retry_after = parse_retry_after(headers.get("retry-after"))
@@ -124,7 +135,7 @@ def default_error_mapper(status: int, headers: Mapping[str, str], body: Any) -> 
     else:
         kind = "failed"
     detail = f"HTTP {status}: {_body_message(body)}"[:_DETAIL_LIMIT]
-    return CloudError(kind, _USER_MESSAGES[kind], detail=detail, retry_after_s=retry_after)
+    return CloudError(kind, user_message(kind, brand, credits_hint), detail=detail, retry_after_s=retry_after)
 
 
 def _origin(url: str) -> tuple[str, str, int]:
@@ -363,7 +374,7 @@ class CloudHttp:
                             location = response.headers.get("Location")
                             hops += 1
                             if not location or hops > self._max_redirects:
-                                raise CloudError("failed", _USER_MESSAGES["failed"], detail=f"bad redirect from {redact_url(url)}")
+                                raise CloudError("failed", user_message("failed"), detail=f"bad redirect from {redact_url(url)}")
                             url = urljoin(url, location)
                             continue
                         logger.debug("cloud response %s %s -> %s", method, redact_url(url), status)
@@ -374,7 +385,7 @@ class CloudHttp:
                 raise
             except asyncio.TimeoutError as error:
                 raise CloudError(
-                    "timeout", _USER_MESSAGES["timeout"], detail=scrub_text(f"timed out: {method} {redact_url(url)}", secrets)
+                    "timeout", user_message("timeout"), detail=scrub_text(f"timed out: {method} {redact_url(url)}", secrets)
                 ) from error
             except aiohttp.ClientError as error:
                 host = urlsplit(url).hostname or url
@@ -407,7 +418,7 @@ class CloudHttp:
         if error is None:
             error = default_error_mapper(response.status, headers, body)
         if error is None:
-            error = CloudError("failed", _USER_MESSAGES["failed"], detail=f"HTTP {response.status}")
+            error = CloudError("failed", user_message("failed"), detail=f"HTTP {response.status}")
         error.detail = scrub_text(error.detail, secrets)[:_DETAIL_LIMIT]
         error.user_message = scrub_text(error.user_message, secrets)
         error.args = (error.user_message,)

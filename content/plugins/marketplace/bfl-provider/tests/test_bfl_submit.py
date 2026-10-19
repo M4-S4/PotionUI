@@ -124,12 +124,6 @@ async def test_more_pictures_than_the_model_takes_is_refused_before_sending(prov
     assert submits(bfl) == []
 
 
-async def test_no_user_id_is_sent_by_default(provider, bfl):
-    await provider.submit(await request_for(provider, user_ref="anon-123"))
-
-    assert "user" not in submits(bfl)[-1]["body"]
-
-
 async def test_the_anonymous_user_id_is_sent_only_when_the_admin_turns_it_on(bfl):
     made, http = build(bfl, send_user_hash=True)
     try:

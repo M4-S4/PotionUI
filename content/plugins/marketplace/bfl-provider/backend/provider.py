@@ -17,7 +17,6 @@ from src.plugin_api.cloud import (
     CloudResult,
     CloudStatus,
     load_catalog_file,
-    parse_retry_after,
     valid_specs,
 )
 
@@ -65,8 +64,8 @@ class BflProvider(CloudProvider):
     label: ClassVar[str] = "Black Forest Labs"
     config_class: ClassVar[type[CloudBackendConfig]] = BflConfig
     data_notice: ClassVar[str] = DATA_NOTICE
-    supports_cancel: ClassVar[bool] = False
-    idempotent_submit: ClassVar[bool] = False
+    error_brand: ClassVar[str] = "BFL"
+    credits_hint: ClassVar[str] = "An administrator can add credits at api.bfl.ai."
     auth_header: ClassVar[Tuple[str, str]] = ("x-key", "")
     catalog_file: ClassVar[Path] = CATALOG_FILE
     max_poll_s: ClassVar[float] = 8.0
@@ -82,36 +81,18 @@ class BflProvider(CloudProvider):
         return config.api_address()
 
     def map_error(self, status: int, headers: Mapping[str, str], body: Any) -> Optional[CloudError]:
-        message = body_message(body)[:300]
-        retry_after = parse_retry_after(headers.get("retry-after"))
-        detail = f"HTTP {status}: {message}"
-        if status == 401:
-            return CloudError("auth", "BFL rejected the API key. Check it in Administration, Backends.", detail=detail)
-        if status == 402:
-            return CloudError(
-                "credits", "The BFL account is out of credits. An administrator can add credits at api.bfl.ai.",
-                detail=detail, retry_after_s=retry_after,
-            )
-        if status == 403:
-            return CloudError("refused", "BFL refused this request. The key may not be allowed to use this model.", detail=detail)
-        if status == 429:
-            return CloudError(
-                "rate_limited", "BFL is busy with this account's other jobs. Try again shortly.",
-                detail=detail, retry_after_s=retry_after,
-            )
-        if status in (404, 405):
-            return CloudError("invalid_request", "BFL does not offer this model at the configured address.", detail=detail)
-        if status in (400, 422):
-            return CloudError("invalid_request", "BFL rejected the request settings.", detail=detail)
-        if status >= 500:
-            return CloudError("unavailable", "BFL is having trouble at the moment. Try again shortly.", detail=detail, retry_after_s=retry_after)
-        return None
+        error = super().map_error(status, headers, body)
+        if error is not None:
+            error.detail = f"HTTP {status}: {body_message(body)[:300]}"
+            if status in (404, 405):
+                error.user_message = "BFL does not offer this model at the configured address."
+        return error
 
     async def discover(self) -> List[CloudModelSpec]:
         return valid_specs(catalog_specs(load_catalog_file(self.catalog_file)), "BFL")
 
     async def submit(self, request: CloudRequest) -> CloudJob:
-        user_ref = request.user_ref if self.config.send_user_hash else None
+        user_ref = request.user_ref or None
         body = await asyncio.to_thread(build_body, request, user_ref)
         payload = await self.http.request_json(
             "POST", f"/{request.model.provider_model_id}", json=body, timeout_s=float(self.config.timeout_seconds),
@@ -205,13 +186,8 @@ class BflProvider(CloudProvider):
         self._abandoned.add(job.job_id)
         return False
 
-    async def check(self) -> CloudHealth:
-        try:
-            payload = await self.http.request_json("GET", "/credits")
-        except CloudError as error:
-            if error.kind in ("auth", "credits", "refused"):
-                return CloudHealth(ok=False, message=error.user_message)
-            raise
+    async def probe(self) -> CloudHealth:
+        payload = await self.http.request_json("GET", "/credits")
         credits = payload.get("credits") if isinstance(payload, dict) else None
         try:
             balance = Decimal(str(credits)) / Decimal(100) if credits is not None and not isinstance(credits, bool) else None

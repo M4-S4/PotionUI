@@ -33,13 +33,9 @@ class OpenAIConfig(CloudBackendConfig):
         description="How strictly OpenAI filters prompts and pictures. auto is OpenAI's standard filter; low filters less.",
         json_schema_extra={"options": list(MODERATION_LEVELS)},
     )
-    send_user_hash: bool = Field(
-        default=False,
-        title="Send an anonymous user id",
-        description="Send an anonymous id per user so OpenAI can tell users apart when it reviews abuse, without knowing who they are. It cannot be traced back to a person without this server's secret key.",
-    )
 
     engine_label: ClassVar[Optional[str]] = "OpenAI"
+    accepts_user_hash: ClassVar[bool] = True
     api_key_source: ClassVar[str] = "Created at platform.openai.com under API keys."
 
     @field_validator("organization", "project")
