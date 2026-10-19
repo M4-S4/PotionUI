@@ -16,6 +16,7 @@ from src.features.generation.handlers.image_handler import ImageGenerationOutput
 from src.features.generation.handlers.video_handler import VideoGenerationOutputHandler, generate_video_thumbnails
 from src.features.generation.handlers.audio_handler import AudioGenerationOutputHandler
 from src.features.generation.handlers.mesh_handler import MeshGenerationOutputHandler
+from src.features.generation.handlers.splat_handler import SplatGenerationOutputHandler
 from src.features.generation.handlers.gallery_handler import GalleryGenerationOutputHandler
 from src.features.generation.handlers.param_handler import ParamGenerationOutputHandler
 from src.features.generation.handlers.artifact_handlers import (
@@ -42,6 +43,7 @@ __all__ = [
     'generate_video_thumbnails',
     'AudioGenerationOutputHandler',
     'MeshGenerationOutputHandler',
+    'SplatGenerationOutputHandler',
     'GalleryGenerationOutputHandler',
     'ParamGenerationOutputHandler',
     'CompareImagesGenerationOutputHandler',

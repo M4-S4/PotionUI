@@ -140,6 +140,7 @@ from src.pipelines.outputs import (
     AudioGenerationOutput,
     GenerationOutput,
     MeshGenerationOutput,
+    SplatGenerationOutput,
     VideoGenerationOutput,
 )
 
@@ -184,7 +185,14 @@ def full_gallery():
         videos=[saved_video()],
         audios=[AudioGenerationOutput(audio_path=Path("a.wav"), temporary=False)],
         meshes=[MeshGenerationOutput(mesh_path=Path("m.glb"), temporary=False)],
+        splats=[saved_splat()],
     )
+
+
+def saved_splat():
+    output = SplatGenerationOutput(splat_path=Path("s.ply"), temporary=False)
+    output._saved_path = "outputs/2026-01-01/g1/1.ply"
+    return output
 
 
 def compare_output():
@@ -201,6 +209,7 @@ def compare_output():
     compare_output,
     lambda: AudioGenerationOutput(audio_path=Path("a.wav"), temporary=False),
     lambda: MeshGenerationOutput(mesh_path=Path("m.glb"), temporary=False),
+    saved_splat,
 ])
 def test_a_suppressed_output_keeps_only_allowlisted_keys(factory):
     output = factory()

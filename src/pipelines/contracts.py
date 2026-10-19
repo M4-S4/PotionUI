@@ -40,6 +40,7 @@ class IOType(Enum):
     VIDEO = "VIDEO"
     AUDIO = "AUDIO"  # Audio files for text-to-audio generation
     MESH = "MESH"  # 3D mesh (.glb) for text/image-to-3D generation
+    SPLAT = "SPLAT"
     MODEL = "MODEL"
     TEXT_ENCODER = "TEXT_ENCODER"
     VAE = "VAE"
