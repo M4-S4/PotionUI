@@ -1126,3 +1126,111 @@ def test_router_resident_placement_routes_through_guarded_move(monkeypatch):
 
     assert calls == [(high, "cuda:0", (high,))]
     assert high.moved == []   # never called dit.move_to directly -- routed through the guard
+
+
+class _EvictingResidency(_FakeResidency):
+    def __init__(self, events):
+        super().__init__()
+        self.events = events
+
+    def ensure_free(self, device, need, free, *, exclude=()):
+        self.events.append("evict")
+        return ["text encoder"]
+
+
+def test_router_hands_the_evicted_pool_back_before_reading_free_vram_again(monkeypatch):
+    events = []
+    reads = iter([4.0, 10.0])
+
+    def _free(device):
+        events.append("free")
+        return next(reads)
+
+    monkeypatch.setattr(_wan_mod, "free_vram_gb", _free)
+    monkeypatch.setattr(_wan_mod, "get_residency_registry", lambda: _EvictingResidency(events))
+    monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
+    high = _PlaceDiT("high", est_gb=14.0)
+    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=(1, 16, 1, 8, 8))
+
+    budget = router._weights_budget_gb(high)
+
+    assert events == ["free", "evict", "empty_cache", "free"]
+    assert budget == pytest.approx(10.0 - 0.75)
+
+
+def test_router_keeps_the_allocator_pool_when_nothing_was_evicted(monkeypatch):
+    calls = []
+    _patch_placement(monkeypatch, free_gb=10.0)
+    monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: calls.append(1))
+    high = _PlaceDiT("high", est_gb=14.0)
+    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=(1, 16, 1, 8, 8))
+
+    router._weights_budget_gb(high)
+
+    assert calls == []
+
+
+def test_router_stream_driver_oom_falls_back_to_zero_budget(monkeypatch):
+    _patch_placement(monkeypatch, free_gb=30.0)
+
+    class _DriverOOMOnceDiT(_PlaceDiT):
+        def stream_to(self, d, budget):
+            self.streamed.append((d, budget))
+            if len(self.streamed) == 1:
+                raise torch.AcceleratorError("CUDA error: out of memory")
+
+    high = _DriverOOMOnceDiT("high", est_gb=27.0)
+    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
+
+    assert len(high.streamed) == 2
+    assert high.streamed[1][1] == 0.0
+    assert high.offloaded == 1
+
+
+def test_router_stream_error_that_is_not_an_oom_propagates(monkeypatch):
+    _patch_placement(monkeypatch, free_gb=30.0)
+
+    class _BrokenDiT(_PlaceDiT):
+        def stream_to(self, d, budget):
+            self.streamed.append((d, budget))
+            raise torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
+
+    high = _BrokenDiT("high", est_gb=27.0)
+    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+
+    with pytest.raises(torch.AcceleratorError, match="illegal memory access"):
+        router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
+    assert len(high.streamed) == 1
+
+
+@patch("src.pipelines.pipes.generator.txt2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
+def test_a_failed_sampling_frees_its_tensors_before_the_expert_is_offloaded():
+    import weakref
+
+    pipe = _pipe(device="cpu", preview=False, resolution="64x64", frames=5)
+    ctx = pipe.build_context(_pipe_input())
+    held = {}
+    seen = {}
+
+    class _Expert(_FakeDiT):
+        def offload(self):
+            seen["activation_alive"] = held["activation"]() is not None
+            super().offload()
+
+    expert = _Expert("high")
+
+    def failing_denoise(model_forward, latents, cond, uncond, **kw):
+        model_forward.active = expert
+        activation = torch.empty(1024)
+        held["activation"] = weakref.ref(activation)
+        raise torch.cuda.OutOfMemoryError("mid-sampling OOM")
+
+    with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise", side_effect=failing_denoise):
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
+
+    assert expert.offloaded == 1
+    assert seen["activation_alive"] is False

@@ -37,6 +37,27 @@ def test_a_cuda_oom_rewrapped_as_a_plain_runtime_error_still_classifies():
     assert classification.category == "cuda_oom"
 
 
+def test_a_driver_level_cuda_oom_classifies_as_cuda_oom():
+    exc = torch.AcceleratorError("CUDA error: out of memory\nSearch for `cudaErrorMemoryAllocation'")
+
+    classification = classify_generation_error(exc)
+
+    assert classification is not None
+    assert classification.category == "cuda_oom"
+
+
+def test_another_accelerator_error_is_not_a_cuda_oom():
+    exc = torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
+
+    assert classify_generation_error(exc).category == "unclassified"
+
+
+def test_text_classification_recognises_a_driver_level_cuda_oom():
+    classification = classify_error_text("CUDA error: out of memory\nCUDA kernel errors might be asynchronously reported")
+
+    assert classification.category == "cuda_oom"
+
+
 def test_host_memory_exhausted_classifies_as_host_ram_oom():
     exc = HostMemoryExhaustedError("partial-residency streaming needs ~40.0GB pinned host RAM but only 8.0GB is free")
 

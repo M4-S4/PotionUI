@@ -473,3 +473,61 @@ def test_emitted_videos_carry_live_resolution():
 
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)][0]
     assert [v.resolution for v in gallery.videos] == [(992, 544), (992, 544)]
+
+
+def test_build_context_makes_room_on_the_card_before_the_first_frame_encode():
+    events = []
+    bundle = _bundle()
+    bundle.vae.move_to = lambda d: events.append(("vae.move_to", d))
+    pipe_input = PipeInput(input={
+        "model": bundle,
+        "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
+        "image": [torch.rand(64, 64, 3)],
+        "seed": [1],
+    })
+
+    def _make_room(device, keep):
+        events.append(("make_room", device, tuple(keep)))
+
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.make_room_for_wan_vae_encode", _make_room):
+        _pipe(device="cpu").build_context(pipe_input)
+
+    assert events[0] == ("make_room", "cpu", (bundle.vae, bundle.high_dit, bundle.low_dit))
+    assert events[1] == ("vae.move_to", "cpu")
+
+
+@patch("src.pipelines.pipes.generator.img2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
+def test_a_failed_sampling_frees_its_tensors_before_the_expert_is_offloaded():
+    import weakref
+
+    pipe = _pipe(device="cpu", preview=False)
+    ctx = pipe.build_context(_pipe_input())
+    held = {}
+    seen = {}
+
+    class _Expert(_FakeDiT):
+        def offload(self):
+            seen["activation_alive"] = held["activation"]() is not None
+            super().offload()
+
+    expert = _Expert()
+
+    def failing_denoise(model_forward, latents, cond, uncond, **kw):
+        model_forward.router.active = expert
+        activation = torch.empty(1024)
+        held["activation"] = weakref.ref(activation)
+        raise torch.cuda.OutOfMemoryError("mid-sampling OOM")
+
+    class _Progress:
+        def step(self, *a, **k):
+            pass
+
+        def preview(self, *a, **k):
+            pass
+
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise", side_effect=failing_denoise):
+        with pytest.raises(torch.cuda.OutOfMemoryError):
+            pipe.generate_one(ctx, index=0, seed=1, progress=_Progress())
+
+    assert expert.offloaded == 1
+    assert seen["activation_alive"] is False

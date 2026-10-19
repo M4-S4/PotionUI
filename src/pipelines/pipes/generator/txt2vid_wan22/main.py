@@ -15,13 +15,14 @@ two-level (``<pipe>/<variant>``), so the registered name is
 from __future__ import annotations
 
 import tempfile
+import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 import numpy as np
 import torch
 
-from src.platform.runtime.native.errors import DecodeNumericsError
+from src.platform.runtime.native.errors import DecodeNumericsError, is_cuda_oom
 from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
@@ -159,7 +160,9 @@ class _ExpertRouter:
         free = free_vram_gb(self.device)
         if free is None:
             return need
-        get_residency_registry().ensure_free(self.device, need, free, exclude=self._own_experts())
+        evicted = get_residency_registry().ensure_free(self.device, need, free, exclude=self._own_experts())
+        if evicted and torch.cuda.is_available():
+            torch.cuda.empty_cache()
         free = free_vram_gb(self.device) or 0.0
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
@@ -197,7 +200,9 @@ class _ExpertRouter:
             return
         try:
             dit.stream_to(self.device, budget)
-        except torch.cuda.OutOfMemoryError:
+        except Exception as exc:
+            if not is_cuda_oom(exc):
+                raise
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
                            "(budget %.1fGB); evicting foreign residents and streaming fully", budget)
             dit.offload()
@@ -683,6 +688,9 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
                     renoise_noise = torch.randn(shape, generator=gen, device=c.device, dtype=c.dtype)
                     fresh_noise = torch.randn(shape, generator=gen, device=c.device, dtype=c.dtype)
                     init_noise = freeinit_blend(latent, renoise_noise, fresh_noise, cutoff=fi_cutoff, order=fi_order)
+        except BaseException as exc:
+            traceback.clear_frames(exc.__traceback__)
+            raise
         finally:
             if c.router.active is not None:
                 c.router.active.offload()

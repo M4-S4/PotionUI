@@ -6,7 +6,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from src.pipelines.cloud import CloudRunError
 
-_CUDA_OOM_MARKERS = ("cuda out of memory", "hip out of memory")
+_CUDA_OOM_MARKERS = ("cuda out of memory", "cuda error: out of memory", "hip out of memory")
 
 _MODEL_FILE_EXTENSIONS = (
     ".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".onnx",
@@ -305,9 +305,9 @@ _TEXT_CHECKS: Tuple[Tuple[str, Callable[[str], bool]], ...] = (
 
 
 def _is_cuda_oom(exc: BaseException) -> bool:
-    import torch
+    from src.platform.runtime.native.errors import is_cuda_oom
 
-    return isinstance(exc, torch.cuda.OutOfMemoryError)
+    return is_cuda_oom(exc)
 
 
 def _is_host_ram_exhausted(exc: BaseException) -> bool:
