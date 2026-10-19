@@ -61,8 +61,17 @@ variable in scope and rejects a cycle. `when.values` must match the referenced v
 option texts exactly; there is no fuzzy repair. Every rejection names the fix, e.g. `'dance':
 when.var 'musc' is not a choice variable on this tab; choice variables: music, era.` A variable
 with conditioned options resolves after the variables its `when.var`s name — `get_form_state`
-and `@form` show this as a `resolves after $music` prefix, and each conditioned option as
-`breaking (when $music = hip hop)`.
+and `@form` show this as a `resolves after $music` marker plus a `1 conditional` count, and
+`get_prompt_variables` returns each conditioned option with its `when`.
+
+`get_form_state` and `@form` carry a compact summary per variable, never the full option lists:
+`outfit_kind: choice, shuffles each generation, 40 options (first 3: …)`, a number's range and step,
+a text's length and a clipped preview, the pinned value, and one closing line pointing at the read
+tool. The read-only `get_prompt_variables` tool (same file, generation mode, no approval) lists
+those summary rows (optional `search` over names and option texts) or, given `names`, returns every
+option with its 0-based `index` (what `pinned_index` takes), its condition, the number grid
+(`min`, `max`, `step`, `count`, `decimals`) or the full text, paged with `offset`/`limit`/`total`/
+`has_more`; an unknown name answers with close-match suggestions. It is not exposed over MCP.
 
 ## Conditions
 

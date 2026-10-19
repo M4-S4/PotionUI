@@ -8,7 +8,7 @@ from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.presets import operations
-from src.platform.resources.prompt_variables import render_prompt_variable_lines
+from src.platform.resources.prompt_variables import render_prompt_variable_summary
 
 logger = logging.getLogger(__name__)
 
@@ -146,10 +146,11 @@ class GetFormStateTool(BaseTool):
             "(label, type, model_type, etc.). Each field entry shows both its schema info "
             "and current value. For model fields (type 'model'), the value contains a modelPath "
             "that can be used with get_model_info to get model details like description. "
-            "If the prompt uses ${name} variables, a 'prompt_variables' list describes each in "
-            "plain language (its options and whether it shuffles, is pinned, or re-rolls per "
-            "image), noting any option's condition ('(when $other = value)') and, when a "
-            "variable depends on another, a 'resolves after $other' prefix."
+            "If the prompt uses ${name} variables, a 'prompt_variables' list summarizes each "
+            "(type, whether it shuffles, is pinned, or re-rolls per image, and for a choice its "
+            "option count with the first few options; for a number its range and step)."
+            "{{#if get_prompt_variables}} Use get_prompt_variables for the full options."
+            "{{/if}}"
         )
 
     @property
@@ -182,7 +183,7 @@ class GetFormStateTool(BaseTool):
 
             # Prompt variables (${name} placeholders) as compact plain-language
             # lines, e.g. "mood: one of noir, sunlit — shuffles each generation".
-            variable_lines = render_prompt_variable_lines(form_state.get("variables"))
+            variable_lines = render_prompt_variable_summary(form_state.get("variables"))
             if variable_lines:
                 result["prompt_variables"] = variable_lines
 

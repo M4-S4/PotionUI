@@ -51,6 +51,23 @@ class TestPromptVariablesGuidance:
         assert "{{#if" not in prompt
         assert "{{/if" not in prompt
 
+    def test_read_tool_instruction_present_when_allowed(self):
+        prompt = self._resolve(["get_prompt_variables"])
+        assert "call get_prompt_variables for its exact options" in prompt
+        assert "{{#if" not in prompt
+        assert "{{/if" not in prompt
+
+    def test_read_tool_instruction_absent_when_not_allowed(self):
+        prompt = self._resolve(["manage_prompt_variables", "get_form_state"])
+        assert "get_prompt_variables" not in prompt
+
+    def test_write_tool_description_points_at_the_read_tool_only_when_allowed(self):
+        from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
+
+        text = ManagePromptVariablesTool().description
+        assert "{{#if get_prompt_variables}}" in text
+        assert "get_form_state first" not in text
+
 
 class TestConditionGrammarGuidance:
     def _resolve(self, allowed):

@@ -1,0 +1,72 @@
+{
+  "version": 2,
+  "scenario": "variable_option_by_position",
+  "capture": "replay",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Make the outfit the third option of outfit_kind."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "get_prompt_variables",
+          "arguments": {
+            "names": [
+              "outfit_kind"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_prompt_variables",
+      "content": "{\"variables\": [{\"name\": \"outfit_kind\", \"type\": \"choice\", \"mode\": \"shuffle\", \"option_count\": 8, \"pinned_index\": null, \"options\": [{\"index\": 0, \"text\": \"linen sundress\"}, {\"index\": 1, \"text\": \"denim jacket and white tee\"}, {\"index\": 2, \"text\": \"black evening gown\"}, {\"index\": 3, \"text\": \"tailored wool coat\"}, {\"index\": 4, \"text\": \"vintage band tee with ripped jeans\"}, {\"index\": 5, \"text\": \"silk kimono robe\"}, {\"index\": 6, \"text\": \"streetwear hoodie\"}, {\"index\": 7, \"text\": \"formal navy suit\"}], \"options_total\": 8, \"offset\": 0, \"limit\": 100, \"has_more\": false}], \"count\": 1, \"total\": 1, \"offset\": 0, \"limit\": 100, \"has_more\": false}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "manage_prompt_variables",
+          "arguments": {
+            "operations": [
+              {
+                "op": "set",
+                "name": "outfit_kind",
+                "type": "choice",
+                "options": [
+                  "linen sundress",
+                  "denim jacket and white tee",
+                  "black evening gown",
+                  "tailored wool coat",
+                  "vintage band tee with ripped jeans",
+                  "silk kimono robe",
+                  "streetwear hoodie",
+                  "formal navy suit"
+                ],
+                "mode": "pin",
+                "pinned_index": 2,
+                "reason": "Pin the third option"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "manage_prompt_variables",
+      "content": "{\"status\": \"pending_approval\", \"proposed_changes\": [{\"field_name\": \"${outfit_kind}\", \"old_value\": \"one of linen sundress, denim jacket and white tee, black evening gown, tailored wool coat, vintage band tee with ripped jeans, silk kimono robe, streetwear hoodie, formal navy suit \\u2014 shuffles each generation\", \"new_value\": \"pinned to black evening gown\", \"reason\": \"Pin the third option\"}], \"change_count\": 1}",
+      "outcome": "pending_approval"
+    },
+    {
+      "role": "assistant",
+      "content": "I've proposed pinning outfit_kind to its third option, black evening gown - approve the change to apply it."
+    }
+  ]
+}

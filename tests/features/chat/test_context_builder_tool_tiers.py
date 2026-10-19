@@ -1,3 +1,4 @@
+import re
 from unittest.mock import Mock
 
 from src.features.chat.context_builder import ChatContextBuilder
@@ -68,7 +69,7 @@ class TestGenerationTiers:
         prompt, _allowed, _mode, deferred = _resolve(_builder(), _COMPACT)
         for names in deferred.values():
             for name in names:
-                assert name not in prompt
+                assert not re.search(rf"\b{name}\b", prompt)
 
     def test_a_loaded_group_comes_back_into_the_offered_set(self):
         _prompt, allowed, _mode, deferred = _resolve(_builder(), _COMPACT, loaded_groups={"memory_maintenance"})

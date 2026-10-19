@@ -25,9 +25,9 @@ _STANDARD = context_budget.TOOL_TIER_STANDARD
 _LARGE = context_budget.TOOL_TIER_LARGE
 
 _FIXED_OVERHEAD_CHARS = {
-    ("generation", _LARGE): 45091,
-    ("generation", _STANDARD): 32241,
-    ("generation", _COMPACT): 22247,
+    ("generation", _LARGE): 46221,
+    ("generation", _STANDARD): 33371,
+    ("generation", _COMPACT): 23377,
     ("history", _LARGE): 13261,
     ("history", _STANDARD): 13261,
     ("history", _COMPACT): 10460,

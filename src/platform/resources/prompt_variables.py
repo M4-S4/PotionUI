@@ -25,8 +25,6 @@ from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Caps mirror FormResourceProvider's discipline (small-model payload budget).
-_MAX_OPTIONS = 12
-_MAX_VALUE_CHARS = 80
 _MAX_NAME_CHARS = 60
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -36,6 +34,12 @@ MAX_STEP_PLACES = 6
 MAX_NUMBER_EXPONENT = 12
 MAX_NUMBER_DIGITS = 12
 MAX_NAME_CHARS = _MAX_NAME_CHARS
+SUMMARY_OPTION_PREVIEW = 3
+SUMMARY_OPTION_CHARS = 24
+SUMMARY_VALUE_CHARS = 40
+SUMMARY_READ_HINT = (
+    "Every option, condition and full value: call get_prompt_variables."
+)
 
 
 def _clip(text: str, limit: int) -> str:
@@ -125,14 +129,13 @@ def dependency_prefix(deps: List[str]) -> str:
     return f"resolves after {', '.join('$' + d for d in deps)} — "
 
 
-def _mode_phrase(mode: Any, options: List[str], pinned_index: Any) -> str:
+def _choice_mode_phrase(mode: Any, options: List[str], pinned_index: Any) -> str:
     if mode == "pin":
         if isinstance(pinned_index, int) and 0 <= pinned_index < len(options):
-            return f"pinned to {options[pinned_index]}"
+            return f"pinned to {_clip(options[pinned_index], SUMMARY_VALUE_CHARS)}"
         return "pinned"
     if mode == "per-image":
         return "re-rolls independently per image"
-    # 'shuffle' is the default (and the value for any unknown/missing mode).
     return "shuffles each generation"
 
 
@@ -140,17 +143,23 @@ def _render_choice(name: str, var: dict) -> Optional[str]:
     options = valid_options(var.get("options"))
     if not options:
         return None
-    shown = options[:_MAX_OPTIONS]
-    listing = ", ".join(_clip(format_option(o), _MAX_VALUE_CHARS) for o in shown)
-    if len(options) > _MAX_OPTIONS:
-        listing += ", …"
-    deps = variable_dependencies(var)
-    prefix = f"{name} — {dependency_prefix(deps)}" if deps else f"{name}: "
     texts = option_texts(options)
-    line = f"{prefix}one of {listing} — {_mode_phrase(var.get('mode'), texts, var.get('pinnedIndex'))}"
+    count = declared_option_total(var, len(texts))
+    parts = ["choice"]
+    deps = variable_dependencies(var)
+    if deps:
+        parts.append("resolves after " + ", ".join(f"${d}" for d in deps))
+    parts.append(_choice_mode_phrase(var.get("mode"), texts, var.get("pinnedIndex")))
+    preview = ", ".join(_clip(t, SUMMARY_OPTION_CHARS) for t in texts[:SUMMARY_OPTION_PREVIEW])
+    if count > SUMMARY_OPTION_PREVIEW:
+        preview = f"first {SUMMARY_OPTION_PREVIEW}: {preview}"
+    conditional = sum(1 for o in options if o.get("when"))
+    suffix = f", {conditional} conditional" if conditional else ""
+    parts.append(f"{count} {'option' if count == 1 else 'options'}{suffix} ({preview})")
+    line = f"{name}: " + ", ".join(parts)
     roll = var.get("lastRoll")
     if isinstance(roll, (str, int, float)) and str(roll).strip():
-        line += f"; last roll: {_clip(str(roll).strip(), _MAX_VALUE_CHARS)}"
+        line += f"; last roll: {_clip(str(roll).strip(), SUMMARY_VALUE_CHARS)}"
     return line
 
 
@@ -170,15 +179,16 @@ def _render_number(name: str, var: dict) -> Optional[str]:
         line += " — shuffles each generation"
     roll = var.get("lastRoll")
     if isinstance(roll, (str, int, float)) and not isinstance(roll, bool) and str(roll).strip():
-        line += f"; last roll: {_clip(str(roll).strip(), _MAX_VALUE_CHARS)}"
+        line += f"; last roll: {_clip(str(roll).strip(), SUMMARY_VALUE_CHARS)}"
     return line
 
 
 def _render_text(name: str, var: dict) -> str:
     value = var.get("value")
-    if not isinstance(value, (str, int, float)) or str(value).strip() == "":
-        return f"{name}: free text (empty)"
-    return f"{name}: {_clip(str(value).strip(), _MAX_VALUE_CHARS)}"
+    text = str(value).strip() if isinstance(value, (str, int, float)) else ""
+    if not text:
+        return f"{name}: text, empty"
+    return f'{name}: text, {len(text)} chars ("{_clip(text, SUMMARY_VALUE_CHARS)}")'
 
 
 def render_prompt_variable_lines(variables: Any) -> List[str]:
@@ -209,6 +219,33 @@ def render_prompt_variable_lines(variables: Any) -> List[str]:
             line = _render_text(name, var)
         lines.append(line)
     return lines
+
+
+def omitted_variable_count(variables: Any) -> int:
+    if not isinstance(variables, (list, tuple)):
+        return 0
+    for var in variables:
+        if isinstance(var, dict) and var.get("truncated") is True:
+            omitted = var.get("omitted")
+            if isinstance(omitted, int) and not isinstance(omitted, bool) and omitted > 0:
+                return omitted
+    return 0
+
+
+def declared_option_total(var: Dict[str, Any], sent: int) -> int:
+    total = var.get("optionTotal")
+    if isinstance(total, int) and not isinstance(total, bool) and total > sent:
+        return total
+    return sent
+
+
+def render_prompt_variable_summary(variables: Any) -> List[str]:
+    lines = render_prompt_variable_lines(variables)
+    omitted = omitted_variable_count(variables)
+    if omitted:
+        noun = "variable" if omitted == 1 else "variables"
+        lines.append(f"{omitted} more {noun} not sent with this snapshot; call get_prompt_variables to see what is missing.")
+    return [*lines, SUMMARY_READ_HINT] if lines else []
 
 
 @dataclass(frozen=True)

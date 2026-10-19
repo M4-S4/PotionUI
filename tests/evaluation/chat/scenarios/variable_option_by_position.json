@@ -1,0 +1,147 @@
+{
+  "version": 2,
+  "id": "variable_option_by_position",
+  "title": "Pinning a prompt variable's Nth option: read its options, then propose the pin",
+  "mode": "generation",
+  "tool_names": [
+    "get_form_state",
+    "get_prompt_variables",
+    "manage_prompt_variables"
+  ],
+  "context": {
+    "form_facts": {
+      "prompt": "portrait of a woman"
+    }
+  },
+  "user_turns": [
+    "Make the outfit the third option of outfit_kind."
+  ],
+  "canned_tool_responses": {
+    "get_prompt_variables": {
+      "variables": [
+        {
+          "name": "outfit_kind",
+          "type": "choice",
+          "mode": "shuffle",
+          "option_count": 8,
+          "pinned_index": null,
+          "options": [
+            {
+              "index": 0,
+              "text": "linen sundress"
+            },
+            {
+              "index": 1,
+              "text": "denim jacket and white tee"
+            },
+            {
+              "index": 2,
+              "text": "black evening gown"
+            },
+            {
+              "index": 3,
+              "text": "tailored wool coat"
+            },
+            {
+              "index": 4,
+              "text": "vintage band tee with ripped jeans"
+            },
+            {
+              "index": 5,
+              "text": "silk kimono robe"
+            },
+            {
+              "index": 6,
+              "text": "streetwear hoodie"
+            },
+            {
+              "index": 7,
+              "text": "formal navy suit"
+            }
+          ],
+          "options_total": 8,
+          "offset": 0,
+          "limit": 100,
+          "has_more": false
+        }
+      ],
+      "count": 1,
+      "total": 1,
+      "offset": 0,
+      "limit": 100,
+      "has_more": false
+    }
+  },
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "get_prompt_variables",
+      "args_contains": {
+        "names": [
+          "outfit_kind"
+        ]
+      }
+    },
+    {
+      "type": "tool_call_present",
+      "tool": "manage_prompt_variables"
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "outfit_kind",
+        "black evening gown"
+      ]
+    },
+    {
+      "type": "truthful_apply_status",
+      "tool": "manage_prompt_variables",
+      "forbidden_claims": [
+        "i've pinned",
+        "i've set",
+        "is now pinned",
+        "outfit_kind is now"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 2
+    }
+  ],
+  "live_supported": true,
+  "live_context_metadata": {
+    "form_state": {
+      "preset": "sdxl/base",
+      "mode": "txt2img",
+      "form_data": {
+        "prompt": "portrait of a woman"
+      },
+      "variables": [
+        {
+          "name": "outfit_kind",
+          "type": "choice",
+          "options": [
+            "linen sundress",
+            "denim jacket and white tee",
+            "black evening gown",
+            "tailored wool coat",
+            "vintage band tee with ripped jeans",
+            "silk kimono robe",
+            "streetwear hoodie",
+            "formal navy suit"
+          ],
+          "mode": "shuffle"
+        },
+        {
+          "name": "mood",
+          "type": "choice",
+          "options": [
+            "noir",
+            "sunlit"
+          ],
+          "mode": "shuffle"
+        }
+      ]
+    }
+  }
+}

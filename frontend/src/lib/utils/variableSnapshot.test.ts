@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { buildVariablesSnapshot, buildVariableChipTooltips, composeLastRoll } from './variableSnapshot';
+import {
+	buildVariablesSnapshot as buildSnapshotItems,
+	buildVariableChipTooltips,
+	composeLastRoll,
+	SNAPSHOT_MAX_BYTES,
+	SNAPSHOT_MAX_OPTIONS,
+	SNAPSHOT_MAX_OPTION_CHARS,
+	SNAPSHOT_MAX_TEXT_CHARS,
+	type VariableSnapshotEntry
+} from './variableSnapshot';
 import type { VariablesMap, VariableRoll } from './variableDefs';
+
+const buildVariablesSnapshot = (...args: Parameters<typeof buildSnapshotItems>) =>
+	buildSnapshotItems(...args) as VariableSnapshotEntry[];
 
 describe('buildVariablesSnapshot', () => {
 	it('returns an empty list for undefined variables', () => {
@@ -94,12 +106,71 @@ describe('buildVariablesSnapshot', () => {
 		expect(buildVariablesSnapshot(vars).length).toBe(40);
 	});
 
-	it('caps options at 12', () => {
-		const options = Array.from({ length: 20 }, (_, i) => `opt${i}`);
+	it('sends every option up to the safety cap', () => {
+		const options = Array.from({ length: 40 }, (_, i) => `option ${i}`);
 		const vars: VariablesMap = {
 			big: { type: 'choice', options, mode: 'per-image', pinnedIndex: null }
 		};
-		expect(buildVariablesSnapshot(vars)[0].options!.length).toBe(12);
+		const [entry] = buildVariablesSnapshot(vars);
+		expect(entry.options!.length).toBe(40);
+		expect(entry.options![39]).toBe('option 39');
+		expect(entry.optionTotal).toBeUndefined();
+	});
+
+	it('cuts options at the safety cap and reports the real count', () => {
+		const options = Array.from({ length: SNAPSHOT_MAX_OPTIONS + 25 }, (_, i) => `o${i}`);
+		const vars: VariablesMap = {
+			big: { type: 'choice', options, mode: 'pin', pinnedIndex: 3 }
+		};
+		const [entry] = buildVariablesSnapshot(vars);
+		expect(entry.options!.length).toBe(SNAPSHOT_MAX_OPTIONS);
+		expect(entry.optionTotal).toBe(SNAPSHOT_MAX_OPTIONS + 25);
+		expect(entry.pinnedIndex).toBe(3);
+	});
+
+	it('keeps a pinned option beyond the old 12-option cut', () => {
+		const options = Array.from({ length: 30 }, (_, i) => `o${i}`);
+		const vars: VariablesMap = { v: { type: 'choice', options, mode: 'pin', pinnedIndex: 20 } };
+		expect(buildVariablesSnapshot(vars)[0].pinnedIndex).toBe(20);
+	});
+
+	it('clips option and text length only at the safety caps', () => {
+		const vars: VariablesMap = {
+			c: { type: 'choice', options: ['x'.repeat(250), 'y'.repeat(900)], mode: 'shuffle', pinnedIndex: null },
+			t: { type: 'text', value: 'z'.repeat(1500) },
+			u: { type: 'text', value: 'w'.repeat(5000) }
+		};
+		const [choice, kept, clipped] = buildVariablesSnapshot(vars);
+		expect(choice.options![0]).toBe('x'.repeat(250));
+		expect((choice.options![1] as string).length).toBe(SNAPSHOT_MAX_OPTION_CHARS + 1);
+		expect(kept.value).toBe('z'.repeat(1500));
+		expect(clipped.value!.length).toBe(SNAPSHOT_MAX_TEXT_CHARS + 1);
+	});
+
+	it('keeps whole variables in order and marks a truncated snapshot with the omitted count', () => {
+		const vars: VariablesMap = {};
+		for (let i = 0; i < 30; i++) {
+			vars[`v${String(i).padStart(2, '0')}`] = {
+				type: 'choice',
+				options: Array.from({ length: SNAPSHOT_MAX_OPTIONS }, (_, k) => `${i}-${k}-${'p'.repeat(150)}`),
+				mode: 'shuffle',
+				pinnedIndex: null
+			};
+		}
+		const items = buildSnapshotItems(vars);
+		const marker = items[items.length - 1];
+		expect(marker).toMatchObject({ truncated: true });
+		const kept = items.slice(0, -1) as VariableSnapshotEntry[];
+		expect(kept.length).toBeGreaterThan(0);
+		expect((marker as { omitted: number }).omitted).toBe(30 - kept.length);
+		expect(kept.map((e) => e.name)).toEqual(Object.keys(vars).slice(0, kept.length));
+		expect(kept.every((e) => e.options!.length === SNAPSHOT_MAX_OPTIONS)).toBe(true);
+		expect(JSON.stringify(kept).length).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES);
+	});
+
+	it('adds no marker when everything fits', () => {
+		const vars: VariablesMap = { a: { type: 'text', value: 'x' } };
+		expect(buildSnapshotItems(vars).some((i) => 'truncated' in i)).toBe(false);
 	});
 
 	it('normalizes a legacy bare-string variable', () => {

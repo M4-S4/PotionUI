@@ -32,6 +32,11 @@ import {
 const MAX_OPTIONS = 12;
 const MAX_VALUE_CHARS = 80;
 
+export const SNAPSHOT_MAX_OPTIONS = 200;
+export const SNAPSHOT_MAX_OPTION_CHARS = 300;
+export const SNAPSHOT_MAX_TEXT_CHARS = 2000;
+export const SNAPSHOT_MAX_BYTES = 64 * 1024;
+
 function clip(text: string, limit = MAX_VALUE_CHARS): string {
 	return text.length > limit ? text.slice(0, limit) + '…' : text;
 }
@@ -63,6 +68,7 @@ export interface VariableSnapshotEntry {
 	options?: Array<string | { text: string; when?: VariableOptionWhen }>;
 	/** choice variables only. */
 	mode?: ChoiceVariableMode;
+	optionTotal?: number;
 	/** choice + pin only — index into `options` (post-filter). */
 	pinnedIndex?: number;
 	/** choice + shuffle only — the last client-side roll's value, if present. */
@@ -71,6 +77,13 @@ export interface VariableSnapshotEntry {
 	max?: number;
 	step?: number;
 }
+
+export interface VariableSnapshotTruncation {
+	truncated: true;
+	omitted: number;
+}
+
+export type VariableSnapshotItem = VariableSnapshotEntry | VariableSnapshotTruncation;
 
 /**
  * Build the compact `variables` array for the chat snapshot. `rolls` is the
@@ -81,57 +94,84 @@ export interface VariableSnapshotEntry {
 export function buildVariablesSnapshot(
 	variables: VariablesMap | undefined,
 	rolls?: Record<string, VariableRoll> | undefined
-): VariableSnapshotEntry[] {
+): VariableSnapshotItem[] {
 	if (!variables) return [];
-	const out: VariableSnapshotEntry[] = [];
+	const out: VariableSnapshotItem[] = [];
+	let bytes = 0;
+	const names = Object.keys(variables).filter((n) => n.trim());
+	const entries = names.map((n) => [n, variables[n]] as const);
+	let consumed = 0;
 
-	for (const [name, stored] of Object.entries(variables)) {
-		if (!name.trim()) continue;
-		const def = normalizeVariableDef(stored);
-
-		if (def.type === 'text') {
-			const entry: VariableSnapshotEntry = { name, type: 'text' };
-			const value = def.value.trim();
-			if (value) entry.value = clip(value);
-			out.push(entry);
-			continue;
+	for (const [name, stored] of entries) {
+		consumed++;
+		const before = out.length;
+		pushEntry(out, name, stored, rolls);
+		if (out.length === before) continue;
+		const size = JSON.stringify(out[out.length - 1]).length;
+		if (bytes + size > SNAPSHOT_MAX_BYTES && before > 0) {
+			out.pop();
+			out.push({ truncated: true, omitted: entries.length - consumed + 1 });
+			return out;
 		}
-
-		if (def.type === 'number') {
-			if (!isNumberRangeValid(def)) continue;
-			const entry: VariableSnapshotEntry = { name, type: 'number', mode: def.mode, min: def.min, max: def.max, step: def.step };
-			if (def.mode === 'pin') entry.value = clampNumberValue(def);
-			const roll = rolls?.[name];
-			if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(roll.value);
-			out.push(entry);
-			continue;
-		}
-
-		const opts = validOptions(def);
-		if (opts.length === 0) continue; // nothing meaningful to describe yet
-		const entry: VariableSnapshotEntry = {
-			name,
-			type: 'choice',
-			options: def.options
-				.filter((o) => optionText(o).trim().length > 0)
-				.slice(0, MAX_OPTIONS)
-				.map((o) => (typeof o === 'string' ? clip(o.trim()) : { text: clip(o.text.trim()), when: o.when })),
-			mode: def.mode
-		};
-		if (def.mode === 'pin' && def.pinnedIndex !== null) {
-			const pinnedOption = def.options[def.pinnedIndex];
-			const pinnedText = pinnedOption !== undefined ? optionText(pinnedOption).trim() : undefined;
-			if (pinnedText) {
-				const idx = opts.indexOf(pinnedText);
-				if (idx >= 0 && idx < MAX_OPTIONS) entry.pinnedIndex = idx;
-			}
-		}
-		const roll = rolls?.[name];
-		if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(composeLastRoll(roll));
-		out.push(entry);
+		bytes += size;
 	}
 
 	return out;
+}
+
+function pushEntry(
+	out: VariableSnapshotItem[],
+	name: string,
+	stored: VariablesMap[string],
+	rolls: Record<string, VariableRoll> | undefined
+): void {
+	const def = normalizeVariableDef(stored);
+
+	if (def.type === 'text') {
+		const entry: VariableSnapshotEntry = { name, type: 'text' };
+		const value = def.value.trim();
+		if (value) entry.value = clip(value, SNAPSHOT_MAX_TEXT_CHARS);
+		out.push(entry);
+		return;
+	}
+
+	if (def.type === 'number') {
+		if (!isNumberRangeValid(def)) return;
+		const entry: VariableSnapshotEntry = { name, type: 'number', mode: def.mode, min: def.min, max: def.max, step: def.step };
+		if (def.mode === 'pin') entry.value = clampNumberValue(def);
+		const roll = rolls?.[name];
+		if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(roll.value);
+		out.push(entry);
+		return;
+	}
+
+	const opts = validOptions(def);
+	if (opts.length === 0) return;
+	const entry: VariableSnapshotEntry = {
+		name,
+		type: 'choice',
+		options: def.options
+			.filter((o) => optionText(o).trim().length > 0)
+			.slice(0, SNAPSHOT_MAX_OPTIONS)
+			.map((o) =>
+				typeof o === 'string'
+					? clip(o.trim(), SNAPSHOT_MAX_OPTION_CHARS)
+					: { text: clip(o.text.trim(), SNAPSHOT_MAX_OPTION_CHARS), when: o.when }
+			),
+		mode: def.mode
+	};
+	if (opts.length > SNAPSHOT_MAX_OPTIONS) entry.optionTotal = opts.length;
+	if (def.mode === 'pin' && def.pinnedIndex !== null) {
+		const pinnedOption = def.options[def.pinnedIndex];
+		const pinnedText = pinnedOption !== undefined ? optionText(pinnedOption).trim() : undefined;
+		if (pinnedText) {
+			const idx = opts.indexOf(pinnedText);
+			if (idx >= 0 && idx < SNAPSHOT_MAX_OPTIONS) entry.pinnedIndex = idx;
+		}
+	}
+	const roll = rolls?.[name];
+	if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(composeLastRoll(roll));
+	out.push(entry);
 }
 
 function describeVariable(def: VariableDef, roll: VariableRoll | undefined): string {

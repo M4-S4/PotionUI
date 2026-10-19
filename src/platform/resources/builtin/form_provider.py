@@ -34,7 +34,7 @@ from src.platform.resources.base import (
     stem,
 )
 from src.platform.resources.builtin.models_provider import ModelsResourceProvider, is_visible, user_overlay
-from src.platform.resources.prompt_variables import render_prompt_variable_lines
+from src.platform.resources.prompt_variables import render_prompt_variable_summary
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +229,7 @@ class FormResourceProvider(BaseResourceProvider):
         form_state = getattr(ctx, "form_state", None)
         if not isinstance(form_state, dict):
             return []
-        return render_prompt_variable_lines(form_state.get("variables"))
+        return render_prompt_variable_summary(form_state.get("variables"))
 
     def _model_name(self, ctx: ResourceContext, model_id: str) -> Optional[str]:
         if not ctx.model_index_manager:

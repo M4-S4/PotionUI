@@ -853,7 +853,8 @@ class TestFormProvider:
         )
         resolved = await self.provider.resolve([], ctx)
         assert "## Prompt variables" in resolved.content
-        assert "- mood: one of noir, sunlit — shuffles each generation; last roll: sunlit" in resolved.content
+        assert "- mood: choice, shuffles each generation, 2 options (noir, sunlit); last roll: sunlit" in resolved.content
+        assert "- Every option, condition and full value: call get_prompt_variables." in resolved.content
         assert "steps: 30" in resolved.content
 
     @pytest.mark.asyncio
@@ -864,8 +865,17 @@ class TestFormProvider:
         )
         resolved = await self.provider.resolve([], ctx)
         assert "## Prompt variables" in resolved.content
-        assert "- subject: a fox" in resolved.content
+        assert '- subject: text, 5 chars ("a fox")' in resolved.content
         assert "no values set yet" not in resolved.content
+
+    @pytest.mark.asyncio
+    async def test_bare_dump_never_lists_every_option_of_a_big_choice(self):
+        options = [f"option {i:02d} " + "long outfit description " * 8 for i in range(40)]
+        ctx = self._ctx_with_variables({"steps": 30}, [{"name": "outfit_kind", "type": "choice", "options": options}])
+        resolved = await self.provider.resolve([], ctx)
+        assert "40 options" in resolved.content
+        assert options[0] not in resolved.content
+        assert "option 05" not in resolved.content
 
     @pytest.mark.asyncio
     async def test_bare_dump_no_variables_key_unchanged(self):

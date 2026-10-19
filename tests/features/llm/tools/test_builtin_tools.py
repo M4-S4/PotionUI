@@ -24,6 +24,7 @@ from src.features.llm.tools.builtin import (
     GetActiveModelsTool,
     register_builtin_tools,
 )
+from src.platform.resources.prompt_variables import SUMMARY_READ_HINT
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 from src.features.segments.dto import RichSegment, SavedSegment, SegmentTemplate
@@ -118,6 +119,7 @@ class TestRegisterBuiltinTools:
             "get_form_state",
             "get_active_models",
             "update_form_settings",
+            "get_prompt_variables",
             "manage_prompt_variables",
             "search_model_prompts",
             "search_gallery",
@@ -2469,8 +2471,9 @@ class TestGetFormStateTool:
 
         data = json.loads(result.data)
         assert data["prompt_variables"] == [
-            "mood: one of noir, sunlit — shuffles each generation; last roll: sunlit",
-            "subject: a fox",
+            "mood: choice, shuffles each generation, 2 options (noir, sunlit); last roll: sunlit",
+            'subject: text, 5 chars ("a fox")',
+            SUMMARY_READ_HINT,
         ]
 
     @pytest.mark.asyncio
@@ -2496,9 +2499,9 @@ class TestGetFormStateTool:
 
         data = json.loads(result.data)
         assert data["prompt_variables"] == [
-            "music: one of hip hop, classical — shuffles each generation",
-            "dance — resolves after $music — one of breaking (when $music = hip hop), salsa "
-            "— shuffles each generation",
+            "music: choice, shuffles each generation, 2 options (hip hop, classical)",
+            "dance: choice, resolves after $music, shuffles each generation, 2 options, 1 conditional (breaking, salsa)",
+            SUMMARY_READ_HINT,
         ]
 
     @pytest.mark.asyncio

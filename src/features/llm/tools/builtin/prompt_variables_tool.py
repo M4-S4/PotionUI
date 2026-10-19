@@ -1,12 +1,15 @@
 """Tool for creating, updating, and removing the generate tab's prompt variables."""
 
+import difflib
 import json
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.builtin.utils import parse_page
 from src.platform.resources.prompt_variables import (
     VALID_MODES,
+    declared_option_total,
     dependency_prefix,
     format_option,
     name_error,
@@ -14,6 +17,7 @@ from src.platform.resources.prompt_variables import (
     number_grid,
     number_grid_error,
     number_pinned_text,
+    omitted_variable_count,
     option_texts,
     render_prompt_variable_lines,
     valid_options,
@@ -287,8 +291,8 @@ class ManagePromptVariablesTool(BaseTool):
             "type 'number' takes min, max, step (default 1, up to 200 values) and the same "
             "modes ('pin' uses value); omitted fields keep their current value. "
             "The user must approve before changes are applied."
-            "{{#if get_form_state}} Call get_form_state first to see existing variables and "
-            "their current values.{{/if}}"
+            "{{#if get_prompt_variables}} Call get_prompt_variables first to read a "
+            "variable's exact options and values.{{/if}}"
         )
 
     @property
@@ -438,4 +442,222 @@ class ManagePromptVariablesTool(BaseTool):
         if errors:
             payload["rejected_operations"] = errors
 
+        return ToolResult(success=True, data=json.dumps(payload))
+
+
+DEFAULT_LIST_LIMIT = 50
+MAX_LIST_LIMIT = 100
+DEFAULT_OPTION_LIMIT = 100
+MAX_OPTION_LIMIT = 200
+MAX_SUGGESTIONS = 5
+
+
+def _bare_name(raw: Any) -> str:
+    text = raw.strip() if isinstance(raw, str) else ""
+    if text.startswith("${") and text.endswith("}"):
+        return text[2:-1].strip()
+    return text.lstrip("$").strip()
+
+
+def _requested_names(kwargs: Dict[str, Any]) -> List[str]:
+    raw = kwargs.get("names")
+    if raw is None:
+        raw = kwargs.get("name")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return []
+    names: List[str] = []
+    for item in raw:
+        name = _bare_name(item)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def _matches(var: Dict[str, Any], needle: str) -> bool:
+    if needle in str(var.get("name", "")).lower():
+        return True
+    if var.get("type") == "choice":
+        return any(needle in text.lower() for text in option_texts(valid_options(var.get("options"))))
+    if var.get("type") == "text":
+        return needle in str(var.get("value") or "").lower()
+    return False
+
+
+def _summary_row(var: Dict[str, Any]) -> Dict[str, Any]:
+    kind = var.get("type") if var.get("type") in ("choice", "number") else "text"
+    row: Dict[str, Any] = {"name": var["name"], "type": kind}
+    if kind == "text":
+        row["length"] = len(str(var.get("value") or "").strip())
+        return row
+    row["mode"] = var.get("mode") or "shuffle"
+    if kind == "choice":
+        options = valid_options(var.get("options"))
+        row["option_count"] = declared_option_total(var, len(options))
+        idx = var.get("pinnedIndex")
+        if row["mode"] == "pin" and isinstance(idx, int) and 0 <= idx < len(options):
+            row["pinned_value"] = options[idx]["text"]
+        return row
+    grid = number_grid(var)
+    if grid is None:
+        row["invalid"] = True
+        return row
+    row.update(min=grid.format_index(0), max=grid.format_index(grid.count - 1), step=format(grid.step, "f"), count=grid.count)
+    if row["mode"] == "pin":
+        row["pinned_value"] = number_pinned_text(var, grid)
+    return row
+
+
+def _readers(name: str, by_name: Dict[str, Dict[str, Any]]) -> List[str]:
+    return [other for other, var in by_name.items() if other != name and name in variable_dependencies(var)]
+
+
+def _detail(var: Dict[str, Any], by_name: Dict[str, Dict[str, Any]], search: str, offset: int, limit: int) -> Dict[str, Any]:
+    row = _summary_row(var)
+    name = var["name"]
+    if row["type"] == "text":
+        row["value"] = str(var.get("value") or "")
+        return row
+    if row["type"] == "number":
+        grid = number_grid(var)
+        if grid is not None:
+            row["decimals"] = grid.places
+        return row
+    options = valid_options(var.get("options"))
+    indexed = [(i, o) for i, o in enumerate(options) if not search or search in o["text"].lower()]
+    page = indexed[offset:offset + limit]
+    row["pinned_index"] = var.get("pinnedIndex") if row["mode"] == "pin" else None
+    row["options"] = [
+        {"index": i, "text": o["text"], **({"when": o["when"]} if o["when"] else {})} for i, o in page
+    ]
+    row["options_total"] = len(indexed)
+    missing = declared_option_total(var, len(options)) - len(options)
+    if missing:
+        row["options_missing"] = missing
+    row["offset"] = offset
+    row["limit"] = limit
+    row["has_more"] = offset + len(page) < len(indexed)
+    deps = variable_dependencies(var)
+    if deps:
+        row["resolves_after"] = deps
+    readers = _readers(name, by_name)
+    if readers:
+        row["read_by_conditions_of"] = readers
+    return row
+
+
+def _suggestions(name: str, names: List[str]) -> List[str]:
+    lowered = name.lower()
+    close = difflib.get_close_matches(name, names, n=MAX_SUGGESTIONS, cutoff=0.5)
+    contained = [n for n in names if lowered in n.lower() or n.lower() in lowered]
+    return list(dict.fromkeys([*contained, *close]))[:MAX_SUGGESTIONS]
+
+
+class GetPromptVariablesTool(BaseTool):
+    modes = ["generation"]
+    icon = "braces"
+
+    name = "get_prompt_variables"
+    group = "Form & segments"
+    user_description = "Reads the ${name} prompt variables on your generation form, with every option."
+
+    @property
+    def description(self) -> str:
+        return (
+            "Read the ${name} prompt variables on the user's form. Without 'names': one summary "
+            "row per variable. With 'names': full detail — every choice option with its 0-based "
+            "index (what pinned_index takes) and condition, a number's range, step and count, or "
+            "the full text. The form state is only a summary, so call this before picking, "
+            "pinning or conditioning on an option. Page with offset/limit and check has_more."
+        )
+
+    @property
+    def parameters(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Variable names without ${}. Omit to list all.",
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Case-insensitive filter on names and option texts (list), or on options (detail).",
+                },
+                "offset": {"type": "integer", "description": "Rows or options to skip. Defaults to 0."},
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        f"Rows (default {DEFAULT_LIST_LIMIT}, max {MAX_LIST_LIMIT}) or options "
+                        f"(default {DEFAULT_OPTION_LIMIT}, max {MAX_OPTION_LIMIT})."
+                    ),
+                },
+            },
+            "required": [],
+        }
+
+    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        form_state = context.session_metadata.get("form_state")
+        if not form_state:
+            return ToolResult(
+                success=False,
+                data="",
+                error="No form state available. The user may not have a form loaded.",
+            )
+        by_name = {name: {**var, "name": name} for name, var in _existing_by_name(form_state).items()}
+        search = (kwargs.get("search") or "").strip().lower()
+        names = _requested_names(kwargs)
+        try:
+            if names:
+                offset, limit = parse_page(kwargs, DEFAULT_OPTION_LIMIT, MAX_OPTION_LIMIT)
+            else:
+                offset, limit = parse_page(kwargs, DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT)
+        except ValueError as exc:
+            return ToolResult(success=False, data="", error=str(exc))
+
+        if not names:
+            rows = [v for v in by_name.values() if not search or _matches(v, search)]
+            page = rows[offset:offset + limit]
+            payload = {
+                "variables": [_summary_row(v) for v in page],
+                "count": len(page),
+                "total": len(rows),
+                "offset": offset,
+                "limit": limit,
+                "has_more": offset + len(page) < len(rows),
+            }
+            omitted = omitted_variable_count(form_state.get("variables"))
+            if omitted:
+                payload["omitted_variables"] = omitted
+            if not by_name:
+                payload["note"] = "This form has no prompt variables."
+            return ToolResult(success=True, data=json.dumps(payload))
+
+        found = [by_name[n] for n in names if n in by_name]
+        missing = [
+            {"name": n, "suggestions": _suggestions(n, list(by_name))} for n in names if n not in by_name
+        ]
+        if not found:
+            hint = "; ".join(
+                f"'{m['name']}' not found" + (f" (did you mean: {', '.join(m['suggestions'])}?)" if m["suggestions"] else "")
+                for m in missing
+            )
+            available = ", ".join(by_name) or "none"
+            return ToolResult(success=False, data="", error=f"{hint}. Variables on this form: {available}.")
+        details = [_detail(v, by_name, search, offset, limit) for v in found]
+        payload = {
+            "variables": details,
+            "count": len(details),
+            "total": len(details),
+            "offset": offset,
+            "limit": limit,
+            "has_more": any(d.get("has_more") for d in details),
+        }
+        if missing:
+            payload["not_found"] = missing
+        omitted = omitted_variable_count(form_state.get("variables"))
+        if omitted:
+            payload["omitted_variables"] = omitted
         return ToolResult(success=True, data=json.dumps(payload))

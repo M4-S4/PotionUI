@@ -65,6 +65,9 @@ DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE = (
     "{{#if manage_prompt_variables}}; to add one, call manage_prompt_variables "
     "first, then use it. Never write a ${name} that neither exists nor is created "
     "this turn{{/if}}.\n"
+    "{{#if get_prompt_variables}}The form state shows each variable as a summary; "
+    "call get_prompt_variables for its exact options before choosing or pinning one.\n"
+    "{{/if}}"
     "A condition picks text by variable values: "
     '<<if $age > 65>>grey hair<<else if $age < 25>>youthful<<else>>auburn hair<<end>>. '
     "It reads $name; ${name} prints it. Number tests: = != < <= > >=, in 18..30, not in. "
