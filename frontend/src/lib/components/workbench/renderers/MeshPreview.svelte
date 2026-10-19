@@ -41,7 +41,7 @@
 	$: meshMeta = resolveMeshMetadata(file);
 	$: hasMeshMeta = meshMeta.vertexCount != null || meshMeta.faceCount != null || !!meshMeta.filename;
 	// The material inspector and animation list only exist for a binary glTF
-	// container - a .obj/.ply mesh has neither, so there's nothing to fetch.
+	// container - a .obj mesh has neither, so there's nothing to fetch.
 	$: meshIsGlb = resolveMeshFormat(file) === 'glb';
 
 	function formatCount(n: number | null): string {

@@ -368,14 +368,14 @@ describe('mapGenerationFiles', () => {
 				{
 					file_type: 'MESH',
 					file_path: `generations/2026-07-27/${genId}/1.glb`,
-					mesh_format: 'ply',
+					mesh_format: 'obj',
 					is_derived: false
 				}
 			],
 			genId
 		);
 
-		expect(meshes[0].mesh_format).toBe('ply');
+		expect(meshes[0].mesh_format).toBe('obj');
 	});
 
 	it('derives mesh_format from a non-glb file_path extension when no field is sent', () => {
@@ -383,14 +383,14 @@ describe('mapGenerationFiles', () => {
 			[
 				{
 					file_type: 'MESH',
-					file_path: `generations/2026-07-27/${genId}/1.ply`,
+					file_path: `generations/2026-07-27/${genId}/1.obj`,
 					is_derived: false
 				}
 			],
 			genId
 		);
 
-		expect(meshes[0].mesh_format).toBe('ply');
+		expect(meshes[0].mesh_format).toBe('obj');
 	});
 
 	it('matches file_type case-insensitively for images and videos too', () => {

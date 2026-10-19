@@ -121,8 +121,8 @@ describe('downloadExtensionFor a mesh', () => {
 	});
 
 	it('falls back to mesh_format when the URL has no usable suffix', () => {
-		expect(downloadExtensionFor('MESH', { url: '/api/media/gen-1/mesh', mesh_format: 'ply' })).toBe(
-			'ply'
+		expect(downloadExtensionFor('MESH', { url: '/api/media/gen-1/mesh', mesh_format: 'obj' })).toBe(
+			'obj'
 		);
 	});
 
