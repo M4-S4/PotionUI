@@ -17,6 +17,7 @@ import torch
 from src.platform.runtime.native.engine import NativeGenerator, NativeModel, RunCache
 
 from .test_anima_model import TINY, _build_ready
+from .run_cache_hits import count_hits
 
 _SIGMAS = [torch.tensor([0.9]), torch.tensor([0.6]), torch.tensor([0.3])]
 
@@ -259,15 +260,25 @@ def test_unidentifiable_component_disables_caching():
     def unidentifiable(t):
         return cache_identity.UNIDENTIFIABLE if t is w else real(t)
 
-    import src.platform.runtime.native.arch.anima.model as anima_model
+    import src.platform.runtime.native.engine as engine_module
 
-    anima_model.tensor_identity = unidentifiable
+    engine_module.tensor_identity = unidentifiable
     try:
         with torch.no_grad():
             m(x, _SIGMAS[0], ctx, t5xxl_ids=ids, t5xxl_weights=w)
             m(x, _SIGMAS[0], ctx, t5xxl_ids=ids, t5xxl_weights=w)
     finally:
-        anima_model.tensor_identity = real
+        engine_module.tensor_identity = real
 
     assert calls["n"] == 2
     assert len(m.run_cache) == 0
+
+
+def test_every_step_after_the_first_hits_each_branch_entry():
+    m = _build_ready(TINY)
+    m.run_cache = RunCache(revision=1)
+    hits = count_hits(m.run_cache)
+
+    _run(m, [_branch(1), _branch(2)], _latents())
+
+    assert hits["anima.fused_text"] == 2 * (len(_SIGMAS) - 1)

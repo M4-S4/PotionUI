@@ -59,6 +59,7 @@ the sampler never re-derives the patch/token bookkeeping.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, TYPE_CHECKING
 
 import torch
@@ -80,7 +81,6 @@ from vendor.gpl.comfyui.flux.math_ops import set_attention_backend
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
-from ...cache_identity import identity_usable, tensor_identity
 from .config import FluxParams
 
 if TYPE_CHECKING:
@@ -288,23 +288,14 @@ class Flux(NativeArchModule):
         a run, so a projection computed at step 1 must not answer a lookup at
         step 3 under different weights.
         """
+        build = partial(self._prepare_branch, x, context, y, guidance, token_mask, refs, ref_method)
         cache = getattr(self, "run_cache", None)
-        key = None
-        if cache is not None:
-            ids = (tensor_identity(context), tensor_identity(token_mask),
-                   tensor_identity(y), tensor_identity(guidance),
-                   *(tensor_identity(ref) for ref in refs))
-            if identity_usable(*ids):
-                key = ("flux.branch", cache.revision, tuple(x.shape), x.dtype, x.device,
-                       ref_method if refs else None, *ids)
-                hit = cache.get(key)
-                if hit is not None:
-                    return hit
-
-        prepared = self._prepare_branch(x, context, y, guidance, token_mask, refs, ref_method)
-        if key is not None:
-            cache.put(key, prepared)
-        return prepared
+        if cache is None:
+            return build()
+        return cache.memo(
+            "flux.branch", (context, token_mask, y, guidance, *refs),
+            (tuple(x.shape), x.dtype, x.device, ref_method if refs else None), build,
+        )
 
     def _prepare_branch(self, x: Tensor, context: Tensor, y: Tensor | None,
                         guidance: Tensor | None, token_mask: Tensor | None,

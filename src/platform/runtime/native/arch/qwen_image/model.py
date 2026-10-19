@@ -63,6 +63,7 @@ generator does not re-derive the 2x2 packing + centred 3-axis positional ids.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, NamedTuple, Optional
 
 import torch
@@ -81,7 +82,6 @@ from vendor.gpl.comfyui.qwen_image.layers import (
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
-from ...cache_identity import identity_usable, tensor_identity
 from .config import QwenImageConfig
 
 # vendor/gpl/comfyui/qwen_image/layers.py must not import src (layering
@@ -228,23 +228,15 @@ class QwenImageDiT(NativeArchModule):
         WITHIN a run, so a projection computed at step 1 must not answer a lookup
         at step 3 under different weights.
         """
+        build = partial(self._prepare_fixed, x, context, attention_mask, ref_latents, ref_method)
         cache = getattr(self, "run_cache", None)
-        key = None
-        if cache is not None:
-            refs = tuple(ref_latents) if ref_latents is not None else ()
-            ids = (tensor_identity(context), tensor_identity(attention_mask),
-                   *(tensor_identity(ref) for ref in refs))
-            if identity_usable(*ids):
-                key = ("qwen_image.fixed", cache.revision, tuple(x.shape), x.dtype, x.device,
-                       ref_method if refs else None, *ids)
-                hit = cache.get(key)
-                if hit is not None:
-                    return hit
-
-        prepared = self._prepare_fixed(x, context, attention_mask, ref_latents, ref_method)
-        if key is not None:
-            cache.put(key, prepared)
-        return prepared
+        if cache is None:
+            return build()
+        refs = tuple(ref_latents) if ref_latents is not None else ()
+        return cache.memo(
+            "qwen_image.fixed", (context, attention_mask, *refs),
+            (tuple(x.shape), x.dtype, x.device, ref_method if refs else None), build,
+        )
 
     def _prepare_fixed(self, x: Tensor, context: Tensor, attention_mask: Tensor | None,
                        ref_latents, ref_method: str) -> _PreparedFixed:

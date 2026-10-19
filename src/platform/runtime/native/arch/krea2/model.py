@@ -69,6 +69,7 @@ CFG (raw model) is the sampler's job — this module runs a single stream.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, NamedTuple
 
 import torch
@@ -77,7 +78,6 @@ from einops import rearrange, repeat
 from torch import Tensor
 
 from ...base import NativeArchModule
-from ...cache_identity import identity_usable, tensor_identity
 from .config import Krea2Config
 from .layers import (
     Attention,
@@ -343,23 +343,20 @@ class Krea2(NativeArchModule):
         """
         cache = getattr(self, "run_cache", None)
         nag_on = nag_context is not None and _nag_active(nag)
-        key = None
-        if cache is not None:
-            ids = (tensor_identity(context), tensor_identity(txt_mask),
-                   tensor_identity(nag_context if nag_on else None),
-                   tensor_identity(nag_txt_mask if nag_on else None))
-            if identity_usable(*ids):
-                b, _, h, w = x.shape
-                # cache.revision is read here, per lookup, never hoisted across
-                # steps: a step-windowed LoRA applies and restores at step
-                # boundaries WITHIN a run, and the fused text is computed with
-                # the weights in effect at the time.
-                key = ("krea2.branch", cache.revision, x.dtype, x.device, b, h, w,
-                       tuple(tuple(r.shape[-2:]) for r in refs), nag_on, *ids)
-                hit = cache.get(key)
-                if hit is not None:
-                    return hit
+        build = partial(self._build_branch, x, context, txt_mask, refs, nag_context, nag_txt_mask, nag_on)
+        if cache is None:
+            return build()
+        b, _, h, w = x.shape
+        return cache.memo(
+            "krea2.branch",
+            (context, txt_mask, nag_context if nag_on else None, nag_txt_mask if nag_on else None),
+            (x.dtype, x.device, b, h, w, tuple(tuple(r.shape[-2:]) for r in refs), nag_on),
+            build,
+        )
 
+    def _build_branch(self, x: Tensor, context: Tensor, txt_mask: Tensor | None,
+                      refs: list[Tensor], nag_context: Tensor | None,
+                      nag_txt_mask: Tensor | None, nag_on: bool) -> _BranchInputs:
         pos, mask = self._stream_geometry(x, context.shape[1], txt_mask, refs)
         fused = self.prepare_context(context, mask)
         nag_fused = None
@@ -370,11 +367,8 @@ class Krea2(NativeArchModule):
             # tokenizer mask), so coerce it here the same way.
             nag_bool = nag_txt_mask.to(torch.bool) if nag_txt_mask is not None else None
             nag_fused = self.prepare_context(nag_context, nag_bool)
-        branch = _BranchInputs(pos, mask, fused, nag_fused, {}, context, txt_mask,
-                               nag_context, nag_txt_mask)
-        if key is not None:
-            cache.put(key, branch)
-        return branch
+        return _BranchInputs(pos, mask, fused, nag_fused, {}, context, txt_mask,
+                             nag_context, nag_txt_mask)
 
     def unpatchify(self, out: Tensor, h_: int, w_: int) -> Tensor:
         """Inverse of the patchify in :meth:`build_stream_inputs`."""

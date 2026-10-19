@@ -133,6 +133,13 @@ ModelSpec/TESpec → from_config → load_into_module` path independently — se
 `text_encoders/loader.py:_load_one` and `vae/loader.py:load_vae` for the TE/VAE instances of the
 same shape, and `detect/registry.py` for the DiT's.
 
+Auxiliary components (VAE, audio VAE, vocoder, latent upscaler, duration head) share one engine
+skeleton, `_load_component`: read the file (only the component's prefixed keys when it lives inside an
+all-in-one checkpoint, so the DiT is never materialised), slice, size and pick ops from that slice,
+then hand the already-read state dict to the family builder. Bare-key VAE files (Flux, Wan, Qwen-Image,
+SeedVR2) are read exactly once; `vae.loader.build_native_vae` detects the family from that state dict
+and does not touch the file again.
+
 ### Load integrity
 
 `load_into_module`'s hard-assert step exists because of a specific, previously-shipped failure

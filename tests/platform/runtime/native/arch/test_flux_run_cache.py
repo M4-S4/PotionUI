@@ -33,6 +33,7 @@ import torch
 from src.platform.runtime.native.engine import NativeGenerator, NativeModel, RunCache
 
 from .test_flux_model import TINY_FLUX1, TINY_FLUX2, _build_ready
+from .run_cache_hits import count_hits
 
 STEPS = (0.9, 0.5, 0.1)
 
@@ -451,3 +452,16 @@ def test_without_a_run_cache_the_forward_is_unchanged():
     out = _run(m, xs, torch.randn(2, 6, 32, generator=torch.Generator().manual_seed(19)))[0]
     assert out.shape == xs[0].shape
     assert torch.isfinite(out).all()
+
+
+def test_every_step_after_the_first_hits_the_branch_entry():
+    m = _build_ready(TINY_FLUX2)
+    g = torch.Generator().manual_seed(8)
+    xs = _latents()
+    kwargs = {"context": torch.randn(2, 6, 32, generator=g), "attention_mask": MASK}
+
+    with _cached(m) as cache:
+        hits = count_hits(cache)
+        _run(m, xs, **kwargs)
+
+    assert hits["flux.branch"] == len(STEPS) - 1

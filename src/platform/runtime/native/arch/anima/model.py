@@ -60,6 +60,7 @@ Returns velocity ``(B, out_channels=16, T, H, W)``.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, NamedTuple, Optional, Tuple
 
 import torch
@@ -80,7 +81,6 @@ from vendor.gpl.comfyui.anima.layers import (
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
-from ...cache_identity import identity_usable, tensor_identity
 from .config import AnimaConfig
 
 Tensor = torch.Tensor
@@ -207,28 +207,22 @@ class Anima(NativeArchModule):
         read the context, so handing them the same tensor object each step is
         byte-for-byte the recompute.
         """
+        build = partial(self._fuse_text_uncached, x, context, t5xxl_ids, t5xxl_weights)
         cache = getattr(self, "run_cache", None)
-        key = None
-        if cache is not None:
-            ids = (tensor_identity(context), tensor_identity(t5xxl_ids),
-                   tensor_identity(t5xxl_weights))
-            if identity_usable(*ids):
-                # cache.revision is read here, per lookup, never hoisted across
-                # steps: it tracks the model's effective weights and may move
-                # mid-run when a scheduled adapter window applies or restores.
-                key = ("anima.fused_text", cache.revision, x.dtype, x.device, *ids)
-                hit = cache.get(key)
-                if hit is not None:
-                    return hit.fused
+        if cache is None:
+            return build().fused
+        return cache.memo(
+            "anima.fused_text", (context, t5xxl_ids, t5xxl_weights), (x.dtype, x.device), build,
+        ).fused
 
+    def _fuse_text_uncached(self, x: Tensor, context: Tensor, t5xxl_ids: Tensor,
+                            t5xxl_weights: Optional[Tensor]) -> _FusedText:
         crossattn = self.preprocess_text_embeds(context.to(dtype=x.dtype), t5xxl_ids.to(device=x.device))
         if t5xxl_weights is not None:
             crossattn = crossattn * t5xxl_weights.unsqueeze(-1).to(crossattn)
         if crossattn.shape[1] < 512:
             crossattn = F.pad(crossattn, (0, 0, 0, 512 - crossattn.shape[1]))
-        if key is not None:
-            cache.put(key, _FusedText(crossattn, context, t5xxl_ids, t5xxl_weights))
-        return crossattn
+        return _FusedText(crossattn, context, t5xxl_ids, t5xxl_weights)
 
     # -- forward ------------------------------------------------------------
 

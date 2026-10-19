@@ -33,6 +33,8 @@ from src.platform.runtime.native.engine import NativeGenerator, NativeModel
 from src.platform.runtime.native.lora.step_window import LoraStepWindow, LoraStepWindowHook
 from vendor.gpl.comfyui.ops import pick_operations
 
+from .run_cache_hits import count_hits
+
 # Mirrors test_krea2_model.py's TINY fixture: headdim 16 -> rope_axes [4,6,6].
 TINY = {
     "image_model": "krea2", "features": 32, "heads": 2, "kvheads": 1,
@@ -492,3 +494,16 @@ def test_a_cached_rotary_table_cannot_survive_a_lora_window_edge():
             assert counts.built == 3
     finally:
         hook.close()
+
+
+def test_every_step_after_the_first_hits_the_branch_entry():
+    module = _build_ready()
+    x, te_hidden, _ = _inputs()
+    _, scope = _run_scope(module)
+
+    with scope:
+        hits = count_hits(module.run_cache)
+        for s in SIGMAS:
+            module(x * s, torch.tensor([s]), te_hidden)
+
+    assert hits["krea2.branch"] == len(SIGMAS) - 1

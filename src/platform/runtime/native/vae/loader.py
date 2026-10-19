@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import torch
+from torch import nn
 
 from ..arch.yue2 import vae as yue2_vae
 from ..base import load_into_module
@@ -91,68 +94,103 @@ class _VaeSpec:
         return False
 
 
-def load_vae(
-    path: str | Path,
-    operations: Any,
-    device: str | torch.device = "cpu",
-) -> AutoEncoder2D:
-    """Load a Flux-family 2D VAE from a single safetensors file.
+@dataclass(frozen=True)
+class _BareVae:
+    detect: Callable[[dict], dict | None]
+    module_class: type
+    error_text: str
+    key_prep: Callable[[dict, dict], dict] | None = None
 
-    Detects the variant (``flux_ae``/``flux2_ae``), renames diffusers-layout
-    keys to ldm layout when needed, builds the module via ``operations``, and
-    runs it through the standard load-integrity gate (missing/unexpected key
-    allowlist, ``post_load``, meta/NaN sanity).
-    """
-    path = Path(path)
-    sd, _metadata = load_torch_file(path, device=device)
 
-    config = detect_vae_config(sd)
-    if config is None:
-        raise NativeEngineUnsupportedError(
-            f"'{path.name}' does not look like a Flux-family 2D VAE "
-            "(missing encoder.conv_in.weight / decoder.conv_out.weight)"
-        )
-
+def _prep_flux_keys(sd: dict, config: dict) -> dict:
     if config["key_layout"] == "diffusers":
-        sd = convert_vae_state_dict(sd)
-    else:
-        sd = hoist_nested_quant_convs(sd)
+        return convert_vae_state_dict(sd)
+    return hoist_nested_quant_convs(sd)
 
-    module = AutoEncoder2D.from_config(config, operations)
-    spec = _VaeSpec(family="vae", variant=config["vae_type"])
-    load_into_module(module, sd, spec)
 
+_BARE_VAES = {
+    "flux": _BareVae(
+        detect_vae_config,
+        AutoEncoder2D,
+        "a Flux-family 2D VAE (missing encoder.conv_in.weight / decoder.conv_out.weight)",
+        _prep_flux_keys,
+    ),
+    "causal3d": _BareVae(
+        detect_causal3d_vae_config,
+        AutoEncoderCausal3D,
+        "a Wan-2.1-shaped causal 3D VAE "
+        "(missing decoder.middle.0.residual.0.gamma, or it's the Wan 2.2 shape)",
+    ),
+    "causal3d_v2": _BareVae(
+        detect_causal3d_v2_vae_config,
+        AutoEncoderCausal3D_2_2,
+        "a Wan-2.2-shaped causal 3D VAE "
+        "(missing decoder.middle.0.residual.0.gamma + the nested "
+        "decoder.upsamples.0.upsamples.0.* signature)",
+    ),
+    "qwen_image21": _BareVae(
+        detect_qwen_image21_vae_config,
+        AutoEncoderCausal3D_2_2,
+        "a Qwen-Image-2.1-shaped causal 3D VAE "
+        "(missing the Wan-2.2-shaped nested decoder.upsamples.0.upsamples.0.* "
+        "signature, or decoder.head.2.weight's temporal kernel isn't 1)",
+    ),
+    "seedvr2": _BareVae(
+        detect_seedvr2_vae_config,
+        SeedVR2CausalVideoVAE,
+        "a SeedVR2 causal-video VAE "
+        "(missing a 5D encoder.conv_in.weight / decoder.conv_out.weight, or it "
+        "carries quant_conv / the Wan bottleneck gamma)",
+    ),
+}
+
+
+def _build_bare_vae(spec: _BareVae, path: Path, operations: Any, sd: dict, config: dict) -> nn.Module:
+    if spec.key_prep is not None:
+        sd = spec.key_prep(sd, config)
+    module = spec.module_class.from_config(config, operations)
+    load_into_module(module, sd, _VaeSpec(family="vae", variant=config["vae_type"]))
     logger.debug("loaded %s VAE from %s (latent_channels=%d)", config["vae_type"], path.name, config["latent_channels"])
     return module
 
 
-def load_causal3d_vae(
+def _load_bare_vae(
+    kind: str,
     path: str | Path,
     operations: Any,
     device: str | torch.device = "cpu",
-) -> AutoEncoderCausal3D:
-    """Load the Wan-2.1-shaped causal 3D VAE (Qwen-Image's/Krea-2's checkpoint --
-    see ``vae/causal_3d.py``) from a single safetensors file. Unlike
-    :func:`load_vae`, no key renaming is needed: the checkpoint's key layout
-    matches the module's own naming exactly (see ``causal_3d.py``'s "Key
-    parity" note for how that's arranged).
-    """
+    sd: dict[str, torch.Tensor] | None = None,
+) -> nn.Module:
     path = Path(path)
-    sd, _metadata = load_torch_file(path, device=device)
-
-    config = detect_causal3d_vae_config(sd)
+    if sd is None:
+        sd, _metadata = load_torch_file(path, device=device)
+    spec = _BARE_VAES[kind]
+    config = spec.detect(sd)
     if config is None:
-        raise NativeEngineUnsupportedError(
-            f"'{path.name}' does not look like a Wan-2.1-shaped causal 3D VAE "
-            "(missing decoder.middle.0.residual.0.gamma, or it's the Wan 2.2 shape)"
-        )
+        raise NativeEngineUnsupportedError(f"'{path.name}' does not look like {spec.error_text}")
+    return _build_bare_vae(spec, path, operations, sd, config)
 
-    module = AutoEncoderCausal3D.from_config(config, operations)
-    spec = _VaeSpec(family="vae", variant=config["vae_type"])
-    load_into_module(module, sd, spec)
 
-    logger.debug("loaded %s causal-3D VAE from %s (latent_channels=%d)", config["vae_type"], path.name, config["latent_channels"])
-    return module
+load_vae = partial(_load_bare_vae, "flux")
+load_causal3d_vae = partial(_load_bare_vae, "causal3d")
+load_causal3d_v2_vae = partial(_load_bare_vae, "causal3d_v2")
+load_qwen_image21_vae = partial(_load_bare_vae, "qwen_image21")
+load_seedvr2_vae = partial(_load_bare_vae, "seedvr2")
+
+
+def build_native_vae(path: str | Path, operations: Any, sd: dict[str, torch.Tensor], metadata: dict[str, str]) -> nn.Module:
+    path = Path(path)
+    for spec in _BARE_VAES.values():
+        config = spec.detect(sd)
+        if config is not None:
+            return _build_bare_vae(spec, path, operations, sd, config)
+    if detect_ltx_video_vae_config(metadata) is not None:
+        return load_ltx_video_vae(path, operations, device="cpu", sd=sd, metadata=metadata)
+    if detect_minimax_h3_video_vae_config(sd, metadata) is not None:
+        return load_minimax_h3_video_vae(path, operations, device="cpu", sd=sd, metadata=metadata)
+    if detect_ltx_diffusion_vae_config(metadata) is not None:
+        return load_ltx_diffusion_video_vae(path, operations, device="cpu", sd=sd, metadata=metadata)
+    raise NativeEngineUnsupportedError(f"'{path.name}' matches no known native VAE family")
 
 
 def load_ltx_video_vae(
@@ -441,99 +479,6 @@ def load_minimax_h3_latent_upsampler(
     logger.debug(
         "loaded MiniMax-H3 latent upsampler from %s (channels=%d, num_res_blocks=%d)",
         path.name, config["channels"], config["num_res_blocks"],
-    )
-    return module
-
-
-def load_causal3d_v2_vae(
-    path: str | Path,
-    operations: Any,
-    device: str | torch.device = "cpu",
-) -> AutoEncoderCausal3D_2_2:
-    """Load the Wan-2.2-shaped causal 3D VAE (48ch, patchified -- see
-    ``vae/causal_3d_v2.py``) from a single safetensors file. Same no-rename
-    key parity as :func:`load_causal3d_vae`.
-    """
-    path = Path(path)
-    sd, _metadata = load_torch_file(path, device=device)
-
-    config = detect_causal3d_v2_vae_config(sd)
-    if config is None:
-        raise NativeEngineUnsupportedError(
-            f"'{path.name}' does not look like a Wan-2.2-shaped causal 3D VAE "
-            "(missing decoder.middle.0.residual.0.gamma + the nested "
-            "decoder.upsamples.0.upsamples.0.* signature)"
-        )
-
-    module = AutoEncoderCausal3D_2_2.from_config(config, operations)
-    spec = _VaeSpec(family="vae", variant=config["vae_type"])
-    load_into_module(module, sd, spec)
-
-    logger.debug("loaded %s causal-3D VAE from %s (latent_channels=%d)", config["vae_type"], path.name, config["latent_channels"])
-    return module
-
-
-def load_qwen_image21_vae(
-    path: str | Path,
-    operations: Any,
-    device: str | torch.device = "cpu",
-) -> AutoEncoderCausal3D_2_2:
-    """Load the Qwen-Image-2.1-shaped causal 3D VAE (64ch, RGBA, no patchify --
-    see ``vae/causal_3d_v2.py``) from a single safetensors file. Same
-    ``AutoEncoderCausal3D_2_2`` module class as :func:`load_causal3d_v2_vae`
-    (Wan 2.2), built with this family's hyper-parameters instead; same
-    no-rename key parity.
-    """
-    path = Path(path)
-    sd, _metadata = load_torch_file(path, device=device)
-
-    config = detect_qwen_image21_vae_config(sd)
-    if config is None:
-        raise NativeEngineUnsupportedError(
-            f"'{path.name}' does not look like a Qwen-Image-2.1-shaped causal 3D VAE "
-            "(missing the Wan-2.2-shaped nested decoder.upsamples.0.upsamples.0.* "
-            "signature, or decoder.head.2.weight's temporal kernel isn't 1)"
-        )
-
-    module = AutoEncoderCausal3D_2_2.from_config(config, operations)
-    spec = _VaeSpec(family="vae", variant=config["vae_type"])
-    load_into_module(module, sd, spec)
-
-    logger.debug("loaded %s causal-3D VAE from %s (latent_channels=%d)", config["vae_type"], path.name, config["latent_channels"])
-    return module
-
-
-def load_seedvr2_vae(
-    path: str | Path,
-    operations: Any,
-    device: str | torch.device = "cpu",
-) -> SeedVR2CausalVideoVAE:
-    """Load the SeedVR2 causal-video VAE (``vae/seedvr2_causal_video.py``) from a
-    single safetensors file. Like :func:`load_causal3d_vae`, no key renaming is
-    needed: the checkpoint stores the already-inflated 5D conv weights at the
-    exact module paths (diffusers ``AutoencoderKL`` layout, verbatim). The
-    module carries no computed buffers, and its fixed latent scaling (``0.9152``)
-    lives inside ``encode``/``decode`` — the engine must not layer the wan21
-    per-channel transform on top (see ``NativeGenerator._is_self_normalizing_vae``).
-    """
-    path = Path(path)
-    sd, _metadata = load_torch_file(path, device=device)
-
-    config = detect_seedvr2_vae_config(sd)
-    if config is None:
-        raise NativeEngineUnsupportedError(
-            f"'{path.name}' does not look like a SeedVR2 causal-video VAE "
-            "(missing a 5D encoder.conv_in.weight / decoder.conv_out.weight, or it "
-            "carries quant_conv / the Wan bottleneck gamma)"
-        )
-
-    module = SeedVR2CausalVideoVAE.from_config(config, operations)
-    spec = _VaeSpec(family="vae", variant=config["vae_type"])
-    load_into_module(module, sd, spec)
-
-    logger.debug(
-        "loaded seedvr2 causal-video VAE from %s (latent_channels=%d)",
-        path.name, config["latent_channels"],
     )
     return module
 
