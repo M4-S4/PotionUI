@@ -37,7 +37,7 @@ EXPECTED_TOOLS = {
     "create_saved_segment", "update_saved_segment", "delete_saved_segment",
     "create_segment_template", "update_segment_template", "delete_segment_template",
     "get_model_info", "get_preset_info", "list_presets",
-    "list_phrasebook_categories", "get_phrasebook_values", "list_phrasebook_values",
+    "list_phrasebook_categories", "get_phrasebook_values",
     "create_phrasebook_category", "update_phrasebook_category", "delete_phrasebook_category",
     "create_phrasebook_values", "remove_phrasebook_values", "update_phrasebook_values",
     "enhance_prompt", "search_model_prompts", "search_gallery",
@@ -272,8 +272,7 @@ READ_CALLS = [
     ("list_library_items", {}),
     ("search_models", {"query": "m"}),
     ("list_phrasebook_categories", {}),
-    ("get_phrasebook_values", {"category_id": "pb-1"}),
-    ("list_phrasebook_values", {"category": "camera"}),
+    ("get_phrasebook_values", {"category": "pb-1"}),
     ("search_model_prompts", {"queries": ["fox"]}),
     ("search_gallery", {"queries": ["fox"]}),
     ("list_prompts", {}),
@@ -308,7 +307,7 @@ class TestReadToolsWithoutSessionContext:
     @pytest.mark.asyncio
     async def test_read_tools_return_the_seeded_rows(self, world):
         segments = _payload(await _call(world, "get_saved_segments", {}))
-        phrase_values = _payload(await _call(world, "get_phrasebook_values", {"category_id": "pb-1"}))
+        phrase_values = _payload(await _call(world, "get_phrasebook_values", {"category": "pb-1"}))
         presets = _payload(await _call(world, "list_presets", {}))
         searched = _payload(await _call(world, "search_model_prompts", {"queries": ["fox"]}))
         recent = _payload(await _call(world, "organize_gallery", {"operation": "list_recent"}))

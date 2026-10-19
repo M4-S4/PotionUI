@@ -21,7 +21,6 @@ from src.features.llm.tools.builtin.preset_info_tool import GetPresetInfoTool, L
 from src.features.llm.tools.builtin.phrasebook_tool import (
     ListPhrasebookCategoriesTool,
     GetPhrasebookValuesTool,
-    ListPhrasebookValuesTool,
     CreatePhrasebookCategoryTool,
     UpdatePhrasebookCategoryTool,
     DeletePhrasebookCategoryTool,
@@ -78,7 +77,6 @@ def register_builtin_tools(registry) -> None:
         ListPresetsTool(),
         ListPhrasebookCategoriesTool(),
         GetPhrasebookValuesTool(),
-        ListPhrasebookValuesTool(),
         CreatePhrasebookCategoryTool(),
         UpdatePhrasebookCategoryTool(),
         DeletePhrasebookCategoryTool(),

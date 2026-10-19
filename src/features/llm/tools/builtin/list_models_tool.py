@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.content_safety.restrict import provider_flags_nsfw
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
-from src.features.llm.tools.builtin.utils import allowed_model_ids, viewer_is_restricted
+from src.features.llm.tools.builtin.utils import allowed_model_ids, parse_page, viewer_is_restricted
 from src.features.models.attributes.well_known import WellKnownModelAttribute
 from src.features.models.type_repository import ModelTypeRepository
 
@@ -174,12 +174,9 @@ class SearchModelsTool(BaseTool):
         if not context.model_index_manager:
             return ToolResult(success=False, data="", error="Models are not available on this server.")
         try:
-            raw_limit = kwargs.get("limit")
-            limit = DEFAULT_SEARCH_LIMIT if raw_limit in (None, "") else int(raw_limit)
-            offset = max(0, int(kwargs.get("offset") or 0))
-        except (TypeError, ValueError):
-            return ToolResult(success=False, data="", error="'limit' and 'offset' must be integers.")
-        limit = min(max(1, limit), MAX_SEARCH_LIMIT)
+            offset, limit = parse_page(kwargs, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT)
+        except ValueError as exc:
+            return ToolResult(success=False, data="", error=str(exc))
         query = (kwargs.get("query") or "").strip()
         model_type = (kwargs.get("type") or kwargs.get("model_type") or "").strip()
         models, has_more = visible_models(context, model_type, query, limit, offset, probe_more=True)

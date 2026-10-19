@@ -15,7 +15,7 @@ from typing import Any, Dict, Tuple, Union
 
 from src.features.collections import operations
 from src.features.collections.dto import ALLOWED_SCOPES
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.base import ApprovalTool, ToolApprovalPreview, ToolContext, ToolResult
 
 _OPERATIONS = ("list", "create", "rename", "delete", "add_items", "remove_items")
 
@@ -32,8 +32,9 @@ _ID_KIND_OPERATIONS = {
 _ID_KIND_LABEL = {"generation_ids": "generation", "upload_ids": "upload", "prompt_ids": "prompt"}
 
 
-class ManageCollectionsTool(BaseTool):
-    """Create, rename, delete collections and move generations/library items/prompts in/out of them."""
+class ManageCollectionsTool(ApprovalTool):
+    repositories = ("collection_repository",)
+    unavailable_error = "Collections not available"
 
     modes = ["history"]
     icon = "folder"
@@ -42,7 +43,6 @@ class ManageCollectionsTool(BaseTool):
     name = "manage_collections"
     group = "Collections"
     user_description = "Creates, renames, deletes collections and adds/removes generations, library items, or prompts from them."
-    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -145,99 +145,94 @@ class ManageCollectionsTool(BaseTool):
             )
         return kind, ids
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Preview of the proposed action; performs no mutation. `list` has no
-        mutation to preview, so it returns the real listing directly."""
-        repository = context.collection_repository
-        if repository is None:
-            return ToolResult(success=False, data="", error="Collections not available")
-
+    @staticmethod
+    def _operation_scope(kwargs: Dict[str, Any]) -> Tuple[str, str]:
         operation = kwargs.get("operation")
         if operation not in _OPERATIONS:
-            return ToolResult(success=False, data="", error=f"'operation' must be one of {list(_OPERATIONS)}")
-
+            raise ValueError(f"'operation' must be one of {list(_OPERATIONS)}")
         scope = kwargs.get("scope")
         if scope not in ALLOWED_SCOPES:
-            return ToolResult(success=False, data="", error=f"'scope' is required and must be one of {list(ALLOWED_SCOPES)}")
+            raise ValueError(f"'scope' is required and must be one of {list(ALLOWED_SCOPES)}")
+        return operation, scope
 
-        try:
-            if operation == "list":
-                return self._list(repository, context.user_id, scope)
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        repository = context.collection_repository
+        operation, scope = self._operation_scope(kwargs)
 
-            if operation == "create":
-                name = (kwargs.get("name") or "").strip()
-                if not name:
-                    return self._missing("name")
-                parent_id = kwargs.get("parent_id")
-                preview = ToolApprovalPreview(
-                    action="Create collection", items=[name],
-                    target=f"under {parent_id}" if parent_id else None,
-                )
-                return ToolResult(success=True, data=json.dumps({
-                    "action": "create_collection",
-                    "proposal": {"name": name, "scope": scope, "parent_id": parent_id},
-                    "message": f"Collection '{name}' will be created. Please confirm.",
-                }), preview=preview)
+        if operation == "list":
+            return self._list(repository, context.user_id, scope)
 
-            if operation == "rename":
-                collection_id = kwargs.get("collection_id")
-                name = (kwargs.get("name") or "").strip()
-                if not collection_id:
-                    return self._missing("collection_id")
-                if not name:
-                    return self._missing("name")
-                existing = operations.get_collection(repository, collection_id, context.user_id, scope)
-                preview = ToolApprovalPreview(
-                    action="Rename collection", items=[f"{existing.name} -> {name}"],
-                )
-                return ToolResult(success=True, data=json.dumps({
-                    "action": "rename_collection",
-                    "proposal": {"collection_id": collection_id, "scope": scope, "old_name": existing.name, "new_name": name},
-                    "message": f"Collection '{existing.name}' will be renamed to '{name}'. Please confirm.",
-                }), preview=preview)
+        if operation == "create":
+            name = (kwargs.get("name") or "").strip()
+            if not name:
+                return self._missing("name")
+            parent_id = kwargs.get("parent_id")
+            preview = ToolApprovalPreview(
+                action="Create collection", items=[name],
+                target=f"under {parent_id}" if parent_id else None,
+            )
+            return ToolResult(success=True, data=json.dumps({
+                "action": "create_collection",
+                "proposal": {"name": name, "scope": scope, "parent_id": parent_id},
+                "message": f"Collection '{name}' will be created. Please confirm.",
+            }), preview=preview)
 
-            if operation == "delete":
-                collection_id = kwargs.get("collection_id")
-                if not collection_id:
-                    return self._missing("collection_id")
-                existing = operations.get_collection(repository, collection_id, context.user_id, scope)
-                preview = ToolApprovalPreview(
-                    action="Delete collection", items=[existing.name],
-                    note=f"{existing.item_count or 0} membership(s) will also be removed",
-                )
-                return ToolResult(success=True, data=json.dumps({
-                    "action": "delete_collection",
-                    "proposal": {"collection_id": collection_id, "scope": scope, "name": existing.name, "item_count": existing.item_count},
-                    "message": f"Collection '{existing.name}' will be permanently deleted. Please confirm.",
-                }), preview=preview)
+        if operation == "rename":
+            collection_id = kwargs.get("collection_id")
+            name = (kwargs.get("name") or "").strip()
+            if not collection_id:
+                return self._missing("collection_id")
+            if not name:
+                return self._missing("name")
+            existing = operations.get_collection(repository, collection_id, context.user_id, scope)
+            preview = ToolApprovalPreview(
+                action="Rename collection", items=[f"{existing.name} -> {name}"],
+            )
+            return ToolResult(success=True, data=json.dumps({
+                "action": "rename_collection",
+                "proposal": {"collection_id": collection_id, "scope": scope, "old_name": existing.name, "new_name": name},
+                "message": f"Collection '{existing.name}' will be renamed to '{name}'. Please confirm.",
+            }), preview=preview)
 
-            # add_items / remove_items
+        if operation == "delete":
             collection_id = kwargs.get("collection_id")
             if not collection_id:
                 return self._missing("collection_id")
-            resolved = self._resolve_membership_kind(kwargs, scope)
-            if isinstance(resolved, ToolResult):
-                return resolved
-            kind, ids = resolved
             existing = operations.get_collection(repository, collection_id, context.user_id, scope)
-            verb = "Add" if operation == "add_items" else "Remove"
-            label = _ID_KIND_LABEL[kind]
-            items = [f"{label}:{i}" for i in ids]
             preview = ToolApprovalPreview(
-                action=f"{verb} items", items=items, target=f"{'to' if verb == 'Add' else 'from'} '{existing.name}'",
+                action="Delete collection", items=[existing.name],
+                note=f"{existing.item_count or 0} membership(s) will also be removed",
             )
             return ToolResult(success=True, data=json.dumps({
-                "action": operation,
-                "proposal": {
-                    "collection_id": collection_id, "collection_name": existing.name, "scope": scope, kind: ids,
-                },
-                "message": (
-                    f"{len(ids)} {label}(s) will be "
-                    f"{'added to' if verb == 'Add' else 'removed from'} '{existing.name}'. Please confirm."
-                ),
+                "action": "delete_collection",
+                "proposal": {"collection_id": collection_id, "scope": scope, "name": existing.name, "item_count": existing.item_count},
+                "message": f"Collection '{existing.name}' will be permanently deleted. Please confirm.",
             }), preview=preview)
-        except ValueError as e:
-            return ToolResult(success=False, data="", error=str(e))
+
+        collection_id = kwargs.get("collection_id")
+        if not collection_id:
+            return self._missing("collection_id")
+        resolved = self._resolve_membership_kind(kwargs, scope)
+        if isinstance(resolved, ToolResult):
+            return resolved
+        kind, ids = resolved
+        existing = operations.get_collection(repository, collection_id, context.user_id, scope)
+        verb = "Add" if operation == "add_items" else "Remove"
+        label = _ID_KIND_LABEL[kind]
+        items = [f"{label}:{i}" for i in ids]
+        preview = ToolApprovalPreview(
+            action=f"{verb} items", items=items, target=f"{'to' if verb == 'Add' else 'from'} '{existing.name}'",
+        )
+        return ToolResult(success=True, data=json.dumps({
+            "action": operation,
+            "proposal": {
+                "collection_id": collection_id, "collection_name": existing.name, "scope": scope, kind: ids,
+            },
+            "message": (
+                f"{len(ids)} {label}(s) will be "
+                f"{'added to' if verb == 'Add' else 'removed from'} '{existing.name}'. Please confirm."
+            ),
+        }), preview=preview)
 
     @staticmethod
     def _list(repository, user_id: str, scope: str) -> ToolResult:
@@ -247,66 +242,54 @@ class ManageCollectionsTool(BaseTool):
             "total": len(collections),
         }))
 
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
+    def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         repository = context.collection_repository
-        if repository is None:
-            return ToolResult(success=False, data="", error="Collections not available")
+        operation, scope = self._operation_scope(kwargs)
 
-        operation = kwargs.get("operation")
-        if operation not in _OPERATIONS:
-            return ToolResult(success=False, data="", error=f"'operation' must be one of {list(_OPERATIONS)}")
+        if operation == "list":
+            return self._list(repository, context.user_id, scope)
 
-        scope = kwargs.get("scope")
-        if scope not in ALLOWED_SCOPES:
-            return ToolResult(success=False, data="", error=f"'scope' is required and must be one of {list(ALLOWED_SCOPES)}")
+        if operation == "create":
+            name = (kwargs.get("name") or "").strip()
+            if not name:
+                return self._missing("name")
+            collection = operations.create_collection(repository, name, context.user_id, scope, kwargs.get("parent_id"))
+            return ToolResult(success=True, data=json.dumps({
+                "action": "create_collection", "success": True, "collection": collection.to_dict(),
+            }))
 
-        try:
-            if operation == "list":
-                return self._list(repository, context.user_id, scope)
+        if operation == "rename":
+            collection_id = kwargs.get("collection_id")
+            name = (kwargs.get("name") or "").strip()
+            if not collection_id:
+                return self._missing("collection_id")
+            if not name:
+                return self._missing("name")
+            collection = operations.rename_collection(repository, collection_id, name, context.user_id, scope)
+            return ToolResult(success=True, data=json.dumps({
+                "action": "rename_collection", "success": True, "collection": collection.to_dict(),
+            }))
 
-            if operation == "create":
-                name = (kwargs.get("name") or "").strip()
-                if not name:
-                    return self._missing("name")
-                collection = operations.create_collection(repository, name, context.user_id, scope, kwargs.get("parent_id"))
-                return ToolResult(success=True, data=json.dumps({
-                    "action": "create_collection", "success": True, "collection": collection.to_dict(),
-                }))
-
-            if operation == "rename":
-                collection_id = kwargs.get("collection_id")
-                name = (kwargs.get("name") or "").strip()
-                if not collection_id:
-                    return self._missing("collection_id")
-                if not name:
-                    return self._missing("name")
-                collection = operations.rename_collection(repository, collection_id, name, context.user_id, scope)
-                return ToolResult(success=True, data=json.dumps({
-                    "action": "rename_collection", "success": True, "collection": collection.to_dict(),
-                }))
-
-            if operation == "delete":
-                collection_id = kwargs.get("collection_id")
-                if not collection_id:
-                    return self._missing("collection_id")
-                operations.delete_collection(repository, collection_id, context.user_id, scope)
-                return ToolResult(success=True, data=json.dumps({
-                    "action": "delete_collection", "success": True, "collection_id": collection_id,
-                }))
-
+        if operation == "delete":
             collection_id = kwargs.get("collection_id")
             if not collection_id:
                 return self._missing("collection_id")
-            resolved = self._resolve_membership_kind(kwargs, scope)
-            if isinstance(resolved, ToolResult):
-                return resolved
-            kind, ids = resolved
-            add_op_name, remove_op_name = _ID_KIND_OPERATIONS[kind]
-            op = getattr(operations, add_op_name if operation == "add_items" else remove_op_name)
-            changed = op(repository, collection_id, ids, context.user_id, scope)
+            operations.delete_collection(repository, collection_id, context.user_id, scope)
             return ToolResult(success=True, data=json.dumps({
-                "action": operation, "success": True, "collection_id": collection_id,
-                "scope": scope, "changed": changed,
+                "action": "delete_collection", "success": True, "collection_id": collection_id,
             }))
-        except ValueError as e:
-            return ToolResult(success=False, data="", error=str(e))
+
+        collection_id = kwargs.get("collection_id")
+        if not collection_id:
+            return self._missing("collection_id")
+        resolved = self._resolve_membership_kind(kwargs, scope)
+        if isinstance(resolved, ToolResult):
+            return resolved
+        kind, ids = resolved
+        add_op_name, remove_op_name = _ID_KIND_OPERATIONS[kind]
+        op = getattr(operations, add_op_name if operation == "add_items" else remove_op_name)
+        changed = op(repository, collection_id, ids, context.user_id, scope)
+        return ToolResult(success=True, data=json.dumps({
+            "action": operation, "success": True, "collection_id": collection_id,
+            "scope": scope, "changed": changed,
+        }))

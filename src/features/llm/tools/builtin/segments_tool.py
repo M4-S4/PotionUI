@@ -3,7 +3,7 @@
 import json
 from typing import Any, Dict, Optional
 
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.base import ApprovalTool, BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.manage_prompts_tool import RICH_SEGMENT_SCHEMA
 from src.features.segments import operations
 from src.features.segments.dto import SavedSegmentRequest, SegmentCategoryRequest, SegmentTemplateRequest
@@ -229,51 +229,23 @@ def _preview_fields(request, existing, labels) -> list:
     return fields
 
 
-class _SegmentWriteTool(BaseTool):
+class _SegmentWriteTool(ApprovalTool):
     modes = ["generation"]
     icon = "layers"
     context_group = "library"
-    repositories: tuple = ()
+    unavailable_error = "Segment manager not available"
 
     group = "Form & segments"
-    requires_approval = True
 
-    def _available(self, context: ToolContext) -> Optional[ToolResult]:
-        if context.plugin_registry is None or any(
-            getattr(context, attr) is None for attr in self.repositories
-        ):
-            return _fail("Segment manager not available")
-        return None
+    def _unavailable(self, context: ToolContext) -> Optional[ToolResult]:
+        if context.plugin_registry is None:
+            return _fail(self.unavailable_error)
+        return super()._unavailable(context)
 
     def _missing_id(self, key: str, kwargs) -> Optional[ToolResult]:
         if not kwargs.get(key):
             return _fail(f"{key} is required")
         return None
-
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        unavailable = self._available(context)
-        if unavailable:
-            return unavailable
-        try:
-            return self._preview(context, kwargs)
-        except ValueError as exc:
-            return _fail(str(exc))
-
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        unavailable = self._available(context)
-        if unavailable:
-            return unavailable
-        try:
-            return self._apply(context, kwargs)
-        except ValueError as exc:
-            return _fail(str(exc))
-
-    def _proposal(self, preview: ToolApprovalPreview, payload: Dict[str, Any], message: str) -> ToolResult:
-        return ToolResult(
-            success=True,
-            data=json.dumps({"action": self.name, "proposal": payload, "message": message}),
-            preview=preview,
-        )
 
 
 class _SavedSegmentTool(_SegmentWriteTool):

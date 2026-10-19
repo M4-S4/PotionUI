@@ -34,12 +34,13 @@ class StartGenerationTool(BaseTool):
     user_description = "Starts a generation from a chosen preset, without needing an open form."
     requires_approval = True
 
+    def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
+        return not form_state
+
     @property
     def description(self) -> str:
         return (
             "Start a generation for an explicit preset, independent of any live form state. "
-            "{{#if run_generation}}Use it only when there is no open Generate form; otherwise "
-            "use run_generation. {{/if}}"
             "Unset fields fall back to the preset's own defaults. Get preset ids from list_presets "
             "and a preset's modes and field names from get_preset_info. Requires user approval; "
             "returns the generation_id once started. For several distinct prompts in one run, pass "

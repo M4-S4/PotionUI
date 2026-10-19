@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict, List
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.builtin.utils import parse_page
 from src.features.llm.tools.errors import unexpected
 from src.features.presets import operations as preset_operations
 from src.features.presets.form_overrides import mode_field_inventory
@@ -90,12 +91,9 @@ class ListPresetsTool(BaseTool):
         query = (kwargs.get("query") or "").strip().lower()
         engine = (kwargs.get("engine") or "").strip().lower()
         try:
-            offset = max(0, int(kwargs.get("offset") or 0))
-            raw_limit = kwargs.get("limit")
-            limit = DEFAULT_PRESET_LIMIT if raw_limit in (None, "") else int(raw_limit)
-        except (TypeError, ValueError):
-            return ToolResult(success=False, data="", error="'offset' and 'limit' must be integers.")
-        limit = min(max(1, limit), MAX_PRESET_LIMIT)
+            offset, limit = parse_page(kwargs, DEFAULT_PRESET_LIMIT, MAX_PRESET_LIMIT)
+        except ValueError as exc:
+            return ToolResult(success=False, data="", error=str(exc))
         presets = preset_operations.list_presets(context.preset_collaborators, _stand_in_user(context))
         matching = sorted(
             (p for p in presets if self._matches(p, query, engine)),

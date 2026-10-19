@@ -94,7 +94,7 @@ class TestGenerationTiers:
 class TestPageModesKeepTheirOwnTools:
     def test_phrasebook_mode_keeps_its_write_tools_on_compact(self):
         _prompt, allowed, _mode, deferred = _resolve(_builder(), _COMPACT, "phrasebook")
-        assert {"create_phrasebook_values", "remove_phrasebook_values", "list_phrasebook_values"} <= set(allowed)
+        assert {"create_phrasebook_values", "remove_phrasebook_values", "get_phrasebook_values"} <= set(allowed)
         assert set(deferred) == {"memory_maintenance"}
 
     def test_history_and_prompts_keep_their_library_tools_on_compact(self):

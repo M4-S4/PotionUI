@@ -33,6 +33,14 @@ def make_orchestrator(generation_id: str = "gen-123") -> AsyncMock:
     return orchestrator
 
 
+class TestAvailability:
+    def test_offered_only_without_an_open_form(self):
+        tool = StartGenerationTool()
+        assert tool.is_available(None) is True
+        assert tool.is_available({}) is True
+        assert tool.is_available({"preset": "sdxl", "form_data": {"prompt": "a fox"}}) is False
+
+
 class TestSchema:
     def test_identity(self):
         tool = StartGenerationTool()

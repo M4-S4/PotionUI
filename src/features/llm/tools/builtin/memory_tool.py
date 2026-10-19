@@ -3,7 +3,7 @@
 import json
 from typing import Any, Dict, Optional
 
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.base import ApprovalTool, BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import resolve_active_model_id, resolve_active_preset_id
 from src.features.llm.tools.errors import unexpected
 from src.features.llm_memory import operations as memory_operations
@@ -80,39 +80,36 @@ def _resolve_scope_ref(scope: str, scope_ref: Any, context: ToolContext) -> Any:
 
 
 def _resolve_target_note(context: ToolContext, kwargs: Dict[str, Any]):
-    """Resolve the note an update_memory call targets, by note_id or by
-    (scope, key). Returns (note, error) -- exactly one is None.
-    """
     note_id = kwargs.get("note_id")
     if note_id:
         try:
             note = memory_operations.get_note(context.llm_memory_repository, user_id=context.user_id, note_id=note_id)
         except Exception as e:
-            return None, unexpected("update_memory", "fetch note", e, context.is_admin)
+            raise ValueError(unexpected("update_memory", "fetch note", e, context.is_admin)) from None
         if note is None:
-            return None, f"Memory note with id '{note_id}' not found"
-        return note, None
+            raise ValueError(f"Memory note with id '{note_id}' not found")
+        return note
 
     scope = kwargs.get("scope")
     key = kwargs.get("key")
     if not scope or not key:
-        return None, "Provide either note_id, or both scope and key, to address the note"
+        raise ValueError("Provide either note_id, or both scope and key, to address the note")
 
     scope_ref = _resolve_scope_ref(scope, kwargs.get("scope_ref"), context)
     if scope == "session" and not scope_ref:
-        return None, _no_session_error(context)
+        raise ValueError(_no_session_error(context))
     try:
         note = memory_operations.get_note_by_key(
             context.llm_memory_repository, user_id=context.user_id, key=key, scope=scope, scope_ref=scope_ref,
         )
-    except ValueError as e:
-        return None, str(e)
+    except ValueError:
+        raise
     except Exception as e:
-        return None, unexpected("update_memory", "fetch note", e, context.is_admin)
+        raise ValueError(unexpected("update_memory", "fetch note", e, context.is_admin)) from None
     if note is None:
         ref_desc = f" (scope_ref='{scope_ref}')" if scope_ref else ""
-        return None, f"No memory note found with key '{key}' at scope '{scope}'{ref_desc}"
-    return note, None
+        raise ValueError(f"No memory note found with key '{key}' at scope '{scope}'{ref_desc}")
+    return note
 
 
 def _mentions(name: Any, content: str) -> bool:
@@ -405,16 +402,17 @@ class ReadMemoryTool(BaseTool):
         return ToolResult(success=True, data=json.dumps(payload))
 
 
-class DeleteMemoryTool(BaseTool):
-    """Removes a persistent memory note."""
-
+class _MemoryApprovalTool(ApprovalTool):
     icon = "brain"
     context_group = "memory_maintenance"
-
-    name = "delete_memory"
     group = "Memory"
+    repositories = ("llm_memory_repository",)
+    unavailable_error = "Memory manager not available"
+
+
+class DeleteMemoryTool(_MemoryApprovalTool):
+    name = "delete_memory"
     user_description = "Deletes one of the assistant's saved memory notes."
-    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -436,14 +434,10 @@ class DeleteMemoryTool(BaseTool):
             "required": ["note_id"],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Proposal phase: fetch note and show preview for confirmation."""
-        if not context.llm_memory_repository:
-            return ToolResult(success=False, data="", error="Memory manager not available")
-
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         note_id = kwargs.get("note_id")
         if not note_id:
-            return ToolResult(success=False, data="", error="note_id is required")
+            raise ValueError("note_id is required")
 
         note = memory_operations.get_note(
             context.llm_memory_repository,
@@ -452,10 +446,7 @@ class DeleteMemoryTool(BaseTool):
         )
 
         if note is None:
-            return ToolResult(
-                success=False, data="",
-                error=f"Memory note with id '{note_id}' not found",
-            )
+            raise ValueError(f"Memory note with id '{note_id}' not found")
 
         proposal = {
             "note_id": note_id,
@@ -472,24 +463,12 @@ class DeleteMemoryTool(BaseTool):
             summary=_truncate(note.content),
         )
 
-        return ToolResult(
-            success=True,
-            data=json.dumps({
-                "action": "delete_memory",
-                "proposal": proposal,
-                "message": "The following memory note will be permanently deleted. Please confirm.",
-            }),
-            preview=preview,
-        )
+        return self._proposal(preview, proposal, "The following memory note will be permanently deleted. Please confirm.")
 
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Mutation phase: permanently delete the note."""
-        if not context.llm_memory_repository:
-            return ToolResult(success=False, data="", error="Memory manager not available")
-
+    def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         note_id = kwargs.get("note_id")
         if not note_id:
-            return ToolResult(success=False, data="", error="note_id is required")
+            raise ValueError("note_id is required")
 
         success = memory_operations.delete_note(
             context.llm_memory_repository,
@@ -497,10 +476,7 @@ class DeleteMemoryTool(BaseTool):
             note_id=note_id,
         )
         if not success:
-            return ToolResult(
-                success=False, data="",
-                error=f"Memory note with id '{note_id}' could not be deleted (not found)",
-            )
+            raise ValueError(f"Memory note with id '{note_id}' could not be deleted (not found)")
         return ToolResult(
             success=True,
             data=json.dumps({
@@ -512,16 +488,9 @@ class DeleteMemoryTool(BaseTool):
         )
 
 
-class UpdateMemoryTool(BaseTool):
-    """Edits an existing persistent memory note's key/content in place."""
-
-    icon = "brain"
-    context_group = "memory_maintenance"
-
+class UpdateMemoryTool(_MemoryApprovalTool):
     name = "update_memory"
-    group = "Memory"
     user_description = "Edits one of the assistant's saved memory notes."
-    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -582,22 +551,13 @@ class UpdateMemoryTool(BaseTool):
             "required": [],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Proposal phase: fetch the note and show an old -> new preview for confirmation."""
-        if not context.llm_memory_repository:
-            return ToolResult(success=False, data="", error="Memory manager not available")
-
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         new_key = kwargs.get("new_key")
         new_content = kwargs.get("content")
         if not new_key and not new_content:
-            return ToolResult(
-                success=False, data="",
-                error="At least one of 'new_key' or 'content' must be given to update the note",
-            )
+            raise ValueError("At least one of 'new_key' or 'content' must be given to update the note")
 
-        note, error = _resolve_target_note(context, kwargs)
-        if error:
-            return ToolResult(success=False, data="", error=error)
+        note = _resolve_target_note(context, kwargs)
 
         resolved_key = new_key or note.key
         resolved_content = new_content or note.content
@@ -627,40 +587,25 @@ class UpdateMemoryTool(BaseTool):
             preview=preview,
         )
 
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Mutation phase: apply the confirmed key/content update."""
-        if not context.llm_memory_repository:
-            return ToolResult(success=False, data="", error="Memory manager not available")
+    def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        note = _resolve_target_note(context, kwargs)
 
-        note, error = _resolve_target_note(context, kwargs)
-        if error:
-            return ToolResult(success=False, data="", error=error)
-
-        new_key = kwargs.get("new_key") or note.key
-        new_content = kwargs.get("content") or note.content
-
-        try:
-            updated = memory_operations.update_note(
-                context.llm_memory_repository,
-                user_id=context.user_id,
-                note_id=note.id,
-                key=new_key,
-                content=new_content,
-            )
-            if updated is None:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"Memory note with id '{note.id}' could not be updated (not found)",
-                )
-            return ToolResult(
-                success=True,
-                data=json.dumps({
-                    "action": "update_memory",
-                    "success": True,
-                    "note_id": note.id,
-                    "key": updated.key,
-                    "message": f"Memory note {note.id} updated successfully.",
-                }),
-            )
-        except ValueError as e:
-            return ToolResult(success=False, data="", error=str(e))
+        updated = memory_operations.update_note(
+            context.llm_memory_repository,
+            user_id=context.user_id,
+            note_id=note.id,
+            key=kwargs.get("new_key") or note.key,
+            content=kwargs.get("content") or note.content,
+        )
+        if updated is None:
+            raise ValueError(f"Memory note with id '{note.id}' could not be updated (not found)")
+        return ToolResult(
+            success=True,
+            data=json.dumps({
+                "action": "update_memory",
+                "success": True,
+                "note_id": note.id,
+                "key": updated.key,
+                "message": f"Memory note {note.id} updated successfully.",
+            }),
+        )

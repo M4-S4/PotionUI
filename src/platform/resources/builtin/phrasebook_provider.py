@@ -4,12 +4,6 @@ Paths mirror the phrasebook category tree's dotted ``path`` field:
 ``phrasebook.camera.angles`` resolves to that category's orientation
 snapshot (state, total value count, subcategories, and a small sample);
 ``phrasebook.camera.angles.<value label>`` resolves to a single value.
-
-A category can hold hundreds of values, so resolving it never dumps the
-full value list into the conversation — that would blow up context for no
-benefit. The resolved content is for orientation only; the LLM pages through
-the actual data with the ``list_phrasebook_values`` tool (search +
-offset/limit) when it needs more than the sample.
 """
 
 import logging
@@ -171,7 +165,7 @@ class PhrasebookResourceProvider(BaseResourceProvider):
         if len(values) > len(sample):
             lines.append(
                 f"…and {len(values) - len(sample)} more. This is a sample, not the full list — use "
-                "list_phrasebook_values (with search or offset/limit paging) to see the rest."
+                "get_phrasebook_values (with search or offset/limit paging) to see the rest."
             )
 
         return ResolvedResource(

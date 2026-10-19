@@ -62,7 +62,7 @@ class TestScopeModeShape:
 
     def test_phrasebook_prompt_keeps_the_look_before_you_change_rule(self):
         registry = ChatModeRegistry()
-        prompt = registry.resolve_system_prompt(build_phrasebook_mode(), "", ["list_phrasebook_values"])
+        prompt = registry.resolve_system_prompt(build_phrasebook_mode(), "", ["get_phrasebook_values"])
         assert "{{#if" not in prompt
         assert "Look up what exists before you change it" in prompt
 
@@ -127,13 +127,12 @@ class TestScopeModeToolMembership:
         names = {t.name for t in registry.get_for_mode(build_models_mode())}
         assert "organize_gallery" not in names
 
-    def test_phrasebook_mode_sees_all_seven_phrasebook_tools(self):
+    def test_phrasebook_mode_sees_all_six_phrasebook_tools(self):
         registry = self._registry()
         names = {t.name for t in registry.get_for_mode(build_phrasebook_mode())}
         assert names >= {
             "list_phrasebook_categories",
             "get_phrasebook_values",
-            "list_phrasebook_values",
             "create_phrasebook_category",
             "create_phrasebook_values",
             "remove_phrasebook_values",

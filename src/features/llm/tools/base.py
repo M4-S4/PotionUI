@@ -1,5 +1,7 @@
 """Base classes and data models for the LLM tool system."""
 
+import inspect
+import json
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -239,3 +241,45 @@ class BaseTool(ABC):
                 "parameters": self.parameters
             }
         }
+
+
+class ApprovalTool(BaseTool):
+    requires_approval = True
+    repositories: tuple = ()
+    unavailable_error = "Manager not available"
+
+    def _unavailable(self, context: ToolContext) -> Optional[ToolResult]:
+        if any(getattr(context, attr) is None for attr in self.repositories):
+            return ToolResult(success=False, data="", error=self.unavailable_error)
+        return None
+
+    async def _run(self, step, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        unavailable = self._unavailable(context)
+        if unavailable:
+            return unavailable
+        try:
+            result = step(context, kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except ValueError as exc:
+            return ToolResult(success=False, data="", error=str(exc))
+
+    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        return await self._run(self._preview, context, kwargs)
+
+    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
+        return await self._run(self._apply, context, kwargs)
+
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        raise NotImplementedError
+
+    def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        raise NotImplementedError
+
+    def _proposal(self, preview: ToolApprovalPreview, payload: Dict[str, Any], message: str) -> ToolResult:
+        return ToolResult(
+            success=True,
+            data=json.dumps({"action": self.name, "proposal": payload, "message": message}),
+            preview=preview,
+        )

@@ -14,7 +14,6 @@ from src.features.llm.tools.builtin import (
     GetPresetInfoTool,
     ListPhrasebookCategoriesTool,
     GetPhrasebookValuesTool,
-    ListPhrasebookValuesTool,
     CreatePhrasebookCategoryTool,
     CreatePhrasebookValuesTool,
     RemovePhrasebookValuesTool,
@@ -110,7 +109,6 @@ class TestRegisterBuiltinTools:
             "list_library_items",
             "list_phrasebook_categories",
             "get_phrasebook_values",
-            "list_phrasebook_values",
             "create_phrasebook_category",
             "create_phrasebook_values",
             "remove_phrasebook_values",
@@ -819,218 +817,12 @@ class TestGetPhrasebookValuesTool:
     def _tool(self):
         return GetPhrasebookValuesTool()
 
-    def test_name_and_schema(self):
-        tool = self._tool()
-        assert tool.name == "get_phrasebook_values"
-        schema = tool.to_schema()
-        assert "category_id" in schema["function"]["parameters"]["properties"]
-        assert "category_id" in schema["function"]["parameters"]["required"]
-
-    @pytest.mark.asyncio
-    async def test_returns_values(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-            make_phrasebook_value("v2", "Close-up", "extreme close-up shot"),
-        ]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam")
-
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["count"] == 2
-        assert data["values"][0]["id"] == "v1"
-        assert data["values"][0]["label"] == "Wide angle"
-        assert data["values"][0]["value"] == "wide angle lens"
-        value_repo.get_by_category.assert_called_once_with(
-            category_id="cat-cam", user_id="user-test"
-        )
-
-    @pytest.mark.asyncio
-    async def test_returns_markers_when_category_resolves(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-        ]
-        cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = cat
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam")
-
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["category_path"] == "camera.angles"
-        assert data["category_marker"] == "#camera.angles"
-        assert data["values"][0]["marker"] == "#[camera.angles.Wide angle]"
-        assert "instruction" in data
-        category_repo.get_by_id.assert_called_once_with("cat-cam", "user-test")
-
-    @pytest.mark.asyncio
-    async def test_still_succeeds_without_markers_when_category_lookup_fails(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-        ]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam")
-
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["count"] == 1
-        assert "marker" not in data["values"][0]
-        assert "category_path" not in data
-        assert "category_marker" not in data
-        assert "instruction" not in data
-
-    @pytest.mark.asyncio
-    async def test_no_phrasebook_manager(self):
-        ctx = make_context()
-        result = await self._tool().execute(ctx, category_id="x")
-        assert result.success is False
-        assert "not available" in result.error
-
-    @pytest.mark.asyncio
-    async def test_missing_category_id(self):
-        category_repo = MagicMock()
-        ctx = make_context(phrasebook_category_repository=category_repo)
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "category_id is required" in result.error
-
-    @pytest.mark.asyncio
-    async def test_empty_values(self):
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = []
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-        result = await self._tool().execute(ctx, category_id="empty-cat")
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["count"] == 0
-        assert data["values"] == []
-
-    @pytest.mark.asyncio
-    async def test_exception_returns_error(self):
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.side_effect = PermissionError("access denied")
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-        result = await self._tool().execute(ctx, category_id="restricted")
-        assert result.success is False
-        assert "access denied" not in result.error
-
-    @pytest.mark.asyncio
-    async def test_default_limit_is_100_and_reports_has_more(self):
-        vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(150)]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam")
-
-        data = json.loads(result.data)
-        assert data["limit"] == 100
-        assert data["count"] == 100
-        assert data["total"] == 150
-        assert data["has_more"] is True
-
-    @pytest.mark.asyncio
-    async def test_limit_is_hard_capped_at_200(self):
-        vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(500)]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam", limit=1000)
-
-        data = json.loads(result.data)
-        assert data["limit"] == 200
-        assert data["count"] == 200
-
-    @pytest.mark.asyncio
-    async def test_offset_pages_through_results(self):
-        vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(10)]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam", offset=8, limit=5)
-
-        data = json.loads(result.data)
-        assert data["offset"] == 8
-        assert data["count"] == 2
-        assert data["has_more"] is False
-        assert [v["id"] for v in data["values"]] == ["v8", "v9"]
-
-    @pytest.mark.asyncio
-    async def test_search_filters_by_label_or_value_case_insensitive(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-            make_phrasebook_value("v-cat", "Cat closeup", "a close up of a cat"),
-        ]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam", search="cat")
-
-        data = json.loads(result.data)
-        assert data["total"] == 1
-        assert data["values"][0]["id"] == "v-cat"
-
-    @pytest.mark.asyncio
-    async def test_search_applies_before_marker_pagination_fields(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-            make_phrasebook_value("v-cat", "Cat closeup", "a close up of a cat"),
-        ]
-        cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = cat
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam", search="cat")
-
-        data = json.loads(result.data)
-        assert data["values"][0]["marker"] == "#[camera.angles.Cat closeup]"
-        assert data["total"] == 1
-
-
-# ---------------------------------------------------------------------------
-# ListPhrasebookValuesTool
-# ---------------------------------------------------------------------------
-
-class TestListPhrasebookValuesTool:
-    def _tool(self):
-        return ListPhrasebookValuesTool()
-
     def _values(self, n):
         return [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(n)]
 
     def test_name_and_schema(self):
         tool = self._tool()
-        assert tool.name == "list_phrasebook_values"
+        assert tool.name == "get_phrasebook_values"
         assert tool.requires_approval is False
         schema = tool.to_schema()
         assert "category" in schema["function"]["parameters"]["required"]
@@ -1092,7 +884,7 @@ class TestListPhrasebookValuesTool:
 
         data = json.loads(result.data)
         assert data["limit"] == 100
-        assert data["returned"] == 100
+        assert data["count"] == 100
         assert data["total"] == 150
         assert data["has_more"] is True
         assert data["values"][0]["id"] == "v0"
@@ -1110,7 +902,7 @@ class TestListPhrasebookValuesTool:
 
         data = json.loads(result.data)
         assert data["limit"] == 200
-        assert data["returned"] == 200
+        assert data["count"] == 200
 
     @pytest.mark.asyncio
     async def test_offset_pages_through_results(self):
@@ -1125,7 +917,7 @@ class TestListPhrasebookValuesTool:
 
         data = json.loads(result.data)
         assert data["offset"] == 8
-        assert data["returned"] == 2
+        assert data["count"] == 2
         assert data["has_more"] is False
         assert [v["id"] for v in data["values"]] == ["v8", "v9"]
 
@@ -1149,7 +941,7 @@ class TestListPhrasebookValuesTool:
         assert data["values"][0]["id"] == "v-cat"
 
     @pytest.mark.asyncio
-    async def test_returns_dense_id_text_active_shape(self):
+    async def test_returns_id_label_value_marker_active_shape(self):
         category_repo = MagicMock()
         value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera", path="camera")
@@ -1163,9 +955,37 @@ class TestListPhrasebookValuesTool:
 
         data = json.loads(result.data)
         entry = data["values"][0]
-        assert set(entry.keys()) == {"id", "text", "active"}
-        assert entry["text"] == "Label 0: value 0"
+        assert set(entry.keys()) == {"id", "label", "value", "active", "marker"}
+        assert entry["label"] == "Label 0"
+        assert entry["value"] == "value 0"
+        assert entry["marker"] == "#[camera.Label 0]"
         assert entry["active"] is False
+
+    @pytest.mark.asyncio
+    async def test_returns_category_markers_and_instruction(self):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        category_repo.get_by_id.return_value = make_category("cat-cam", "Camera Angles", path="camera.angles")
+        value_repo.get_by_category.return_value = [make_phrasebook_value("v1", "Wide angle", "wide angle lens")]
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
+
+        data = json.loads((await self._tool().execute(ctx, category="cat-cam")).data)
+
+        assert data["category_id"] == "cat-cam"
+        assert data["category_path"] == "camera.angles"
+        assert data["category_marker"] == "#camera.angles"
+        assert data["values"][0]["marker"] == "#[camera.angles.Wide angle]"
+        assert "instruction" in data
+
+    @pytest.mark.asyncio
+    async def test_non_integer_paging_returns_error(self):
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
+
+        result = await self._tool().execute(ctx, category="cat-cam", limit="many")
+
+        assert result.success is False
+        assert "integers" in result.error
 
     @pytest.mark.asyncio
     async def test_no_phrasebook_manager(self):
