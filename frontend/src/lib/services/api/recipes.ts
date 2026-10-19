@@ -81,6 +81,7 @@ export interface RecipeArtifact {
 export interface RecipeSmoke {
 	preset_id: string;
 	mode: string;
+	timeout_seconds: number;
 }
 
 /** `GET /api/recipes/{id}` — the summary plus everything the recipe declares. */

@@ -1000,6 +1000,31 @@ fast there. A variant already on disk always wins. The owner can override the pi
 slot when approving the download. `python scripts/hf_variants.py <repo> <glob>...
 --default <id>` prints ready-to-paste `variants:` YAML for a Hugging Face repo.
 
+### The smoke generation
+
+A recipe proves its setup by running one real generation. The optional `smoke:` block
+names the `preset_id` and `mode` to run; a `generation.smoke` step (whose `params`
+repeat that `preset_id` and `mode`) runs it through the normal generation path. The
+block can also pin a `prompt`, a `negative_prompt`, a `seed` and a `form:` mapping of
+field values (a small resolution, few steps), so the first generation an owner sees is
+quick.
+
+`timeout_seconds` is how long the step waits for that generation to finish before it
+fails with "timed out waiting for completion after …s". It is a whole number of seconds
+from 1 to 3600, and 300 when omitted; any other value is a lint error. Raise it when the
+model needs more than five minutes for its test generation, for instance a 14B video
+model:
+
+```yaml
+smoke:
+  preset_id: "01M57QPEMDPKHHW83YSEYBN0WZ"
+  mode: "video"
+  timeout_seconds: 600
+```
+
+Admin → Recipes receives the value with the rest of the recipe's `smoke` detail
+(`GET /api/recipes/{id}`).
+
 ### Contributing a step kind
 
 Every step names a `kind:`, and a plugin can add kinds of its own. Declare them under

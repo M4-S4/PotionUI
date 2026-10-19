@@ -11,7 +11,9 @@ non-temporary output" - `min_outputs: 1` in spirit, mirroring
 the same fixture-building `_fixture_form.py` shares with `pipeline.render`,
 overlaid with the recipe's `smoke:` section (small resolution/step count,
 kept fast on purpose) - see `Recipe.smoke` / `RecipeSmokeRef` in
-`recipe_schema.py`.
+`recipe_schema.py`. The wait for completion is bounded by that section's
+`timeout_seconds` (300 when omitted), because a big model on a small GPU
+legitimately needs longer than a quick image.
 
 A missing backend/GPU is a normal, expected failure mode for a fresh
 install - it is reported as a plain sentence with a `suggested_repair`, never
@@ -35,10 +37,10 @@ from src.features.presets.loader import PresetTemplateLoader
 from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors._fixture_form import RequiredModelMissing, build_fixture_form_data
 from src.features.recipes.executors.base import StepContext, StepResult
+from src.features.recipes.schema import DEFAULT_SMOKE_TIMEOUT_SECONDS
 from src.platform.templating import TemplateProcessor
 
 _TERMINAL_STATES = {"completed", "failed", "cancelled"}
-_TIMEOUT_SECONDS = 300
 
 
 class GenerationSmokeExecutor:
@@ -126,6 +128,7 @@ class GenerationSmokeExecutor:
                     prompt=smoke.prompt if smoke else "",
                     negative_prompt=smoke.negative_prompt if smoke else "",
                     report_progress=context.report_progress,
+                    timeout_seconds=smoke.timeout_seconds if smoke else DEFAULT_SMOKE_TIMEOUT_SECONDS,
                 )
             )
         except Exception as exc:
@@ -189,6 +192,7 @@ class GenerationSmokeExecutor:
         prompt: str,
         negative_prompt: str,
         report_progress=None,
+        timeout_seconds: int = DEFAULT_SMOKE_TIMEOUT_SECONDS,
     ) -> Dict[str, Any]:
         from src.features.generation.dto import GenerationRequest, PromptPair
         from src.pipelines.outputs import (
@@ -256,13 +260,13 @@ class GenerationSmokeExecutor:
         generation_id = result.get("generation_id")
 
         try:
-            await asyncio.wait_for(self._wait_for_completion(done_event, generation_id), timeout=_TIMEOUT_SECONDS)
+            await asyncio.wait_for(self._wait_for_completion(done_event, generation_id), timeout=timeout_seconds)
         except asyncio.TimeoutError:
             return {
                 "generation_id": generation_id,
                 "state": "failed",
                 "output_count": output_count,
-                "error": f"timed out waiting for completion after {_TIMEOUT_SECONDS}s",
+                "error": f"timed out waiting for completion after {timeout_seconds}s",
             }
 
         status = await self._status_dict(generation_id)
