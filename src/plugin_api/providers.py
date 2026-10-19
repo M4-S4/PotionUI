@@ -29,11 +29,13 @@ from src.features.providers import (
     ProviderSearchResult,
     RemoteDownloadRef,
 )
+from src.features.providers.http_provider import HttpMarketplaceProvider, register_provider, retry_after_from_headers
 from src.features.providers.registry import ensure_providers_discovered, get_provider_registry
 from src.features.models.records import ModelInfo
 from src.platform.http.tls import aiohttp_connector, client_ssl_context
 
 __all__ = [
+    "HttpMarketplaceProvider",
     "MarketplaceProviderBase",
     "ModelInfo",
     "ProviderCapability",
@@ -50,4 +52,6 @@ __all__ = [
     "client_ssl_context",
     "ensure_providers_discovered",
     "get_provider_registry",
+    "register_provider",
+    "retry_after_from_headers",
 ]

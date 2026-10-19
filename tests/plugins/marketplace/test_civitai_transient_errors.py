@@ -1,6 +1,8 @@
 import asyncio
 import importlib
 import sys
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -61,6 +63,46 @@ async def test_429_raises_a_rate_limit_error_carrying_retry_after(provider):
             await provider.get_model_by_hash(SHA)
 
     assert excinfo.value.retry_after == 12.0
+
+
+@pytest.mark.asyncio
+async def test_429_on_get_download_url_raises_a_rate_limit_error(provider):
+    def dispatch(url, params=None, timeout=None):
+        return _FakeResponse(status=429, headers={"Retry-After": "7"})
+
+    with _with_session(provider, dispatch):
+        with pytest.raises(ProviderRateLimitError) as excinfo:
+            await provider.get_download_url("123")
+
+    assert excinfo.value.retry_after == 7.0
+
+
+@pytest.mark.asyncio
+async def test_http_date_retry_after_becomes_seconds_not_a_value_error(provider):
+    when = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=90), usegmt=True)
+
+    def dispatch(url, params=None, timeout=None):
+        return _FakeResponse(status=429, headers={"Retry-After": when})
+
+    with _with_session(provider, dispatch):
+        with pytest.raises(ProviderRateLimitError) as excinfo:
+            await provider.get_model_by_hash(SHA)
+
+    assert 60 < excinfo.value.retry_after <= 90
+
+
+@pytest.mark.asyncio
+async def test_http_date_retry_after_is_read_on_search_too(provider):
+    when = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=90), usegmt=True)
+
+    def dispatch(url, params=None, timeout=None):
+        return _FakeResponse(status=429, headers={"Retry-After": when})
+
+    with _with_session(provider, dispatch):
+        with pytest.raises(ProviderRateLimitError) as excinfo:
+            await provider.search_models("x")
+
+    assert 60 < excinfo.value.retry_after <= 90
 
 
 @pytest.mark.asyncio

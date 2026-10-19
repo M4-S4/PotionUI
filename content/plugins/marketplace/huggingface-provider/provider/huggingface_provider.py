@@ -26,26 +26,22 @@ entirely is not resolvable deterministically - `get_download_url` raises
 `ProviderNotFoundError` naming the repo rather than guessing one.
 """
 
-import asyncio
 import logging
-import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urljoin
 
 import aiohttp
 
 from src.plugin_api import (
-    MarketplaceProviderBase,
     ProviderCapability,
     ProviderMetadata,
     ProviderModelInfo,
     ProviderSearchResult,
     ProviderConnectionError,
-    ProviderRateLimitError,
     ProviderNotFoundError,
     RemoteDownloadRef,
 )
-from src.plugin_api.providers import aiohttp_connector
+from src.plugin_api.providers import HttpMarketplaceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +57,7 @@ _TYPE_FILTER_MAP = {
 }
 
 
-class HuggingFaceProvider(MarketplaceProviderBase):
+class HuggingFaceProvider(HttpMarketplaceProvider):
     """
     HuggingFace Hub marketplace provider.
 
@@ -76,14 +72,8 @@ class HuggingFaceProvider(MarketplaceProviderBase):
 
     BASE_URL = "https://huggingface.co"
     API_URL = "https://huggingface.co/api"
-
-    def __init__(self):
-        self._api_key: Optional[str] = None
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._rate_limit_delay: float = 0.5
-        self._last_request_time: float = 0
-        self._headers: Dict[str, str] = {}
-        self._initialized: bool = False
+    DOWNLOAD_HOST = "huggingface.co"
+    DEFAULT_RATE_LIMIT_DELAY = 0.5
 
     def get_metadata(self) -> ProviderMetadata:
         """Get HuggingFace provider metadata."""
@@ -102,59 +92,6 @@ class HuggingFaceProvider(MarketplaceProviderBase):
             icon=None,
             version="1.0.0"
         )
-
-    async def initialize(self, settings: Dict[str, Any]) -> bool:
-        """
-        Initialize the HuggingFace provider with settings.
-
-        Args:
-            settings: Provider settings including api_key, rate_limit_delay.
-
-        Returns:
-            True if initialization successful
-        """
-        self._api_key = settings.get('api_key') or None
-        try:
-            self._rate_limit_delay = float(settings.get('rate_limit_delay', 0.5))
-        except (TypeError, ValueError):
-            self._rate_limit_delay = 0.5
-
-        self._headers = {
-            'User-Agent': 'PotionUI/1.0',
-        }
-        if self._api_key:
-            self._headers['Authorization'] = f'Bearer {self._api_key}'
-
-        # Don't create session here - it will be created lazily on first request
-        # to ensure it's in the correct async context.
-        self._initialized = True
-
-        logger.info(f"HuggingFace provider initialized (token: {'configured' if self._api_key else 'not configured'})")
-        return True
-
-    async def shutdown(self) -> None:
-        """Cleanup provider resources."""
-        if self._session:
-            await self._session.close()
-            self._session = None
-        self._initialized = False
-        logger.info("HuggingFace provider shutdown")
-
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create the HTTP session lazily, in the correct async context."""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(headers=self._headers, connector=aiohttp_connector())
-        return self._session
-
-    async def _rate_limit(self) -> None:
-        """Apply rate limiting between requests."""
-        current_time = time.monotonic()
-        time_since_last = current_time - self._last_request_time
-
-        if time_since_last < self._rate_limit_delay:
-            await asyncio.sleep(self._rate_limit_delay - time_since_last)
-
-        self._last_request_time = time.monotonic()
 
     # === Ref parsing ===
 
@@ -177,10 +114,6 @@ class HuggingFaceProvider(MarketplaceProviderBase):
         # (subdirectories inside the repo) is preserved.
         quoted_file = "/".join(quote(part) for part in filepath.split("/"))
         return f"{HuggingFaceProvider.BASE_URL}/{repo}/resolve/{revision}/{quoted_file}"
-
-    def matches_url(self, url: str) -> bool:
-        """Check whether a URL belongs to this provider (huggingface.co)."""
-        return "huggingface.co" in url
 
     # === Capability: HASH_LOOKUP (unsupported) ===
 
@@ -243,31 +176,13 @@ class HuggingFaceProvider(MarketplaceProviderBase):
         if 'direction' in kwargs:
             params['direction'] = kwargs['direction']
 
-        url = f"{self.API_URL}/models"
-        session = await self._get_session()
-
-        try:
-            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    results = self._parse_search_response(data)
-                    return results[offset:offset + limit]
-
-                elif response.status == 429:
-                    retry_after = response.headers.get('Retry-After', '60')
-                    raise ProviderRateLimitError(
-                        "HuggingFace rate limit exceeded",
-                        retry_after=float(retry_after)
-                    )
-
-                else:
-                    logger.warning(f"HuggingFace search error {response.status}")
-                    return []
-
-        except asyncio.TimeoutError:
-            raise ProviderConnectionError("Timeout during HuggingFace search")
-        except aiohttp.ClientError as e:
-            raise ProviderConnectionError(f"Connection error: {e}")
+        status, data = await self._get_json(
+            f"{self.API_URL}/models", params=params, what="during HuggingFace search"
+        )
+        if status != 200:
+            logger.warning(f"HuggingFace search error {status}")
+            return []
+        return self._parse_search_response(data)[offset:offset + limit]
 
     # === Capability: DOWNLOAD_URL ===
 
@@ -440,18 +355,6 @@ class HuggingFaceProvider(MarketplaceProviderBase):
             headers['Authorization'] = f'Bearer {self._api_key}'
 
         return headers
-
-    def get_authenticated_download_url(self, url: str) -> str:
-        """
-        Get an authenticated download URL for HuggingFace.
-
-        HuggingFace uses header-based auth only - no URL modification needed.
-        """
-        return url
-
-    def matches_download_url(self, url: str) -> bool:
-        """HuggingFace owns huggingface.co downloads (incl. its CDN resolve URLs)."""
-        return 'huggingface.co' in url
 
     def _parse_search_response(self, data: List[Dict[str, Any]]) -> List[ProviderSearchResult]:
         """

@@ -127,9 +127,9 @@ def test_parse_retry_after():
 
     assert parse_retry_after("30") == 30.0
     assert parse_retry_after(" 2.5 ") == 2.5
-    assert parse_retry_after("-4") == 0.0
+    assert parse_retry_after("-4") is None
     assert 50 < parse_retry_after(in_a_minute) <= 60
-    assert parse_retry_after("Sun, 11 Oct 2020 11:00:00 GMT") == 0.0
+    assert parse_retry_after("Sun, 11 Oct 2020 11:00:00 GMT") is None
     assert parse_retry_after("soon") is None
     assert parse_retry_after("nan") is None
     assert parse_retry_after("") is None

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from src.features.providers import http_provider
+
 _provider_dir = Path(__file__).resolve().parents[3] / "content" / "plugins" / "marketplace" / "civitai-provider"
 sys.path.insert(0, str(_provider_dir))
 _mod = importlib.import_module("provider.civitai_provider")
@@ -22,8 +24,8 @@ class _RecordingSession:
 async def test_session_uses_the_shared_connector(monkeypatch):
     sentinel = object()
     _RecordingSession.instances.clear()
-    monkeypatch.setattr(_mod, "aiohttp_connector", lambda: sentinel)
-    monkeypatch.setattr(_mod.aiohttp, "ClientSession", _RecordingSession)
+    monkeypatch.setattr(http_provider, "aiohttp_connector", lambda: sentinel)
+    monkeypatch.setattr(http_provider.aiohttp, "ClientSession", _RecordingSession)
 
     provider = _mod.CivitaiProvider()
     session = await provider._get_session()

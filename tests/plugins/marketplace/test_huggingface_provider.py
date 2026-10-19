@@ -8,6 +8,8 @@ No real network calls are made - aiohttp is mocked throughout.
 
 import importlib.util
 import sys
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -27,6 +29,7 @@ sys.modules[_spec.name] = _mod
 _spec.loader.exec_module(_mod)
 HuggingFaceProvider = _mod.HuggingFaceProvider
 
+from src.features.providers import http_provider
 from src.features.providers import (
     ProviderCapability,
     ProviderConnectionError,
@@ -152,8 +155,8 @@ def test_build_resolve_url_quotes_path_segments():
 
 
 def test_matches_url(provider):
-    assert provider.matches_url("https://huggingface.co/org/repo/resolve/main/model.safetensors")
-    assert not provider.matches_url("https://civitai.com/api/download/models/123")
+    assert provider.matches_download_url("https://huggingface.co/org/repo/resolve/main/model.safetensors")
+    assert not provider.matches_download_url("https://civitai.com/api/download/models/123")
 
 
 # ── get_download_url ────────────────────────────────────────────────
@@ -260,6 +263,18 @@ async def test_search_models_rate_limited(provider):
 
 
 @pytest.mark.asyncio
+async def test_search_models_rate_limited_reads_an_http_date_retry_after(provider):
+    when = format_datetime(datetime.now(timezone.utc) + timedelta(seconds=90), usegmt=True)
+    response = _FakeResponse({}, status=429, headers={"Retry-After": when})
+    provider._session = _make_session(response)
+
+    with pytest.raises(ProviderRateLimitError) as excinfo:
+        await provider.search_models("x")
+
+    assert 60 < excinfo.value.retry_after <= 90
+
+
+@pytest.mark.asyncio
 async def test_search_models_uninitialized_raises():
     p = HuggingFaceProvider()
     with pytest.raises(ProviderConnectionError):
@@ -322,8 +337,8 @@ async def test_session_uses_the_shared_connector(monkeypatch):
             self.closed = False
             created.append(self)
 
-    monkeypatch.setattr(_mod, "aiohttp_connector", lambda: sentinel)
-    monkeypatch.setattr(_mod.aiohttp, "ClientSession", _RecordingSession)
+    monkeypatch.setattr(http_provider, "aiohttp_connector", lambda: sentinel)
+    monkeypatch.setattr(http_provider.aiohttp, "ClientSession", _RecordingSession)
 
     session = await HuggingFaceProvider()._get_session()
 
