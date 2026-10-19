@@ -18,10 +18,11 @@ first call, purely to report an honest pre-flight number into the persisted
 context ledger (see ``ConversationRunner._build_context_ledger``) — same
 function, same numbers, not a second heuristic.
 
-Capacity is read from explicit configuration only (``provider_options`` —
-either the generic ``context_window`` key or, for an Ollama config, the
-existing ``num_ctx`` knob already wired into the request). Nothing here ever
-infers a model's window from its name or parameter count: an unconfigured
+Capacity comes from explicit configuration (``provider_options`` — either the
+generic ``context_window`` key or, for an Ollama config, the existing
+``num_ctx`` knob already wired into the request), else from what the provider
+itself reported (``capacity_source="discovered"``). Nothing here ever
+infers a model's window from its name or parameter count: an unknown
 capacity is reported honestly as ``capacity_source="unknown"`` with a
 conservative, clearly-labelled default (see ``UNKNOWN_CAPACITY_TOKENS``)
 rather than a guess dressed up as a fact.
@@ -75,9 +76,10 @@ import json
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Literal, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from src.features.llm.model_listing import DiscoveredWindow
     from src.features.llm.repository import LLMConfig
 
 logger = logging.getLogger(__name__)
@@ -105,6 +107,8 @@ FRAMING_TOKENS_PER_MESSAGE = 4
 # clearly labelled `capacity_source="unknown"` rather than passed off as read
 # from the model.
 UNKNOWN_CAPACITY_TOKENS = 8192
+
+OLLAMA_TRAINED_WINDOW_CAP_TOKENS = 32768
 
 # Per-image allowance used when the provider has no known per-image token
 # cost of its own — deliberately conservative (near OpenAI's documented
@@ -147,7 +151,7 @@ class CapacityInfo:
     """The effective context-window size for one call, and where it came from."""
 
     capacity_tokens: int
-    source: str  # "config" | "provider_metadata" | "unknown"
+    source: Literal["config", "discovered", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -231,15 +235,24 @@ class ContextBudgetExceededError(Exception):
         )
 
 
-def resolve_capacity(config: "LLMConfig") -> CapacityInfo:
+def effective_discovered_tokens(config_type: Optional[str], discovered: "DiscoveredWindow") -> int:
+    if config_type == "ollama" and discovered.kind == "trained":
+        return min(discovered.tokens, OLLAMA_TRAINED_WINDOW_CAP_TOKENS)
+    return discovered.tokens
+
+
+def resolve_capacity(config: "LLMConfig", discovered: Optional["DiscoveredWindow"] = None) -> CapacityInfo:
     """The effective context-window size for *config*.
 
-    Reads explicit configuration only, in order:
+    Reads configuration first, then the window the provider reported
+    (*discovered*), in order:
     1. ``provider_options.context_window`` — generic, any provider type.
     2. ``provider_options.num_ctx`` — the existing Ollama context-size knob
        (see ``ollama_wire.OLLAMA_OPTION_KEYS``), honoured here too so setting
        it continues to mean the same thing it already does on the wire.
-    3. ``UNKNOWN_CAPACITY_TOKENS``, labelled ``capacity_source="unknown"`` —
+    3. *discovered* — labelled ``capacity_source="discovered"``; for Ollama a
+       trained window is capped at ``OLLAMA_TRAINED_WINDOW_CAP_TOKENS``.
+    4. ``UNKNOWN_CAPACITY_TOKENS``, labelled ``capacity_source="unknown"`` —
        never a guess derived from the model's name or parameter count.
     """
     provider_opts = getattr(config, "provider_options", None) or {}
@@ -252,6 +265,9 @@ def resolve_capacity(config: "LLMConfig") -> CapacityInfo:
         num_ctx = provider_opts.get("num_ctx")
         if _is_positive_number(num_ctx):
             return CapacityInfo(int(num_ctx), "config")
+
+    if discovered is not None:
+        return CapacityInfo(effective_discovered_tokens(getattr(config, "type", None), discovered), "discovered")
 
     return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
 

@@ -13,7 +13,15 @@ from src.features.llm.clients.openai_wire import (
     build_openai_request,
     prompt_from,
 )
-from src.features.llm.model_listing import DiscoveredModel, ModelListingError, fetch_json, sorted_models
+from src.features.llm.model_listing import (
+    CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
+    DiscoveredModel,
+    DiscoveredWindow,
+    ModelListingError,
+    fetch_json,
+    positive_int,
+    sorted_models,
+)
 from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ToolCallDelta, Usage
 from src.features.llm.repository import LLMConfig
 
@@ -53,6 +61,27 @@ class OpenAIClient:
                 details={"owned_by": owner} if owner else None,
             ))
         return sorted_models(models)
+
+    async def discover_context_window(
+        self, base_url: str, api_key: Optional[str], model: str,
+    ) -> Optional[DiscoveredWindow]:
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        try:
+            payload = await fetch_json(
+                self.display_name, base_url, "/models", headers, timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
+            )
+            entries = payload.get("data") if isinstance(payload, dict) else None
+            for entry in entries if isinstance(entries, list) else []:
+                if not isinstance(entry, dict) or entry.get("id") != model:
+                    continue
+                for key in ("context_length", "max_model_len"):
+                    tokens = positive_int(entry.get(key))
+                    if tokens:
+                        return DiscoveredWindow(tokens=tokens, kind="runtime")
+            return None
+        except Exception:
+            logging.debug("OpenAI-compatible context window probe failed for %s", model, exc_info=True)
+            return None
 
     async def generate(
         self,

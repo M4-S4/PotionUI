@@ -382,6 +382,12 @@ class ChatReflectionGenerator:
 
         config = self._m.llm_service.repository.get_configuration(session.llm_config_id) if session.llm_config_id else None
 
+        if config is not None:
+            try:
+                await self._m.llm_service.ensure_context_window(config)
+            except Exception:
+                logger.debug("Could not prime LLM context window", exc_info=True)
+
         budget = self._resolve_span_budget(prompt, config)
         if budget.exhausted:
             # No coverage claimed - nothing changed about the messages

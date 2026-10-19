@@ -229,6 +229,7 @@ class ConversationRunner:
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
+        await self._prime_context_window(session)
         budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
         try:
             context_ledger = self._build_context_ledger(
@@ -588,6 +589,7 @@ class ConversationRunner:
             conversation_history.append(approval_continuation_message())
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
+        await self._prime_context_window(session)
         budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
         try:
             context_ledger = self._build_context_ledger(
@@ -911,6 +913,17 @@ class ConversationRunner:
         except Exception:
             logger.debug("Could not read chat_history_token_budget setting", exc_info=True)
         return _DEFAULT_HISTORY_TOKEN_BUDGET
+
+    async def _prime_context_window(self, session: SessionResponse) -> None:
+        llm_config_id = getattr(session, "llm_config_id", None)
+        if not llm_config_id:
+            return
+        try:
+            config = self._m.llm_service.repository.get_configuration(llm_config_id)
+            if config is not None:
+                await self._m.llm_service.ensure_context_window(config)
+        except Exception:
+            logger.debug("Could not prime LLM context window", exc_info=True)
 
     def _resolve_budget_inputs(
         self,

@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
@@ -14,9 +15,39 @@ from src.features.llm.clients.ollama_wire import (
     build_ollama_chat_request,
     build_ollama_generate_request,
 )
-from src.features.llm.model_listing import DiscoveredModel, ModelListingError, fetch_json, sorted_models
+from src.features.llm.model_listing import (
+    CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
+    DiscoveredModel,
+    DiscoveredWindow,
+    ModelListingError,
+    fetch_json,
+    positive_int,
+    sorted_models,
+)
 from src.features.llm.clients.wire_events import Done, TextDelta, ToolCalls, Usage
 from src.features.llm.repository import LLMConfig
+
+
+_MODELFILE_NUM_CTX = re.compile(r"^\s*num_ctx\s+(\d+)\s*$", re.MULTILINE)
+
+
+def parse_show_context_window(payload: Any) -> Optional[DiscoveredWindow]:
+    if not isinstance(payload, dict):
+        return None
+    parameters = payload.get("parameters")
+    if isinstance(parameters, str):
+        match = _MODELFILE_NUM_CTX.search(parameters)
+        runtime = positive_int(int(match.group(1))) if match else None
+        if runtime:
+            return DiscoveredWindow(tokens=runtime, kind="runtime")
+    model_info = payload.get("model_info")
+    if isinstance(model_info, dict):
+        for key, value in model_info.items():
+            if isinstance(key, str) and key.endswith(".context_length"):
+                trained = positive_int(value)
+                if trained:
+                    return DiscoveredWindow(tokens=trained, kind="trained")
+    return None
 
 
 class OllamaClient:
@@ -68,6 +99,20 @@ class OllamaClient:
                 details=details or None,
             ))
         return sorted_models(models)
+
+    async def discover_context_window(
+        self, base_url: str, api_key: Optional[str], model: str,
+    ) -> Optional[DiscoveredWindow]:
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        try:
+            payload = await fetch_json(
+                self.display_name, base_url, "/api/show", headers,
+                body={"model": model}, timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS,
+            )
+            return parse_show_context_window(payload)
+        except Exception:
+            logging.debug("Ollama context window probe failed for %s", model, exc_info=True)
+            return None
 
     @staticmethod
     def _usage_event(event: Usage) -> Dict[str, Any]:

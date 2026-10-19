@@ -295,6 +295,32 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         assert len(token_events) == len(chunks)
 
     @pytest.mark.asyncio
+    async def test_first_turn_preflight_budget_sees_the_discovered_window(self):
+        from src.features.llm import context_budget
+
+        self._setup_basic_stream(["hi"])
+        primed = []
+        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.repository = Mock()
+
+        def profile(*args, **kwargs):
+            capacity = (
+                context_budget.CapacityInfo(65536, "discovered") if primed
+                else context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+            )
+            return context_budget.ContextProfile(capacity=capacity, reserve_tokens=1024)
+
+        self.mock_llm.context_profile_for = Mock(side_effect=profile)
+
+        await collect_stream(
+            self.manager.send_message_stream(session_id="session-123", user_id="user-123", content="hello")
+        )
+
+        budget = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]["context_ledger"]["budget"]
+        assert budget["capacity_source"] == "discovered"
+        assert budget["capacity_tokens"] == 65536
+
+    @pytest.mark.asyncio
     async def test_message_created_contains_user_message_id(self):
         """message_created event should carry the user_message_id."""
         user_msg, _ = self._setup_basic_stream(["hi"])

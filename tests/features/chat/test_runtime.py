@@ -819,6 +819,30 @@ class TestSendMessageBehaviorTrace:
         assert all(s["duration_ms"] >= 0 for s in trace["steps"])
 
     @pytest.mark.asyncio
+    async def test_first_turn_preflight_budget_sees_the_discovered_window(self):
+        from src.features.llm import context_budget
+
+        self._setup_session_and_messages()
+        primed = []
+        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+
+        def profile(*args, **kwargs):
+            capacity = (
+                context_budget.CapacityInfo(65536, "discovered") if primed
+                else context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+            )
+            return context_budget.ContextProfile(capacity=capacity, reserve_tokens=1024)
+
+        self.mock_llm.context_profile_for = Mock(side_effect=profile)
+        self.mock_llm.repository = Mock()
+
+        await self.manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
+
+        budget = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]["context_ledger"]["budget"]
+        assert budget["capacity_source"] == "discovered"
+        assert budget["capacity_tokens"] == 65536
+
+    @pytest.mark.asyncio
     async def test_thinking_mode_persisted_from_the_llm_response(self):
         """`LLMResponse.thinking_mode` (the native provider's explicit
         thinking-mode outcome — see `NativeLLMClient._chat_template_kwargs`)

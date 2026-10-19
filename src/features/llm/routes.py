@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.llm.dto import (
+    ContextWindowDiscoveryRequest,
     LLMConfigRequest,
     LLMGenerateRequest,
     ModelDiscoveryRequest,
@@ -36,9 +37,11 @@ from src.features.llm import (
 )
 from src.features.llm import operations
 from src.features.llm.mappers import config_to_response, assignment_config_to_response
+from src.features.llm import context_budget
 from src.features.llm.model_listing import ModelListingError
 from src.features.llm.repository import LLMRepository
 from src.features.llm.gateway import LLMGateway
+from src.platform.database.rows import dt_iso
 from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.plugins import PluginRegistry
 from src.platform.settings.settings import Settings
@@ -123,6 +126,41 @@ class LLMController(BaseController):
         return self.success_response(
             data={"supported": True, "models": [m.model_dump() for m in models], "error": None}
         )
+
+    async def discover_context_window(self, request: ContextWindowDiscoveryRequest) -> APIResponse:
+        empty = {
+            "supported": True, "detected": None, "detected_kind": None,
+            "effective": None, "discovered_at": None, "error": None,
+        }
+        if not self.llm_service.supports_context_window_discovery(request.type):
+            return self.success_response(data={**empty, "supported": False})
+        api_key = request.api_key or None
+        if not api_key and request.config_id:
+            stored = self.repository.get_configuration(request.config_id)
+            if stored is not None and stored.type == request.type:
+                api_key = stored.api_key or None
+        try:
+            probe = await self.llm_service.refresh_context_window(
+                request.type, request.base_url or "", api_key, request.model,
+            )
+        except Exception:
+            logger.exception("Context window discovery failed for LLM type %s", request.type)
+            return self.success_response(data={**empty, "error": "Context window discovery failed unexpectedly."})
+        discovered_at = dt_iso(probe.discovered_at)
+        if probe.window is None:
+            return self.success_response(data={
+                **empty,
+                "discovered_at": discovered_at,
+                "error": "Couldn't detect a context window for this model. "
+                         "Check the address and model name, or enter one manually.",
+            })
+        return self.success_response(data={
+            **empty,
+            "detected": probe.window.tokens,
+            "detected_kind": probe.window.kind,
+            "effective": context_budget.effective_discovered_tokens(request.type, probe.window),
+            "discovered_at": discovered_at,
+        })
 
     def list_native_checkpoints(self) -> APIResponse:
         """List HF-layout checkpoints under models/llm/, for the 'native'
@@ -535,6 +573,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         request: ModelDiscoveryRequest, current_user: User = Depends(get_current_admin_user)
     ):
         return await controller.discover_models(request)
+
+    @router.post(
+        "/context-window/discover", response_model=APIResponse, summary="Discover Model Context Window",
+    )
+    async def discover_llm_context_window(
+        request: ContextWindowDiscoveryRequest, current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.discover_context_window(request)
 
     @router.get("/native/checkpoints", response_model=APIResponse, summary="List Native LLM Checkpoints")
     async def list_native_llm_checkpoints(current_user: User = Depends(get_current_admin_user)):

@@ -202,6 +202,26 @@ class TestReflect:
         return manager, ChatReflectionGenerator(manager), messages
 
     @pytest.mark.asyncio
+    async def test_context_window_is_ensured_before_the_span_budget_is_resolved(self, monkeypatch):
+        manager, generator, messages = self._setup(monkeypatch, "[]")
+        order = []
+        manager.llm_service.ensure_context_window = AsyncMock(side_effect=lambda config: order.append("ensure"))
+        original = generator._resolve_span_budget
+
+        def spy(prompt, config):
+            order.append("budget")
+            return original(prompt, config)
+
+        monkeypatch.setattr(generator, "_resolve_span_budget", spy)
+
+        await generator.reflect("session-1")
+
+        assert order == ["ensure", "budget"]
+        manager.llm_service.ensure_context_window.assert_awaited_once_with(
+            manager.llm_service.repository.get_configuration.return_value,
+        )
+
+    @pytest.mark.asyncio
     async def test_happy_path_persists_items_and_records_bookkeeping(self, monkeypatch):
         manager, generator, messages = self._setup(
             monkeypatch,
