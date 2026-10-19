@@ -454,6 +454,7 @@ class _RealTE(RecordingModule):
         self.blocks = nn.ModuleList(_nvfp4(dim, dim, seed=i) for i in range(layers))
         self.norm = manual_cast.RMSNorm(dim)
         nn.init.normal_(self.embed.weight)
+        nn.init.normal_(self.norm.weight)
         self.requires_grad_(False)
 
     def forward(self, tokens):
