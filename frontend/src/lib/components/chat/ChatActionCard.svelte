@@ -16,6 +16,7 @@
 		type ActionDecision,
 		type ActionResolveOutcome
 	} from '$lib/chat/actionCard';
+	import type { VariableRoll, VariablesMap } from '$lib/utils/variableDefs';
 	import ChatActionPreview from './ChatActionPreview.svelte';
 
 	let {
@@ -23,6 +24,8 @@
 		actionKey,
 		locked = false,
 		externalError = null,
+		variables = undefined,
+		rolls = undefined,
 		onResolve,
 		onAskRedo
 	}: {
@@ -30,6 +33,8 @@
 		actionKey: string;
 		locked?: boolean;
 		externalError?: string | null;
+		variables?: VariablesMap;
+		rolls?: Record<string, VariableRoll>;
 		onResolve?: (decision: ActionDecision) => Promise<ActionResolveOutcome>;
 		onAskRedo?: () => void;
 	} = $props();
@@ -252,7 +257,7 @@
 					{@const Renderer = pluginRenderer}
 					<Renderer {execution} {toolMeta} expanded={true} />
 				{:else}
-					<ChatActionPreview {execution} />
+					<ChatActionPreview {execution} {variables} {rolls} />
 				{/if}
 			</div>
 		{/if}

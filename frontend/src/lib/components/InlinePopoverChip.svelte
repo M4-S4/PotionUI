@@ -19,6 +19,7 @@
 		tone = 'signal',
 		density = 'default',
 		disabled = false,
+		readonly = false,
 		canOpen = true,
 		removeTitle = 'Remove',
 		popoverLabel,
@@ -45,6 +46,7 @@
 		tone?: ChipTone;
 		density?: ChipDensity;
 		disabled?: boolean;
+		readonly?: boolean;
 		/** False when the wrapper has nothing to show — the chip then stays inert
 		 *  instead of opening an empty popover. */
 		canOpen?: boolean;
@@ -105,7 +107,7 @@
 	function toggle(e: MouseEvent) {
 		e.preventDefault();
 		e.stopPropagation();
-		if (disabled || !canOpen) return;
+		if (disabled || readonly || !canOpen) return;
 		open = !open;
 	}
 
@@ -241,7 +243,7 @@
 		bind:this={chipRef}
 		class="inline-popover-chip relative inline-flex items-center rounded border text-fg
 			transition-colors duration-100 mx-1 {toneClasses[tone]}
-			{disabled ? 'opacity-50 cursor-not-allowed' : ''} {className}"
+			{disabled ? 'opacity-50 cursor-not-allowed' : ''} {readonly ? 'cursor-default' : ''} {className}"
 		contenteditable="false"
 		style="user-select: none; vertical-align: middle;"
 	>
@@ -249,14 +251,14 @@
 			type="button"
 			onmousedown={toggle}
 			{disabled}
-			class="inline-flex items-center {triggerGapClasses[density]} px-2 py-1 {disabled
+			class="inline-flex items-center {triggerGapClasses[density]} px-2 py-1 {disabled || readonly
 				? ''
 				: 'cursor-pointer'} transition-colors duration-100"
 		>
 			{@render label()}
 		</button>
 
-		{#if !disabled}
+		{#if !disabled && !readonly}
 			<button
 				type="button"
 				onmousedown={handleRemove}

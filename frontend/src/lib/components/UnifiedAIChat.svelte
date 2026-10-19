@@ -7,6 +7,7 @@
 	import { scopedStorage } from '$lib/stores/identityScopedStorage';
 	import { api, type ChatSessionResponse } from '$lib/services/api/index';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
+	import { canApplySegmentAction } from '$lib/chat/conditionText';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
@@ -1109,6 +1110,7 @@
 	) {
 		const tab = contextTab;
 		if (!tab) return;
+		if (!canApplySegmentAction(action)) return;
 
 		if (action.type === 'add_segment' || action.type === 'delete_segment') {
 			await applySegmentListAction(tab, action, messageId, actionIndex);

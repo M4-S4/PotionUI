@@ -35,6 +35,8 @@
 		raw,
 		context,
 		disabled = false,
+		readonly = false,
+		checkVariables = true,
 		variant = 'default',
 		startOpen = false,
 		onchange,
@@ -45,6 +47,8 @@
 		raw: string;
 		context: Readable<{ variables: VariablesMap; rolls: Record<string, VariableRoll> }>;
 		disabled?: boolean;
+		readonly?: boolean;
+		checkVariables?: boolean;
 		variant?: 'default' | 'segment-composer';
 		startOpen?: boolean;
 		onchange?: (newRaw: string) => void;
@@ -61,7 +65,7 @@
 	const variables = $derived($context.variables);
 	const rolls = $derived($context.rolls);
 	const summary = $derived(summarizeCondition(current));
-	const issue = $derived(conditionIssue(current, variables));
+	const issue = $derived(checkVariables ? conditionIssue(current, variables) : null);
 	const tooltip = $derived(issue ?? conditionTooltip(current));
 	const lastRun = $derived(lastRunFor(current, conditionValues(variables, rolls)));
 	const variableNames = $derived(Object.keys(variables));
@@ -320,6 +324,7 @@
 	tone={issue ? 'warning' : 'signal'}
 	density="tight"
 	{disabled}
+	{readonly}
 	onremove={onremove}
 	bind:open
 	canOpen={!!local}
@@ -332,7 +337,7 @@
 	headerSubtitle={plainConditionSummary(current)}
 >
 	{#snippet label()}
-		<span class="font-mono text-sm {issue ? 'text-warning' : 'text-ai-3'}">if</span>
+		<span class="shrink-0 whitespace-nowrap font-mono text-sm {issue ? 'text-warning' : 'text-ai-3'}">if</span>
 		{#if summary}
 			<Tooltip text={tooltip} wrapperClass="min-w-0 inline-flex items-center gap-1">
 			<span class="max-w-[22rem] truncate font-mono text-sm text-fg">{summary.head}</span>

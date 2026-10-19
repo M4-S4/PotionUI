@@ -150,3 +150,28 @@ describe('applyVariableChanges number', () => {
 		expect(result.age).toMatchObject({ type: 'number', mode: 'shuffle', min: 5, max: 9, step: 1, value: 5 });
 	});
 });
+
+describe('applyVariableChanges backend wire ops', () => {
+	it('applies the numeric wire op manage_prompt_variables confirms', () => {
+		const result = applyVariableChanges({}, [
+			{ op: 'set', name: 'weight', type: 'number', mode: 'per-image', min: 0.5, max: 1.5, step: 0.25, value: 0.5 }
+		]);
+		expect(result).toEqual({ weight: { type: 'number', mode: 'per-image', min: 0.5, max: 1.5, step: 0.25, value: 0.5 } });
+	});
+
+	it('replaces an existing number variable and leaves its neighbours', () => {
+		const before = applyVariableChanges({}, [
+			{ op: 'set', name: 'age', type: 'number', min: 18, max: 90, step: 1, mode: 'shuffle', value: 18 },
+			{ op: 'set', name: 'mood', type: 'text', value: 'calm' }
+		]);
+		const after = applyVariableChanges(before, [
+			{ op: 'set', name: 'age', type: 'number', min: 18, max: 90, step: 1, mode: 'pin', value: 66 }
+		]);
+		expect(after.age).toMatchObject({ mode: 'pin', value: 66 });
+		expect(after.mood).toEqual(before.mood);
+	});
+
+	it('skips a number op whose range is invalid instead of throwing', () => {
+		expect(applyVariableChanges({}, [{ op: 'set', name: 'age', type: 'number', min: 90, max: 18, step: 1 }])).toEqual({});
+	});
+});

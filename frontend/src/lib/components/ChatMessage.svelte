@@ -17,6 +17,10 @@
 	import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 	import ChatBehaviorTrace from '$lib/components/chat/ChatBehaviorTrace.svelte';
 	import ChatActionCard from '$lib/components/chat/ChatActionCard.svelte';
+	import ConditionChip from '$lib/components/ConditionChip.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { readable } from 'svelte/store';
+	import { conditionTagProblems, splitConditionText } from '$lib/chat/conditionText';
 	import { actionExecutions, type ActionDecision, type ActionResolveOutcome } from '$lib/chat/actionCard';
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import { copyText } from '$lib/utils/clipboard';
@@ -78,6 +82,7 @@
 	export let onAskRedo: ((index: number) => void) | undefined = undefined;
 
 	$: actionItems = actionExecutions(toolExecutions);
+	$: conditionContext = readable({ variables: variables ?? {}, rolls: variableRolls ?? {} });
 
 	// Deduplicate sources by (source_type, title)
 	$: uniqueSources = (() => {
@@ -126,6 +131,10 @@
 	// are tracked, instead of an untracked function call from inside `{@const}`.
 	$: appliedByIndex = markdownResult.actions.map((_, idx) =>
 		isAppliedSegmentAction($appliedSegmentActions, messageId, idx)
+	);
+
+	$: conditionProblemsByIndex = markdownResult.actions.map((action) =>
+		action.type === 'delete_segment' ? [] : conditionTagProblems(action.content)
 	);
 
 	$: removalByIndex = markdownResult.actions.map(
@@ -319,6 +328,8 @@
 					<ChatActionCard
 						execution={item.execution}
 						actionKey="{messageId || 'local'}:{item.index}"
+						variables={variables}
+						rolls={variableRolls}
 						locked={actionsLocked || !messageId}
 						externalError={actionErrors[`${messageId}:${item.index}`] ?? null}
 						onResolve={onResolveAction ? (decision) => onResolveAction!(item.index, decision) : undefined}
@@ -374,13 +385,13 @@
 									{/if}
 									<button
 										type="button"
-										class="apply-button"
+										class="apply-button {applied ? '' : 'disabled:opacity-50 disabled:cursor-not-allowed'}"
 										class:applied
 										class:destructive={action.type === 'delete_segment' && !applied}
 										data-testid="segment-action-apply"
-										disabled={!isReapplicable(action) && (applied || listActionsDisabled)}
+										disabled={conditionProblemsByIndex[i].length > 0 || (!isReapplicable(action) && (applied || listActionsDisabled))}
 										title={applied ? (isReapplicable(action) ? 'Re-apply this variant' : undefined) : applyActionHint}
-										on:click={() => onApplyAction?.(action, i)}
+										on:click={() => conditionProblemsByIndex[i].length === 0 && onApplyAction?.(action, i)}
 									>
 										{applyLabel(action, applied)}
 									</button>
@@ -405,8 +416,16 @@
 							</div>
 						{:else}
 						<div class="prompt-copy">
-							{#each splitMarkerTokens(action.content) as token}{#if token.kind === 'phrasebook'}<span class="prompt-token" title="Phrasebook: {token.label}"><span class="prompt-token-mark">#</span>{token.label}</span>{:else if token.kind === 'variable'}<span class="prompt-token variable" title={variableChips[token.label] ?? `Variable: ${token.label}`}><span class="prompt-token-mark">$</span>{token.label}</span>{:else}{#each splitResourceTokenPreview(token.text, promptResources, resourceFormValues) as part}{#if part.kind === 'linked'}<span class="prompt-token resource" data-resource-token="linked"><span class="prompt-token-mark">@</span>{part.label}</span>{:else if part.kind === 'unresolved'}<span class="prompt-token-unresolved" data-resource-token="unresolved">{part.text}</span>{:else}{part.text}{/if}{/each}{/if}{/each}
+							{#each splitConditionText(action.content) as part, partIndex (partIndex)}{#if part.kind === 'condition'}{#key part.raw}<ConditionChip raw={part.raw} context={conditionContext} readonly checkVariables={variables !== undefined} />{/key}{:else}{#each splitMarkerTokens(part.text) as token}{#if token.kind === 'phrasebook'}<Tooltip text="Phrasebook: {token.label}" wrapperClass="inline-flex"><span class="prompt-token"><span class="prompt-token-mark">#</span>{token.label}</span></Tooltip>{:else if token.kind === 'variable'}<Tooltip text={variableChips[token.label] ?? `Variable: ${token.label}`} wrapperClass="inline-flex"><span class="prompt-token variable"><span class="prompt-token-mark">$</span>{token.label}</span></Tooltip>{:else}{#each splitResourceTokenPreview(token.text, promptResources, resourceFormValues) as part}{#if part.kind === 'linked'}<span class="prompt-token resource" data-resource-token="linked"><span class="prompt-token-mark">@</span>{part.label}</span>{:else if part.kind === 'unresolved'}<span class="prompt-token-unresolved" data-resource-token="unresolved">{part.text}</span>{:else}{part.text}{/if}{/each}{/if}{/each}{/if}{/each}
 						</div>
+						{/if}
+						{#if conditionProblemsByIndex[i].length}
+							<div class="prompt-resource-warning" role="alert" data-testid="condition-tag-problems">
+								<strong>Apply is off until the condition tags are fixed.</strong>
+								{#each conditionProblemsByIndex[i] as problem (problem.kind + problem.offset)}
+									<div>{problem.message}</div>
+								{/each}
+							</div>
 						{/if}
 						{#if promptResources.length}
 							{#each resourceTokenWarnings(action.content, { specs: promptResources, formValues: resourceFormValues, fieldLabels: resourceFieldLabels }) as warning (warning)}

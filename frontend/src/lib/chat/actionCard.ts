@@ -5,6 +5,7 @@ import type {
 	UnifiedChatMessageData
 } from '$lib/types/chat';
 import { buildApprovalDiff, deriveCompactSummary } from './approvalPreview';
+import { formatNumberVariableSummary } from './conditionText';
 
 export type ActionCardState = 'pending' | 'stale' | 'applied' | 'rejected' | 'failed';
 
@@ -126,7 +127,7 @@ export function actionCardIcon(execution: ToolExecution): string {
 
 export function collapsedSummary(execution: ToolExecution, toolLabel: string): string {
 	const diff = buildApprovalDiff(execution);
-	if (diff?.length) return diff.map((row) => `${row.field} ${row.newValue}`).join(' · ');
+	if (diff?.length) return diff.map((row) => `${row.field} ${row.newNumber ? formatNumberVariableSummary(row.newNumber) : row.newValue}`).join(' · ');
 	const changed = execution.preview?.fields?.filter((f) => f.old != null) ?? [];
 	if (changed.length) return changed.map((f) => `${f.label} ${f.value}`).join(' · ');
 	return deriveCompactSummary(execution, toolLabel, execution.preview);

@@ -919,15 +919,21 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      flex-wrap: wrap;
+      gap: 6px 10px;
       border-bottom: 1px solid rgb(var(--line));
     }
 
 .prompt-card-title {
       min-width: 0;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 8px;
+      gap: 4px 8px;
+    }
+
+.prompt-card-head > .flex-shrink-0 {
+      margin-left: auto;
     }
 
 .prompt-card-title .icon {
@@ -940,9 +946,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       color: rgb(var(--fg));
       font-size: 13px;
       font-weight: 600;
+      white-space: nowrap;
     }
 
 .prompt-label {
+      white-space: nowrap;
       padding: 2px 6px;
       border-radius: 4px;
       color: rgb(var(--signal));
@@ -985,9 +993,24 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
     }
 
 .apply-button:disabled {
-      cursor: default;
       transform: none;
       filter: none;
+    }
+
+.apply-button.applied:disabled {
+      cursor: default;
+    }
+
+.prompt-copy .condition-chip,
+.action-copy .condition-chip {
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+.prompt-copy .condition-chip > button,
+.action-copy .condition-chip > button {
+      min-width: 0;
+      max-width: 100%;
     }
 
 .undo-button {

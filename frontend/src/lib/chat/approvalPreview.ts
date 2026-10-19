@@ -1,3 +1,4 @@
+import { parseNumberVariableSummary, type NumberVariableSummary } from './conditionText';
 import type { ToolApprovalChange, ToolApprovalPreview, ToolExecution } from '$lib/types/chat';
 
 const UNKNOWN_PRESET_LABEL = 'Unknown preset';
@@ -16,6 +17,8 @@ export interface ApprovalDiffRow {
 	oldValue: string;
 	newValue: string;
 	reason?: string;
+	oldNumber?: NumberVariableSummary;
+	newNumber?: NumberVariableSummary;
 }
 
 /** One `changes` operation rendered as a labeled group of field diff rows —
@@ -75,12 +78,20 @@ export function buildApprovalDiff(execution: ToolExecution): ApprovalDiffRow[] |
 	const data = parseExecutionResultData<{ proposed_changes?: ChangeRow[]; applied_changes?: ChangeRow[] }>(execution);
 	const changes = data.proposed_changes?.length ? data.proposed_changes : data.applied_changes;
 	if (!changes || changes.length === 0) return null;
-	return changes.map((change) => ({
-		field: change.field_name,
-		oldValue: formatValue(change.old_value),
-		newValue: formatValue(change.new_value),
-		reason: change.reason
-	}));
+	return changes.map((change) => {
+		const row: ApprovalDiffRow = {
+			field: change.field_name,
+			oldValue: formatValue(change.old_value),
+			newValue: formatValue(change.new_value),
+			reason: change.reason
+		};
+		if (!change.field_name.startsWith('${')) return row;
+		const oldNumber = parseNumberVariableSummary(row.oldValue);
+		const newNumber = parseNumberVariableSummary(row.newValue);
+		if (oldNumber) row.oldNumber = oldNumber;
+		if (newNumber) row.newNumber = newNumber;
+		return row;
+	});
 }
 
 /**
@@ -184,6 +195,7 @@ export interface ArgTreeNode {
 	kind: ArgTreeValueKind;
 	/** Typed display text for scalar kinds (quoted strings, tabular numbers, etc). */
 	display?: string;
+	raw?: string;
 	/** Nested entries for `object`/`array` kinds. */
 	children?: ArgTreeNode[];
 	/** One-line content preview for a collapsed `object`/`array`. */
@@ -261,7 +273,14 @@ function buildTreeNode(key: string, value: unknown, topLevel: boolean): ArgTreeN
 	if (value === null || value === undefined) return { key, kind: 'null', display: 'null', open: false };
 	if (typeof value === 'boolean') return { key, kind: 'boolean', display: String(value), open: false };
 	if (typeof value === 'number') return { key, kind: 'number', display: String(value), open: false };
-	return { key, kind: 'string', display: JSON.stringify(String(value)), open: false };
+	const text = String(value);
+	return {
+		key,
+		kind: 'string',
+		display: JSON.stringify(text),
+		...(text.includes('<<if') ? { raw: text } : {}),
+		open: false
+	};
 }
 
 /**
