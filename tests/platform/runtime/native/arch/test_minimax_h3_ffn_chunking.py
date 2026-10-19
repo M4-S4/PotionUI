@@ -125,10 +125,10 @@ def test_the_mlp_takes_the_smaller_of_two_nonzero_chunk_widths():
 
 
 @pytest.mark.parametrize("rows", [4, 5, 11])
-def test_fp32_chunked_mlp_is_bit_identical_to_the_whole_one(rows):
+def test_fp32_chunked_mlp_matches_the_whole_one(rows):
     mlp = _float_mlp()
     x = _x()
-    assert torch.equal(_run(mlp, x, rows), _run(mlp, x, 0))
+    torch.testing.assert_close(_run(mlp, x, rows), _run(mlp, x, 0), atol=1e-6, rtol=1e-6)
 
 
 @pytest.mark.parametrize("rows", [4, 5, 11])

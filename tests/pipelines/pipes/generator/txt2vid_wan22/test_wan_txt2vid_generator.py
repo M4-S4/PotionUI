@@ -1049,6 +1049,7 @@ def _enable_compile(monkeypatch):
     from src.platform.runtime.native.optimizations import compile as tc
 
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", True)
+    monkeypatch.setattr(tc, "_triton_available", lambda: True)
     return tc
 
 

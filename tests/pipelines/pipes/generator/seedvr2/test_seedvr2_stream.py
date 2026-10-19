@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import gc
 import subprocess
+import tempfile
 import tracemalloc
 from pathlib import Path
 from types import SimpleNamespace
@@ -483,17 +484,17 @@ def test_oom_retry_replays_the_clip_with_no_duplicate_or_lost_frames(monkeypatch
     )
 
 
-def test_failed_attempts_leave_no_output_behind(monkeypatch):
+def test_failed_attempts_leave_no_output_behind(monkeypatch, tmp_path):
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     frames = _frames(20)
     gen = _StubGen(fail_with=RuntimeError("synthetic decode failure"))
     _wire_pipe(monkeypatch, gen, frames)
     pipe = GeneratorSeedVR2Pipe(_config(batch_size=5))
 
-    before = set(Path("/tmp").glob("*.mp4*"))
     with pytest.raises(RuntimeError, match="synthetic decode failure"):
         pipe.process(_pipe_input(), lambda o: None)
 
-    leftovers = set(Path("/tmp").glob("*.mp4*")) - before
+    leftovers = set(tmp_path.glob("*.mp4*"))
     assert not leftovers, f"a failed attempt left files behind: {leftovers}"
     assert gen.released >= 1
 
