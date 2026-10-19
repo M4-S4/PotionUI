@@ -54,7 +54,6 @@ if __name__ == "__main__":
         log_config=None,
         # Optimize for concurrent connections and reduce blocking
         limit_concurrency=1000,  # Allow more concurrent connections
-        limit_max_requests=10000,  # Handle more requests before restarting
         timeout_keep_alive=30,  # Keep connections alive longer
         timeout_graceful_shutdown=30,  # Allow time for graceful shutdown
         # Enable HTTP/1.1 pipelining for better performance

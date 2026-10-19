@@ -1463,7 +1463,7 @@ def cmd_start(args) -> int:
         str(venv_python_path), "-m", "uvicorn", "api:app",
         "--host", "127.0.0.1", "--port", str(args.backend_port),
         "--workers", "1", "--log-level", "info",
-        "--limit-concurrency", "1000", "--limit-max-requests", "10000",
+        "--limit-concurrency", "1000",
         "--timeout-keep-alive", "30", "--timeout-graceful-shutdown", "30",
     ]
 
