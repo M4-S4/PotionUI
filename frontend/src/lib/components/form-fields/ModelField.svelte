@@ -40,7 +40,9 @@
 	$: fieldConfig = config.configuration || config;
 
 	// Model types and configuration
-	$: modelType = fieldConfig?.model_type || 'checkpoint';
+	$: modelTypes = (Array.isArray(fieldConfig?.model_types) ? fieldConfig.model_types : []) as string[];
+	$: modelType = fieldConfig?.model_type || modelTypes[0] || 'checkpoint';
+	$: unquantizedOnly = fieldConfig?.unquantized_only === true;
 	$: allowTagFilters = fieldConfig?.allow_tag_filters !== false;
 	$: limit = fieldConfig?.limit || 100;
 	$: recommendations = (fieldConfig?.recommendations || null) as ModelRecommendation[] | null;
@@ -159,7 +161,13 @@
 		const pathParts = path.split('/');
 		const filename = pathParts[pathParts.length - 1];
 
-		const request = buildModelSearchRequest({ modelType: mt, presetId: pid, searchQuery: filename, limit: 10 });
+		const request = buildModelSearchRequest({
+			modelType: mt,
+			presetId: pid,
+			searchQuery: filename,
+			limit: 10,
+			modelTypes
+		});
 		const response =
 			request.kind === 'preset'
 				? await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts)
@@ -619,6 +627,8 @@
 					bind:this={browserPanel}
 					bind:loading
 					{modelType}
+					{modelTypes}
+					{unquantizedOnly}
 					{presetId}
 					{limit}
 					{searchQuery}

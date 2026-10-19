@@ -580,5 +580,55 @@ class TestPresetControllerModelAccessFiltering:
         assert mock_models_for_engine.call_args.kwargs["user_allowed_model_ids"] is None
 
 
+class TestPresetControllerModelTypeOptions:
+    @pytest.fixture
+    def collaborators(self):
+        manager = Mock()
+        preset = Mock()
+        preset.engine = "native"
+        manager.preset_loader.load_preset_by_id = Mock(return_value=preset)
+        manager.model_index.locator.path_for_model = Mock(name="path_for_model")
+        return manager
+
+    @pytest.fixture
+    def controller(self, collaborators):
+        registry = Mock()
+        registry.get_backends_for_engine.return_value = []
+        return PresetController(collaborators, registry)
+
+    @pytest.fixture
+    def admin(self):
+        user = Mock()
+        user.id = "a"
+        user.account_type = AccountType.ADMIN
+        return user
+
+    async def call(self, controller, admin, **kwargs):
+        with patch("src.features.models.availability.models_for_engine") as models_for_engine, \
+             patch("src.features.models.availability_repository.model_availability_repo") as repo:
+            models_for_engine.return_value = []
+            repo.any_indexed.return_value = False
+            await controller.get_preset_models("test-preset", current_user=admin, **kwargs)
+        return models_for_engine.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_model_types_are_split_trimmed_and_forwarded(self, controller, admin):
+        kwargs = await self.call(controller, admin, model_types="diffusion_model, unet,,text_encoder")
+        assert kwargs["model_types"] == ["diffusion_model", "unet", "text_encoder"]
+
+    @pytest.mark.asyncio
+    async def test_absent_options_keep_the_single_type_call_unchanged(self, controller, admin):
+        kwargs = await self.call(controller, admin, model_type="lora")
+        assert kwargs["model_type"] == "lora"
+        assert kwargs["model_types"] is None
+        assert kwargs["unquantized_only"] is False
+
+    @pytest.mark.asyncio
+    async def test_unquantized_only_hands_over_the_locator(self, controller, collaborators, admin):
+        kwargs = await self.call(controller, admin, unquantized_only=True)
+        assert kwargs["unquantized_only"] is True
+        assert kwargs["path_for_model"] is collaborators.model_index.locator.path_for_model
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

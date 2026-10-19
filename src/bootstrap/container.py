@@ -762,7 +762,8 @@ def build_container() -> AppContainer:
 
     content_policy_resolver = ContentPolicyResolver(settings, _UserGroupRepositoryForContent())
     preset_processor = PresetProcessor(
-        template_processor, settings, preset_template_loader, content_policy=content_policy_resolver
+        template_processor, settings, preset_template_loader, content_policy=content_policy_resolver,
+        user_resolver=lambda user_id: user_repository.get_by_id(user_id),
     )
     image_writer = ImageWriter(template_processor, settings)
 

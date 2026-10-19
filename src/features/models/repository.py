@@ -37,6 +37,11 @@ def _type_clause(model_type: str, include_extractable_checkpoints: bool):
         return clause, [model_type, CHECKPOINT_MODEL_TYPE, *families]
     return "m.model_type = ?", [model_type]
 
+def _types_clause(model_types: List[str]):
+    placeholders = ",".join("?" * len(model_types))
+    return f"m.model_type IN ({placeholders})", list(model_types)
+
+
 _UNSORTED_SQL = (
     "NOT EXISTS (SELECT 1 FROM model_collection_members um "
     "JOIN model_collections uc ON uc.id = um.collection_id "
@@ -223,7 +228,8 @@ class ModelRepository:
                 search_filter: Optional[ModelSearchFilter] = None,
                 include_usage: bool = False,
                 include_undefined: bool = False,
-                include_extractable_checkpoints: bool = False) -> List[Model]:
+                include_extractable_checkpoints: bool = False,
+                model_types: Optional[List[str]] = None) -> List[Model]:
         """Get all models with optional filtering.
 
         `tag_ids` requires ALL listed tags (AND, used by the library's multi-tag
@@ -302,6 +308,10 @@ class ModelRepository:
                 type_clause, type_params = _type_clause(model_type, include_extractable_checkpoints)
                 additional_clauses.append(type_clause)
                 params.extend(type_params)
+            elif model_types:
+                type_clause, type_params = _types_clause(model_types)
+                additional_clauses.append(type_clause)
+                params.extend(type_params)
             elif not include_undefined:
                 additional_clauses.append("m.model_type != ?")
                 params.append(UNDEFINED_MODEL_TYPE)
@@ -353,6 +363,10 @@ class ModelRepository:
             params.extend(advanced_params)
             if model_type:
                 type_clause, type_params = _type_clause(model_type, include_extractable_checkpoints)
+                where_clauses.append(type_clause)
+                params.extend(type_params)
+            elif model_types:
+                type_clause, type_params = _types_clause(model_types)
                 where_clauses.append(type_clause)
                 params.extend(type_params)
             elif not include_undefined:

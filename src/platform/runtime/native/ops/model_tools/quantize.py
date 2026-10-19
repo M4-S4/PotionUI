@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 
 from ..fp8_quant import quantize_tensor_to_fp8_scaled
-from .errors import AlreadyQuantizedError, StreamMismatchError
+from .errors import AlreadyQuantizedError, StreamMismatchError, WriteCancelledError
 from .format import (
     DESCRIPTOR_BYTES,
     DESCRIPTOR_SUFFIX,
@@ -81,9 +81,17 @@ def quantize_stream(
     return new_plan, _quantized_tensors(tensors, quantized)
 
 
-def sha256_file(path: str | Path) -> str:
+HASH_CHUNK_BYTES = 8 * 1024 * 1024
+
+
+def sha256_file(path: str | Path, is_cancelled: Callable[[], bool] | None = None) -> str:
+    digest = hashlib.sha256()
     with open(path, "rb") as f:
-        return hashlib.file_digest(f, "sha256").hexdigest()
+        while chunk := f.read(HASH_CHUNK_BYTES):
+            if is_cancelled is not None and is_cancelled():
+                raise WriteCancelledError(f"hashing {Path(path).name} was cancelled")
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def build_recipe(family: str, keep_extra: Sequence[str], plan: Sequence[TensorSpec]) -> dict:

@@ -207,6 +207,8 @@ class PresetController(BaseController):
         admin: bool = False,
         current_user: Optional[User] = None,
         tasks: Optional[str] = None,
+        model_types: Optional[str] = None,
+        unquantized_only: bool = False,
     ) -> APIResponse:
         """Models this preset could actually load, with the backends that hold each.
 
@@ -247,13 +249,20 @@ class PresetController(BaseController):
             # page: filtering a LIMITed result client-side would drop rows that belong on it.
             driver = preset.driver if isinstance(getattr(preset, "driver", None), str) else None
             task_list = [t.strip() for t in tasks.split(",") if t.strip()] if tasks else None
-            models = models_for_engine(
+            type_list = [t.strip() for t in model_types.split(",") if t.strip()] if model_types else None
+            model_index = self.collaborators.model_index
+            locator = getattr(model_index, "locator", None)
+            models = await asyncio.to_thread(
+                models_for_engine,
                 engine=preset.engine,
                 driver=driver,
                 tasks=task_list,
                 preset_id=preset.id if isinstance(getattr(preset, "id", None), str) else None,
                 backend_registry=self.backend_registry,
                 model_type=model_type,
+                model_types=type_list,
+                unquantized_only=unquantized_only,
+                path_for_model=locator.path_for_model if locator is not None else None,
                 search=search,
                 limit=limit,
                 offset=offset,
@@ -511,6 +520,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         any_tag_ids: Optional[str] = None,
         favorites_only: bool = False,
         tasks: Optional[str] = None,
+        model_types: Optional[str] = None,
+        unquantized_only: bool = False,
         current_user=Depends(get_current_active_user)
     ):
         """List models loadable by this preset's engine, each badged with the backends holding it.
@@ -526,6 +537,8 @@ def build_router(container: "AppContainer") -> APIRouter:
             tag_ids, any_tag_ids, favorites_only, getattr(current_user, "id", None), is_admin,
             current_user=current_user,
             tasks=tasks,
+            model_types=model_types,
+            unquantized_only=unquantized_only,
         )
 
     @router.get("/{preset_id}/modes", response_model=APIResponse, summary="Get Preset Modes")

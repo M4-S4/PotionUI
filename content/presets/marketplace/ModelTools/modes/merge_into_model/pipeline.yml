@@ -1,0 +1,20 @@
+pipeline:
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["tool", "merge_into_model"]
+        - ["model", "{{ form.model }}"]
+
+  - name: "model_tools"
+    id: "model_tools"
+    enabled: true
+    configuration:
+      mode: "merge_into_model"
+      model: "{{ form.model }}"
+      loras: "{{ form.loras }}"
+      output_name: "{{ form.output_name | default('') }}"
+      overwrite: "{{ form.overwrite | default(false) }}"
+      is_admin: "{{ runtime.user.is_admin }}"

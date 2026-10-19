@@ -1,0 +1,80 @@
+{
+  "mode": "merge_loras",
+  "pipes": [
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "tool",
+              "merge_loras"
+            ],
+            [
+              "method",
+              "concat"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "dtype": {
+          "type": "str",
+          "value": "F32"
+        },
+        "is_admin": {
+          "type": "bool",
+          "value": false
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "merge_method": {
+          "type": "str",
+          "value": "concat"
+        },
+        "min_energy": {
+          "type": "float",
+          "value": 0.9
+        },
+        "mode": {
+          "type": "str",
+          "value": "merge_loras"
+        },
+        "output_name": {
+          "type": "str",
+          "value": ""
+        },
+        "overwrite": {
+          "type": "bool",
+          "value": false
+        },
+        "target_rank": {
+          "type": "int",
+          "value": 32
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_tools",
+      "name": "model_tools"
+    }
+  ],
+  "preset_id": "01M5ARBE0QD9PXX1XMNDXYVAK6",
+  "preset_name": "Model Tools"
+}

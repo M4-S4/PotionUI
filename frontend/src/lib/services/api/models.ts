@@ -413,6 +413,8 @@ export function createModelsApi(client: AxiosInstance) {
 				tagIds?: string;
 				anyTagIds?: string;
 				favoritesOnly?: boolean;
+				modelTypes?: string;
+				unquantizedOnly?: boolean;
 			},
 			signal?: AbortSignal
 		): Promise<APIResponse<{ engine: string; models: any[]; total: number; indexed: boolean }>> {
@@ -424,6 +426,8 @@ export function createModelsApi(client: AxiosInstance) {
 			if (opts?.tagIds) searchParams.append('tag_ids', opts.tagIds);
 			if (opts?.anyTagIds) searchParams.append('any_tag_ids', opts.anyTagIds);
 			if (opts?.favoritesOnly) searchParams.append('favorites_only', 'true');
+			if (opts?.modelTypes) searchParams.append('model_types', opts.modelTypes);
+			if (opts?.unquantizedOnly) searchParams.append('unquantized_only', 'true');
 			const queryString = searchParams.toString();
 			const response = await client.get(
 				`/api/presets/${presetId}/models${queryString ? `?${queryString}` : ''}`,

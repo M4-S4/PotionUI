@@ -1,0 +1,56 @@
+fields:
+  - name: "loras"
+    type: "lora_picker"
+    formula: "loras"
+    label: "LoRAs"
+    required: true
+    default: []
+    ai_hint: "At least two LoRAs to combine. LoKr works; LoHa, DoRA, convolution and text-encoder LoRAs are refused."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a LoRA..."
+      allow_info_modal: true
+      show_triggers: false
+      strength_min: -4.0
+      strength_max: 4.0
+      strength_step: 0.05
+      strength_default: 1.0
+      max_items: 8
+
+  - name: "merge_method"
+    type: "select"
+    formula: "merge"
+    label: "Method"
+    default: "concat"
+    ai_hint: "Exact stacks the LoRAs without losing anything, so the rank is their sum. Reduce compresses the result to the target rank and is refused when a layer keeps too little of the change."
+    configuration:
+      options:
+        - { label: "Exact (stack)", value: "concat", sub_label: "Lossless; the rank adds up." }
+        - { label: "Reduce rank", value: "reduce", sub_label: "Smaller file, checked against the energy limit." }
+
+  - name: "target_rank"
+    type: "slider"
+    formula: "merge"
+    label: "Target Rank"
+    default: 32
+    ai_hint: "Rank of the result when reducing, and the rank LoKr adapters are converted to."
+    configuration:
+      min: 1
+      max: 256
+      step: 1
+
+  - name: "output_name"
+    type: "string"
+    label: "Output File Name"
+    default: ""
+    ai_hint: "Plain file name without folders. Leave empty to derive it from the inputs, for example flux-dev-fp8 or flux-dev+style. .safetensors is added for you."
+    configuration:
+      placeholder: "Derived from the inputs when empty"
+      pattern: '^[^\\/:*?"<>|]*$'
+      pattern_message: "A file name cannot contain / \\ : * ? \" < > |"
+
+  - name: "overwrite"
+    type: "checkbox"
+    label: "Overwrite Existing File"
+    default: false
+    ai_hint: "Off by default: a run is refused when the output name already exists. The output can never replace one of its own inputs."

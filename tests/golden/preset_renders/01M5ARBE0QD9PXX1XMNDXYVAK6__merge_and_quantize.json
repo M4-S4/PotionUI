@@ -1,0 +1,72 @@
+{
+  "mode": "merge_and_quantize",
+  "pipes": [
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "tool",
+              "merge_and_quantize"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "is_admin": {
+          "type": "bool",
+          "value": false
+        },
+        "keep_patterns": {
+          "type": "str",
+          "value": ""
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "mode": {
+          "type": "str",
+          "value": "merge_and_quantize"
+        },
+        "model": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "output_name": {
+          "type": "str",
+          "value": ""
+        },
+        "overwrite": {
+          "type": "bool",
+          "value": false
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_tools",
+      "name": "model_tools"
+    }
+  ],
+  "preset_id": "01M5ARBE0QD9PXX1XMNDXYVAK6",
+  "preset_name": "Model Tools"
+}

@@ -205,6 +205,14 @@ the generated [`model_type` values table](../preset-context.md#model_type-values
     placeholder: "Select model..."
 ```
 
+`model_types` (optional list) offers several model types in one picker, for example
+`[diffusion_model, unet, checkpoint, text_encoder]`. Preset-scoped pickers list their union
+(`GET /api/presets/{id}/models?model_types=a,b,c`); the first entry stands in for `model_type`
+when that is not set, and unknown names are dropped. A field without the list behaves exactly as
+before. `unquantized_only: true` additionally hides safetensors files whose header already holds
+quantized tensors (an fp8 dtype, scale or `comfy_quant` entries) and every non-safetensors file;
+it is applied server-side, before paging.
+
 `recommendations` (a `model` field's list of downloadable models offered when the picker is empty)
 supports two entry shapes:
 

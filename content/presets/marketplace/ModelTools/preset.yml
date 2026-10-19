@@ -1,0 +1,44 @@
+########
+## Model Tools (native engine)
+##
+## Utility toolbox for model files already in the depot -- no diffusion model,
+## no prompt, no seed. One pipe (`model_tools`) does all the work and writes
+## a new safetensors file next to its source; the result appears as a model
+## file card.
+##
+## Admin only: the pipe refuses anyone but an administrator, and the preset
+## is never assigned to ordinary users. Local native backend only -- remote
+## workers and ComfyUI cannot reach this host's model folders.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01M5ARBE0QD9PXX1XMNDXYVAK6"
+name: "Model Tools"
+category: "utility"
+version: "1.0.0"
+engine: "native"
+tags: ["model", "utility", "quantize", "lora", "merge", "fp8", "admin", "local"]
+
+vars:
+  promptless_modes: [quantize, merge_into_model, merge_and_quantize, merge_loras]
+
+llm:
+  guide: |
+    This is an administrator utility for model files -- there is no diffusion model and no
+    prompt. Help the admin pick the mode and fill its fields: quantize (model to scaled fp8),
+    merge_into_model (bake LoRAs into a model), merge_and_quantize (both), merge_loras
+    (several LoRAs into one). The output name may stay empty; it is derived from the inputs.
+    Use update_form_settings; never suggest prompt text.
+
+formulas:
+  groups:
+    models:   { label: "Model", preselect: false }
+    loras:    { label: "LoRAs" }
+    quantize: { label: "Quantize" }
+    merge:    { label: "Merge" }
+
+modes:
+  - quantize
+  - merge_into_model
+  - merge_and_quantize
+  - merge_loras

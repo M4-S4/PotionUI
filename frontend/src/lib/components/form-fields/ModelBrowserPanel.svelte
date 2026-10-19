@@ -38,6 +38,8 @@
 	import type { ModelRecommendation, PresetRecipeLink } from '$lib/types/api';
 
 	export let modelType: string;
+	export let modelTypes: string[] = [];
+	export let unquantizedOnly: boolean = false;
 	export let presetId: string = '';
 	export let limit: number = 100;
 	export let searchQuery: string = '';
@@ -174,6 +176,8 @@
 		// specific request believes its own scope was.
 		const scope = {
 			modelType,
+			modelTypes: [...modelTypes],
+			unquantizedOnly,
 			presetId,
 			searchQuery,
 			limit,
@@ -194,7 +198,9 @@
 				limit: scope.limit,
 				tagIds,
 				anyTagIds: scope.filterTagIds,
-				favoritesOnly: scope.favoritesOnly
+				favoritesOnly: scope.favoritesOnly,
+				modelTypes: scope.modelTypes,
+				unquantizedOnly: scope.unquantizedOnly
 			});
 			const response =
 				request.kind === 'preset'
@@ -242,6 +248,8 @@
 	let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastScope = {
 		modelType: '',
+		modelTypes: '',
+		unquantizedOnly: false,
 		presetId: '',
 		searchQuery: '',
 		limit: 0,
@@ -259,6 +267,8 @@
 	// fetch at all.
 	$: scheduleFilterFetch(
 		modelType,
+		modelTypes.join(','),
+		unquantizedOnly,
 		presetId,
 		searchQuery,
 		limit,
@@ -270,6 +280,8 @@
 
 	function scheduleFilterFetch(
 		mt: string,
+		typesKey: string,
+		unquantized: boolean,
 		pid: string,
 		query: string,
 		lim: number,
@@ -281,6 +293,8 @@
 		if (!isMounted) return;
 		const current = {
 			modelType: mt,
+			modelTypes: typesKey,
+			unquantizedOnly: unquantized,
 			presetId: pid,
 			searchQuery: query,
 			limit: lim,
@@ -291,6 +305,8 @@
 		const searchQueryChanged = current.searchQuery !== lastScope.searchQuery;
 		const othersChanged =
 			current.modelType !== lastScope.modelType ||
+			current.modelTypes !== lastScope.modelTypes ||
+			current.unquantizedOnly !== lastScope.unquantizedOnly ||
 			current.presetId !== lastScope.presetId ||
 			current.limit !== lastScope.limit ||
 			current.tagFilters !== lastScope.tagFilters ||
@@ -320,6 +336,8 @@
 	onMount(() => {
 		lastScope = {
 			modelType,
+			modelTypes: modelTypes.join(','),
+			unquantizedOnly,
 			presetId,
 			searchQuery,
 			limit,

@@ -15,7 +15,11 @@ class DefaultField(BaseField):
 
     def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
         field_info = self.get_field_info(field)
-        return self.create_base_schema(field_info)
+        schema = self.create_base_schema(field_info)
+        configuration = field_info.get('configuration')
+        if configuration:
+            schema['configuration'] = dict(configuration)
+        return schema
 
     @classmethod
     def description(cls) -> str:

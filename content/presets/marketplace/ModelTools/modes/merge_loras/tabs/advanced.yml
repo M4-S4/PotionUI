@@ -1,0 +1,25 @@
+fields:
+  - name: "min_energy"
+    type: "slider"
+    formula: "merge"
+    label: "Minimum Energy Kept"
+    audience: "advanced"
+    default: 0.9
+    ai_hint: "A reduced layer that keeps less than this share of its delta makes the run fail instead of writing a degraded file."
+    configuration:
+      min: 0.5
+      max: 1
+      step: 0.01
+
+  - name: "dtype"
+    type: "select"
+    formula: "merge"
+    label: "Precision"
+    audience: "advanced"
+    default: "F32"
+    ai_hint: "Storage precision of the merged LoRA. F32 keeps an exact stack exact; F16 and BF16 halve the file."
+    configuration:
+      options:
+        - { label: "F32", value: "F32" }
+        - { label: "BF16", value: "BF16" }
+        - { label: "F16", value: "F16" }

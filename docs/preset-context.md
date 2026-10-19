@@ -82,9 +82,9 @@ The preset manifest: its id/name and the `vars:` bag (preset-wide constants). Th
 
 - `{{ preset.vars.default_cfg }}` → The preset's default CFG constant
 
-**`runtime`** — `runtime.settings.<allowlisted_key>`
+**`runtime`** — `runtime.settings.<allowlisted_key> | runtime.user.is_admin`
 
-A pre-resolved snapshot of allowlisted settings (resolved once per build with the authenticated user), NOT a live settings-manager call. The main allowlisted key is file_storage_directory.
+A pre-resolved snapshot of allowlisted settings (resolved once per build with the authenticated user), NOT a live settings-manager call. The main allowlisted key is file_storage_directory. `runtime.user.is_admin` is true only when the authenticated user is an administrator; it is resolved by the server, never from form data, so a pipe can trust it to gate admin-only work.
 
 - `{{ runtime.settings.file_storage_directory }}` → The configured storage directory
 

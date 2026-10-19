@@ -104,6 +104,7 @@ The context roots built by `PresetProcessor.process` (verified in `src/features/
 | `preset.vars` | The `vars:` mapping from `preset.yml` (e.g. `preset.vars.num_lora_slots`). |
 | `runtime.settings.file_storage_directory` | The storage root, resolved **once per build** with the authenticated user (a snapshot — no live settings calls at render time). |
 | `runtime.settings.nsfw` | The user's NSFW setting (same snapshot). |
+| `runtime.user.is_admin` | `true` only when the authenticated user is an administrator. Resolved by the server, never from form data, so a pipe can use it to gate admin-only work. `false` for unauthenticated callers (preview, test suite). |
 | `paths.preset` | Absolute path to this preset directory. (No `paths._shared` in the pipeline context.) |
 
 There is no `generation.seed`/`generation.quantity` (read `form.seed`/`form.quantity` — the

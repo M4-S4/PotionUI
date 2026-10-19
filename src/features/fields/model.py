@@ -21,8 +21,10 @@ class Model(BaseField):
             schema['reactions'] = resolve_reactions_filter_tags(schema['reactions'], preset_id)
 
         # Add configuration for model field
+        model_types = self._clean_model_types(field_info['configuration'].get('model_types'))
+        default_type = model_types[0] if model_types else 'checkpoint'
         schema['configuration'] = {
-            'model_type': field_info['configuration'].get('model_type', 'checkpoint'),
+            'model_type': field_info['configuration'].get('model_type', default_type),
             'placeholder': field_info['configuration'].get('placeholder', 'Select a model...'),
             'searchable': field_info['configuration'].get('searchable', True),
             'allow_info_modal': field_info['configuration'].get('allow_info_modal', True),
@@ -32,12 +34,26 @@ class Model(BaseField):
         }
         if field_info['configuration'].get('tasks'):
             schema['configuration']['tasks'] = list(field_info['configuration']['tasks'])
+        if model_types:
+            schema['configuration']['model_types'] = model_types
+        if field_info['configuration'].get('unquantized_only') is True:
+            schema['configuration']['unquantized_only'] = True
 
         # Lets the frontend source options from this preset's engine
         # (`GET /api/presets/{preset_id}/models`) instead of the global library.
         schema['preset_id'] = preset_id
 
         return schema
+
+    @staticmethod
+    def _clean_model_types(raw: Any) -> List[str]:
+        if not isinstance(raw, (list, tuple)):
+            return []
+        cleaned: List[str] = []
+        for item in raw:
+            if item in PICKABLE_MODEL_TYPES and item not in cleaned:
+                cleaned.append(item)
+        return cleaned
 
     @staticmethod
     def _serialize_recommendations(recommendations: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
@@ -117,6 +133,27 @@ class Model(BaseField):
                 description="Type of model to filter by",
                 choices=list(PICKABLE_MODEL_TYPES),
                 example="lora"
+            ),
+            FieldConfigSpec(
+                name="model_types",
+                param_type=list,
+                default=None,
+                description=(
+                    "Several model types offered in one picker (for example diffusion_model, unet "
+                    "and text_encoder). Preset-scoped pickers list the union; the first entry "
+                    "stands in for `model_type` when that is not set. Unknown types are dropped."
+                ),
+                example=["diffusion_model", "unet", "checkpoint", "text_encoder"]
+            ),
+            FieldConfigSpec(
+                name="unquantized_only",
+                param_type=bool,
+                default=False,
+                description=(
+                    "List only safetensors files whose header carries no quantized tensors "
+                    "(no fp8 dtype, scale or comfy_quant entries). Preset-scoped pickers only."
+                ),
+                example=True
             ),
             FieldConfigSpec(
                 name="placeholder",

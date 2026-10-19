@@ -83,5 +83,42 @@ class TestModelField(unittest.TestCase):
         self.assertNotIn('reactions', schema)
 
 
+class TestModelFieldTypeList(unittest.TestCase):
+
+    def setUp(self):
+        self.field = Model(Mock())
+
+    def _config(self, **configuration):
+        return self.field.output({'type': 'model', 'name': 'm', 'configuration': configuration}, preset_id='p')['configuration']
+
+    def test_model_types_are_served_and_the_first_stands_in_for_model_type(self):
+        config = self._config(model_types=['diffusion_model', 'unet', 'checkpoint', 'text_encoder'])
+        self.assertEqual(config['model_types'], ['diffusion_model', 'unet', 'checkpoint', 'text_encoder'])
+        self.assertEqual(config['model_type'], 'diffusion_model')
+
+    def test_an_explicit_model_type_is_kept(self):
+        config = self._config(model_type='unet', model_types=['diffusion_model', 'unet'])
+        self.assertEqual(config['model_type'], 'unet')
+
+    def test_unknown_and_duplicate_types_are_dropped(self):
+        config = self._config(model_types=['unet', 'bogus', 'unet', 7, 'lora'])
+        self.assertEqual(config['model_types'], ['unet', 'lora'])
+
+    def test_no_list_leaves_the_single_type_shape_untouched(self):
+        config = self._config(model_type='lora')
+        self.assertNotIn('model_types', config)
+        self.assertNotIn('unquantized_only', config)
+        self.assertEqual(config['model_type'], 'lora')
+
+    def test_unquantized_only_is_served_only_when_true(self):
+        self.assertIs(self._config(unquantized_only=True)['unquantized_only'], True)
+        self.assertNotIn('unquantized_only', self._config(unquantized_only=False))
+        self.assertNotIn('unquantized_only', self._config(unquantized_only='yes'))
+
+    def test_both_options_are_declared_in_the_field_configuration_spec(self):
+        names = {spec.name for spec in Model.configuration()}
+        self.assertTrue({'model_types', 'unquantized_only'} <= names)
+
+
 if __name__ == '__main__':
     unittest.main()

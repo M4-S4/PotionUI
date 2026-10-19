@@ -1,0 +1,29 @@
+fields:
+  - name: "model"
+    type: "model"
+    formula: "models"
+    label: "Model"
+    required: true
+    ai_hint: "A safetensors model or text encoder that is not already quantized."
+    configuration:
+      model_type: "diffusion_model"
+      model_types: [diffusion_model, unet, checkpoint, text_encoder]
+      placeholder: "Select a model..."
+      allow_info_modal: true
+      unquantized_only: true
+
+  - name: "output_name"
+    type: "string"
+    label: "Output File Name"
+    default: ""
+    ai_hint: "Plain file name without folders. Leave empty to derive it from the inputs, for example flux-dev-fp8 or flux-dev+style. .safetensors is added for you."
+    configuration:
+      placeholder: "Derived from the inputs when empty"
+      pattern: '^[^\\/:*?"<>|]*$'
+      pattern_message: "A file name cannot contain / \\ : * ? \" < > |"
+
+  - name: "overwrite"
+    type: "checkbox"
+    label: "Overwrite Existing File"
+    default: false
+    ai_hint: "Off by default: a run is refused when the output name already exists. The output can never replace one of its own inputs."
