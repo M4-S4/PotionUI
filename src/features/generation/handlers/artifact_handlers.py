@@ -20,6 +20,7 @@ transport-only behavior (no file saving).
 """
 
 import logging
+import os
 from typing import Dict, Any
 from abc import ABC, abstractmethod
 
@@ -35,6 +36,7 @@ from src.pipelines.outputs import (
     ComfyUIWorkflowGenerationOutput,
     DiffTextGenerationOutput,
     TextGenerationOutput,
+    ModelFileGenerationOutput,
 )
 
 # Import base handler from core
@@ -280,6 +282,33 @@ class TextGenerationOutputHandler(BaseGenerationOutputHandler):
         }
 
 
+class ModelFileGenerationOutputHandler(BaseGenerationOutputHandler):
+
+    def can_handle(self, output: GenerationOutput) -> bool:
+        return isinstance(output, ModelFileGenerationOutput)
+
+    def handle(self, output: ModelFileGenerationOutput) -> Dict[str, Any]:
+        metadata = {
+            'handler': 'ModelFileGenerationOutputHandler',
+            'processed': True,
+            'indexed': False,
+        }
+        if self.model_file_indexer is None:
+            return metadata
+        try:
+            result = self.model_file_indexer(output.path)
+        except Exception as e:
+            logger.warning(f"Could not index model file {output.path}: {e}")
+            output.index_warning = str(e)
+            metadata['index_error'] = str(e)
+            return metadata
+        output.model_id = result.get('model_id')
+        output.indexed = bool(result.get('indexed'))
+        output.index_warning = result.get('warning')
+        metadata['indexed'] = output.indexed
+        metadata['model_id'] = output.model_id
+        return metadata
+
 class ComfyUIWorkflowGenerationOutputHandler(BaseGenerationOutputHandler):
     """Handler for ComfyUIWorkflowGenerationOutput - processes workflow artifacts for display."""
 
@@ -453,6 +482,25 @@ def serialize_text_output(output: TextGenerationOutput, ctx: SerializeContext) -
     }
 
 
+def serialize_model_file_output(output: ModelFileGenerationOutput, ctx: SerializeContext) -> Dict[str, Any]:
+    return {
+        'artifact_type': 'model_file',
+        'artifact_data': {
+            'index': output.index,
+            'kind': output.kind,
+            'model_type': output.model_type,
+            'file_name': output.file_name or os.path.basename(output.path),
+            'size_bytes': output.size_bytes,
+            'source_size_bytes': output.source_size_bytes,
+            'format': output.format,
+            'summary': dict(output.summary or {}),
+            'model_id': output.model_id,
+            'indexed': output.indexed,
+            'index_warning': output.index_warning,
+        }
+    }
+
+
 def serialize_models_output(output: ModelsGenerationOutput, ctx: SerializeContext) -> Dict[str, Any]:
     """Serialize ModelsGenerationOutput for pipe_artifact messages."""
     result = {
@@ -596,4 +644,12 @@ output_type_registry.register(OutputTypeSpec(
     message_type='pipe_artifact',
     serializer=serialize_text_output,
     handler_cls=TextGenerationOutputHandler,
+))
+
+output_type_registry.register(OutputTypeSpec(
+    output_cls=ModelFileGenerationOutput,
+    key='model_file',
+    message_type='pipe_artifact',
+    serializer=serialize_model_file_output,
+    handler_cls=ModelFileGenerationOutputHandler,
 ))

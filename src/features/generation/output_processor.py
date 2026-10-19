@@ -68,6 +68,7 @@ class OutputProcessor:
         self.settings = settings
         self.storage_driver = storage_driver
         self.model_locator = model_locator
+        self.model_file_indexer = None
         self.type_registry = type_registry or output_type_registry
         logger.debug(
             f"OutputProcessor initialized with "
@@ -180,6 +181,7 @@ class OutputProcessor:
             }
 
         handler = spec.handler_cls(generation_id, user_id, self.settings, self.storage_driver, self.model_locator)
+        handler.model_file_indexer = self.model_file_indexer
         # handler.handle() is synchronous file/DB I/O (image encode, disk
         # writes, thumbnail generation) - run it off the event loop so one
         # slow output doesn't stall every other generation's WebSocket

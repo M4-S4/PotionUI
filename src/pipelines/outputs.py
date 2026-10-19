@@ -193,6 +193,22 @@ class TextGenerationOutput(GenerationOutput):
 
 
 @dataclass
+class ModelFileGenerationOutput(GenerationOutput):
+    path: str
+    kind: Literal["model", "lora"] = "model"
+    model_type: str = "diffusion_model"
+    file_name: str = ""
+    size_bytes: int = 0
+    source_size_bytes: Optional[int] = None
+    format: str = ""
+    summary: Dict[str, Any] = field(default_factory=dict)
+    index: int = 0
+    model_id: Optional[str] = None
+    indexed: bool = False
+    index_warning: Optional[str] = None
+
+
+@dataclass
 class TimerGenerationOutput(GenerationOutput):
     name: str
     value: float

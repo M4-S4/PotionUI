@@ -15,7 +15,7 @@ from src.features.generation.handlers import (
     MeshGenerationOutputHandler,
     ComfyUIWorkflowGenerationOutputHandler, WarmStartGenerationOutputHandler,
     RenderedPromptGenerationOutputHandler, DiffTextGenerationOutputHandler,
-    TextGenerationOutputHandler, CostGenerationOutputHandler,
+    TextGenerationOutputHandler, CostGenerationOutputHandler, ModelFileGenerationOutputHandler,
 )
 from src.features.generation.output_types import output_type_registry
 from src.pipelines.outputs import (
@@ -1025,6 +1025,7 @@ class TestDefaultOutputTypeRegistry:
             ComfyUIWorkflowGenerationOutputHandler,
             DiffTextGenerationOutputHandler,
             TextGenerationOutputHandler,
+            ModelFileGenerationOutputHandler,
             CostGenerationOutputHandler,
         }
 

@@ -1315,6 +1315,7 @@ def build_container() -> AppContainer:
     model_collection_controller = ModelCollectionController(model_collection_repository, model_smart_counts)
 
     download_queue.local_model_indexer = model_index_manager.indexing.index_downloaded
+    output_processor.model_file_indexer = model_index_manager.indexing.index_downloaded
 
     model_controller = ModelController(
         model_index_manager, user_model_meta_repository, download_queue,

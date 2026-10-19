@@ -7,6 +7,7 @@ import ImageArtifact from '$lib/components/generation/artifacts/ImageArtifact.sv
 import WorkflowArtifact from '$lib/components/generation/artifacts/WorkflowArtifact.svelte';
 import RenderedPromptArtifact from '$lib/components/generation/artifacts/RenderedPromptArtifact.svelte';
 import TextArtifact from '$lib/components/generation/artifacts/TextArtifact.svelte';
+import ModelFileArtifact from '$lib/components/generation/artifacts/ModelFileArtifact.svelte';
 
 artifactRendererRegistry.register('seed', { component: SeedArtifact });
 artifactRendererRegistry.register('models', { component: ModelsArtifact });
@@ -16,3 +17,4 @@ artifactRendererRegistry.register('image', { component: ImageArtifact });
 artifactRendererRegistry.register('workflow', { component: WorkflowArtifact });
 artifactRendererRegistry.register('rendered_prompt', { component: RenderedPromptArtifact });
 artifactRendererRegistry.register('text', { component: TextArtifact });
+artifactRendererRegistry.register('model_file', { component: ModelFileArtifact });

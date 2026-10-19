@@ -89,6 +89,9 @@ report = {
         "orchestrator_uses_the_broadcaster": c.generation_orchestrator.output_broadcaster is c.output_broadcaster,
         "controller_uses_the_broadcaster": _generation_controller(c).output_broadcaster is c.output_broadcaster,
         "websocket_handler_uses_the_container_hub": _generation_controller(c).websocket_handler.connection_hub is c.connection_hub,
+        "model_files_are_indexed_by_the_container_coordinator": (
+            c.output_processor.model_file_indexer == c.model_index_manager.indexing.index_downloaded
+        ),
     },
     "shutdownable": {
         "history_executor": hasattr(c.generation_history_facade.executor, "shutdown"),

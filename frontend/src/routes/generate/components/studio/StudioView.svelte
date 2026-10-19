@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { modeDescription } from '$lib/utils/modeDescription';
 	import type { Tab } from '$lib/types/tabs';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
@@ -53,6 +54,17 @@
 	export let onReload: () => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
 
+	let rootEl: HTMLDivElement;
+	onMount(() => {
+		const dock = rootEl?.querySelector<HTMLElement>('.studio-dock');
+		if (!dock || typeof ResizeObserver === 'undefined') return;
+		const publish = () => rootEl.style.setProperty('--studio-dock-height', `${dock.offsetHeight}px`);
+		publish();
+		const observer = new ResizeObserver(publish);
+		observer.observe(dock);
+		return () => observer.disconnect();
+	});
+
 	type SheetName = 'prompt' | 'settings' | 'preset' | 'chat';
 	let openSheet: SheetName | null = null;
 	function closeSheet() {
@@ -78,7 +90,7 @@
 		'';
 </script>
 
-<div class="relative h-full w-full overflow-hidden">
+<div class="relative h-full w-full overflow-hidden" bind:this={rootEl}>
 	<StudioCanvas {tab} />
 
 	<StudioTopBar

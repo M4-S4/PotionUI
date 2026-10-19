@@ -29,6 +29,7 @@ from src.features.generation.handlers.artifact_handlers import (
     ComfyUIWorkflowGenerationOutputHandler,
     DiffTextGenerationOutputHandler,
     TextGenerationOutputHandler,
+    ModelFileGenerationOutputHandler,
 )
 from src.features.generation.handlers.cost_handler import CostGenerationOutputHandler
 from src.features.generation.handlers.director_shot_handler import serialize_director_shot_output
@@ -54,6 +55,7 @@ __all__ = [
     'ComfyUIWorkflowGenerationOutputHandler',
     'DiffTextGenerationOutputHandler',
     'TextGenerationOutputHandler',
+    'ModelFileGenerationOutputHandler',
     'CostGenerationOutputHandler',
     'serialize_error_output',
     'serialize_director_shot_output',

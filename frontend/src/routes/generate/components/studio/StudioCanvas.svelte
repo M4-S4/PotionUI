@@ -21,6 +21,7 @@
 	import { formatElapsedClock } from './studioProgressRing';
 	import AudioPlayer from '$lib/components/AudioPlayer.svelte';
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
+	import LiveModelFileArtifacts from '$lib/components/generation/LiveModelFileArtifacts.svelte';
 	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
 
@@ -28,6 +29,9 @@
 
 	$: generation = tab.generation;
 	$: compareGrid = readWorkbenchGrid($compareRevision, tab.id);
+	$: hasModelFiles = (generation.artifacts ?? []).some(
+		(artifact) => artifact.artifact_type === 'model_file' && !!artifact.artifact_data
+	);
 	// Workbench.svelte's own `currentGeneration` prop is typed `any` for the
 	// same reason: the WebSocket envelope carries fields (`current_image`,
 	// `current_video`, ...) the shared `ActiveGeneration` type doesn't declare.
@@ -214,6 +218,16 @@
 					<p class="text-sm font-medium text-fg-subtle">Describe something below</p>
 				{/if}
 			</div>
+		</div>
+	{/if}
+
+	{#if hasModelFiles}
+		<div
+			class="absolute inset-0 min-w-0 overflow-y-auto bg-canvas px-3 pt-16"
+			style="padding-bottom: calc(var(--studio-dock-height, 14rem) + 0.75rem)"
+			data-testid="studio-model-file-stage"
+		>
+			<LiveModelFileArtifacts {tab} />
 		</div>
 	{/if}
 </div>

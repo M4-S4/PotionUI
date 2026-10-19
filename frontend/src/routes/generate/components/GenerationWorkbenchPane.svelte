@@ -3,8 +3,10 @@
 	import PluginOutputs from '$lib/components/generation/PluginOutputs.svelte';
 	import CancelNotice from '$lib/components/generation/CancelNotice.svelte';
 	import LiveTextArtifacts from '$lib/components/generation/LiveTextArtifacts.svelte';
+	import LiveModelFileArtifacts from '$lib/components/generation/LiveModelFileArtifacts.svelte';
 	import GridWorkbench from '$lib/components/compare/view/GridWorkbench.svelte';
 	import { compareRevision, readWorkbenchGrid } from '$lib/generation/compare/compareStore.svelte';
+	import { galleryTotal, type WorkbenchBatches } from '$lib/components/workbench/workbenchGallery';
 	import type { Tab } from '$lib/types/tabs';
 
 	// The workbench, wired the same way at every mount site (mobile Panel 2,
@@ -16,13 +18,27 @@
 	export let onWorkbenchNext: () => void;
 	export let onWorkbenchHeightChange: (event: CustomEvent<string>) => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
+
+	$: generation = tab.generation;
+	$: current = generation.currentGeneration as any;
+	$: hasModelFiles = (generation.artifacts ?? []).some(
+		(artifact) => artifact.artifact_type === 'model_file' && !!artifact.artifact_data
+	);
+	$: hasMedia =
+		galleryTotal({
+			images: generation.batchImages,
+			videos: generation.batchVideos,
+			audios: generation.batchAudios,
+			meshes: generation.batchMeshes
+		} as WorkbenchBatches) > 0 ||
+		!!(current?.current_image || current?.current_video || current?.current_audio);
 </script>
 
 <CancelNotice {tab} />
 
 {#if readWorkbenchGrid($compareRevision, tab.id)}
 	<GridWorkbench tabId={tab.id} />
-{:else}
+{:else if !hasModelFiles || hasMedia}
 <Workbench
 	currentGeneration={tab.generation.currentGeneration}
 	isGenerating={tab.generation.isGenerating}
@@ -41,5 +57,7 @@
 {/if}
 
 <LiveTextArtifacts {tab} />
+
+<LiveModelFileArtifacts {tab} />
 
 <PluginOutputs {tab} />

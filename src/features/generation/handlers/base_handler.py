@@ -68,6 +68,7 @@ class BaseGenerationOutputHandler(ABC):
         # every handler, including ones that never save anything.
         self.storage_driver = storage_driver
         self.model_locator = model_locator
+        self.model_file_indexer = None
         self._thumbnail_profile = None
 
     @property
