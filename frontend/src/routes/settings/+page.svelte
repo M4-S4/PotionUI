@@ -12,7 +12,8 @@
 	import PlanUsageCard from '$lib/plans/components/PlanUsageCard.svelte';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
 	import { resolveAvatarFileFromMediaItem } from './avatarMediaPick';
-	import { validatePasswordChange, type PasswordChangeErrors } from '$lib/utils/passwordValidation';
+	import { passwordErrorsFromServer, validatePasswordChange, type PasswordChangeErrors } from '$lib/utils/passwordValidation';
+	import { parseApiError } from '$lib/utils/apiErrors';
 	import { copyText } from '$lib/utils/clipboard';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -24,17 +25,6 @@
 	let accountsSheetOpen = false;
 	$: accountCount = Math.max($accountsStore.accounts.length, 1);
 	$: hasLocalPassword = user?.has_local_password ?? true;
-
-	// Unwraps the backend's error_response() detail shape (see auth store) so
-	// 400/429 responses surface their real message instead of "[object Object]".
-	// Pydantic 422 validation errors carry a list detail; use its first message.
-	function extractApiErrorMessage(error: any): string | undefined {
-		const detail = error?.response?.data?.detail;
-		if (typeof detail === 'string') return detail;
-		if (Array.isArray(detail) && typeof detail[0]?.msg === 'string') return detail[0].msg;
-		if (detail && typeof detail.message === 'string') return detail.message;
-		return error?.message;
-	}
 
 	// ── Avatar ────────────────────────────────────────────────────────────
 	let avatarUploading = false;
@@ -77,7 +67,7 @@
 				avatarError = response.message || 'Failed to upload avatar.';
 			}
 		} catch (err: any) {
-			avatarError = extractApiErrorMessage(err) || 'Failed to upload avatar.';
+			avatarError = parseApiError(err).message || 'Failed to upload avatar.';
 		} finally {
 			avatarUploading = false;
 		}
@@ -95,7 +85,7 @@
 				avatarError = response.message || 'Failed to remove avatar.';
 			}
 		} catch (err: any) {
-			avatarError = extractApiErrorMessage(err) || 'Failed to remove avatar.';
+			avatarError = parseApiError(err).message || 'Failed to remove avatar.';
 		} finally {
 			avatarUploading = false;
 		}
@@ -149,7 +139,13 @@
 					? `Too many attempts — try again in ${retryAfter}s.`
 					: 'Too many attempts — try again shortly.';
 			} else {
-				passwordServerError = extractApiErrorMessage(err) || 'Failed to change password.';
+				const parsed = parseApiError(err);
+				const mapped = passwordErrorsFromServer(parsed.fieldErrors);
+				if (mapped) {
+					passwordErrors = mapped;
+				} else {
+					passwordServerError = parsed.message || 'Failed to change password.';
+				}
 			}
 		} finally {
 			passwordSubmitting = false;
@@ -232,7 +228,7 @@
 				mcpLoadError = response.message || 'Failed to load MCP tokens.';
 			}
 		} catch (err: any) {
-			mcpLoadError = extractApiErrorMessage(err) || 'Failed to load MCP tokens.';
+			mcpLoadError = parseApiError(err).message || 'Failed to load MCP tokens.';
 		} finally {
 			mcpLoading = false;
 		}
@@ -255,7 +251,7 @@
 				mcpCreateError = response.message || 'Failed to create token.';
 			}
 		} catch (err: any) {
-			mcpCreateError = extractApiErrorMessage(err) || 'Failed to create token.';
+			mcpCreateError = parseApiError(err).message || 'Failed to create token.';
 		} finally {
 			mcpCreating = false;
 		}
@@ -281,7 +277,7 @@
 				toasts.error(response.message || 'Failed to revoke token.');
 			}
 		} catch (err: any) {
-			toasts.error(extractApiErrorMessage(err) || 'Failed to revoke token.');
+			toasts.error(parseApiError(err).message || 'Failed to revoke token.');
 		} finally {
 			mcpRevokingId = null;
 		}
