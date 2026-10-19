@@ -50,3 +50,18 @@ class TestPromptVariablesGuidance:
         assert "named ${...} placeholders" in prompt
         assert "{{#if" not in prompt
         assert "{{/if" not in prompt
+
+
+class TestConditionGrammarGuidance:
+    def _resolve(self, allowed):
+        registry = ChatModeRegistry()
+        return registry.resolve_system_prompt(build_generation_mode(), "- some_tool: hint", allowed)
+
+    def test_grammar_is_taught_without_any_tool(self):
+        prompt = self._resolve([])
+        assert "<<if $age > 65>>grey hair<<else if $age < 25>>youthful<<else>>auburn hair<<end>>" in prompt
+        assert "in 18..30" in prompt
+        assert "never both" in prompt
+        assert "no nesting" in prompt
+        assert "up to 6 tests" in prompt
+        assert "{{#if" not in prompt

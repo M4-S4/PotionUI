@@ -242,3 +242,18 @@ async def test_duplicate_name_is_a_plain_error(owner):
     result = await CreateSegmentCategoryTool().execute_confirmed(owner, name="Dup")
     assert not result.success
     assert "already exists" in result.error
+
+
+@pytest.mark.asyncio
+async def test_saved_segment_accepts_condition_tags_and_refuses_malformed_ones(owner):
+    category = await _category(owner)
+    condition = "woman, <<if $age > 65>>grey hair<<else>>auburn hair<<end>>"
+    preview = await CreateSavedSegmentTool().execute(owner, name="Aged", category_id=category["id"], content=condition)
+    assert preview.success, preview.error
+    assert preview.preview.text_blocks[0]["text"] == condition
+
+    created = await _segment(owner, category["id"], name="Aged", content=condition)
+    refused = await UpdateSavedSegmentTool().execute(owner, segment_id=created["id"], content="<<if $age > 65>>grey hair")
+    assert not refused.success
+    assert "malformed condition tags" in refused.error
+    assert owner.saved_segment_repository.get_by_id(created["id"], "owner").content == condition

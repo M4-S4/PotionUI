@@ -7,6 +7,7 @@ from src.features.prompt_database import operations
 from src.features.prompt_database.dto import PromptRequest
 from src.features.prompt_database.repository import flatten_segments
 from src.features.llm.tools.base import ApprovalTool, BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.builtin.condition_text import ensure_condition_tags
 from src.features.llm.tools.builtin.utils import parse_page, viewer_is_restricted
 
 
@@ -32,9 +33,12 @@ VARIABLES_SCHEMA = {
     "additionalProperties": {
         "type": "object",
         "properties": {
-            "type": {"type": "string", "enum": ["text", "choice"]},
-            "value": {"type": "string", "description": "text only"},
-            "mode": {"type": "string", "enum": ["shuffle", "pin", "per-image"], "description": "choice only"},
+            "type": {"type": "string", "enum": ["text", "choice", "number"]},
+            "value": {"oneOf": [{"type": "string"}, {"type": "number"}]},
+            "min": {"type": "number"},
+            "max": {"type": "number"},
+            "step": {"type": "number"},
+            "mode": {"type": "string", "enum": ["shuffle", "pin", "per-image"], "description": "choice or number"},
             "pinnedIndex": {"type": "integer", "description": "choice + pin only"},
             "options": {
                 "type": "array",
@@ -240,6 +244,7 @@ class AddPromptTool(_PromptWriteTool):
 
     def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         request = _prompt_request(**kwargs)
+        ensure_condition_tags(segment.content for segment in request.segments)
         text = flatten_segments(request.segments)
         fields = []
         if request.name:
@@ -307,6 +312,7 @@ class EditPromptTool(_PromptWriteTool):
         if not any(key in kwargs for key in ("name", "usage_hint", "segments", "variables")):
             raise ValueError("No Prompt fields were supplied")
         request = _prompt_request(existing, **kwargs)
+        ensure_condition_tags(segment.content for segment in request.segments)
 
         old_text = flatten_segments(existing.segments)
         new_text = flatten_segments(request.segments)

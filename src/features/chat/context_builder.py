@@ -12,6 +12,7 @@ serves @resource autocomplete suggestions.
 import asyncio
 import inspect
 import logging
+import re
 import traceback
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -54,6 +55,10 @@ _WORKSPACE_MAX_AI_HINT_CHARS = 200
 # behind get_current_segments.
 _PROMPT_STATE_CONTENT_CHARS = 100
 _PROMPT_STATE_MAX_SEGMENTS = 20
+_CONDITION_OPEN = re.compile(r"<<if(?=\s|>)")
+_CONDITION_END = "<<end>>"
+_CONDITION_ELIDED = "<<if …>>"
+_CONDITION_EXTEND_FACTOR = 4
 _PROMPT_STATE_MAX_BLOCK_CHARS = 4000
 _PROMPT_STATE_HEADER = (
     "PROMPT STATE (current editor contents; truncated — "
@@ -92,17 +97,46 @@ def _cap_guidance(text: str, limit: int = _WORKSPACE_MAX_GUIDANCE_CHARS) -> str:
     return _cap_text(text, limit, "… (call get_model_info for the full guidance)")
 
 
+def _condition_straddle_end(compact: str, limit: int) -> Optional[int]:
+    for opening in _CONDITION_OPEN.finditer(compact):
+        if opening.start() >= limit:
+            return None
+        closing = compact.find(_CONDITION_END, opening.end())
+        if closing < 0:
+            return None
+        end = closing + len(_CONDITION_END)
+        if end <= limit:
+            continue
+        return end if end <= limit * _CONDITION_EXTEND_FACTOR else None
+    return None
+
+
+def _drop_dangling_condition(cut: str) -> str:
+    for opening in _CONDITION_OPEN.finditer(cut):
+        if cut.find(_CONDITION_END, opening.end()) < 0:
+            cut = cut[:opening.start()].rstrip()
+            break
+    partial = cut.rfind("<<")
+    if partial >= 0 and ">>" not in cut[partial:]:
+        cut = cut[:partial].rstrip()
+    return cut or _CONDITION_ELIDED
+
+
 def _truncate_prompt_content(text: str, limit: int) -> Tuple[str, int, bool]:
     """Whole-word truncate a segment's content; returns (shown, total_chars, truncated)."""
     compact = " ".join((text or "").split())
     total = len(compact)
     if total <= limit:
         return compact, total, False
+    end = _condition_straddle_end(compact, limit)
+    if end is not None:
+        return compact[:end], total, end < total
     cut = compact[:limit]
-    sp = cut.rfind(" ")
-    if sp > 0:
-        cut = cut[:sp]
-    return cut.rstrip(), total, True
+    if compact[limit] != " ":
+        sp = cut.rfind(" ")
+        if sp > 0:
+            cut = cut[:sp]
+    return _drop_dangling_condition(cut.rstrip()), total, True
 
 
 def _render_prompt_state_line(seq: int, seg: Dict[str, Any]) -> str:
@@ -1056,8 +1090,11 @@ class ChatContextBuilder:
 
         block = "\n".join(lines)
         if len(block) > _PROMPT_STATE_MAX_BLOCK_CHARS:
+            head = block[:_PROMPT_STATE_MAX_BLOCK_CHARS]
+            if "\n" in head:
+                head = head.rsplit("\n", 1)[0]
             block = (
-                block[:_PROMPT_STATE_MAX_BLOCK_CHARS].rstrip()
+                head.rstrip()
                 + "\n…(truncated — call get_current_segments for full segment text)"
             )
         context_budget.attach_context_block(conversation_history, block)

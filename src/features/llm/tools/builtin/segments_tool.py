@@ -4,6 +4,7 @@ import json
 from typing import Any, Dict, Optional
 
 from src.features.llm.tools.base import ApprovalTool, BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.builtin.condition_text import ensure_condition_tags
 from src.features.llm.tools.builtin.manage_prompts_tool import RICH_SEGMENT_SCHEMA
 from src.features.segments import operations
 from src.features.segments.dto import SavedSegmentRequest, SegmentCategoryRequest, SegmentTemplateRequest
@@ -212,6 +213,10 @@ def _category_payload(category) -> Dict[str, Any]:
     }
 
 
+def _template_texts(request) -> list:
+    return [text for segment in request.segments for text in (segment.content, segment.prefix, segment.suffix)]
+
+
 def _preview_fields(request, existing, labels) -> list:
     fields = []
     for label, field in labels:
@@ -276,6 +281,7 @@ class CreateSavedSegmentTool(_SavedSegmentTool):
 
     def _preview(self, context, kwargs):
         request = SavedSegmentRequest(**_supplied(_SEGMENT_FIELDS, kwargs))
+        ensure_condition_tags((request.content, request.prefix, request.suffix))
         category = operations.get_category(context.segment_category_repository, request.category_id, context.user_id)
         if context.saved_segment_repository.get_by_name(request.name, context.user_id):
             raise ValueError("Saved Segment with this name already exists")
@@ -327,6 +333,7 @@ class UpdateSavedSegmentTool(_SavedSegmentTool):
         if not _supplied(_SEGMENT_FIELDS, kwargs):
             raise ValueError("No saved Segment fields were supplied")
         request = self._request(existing, kwargs)
+        ensure_condition_tags((request.content, request.prefix, request.suffix))
         block = {"label": "Content", "text": request.content}
         if request.content != existing.content:
             block["old_text"] = existing.content
@@ -416,6 +423,7 @@ class CreateSegmentTemplateTool(_TemplateTool):
 
     def _preview(self, context, kwargs):
         request = SegmentTemplateRequest(**_supplied(_TEMPLATE_FIELDS, kwargs))
+        ensure_condition_tags(_template_texts(request))
         if context.segment_template_repository.get_by_name(request.name, context.user_id):
             raise ValueError("Segment Template with this name already exists")
         text = "\n".join(segment.content for segment in request.segments)
@@ -465,6 +473,7 @@ class UpdateSegmentTemplateTool(_TemplateTool):
         if not _supplied(_TEMPLATE_FIELDS, kwargs):
             raise ValueError("No Segment Template fields were supplied")
         request = self._request(existing, kwargs)
+        ensure_condition_tags(_template_texts(request))
         new_text = "\n".join(segment.content for segment in request.segments)
         old_text = "\n".join(segment.content for segment in existing.segments)
         block = {"label": "Segments", "text": new_text}

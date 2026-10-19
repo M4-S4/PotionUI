@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "id": "number_variable_proposal",
+  "title": "Creating a Number variable via manage_prompt_variables, approval-gated",
+  "mode": "generation",
+  "tool_names": [
+    "manage_prompt_variables",
+    "get_form_state"
+  ],
+  "context": {
+    "form_facts": {
+      "prompt": "portrait of a woman"
+    }
+  },
+  "user_turns": [
+    "Make an age variable from 18 to 90 that picks a different age per image."
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "manage_prompt_variables"
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "age",
+        "18",
+        "90"
+      ]
+    },
+    {
+      "type": "truthful_apply_status",
+      "tool": "manage_prompt_variables",
+      "forbidden_claims": [
+        "i've created",
+        "i've added",
+        "age is now",
+        "variable is now set"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 1
+    }
+  ],
+  "live_supported": true,
+  "live_context_metadata": {
+    "form_state": {
+      "preset": "sdxl/base",
+      "mode": "txt2img",
+      "form_data": {
+        "prompt": "portrait of a woman"
+      },
+      "variables": []
+    }
+  }
+}

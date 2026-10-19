@@ -65,6 +65,12 @@ DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE = (
     "{{#if manage_prompt_variables}}; to add one, call manage_prompt_variables "
     "first, then use it. Never write a ${name} that neither exists nor is created "
     "this turn{{/if}}.\n"
+    "A condition picks text by variable values: "
+    '<<if $age > 65>>grey hair<<else if $age < 25>>youthful<<else>>auburn hair<<end>>. '
+    "It reads $name; ${name} prints it. Number tests: = != < <= > >=, in 18..30, not in. "
+    'Choice/text tests: = != in "a", "b", not in, contains, not contains, is empty, is not empty. '
+    "Spaces around operators are required. A head takes up to 6 tests joined by and or by or, "
+    "never both; no nesting; <<else>> is optional.\n"
     "{{#ifany get_current_segments get_video_director}}"
     "\n## Proposing prompt text\n\n"
     "{{#if get_current_segments}}"

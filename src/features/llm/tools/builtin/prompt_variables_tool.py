@@ -1,6 +1,7 @@
 """Tool for creating, updating, and removing the generate tab's prompt variables."""
 
 import json
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
@@ -10,7 +11,11 @@ from src.platform.resources.prompt_variables import (
     format_option,
     name_error,
     normalize_option,
+    number_grid,
+    number_grid_error,
+    number_pinned_text,
     option_texts,
+    render_prompt_variable_lines,
     valid_options,
     validate_condition,
     variable_dependencies,
@@ -22,6 +27,9 @@ def _describe(var: Optional[Dict[str, Any]]) -> str:
     name prefix, since the caller already shows `${name}` as the field."""
     if not var:
         return "not set"
+    if var.get("type") == "number":
+        lines = render_prompt_variable_lines([{**var, "name": "n", "lastRoll": None}])
+        return lines[0].split(": ", 1)[1] if lines else "number with an invalid range"
     if var.get("type") == "choice":
         options = valid_options(var.get("options"))
         if not options:
@@ -113,6 +121,40 @@ def _build_choice_var(
     return {"type": "choice", "options": options, "mode": mode, "pinnedIndex": pinned_index}
 
 
+def _wire_number(value: Decimal) -> Any:
+    return int(value) if value == value.to_integral_value() else float(value)
+
+
+def _build_number_var(
+    op: Dict[str, Any],
+    name: str,
+    existing: Optional[Dict[str, Any]],
+    errors: List[str],
+) -> Optional[Dict[str, Any]]:
+    inherited = existing if isinstance(existing, dict) and existing.get("type") == "number" else {}
+    definition = {
+        field: op[field] if field in op else inherited.get(field)
+        for field in ("min", "max", "step", "value")
+    }
+    mode = op.get("mode") or inherited.get("mode") or "shuffle"
+    if mode not in VALID_MODES:
+        errors.append(f"'{name}': invalid mode '{mode}'. Use shuffle, pin, or per-image.")
+        return None
+    error = number_grid_error(name, definition)
+    if error:
+        errors.append(error)
+        return None
+    grid = number_grid(definition)
+    return {
+        "type": "number",
+        "mode": mode,
+        "min": _wire_number(grid.minimum),
+        "max": _wire_number(grid.maximum),
+        "step": _wire_number(grid.step),
+        "value": _wire_number(Decimal(number_pinned_text(definition, grid))),
+    }
+
+
 def _validate_operations(
     operations: List[Dict[str, Any]],
     existing_by_name: Dict[str, Dict[str, Any]],
@@ -167,8 +209,8 @@ def _validate_operations(
             continue
 
         var_type = op.get("type") or (working.get(name) or {}).get("type") or "text"
-        if var_type not in ("text", "choice"):
-            errors.append(f"'{name}': invalid type '{var_type}'. Use text or choice.")
+        if var_type not in ("text", "choice", "number"):
+            errors.append(f"'{name}': invalid type '{var_type}'. Use text, choice or number.")
             continue
 
         if var_type == "text":
@@ -179,6 +221,11 @@ def _validate_operations(
                 errors.append(f"'{name}': a text variable's value must be a string.")
                 continue
             new_var: Dict[str, Any] = {"type": "text", "value": value}
+        elif var_type == "number":
+            built = _build_number_var(op, name, working.get(name), errors)
+            if built is None:
+                continue
+            new_var = built
         else:
             built = _build_choice_var(op, name, working, errors)
             if built is None:
@@ -192,6 +239,8 @@ def _validate_operations(
         wire_op: Dict[str, Any] = {"op": "set", "name": name, "type": new_var["type"]}
         if new_var["type"] == "text":
             wire_op["value"] = new_var["value"]
+        elif new_var["type"] == "number":
+            wire_op.update({key: new_var[key] for key in ("mode", "min", "max", "step", "value")})
         else:
             wire_op["options"] = new_var["options"]
             wire_op["mode"] = new_var["mode"]
@@ -235,6 +284,8 @@ class ManagePromptVariablesTool(BaseTool):
             "variable's option texts exactly. Example: {\"op\": \"set\", \"name\": \"dance\", "
             "\"type\": \"choice\", \"options\": [{\"text\": \"breaking\", \"when\": "
             "{\"var\": \"music\", \"values\": [\"hip hop\"]}}, \"salsa\"]}. "
+            "type 'number' takes min, max, step (default 1, up to 200 values) and the same "
+            "modes ('pin' uses value); omitted fields keep their current value. "
             "The user must approve before changes are applied."
             "{{#if get_form_state}} Call get_form_state first to see existing variables and "
             "their current values.{{/if}}"
@@ -262,16 +313,19 @@ class ManagePromptVariablesTool(BaseTool):
                             },
                             "type": {
                                 "type": "string",
-                                "enum": ["text", "choice"],
+                                "enum": ["text", "choice", "number"],
                                 "description": (
                                     "Required for 'set' on a new variable; defaults to the "
                                     "existing variable's type when updating one."
                                 ),
                             },
                             "value": {
-                                "type": "string",
-                                "description": "The value, for a 'set' with type 'text'",
+                                "oneOf": [{"type": "string"}, {"type": "number"}],
+                                "description": "Text value, or the pinned number for type 'number'",
                             },
+                            "min": {"type": "number"},
+                            "max": {"type": "number"},
+                            "step": {"type": "number"},
                             "options": {
                                 "type": "array",
                                 "items": {
@@ -310,7 +364,7 @@ class ManagePromptVariablesTool(BaseTool):
                             "mode": {
                                 "type": "string",
                                 "enum": ["shuffle", "pin", "per-image"],
-                                "description": "How a choice variable resolves; defaults to 'shuffle'",
+                                "description": "Choice or number resolution; defaults to 'shuffle'",
                             },
                             "pinned_index": {
                                 "type": "integer",
