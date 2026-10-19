@@ -103,6 +103,13 @@ report = {
         "plugin_kinds": c.plugin_registry.limit_kind_registry is c.limit_kind_registry,
         "core_kinds": sorted(k.key for k in c.limit_kind_registry.all() if k.source == "core"),
     },
+    "tab_draft_wiring": {
+        "controller_uses_the_container_manager": c.tab_draft_controller.manager is c.tab_draft_manager,
+        "manager_has_a_repository": c.tab_draft_manager.repository is not None,
+        "housekeeping_sweeps_the_container_manager": any(
+            t.name == "tab_drafts" for t in c.housekeeping_worker.tasks
+        ),
+    },
     "detected_tags_wired": any(
         pid == "organize_engine"
         for pid, _ in c.plugin_registry.hook_chain._handlers.get("media_index.after_tags_written", [])
@@ -173,6 +180,10 @@ def test_every_submit_and_upload_path_shares_the_one_limit_guard(report):
     wiring = dict(report["limit_wiring"])
     assert wiring.pop("core_kinds") == ["cloud_spend_usd_month", "generations_per_day", "storage_bytes", "upload_file_size"]
     assert [k for k, v in wiring.items() if not v] == []
+
+
+def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):
+    assert [k for k, v in report["tab_draft_wiring"].items() if not v] == []
 
 
 def test_organize_listens_to_the_tags_the_media_indexer_announces(report):

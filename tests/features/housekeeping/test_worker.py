@@ -107,7 +107,7 @@ class TestPreview:
 class TestDatabaseStatisticsTask:
 
     def _statistics_task(self):
-        tasks = build_tasks(Mock(), Mock(), Mock(), Mock())
+        tasks = build_tasks(Mock(), Mock(), Mock(), Mock(), Mock())
         return next(task for task in tasks if task.name == "database_statistics")
 
     async def test_every_pass_refreshes_the_statistics_whatever_the_windows(self, monkeypatch):

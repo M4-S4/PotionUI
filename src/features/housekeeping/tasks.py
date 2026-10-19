@@ -135,6 +135,16 @@ def prune_llm_traces(repository, retention_days: int) -> Dict[str, Any]:
     return result
 
 
+def prune_tab_drafts(manager) -> Dict[str, Any]:
+    result: Dict[str, Any] = {"rows_removed": 0, "errors": []}
+    try:
+        result["rows_removed"] = manager.sweep()
+    except Exception as e:
+        logger.warning("Could not sweep stale tab drafts: %s", e)
+        result["errors"].append(str(e))
+    return result
+
+
 def refresh_database_statistics() -> Dict[str, Any]:
     from src.platform.database.database import db
 

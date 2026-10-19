@@ -190,6 +190,8 @@ if TYPE_CHECKING:
     from src.features.sessions.repository import SessionRepository
     from src.features.sessions.version_repository import SessionVersionRepository
     from src.features.workspaces.repository import WorkspaceRepository
+    from src.features.tab_drafts.manager import TabDraftManager
+    from src.features.tab_drafts.routes import TabDraftController
     from src.features.user_groups.repository import UserGroupRepository
     from src.features.auth.external_login import ExternalLoginManager
     from src.features.auth.repository import ExternalIdentityRepository
@@ -482,6 +484,9 @@ class AppContainer:
     # Workspaces
     workspace_repository: "WorkspaceRepository"
     workspace_controller: "WorkspaceController"
+
+    tab_draft_manager: "TabDraftManager"
+    tab_draft_controller: "TabDraftController"
 
     # User groups
     user_group_repository: "UserGroupRepository"
@@ -1449,6 +1454,13 @@ def build_container() -> AppContainer:
         upload_repository=upload_repository,
     )
 
+    from src.features.tab_drafts.manager import TabDraftManager
+    from src.features.tab_drafts.repository import TabDraftRepository
+    from src.features.tab_drafts.routes import TabDraftController
+
+    tab_draft_manager = TabDraftManager(TabDraftRepository())
+    tab_draft_controller = TabDraftController(tab_draft_manager)
+
     from src.features.housekeeping.worker import HousekeepingWorker, build_tasks
 
     housekeeping_worker = HousekeepingWorker(
@@ -1458,6 +1470,7 @@ def build_container() -> AppContainer:
             run_report_repository=run_report_repository,
             run_report_recorder=run_report_recorder,
             trace_repository=chat_call_trace_repository,
+            tab_draft_manager=tab_draft_manager,
         ),
     )
 

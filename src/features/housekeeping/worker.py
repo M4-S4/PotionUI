@@ -22,6 +22,7 @@ from src.features.housekeeping.settings import (
 from src.features.housekeeping.tasks import (
     prune_llm_traces,
     prune_run_reports,
+    prune_tab_drafts,
     prune_tmp,
     refresh_database_statistics,
     scan_tmp,
@@ -51,7 +52,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def build_tasks(settings, run_report_repository, run_report_recorder, trace_repository) -> List[HousekeepingTask]:
+def build_tasks(
+    settings, run_report_repository, run_report_recorder, trace_repository, tab_draft_manager
+) -> List[HousekeepingTask]:
     """The passes that ship with the app, in the order they run."""
     return [
         HousekeepingTask(
@@ -71,6 +74,11 @@ def build_tasks(settings, run_report_repository, run_report_recorder, trace_repo
             setting_key=SETTING_LLM_TRACE_DAYS,
             run=lambda days: prune_llm_traces(trace_repository, days),
             preview=lambda days: trace_repository.count_older_than(days) if days > 0 else 0,
+        ),
+        HousekeepingTask(
+            name="tab_drafts",
+            setting_key=None,
+            run=lambda days: prune_tab_drafts(tab_draft_manager),
         ),
         HousekeepingTask(
             name="database_statistics",
