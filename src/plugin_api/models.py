@@ -22,6 +22,7 @@ from src.features.models.exceptions import (
     ModelNotFoundException,
     ProviderFetchException,
 )
+from src.features.models.locator import ModelFileUnavailable
 from src.platform.filesystem.model_types import MODEL_DIRECTORY_ALIASES, MODEL_TYPES, type_for_folder_name
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.runtime.model_headers import (
@@ -47,6 +48,7 @@ __all__ = [
     "run_provider_fetch",
     "InvalidModelMetadataException",
     "ModelAssignmentException",
+    "ModelFileUnavailable",
     "ModelNotFoundException",
     "ProviderFetchException",
     "MODEL_DIRECTORY_ALIASES",

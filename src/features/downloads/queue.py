@@ -26,6 +26,7 @@ from urllib.parse import urlparse, unquote
 from src.features.downloads.exceptions import (
     DownloadException,
     DownloadNotFoundException,
+    DownloadDestinationInvalid,
     DownloadQueueException,
     DownloadOperationException,
     InvalidStatusException,
@@ -364,7 +365,7 @@ class DownloadQueue:
         root_abs = os.path.abspath(str(root))
         candidate_abs = os.path.abspath(str(candidate))
         if candidate_abs != root_abs and os.path.commonpath([root_abs, candidate_abs]) != root_abs:
-            raise DownloadQueueException(
+            raise DownloadDestinationInvalid(
                 f"Destination directory '{label if label is not None else candidate}' "
                 f"escapes the configured directory '{root}'"
             )
@@ -401,7 +402,7 @@ class DownloadQueue:
             except DownloadQueueException:
                 continue
 
-        raise DownloadQueueException(
+        raise DownloadDestinationInvalid(
             f"Destination directory '{destination_dir}' escapes the configured directory '{home}'"
         )
 
@@ -409,17 +410,17 @@ class DownloadQueue:
         """`backend_id` names a `native.remote` backend that's fully
         configured, or `DownloadQueueException`."""
         if self.backend_registry is None:
-            raise DownloadQueueException("Remote destinations are not available")
+            raise DownloadDestinationInvalid("Remote destinations are not available")
 
         from src.features.remote_execution.ops import RemoteModelsBackendError, resolve_remote_backend_config
 
         try:
             config = resolve_remote_backend_config(self.backend_registry, backend_id)
         except RemoteModelsBackendError as exc:
-            raise DownloadQueueException(str(exc))
+            raise DownloadDestinationInvalid(str(exc))
 
         if not config.is_configured():
-            raise DownloadQueueException(f"Backend '{backend_id}' is not fully configured")
+            raise DownloadDestinationInvalid(f"Backend '{backend_id}' is not fully configured")
 
     @staticmethod
     def _filename_from_url(url: str, fallback_prefix: str) -> str:
@@ -538,7 +539,7 @@ class DownloadQueue:
             self._validate_destination_backend(destination_backend_id)
 
         if subdir and (os.path.isabs(subdir) or any(part == '..' for part in Path(subdir).parts)):
-            raise DownloadQueueException(
+            raise DownloadDestinationInvalid(
                 f"Subfolder '{subdir}' must be a relative path with no '..' segments"
             )
 

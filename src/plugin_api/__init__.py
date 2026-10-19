@@ -221,6 +221,7 @@ from src.plugin_api.limits import (
 
 # Queueing downloads and following them.
 from src.plugin_api.downloads import (
+    DownloadDestinationInvalid,
     DownloadNotFoundException,
     DownloadQueueException,
     UnsafeFilenameException,
@@ -262,6 +263,7 @@ from src.plugin_api.models import (
     MODEL_DIRECTORY_ALIASES,
     InvalidModelMetadataException,
     ModelAssignmentException,
+    ModelFileUnavailable,
     ModelNotFoundException,
     ProviderFetchException,
     WellKnownModelMetadataField,
@@ -311,6 +313,7 @@ __all__ = [
     "Usage",
     "limit_status",
     # Downloads
+    "DownloadDestinationInvalid",
     "DownloadNotFoundException",
     "DownloadQueueException",
     "UnsafeFilenameException",
@@ -500,6 +503,7 @@ __all__ = [
     "run_provider_fetch",
     "InvalidModelMetadataException",
     "ModelAssignmentException",
+    "ModelFileUnavailable",
     "ModelNotFoundException",
     "ProviderFetchException",
     "SetupCheck",

@@ -12,6 +12,7 @@ dicts (`id`, `status`, `progress`, `filename`, `destination_path`,
 from typing import Any, Dict, List, Optional
 
 from src.features.downloads.exceptions import (
+    DownloadDestinationInvalid,
     DownloadNotFoundException,
     DownloadQueueException,
     UnsafeFilenameException,
@@ -19,6 +20,7 @@ from src.features.downloads.exceptions import (
 from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
+    "DownloadDestinationInvalid",
     "DownloadNotFoundException",
     "DownloadQueueException",
     "UnsafeFilenameException",

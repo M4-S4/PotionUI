@@ -1,11 +1,3 @@
-"""The import wizard's Requirements step: `POST /presets/import/requirements`
-runs `_infer_requirements` on a freshly-parsed workflow (no preset/backend
-resolution exists yet - this is a pre-create preview) and evaluates every
-entry directly through this plugin's own checker classes
-(backend/requirements.py), against a `_ConfiguredBackend` built straight from
-plugin settings rather than a registered core Backend.
-"""
-
 import asyncio
 
 import pytest

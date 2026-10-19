@@ -20,7 +20,7 @@ from src.plugin_api import (
     get_current_admin_user,
     lint_preset_dir,
 )
-from src.plugin_api.presets import RequirementContext
+from src.plugin_api.presets import RequirementBackendInfo, RequirementContext
 
 from .preset_import.defaults import build_default_form, build_default_history
 from .preset_import.emit import (
@@ -152,18 +152,6 @@ class _ConfiguredBackendConfig:
         return self.base_url
 
 
-@dataclass
-class _ConfiguredBackend:
-    """Duck-types `RequirementBackendInfo` (`src.features.presets.requirements
-    .contracts` - not re-exported through `src.plugin_api.presets`, so this
-    plugin defines its own minimal shape rather than reach past the plugin
-    API surface)."""
-
-    id: str
-    engine: str
-    config: _ConfiguredBackendConfig
-
-
 # How long the Requirements-preview step budgets for ALL of a workflow's
 # inferred requirements together (they run concurrently) before any still
 # pending resolve to "unknown" - matches `backend.requirements`'s own
@@ -175,11 +163,6 @@ _REQUIREMENT_PREVIEW_CHECKERS = {
     "comfyui_model": ComfyUIModelChecker(),
 }
 
-# `backend.requirements`'s checkers key their single-flight `/object_info`
-# cache by resolved backend id; there is no real `Backend` at analyze/source
-# time (see `_ConfiguredBackend`), so this plugin's own settings stand in
-# under a fixed id - shared with `preview_workflow_requirements` below so the
-# two steps never fetch the same multi-MB listing twice.
 _CONFIGURED_BACKEND_ID = "comfyui-backend:configured"
 
 # Best-effort budget for analyze/source's enrichment fetch - short enough
@@ -406,9 +389,10 @@ async def preview_workflow_requirements(
         models=None,
         gpu_available=False,
         gpu_total_vram_gb=None,
-        backend=_ConfiguredBackend(
+        backend=RequirementBackendInfo(
             id=_CONFIGURED_BACKEND_ID,
             engine="comfyui",
+            driver="comfyui",
             config=_ConfiguredBackendConfig(base_url=_get_comfyui_base_url()),
         ),
         platform=sys.platform,

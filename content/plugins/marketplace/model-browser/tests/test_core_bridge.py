@@ -9,10 +9,12 @@ from backend import core_bridge
 from backend.core_bridge import CoreBridgeError
 from src.plugin_api import (
     AccountType,
+    DownloadDestinationInvalid,
     DownloadQueueException,
     InvalidModelMetadataException,
     LimitStatus,
     ModelAssignmentException,
+    ModelFileUnavailable,
     ModelNotFoundException,
     NotificationTypeRegistry,
     NotificationTypeSpec,
@@ -60,24 +62,25 @@ def _raise(exception):
 
 
 @pytest.mark.parametrize(
-    "message, code",
+    "refusal, code",
     [
-        ("Quota plugin: monthly download limit reached", "blocked"),
-        ("No model root resolver is configured", "blocked"),
-        ("Subfolder '../x' must be a relative path with no '..' segments", "invalid"),
-        ("Destination directory 'x' escapes the configured directory '/app/models'", "invalid"),
-        ("No backend configured with id 'worker-9'", "invalid"),
-        ("Backend 'worker-1' is not a native.remote backend", "invalid"),
-        ("Backend 'worker-1' is not fully configured", "invalid"),
+        (DownloadQueueException("Quota plugin: monthly download limit reached"), "blocked"),
+        (DownloadQueueException("No model root resolver is configured"), "blocked"),
+        (DownloadDestinationInvalid("Subfolder '../x' must be a relative path with no '..' segments"), "invalid"),
+        (DownloadDestinationInvalid("Destination directory 'x' escapes the configured directory '/app/models'"), "invalid"),
+        (DownloadDestinationInvalid("No backend configured with id 'worker-9'"), "invalid"),
+        (DownloadDestinationInvalid("Backend 'worker-1' is not a native.remote backend"), "invalid"),
+        (DownloadDestinationInvalid("Backend 'worker-1' is not fully configured"), "invalid"),
+        (DownloadDestinationInvalid("Remote destinations are not available"), "invalid"),
     ],
 )
-async def test_queue_model_download_turns_the_cores_refusals_into_codes(monkeypatch, message, code):
-    _replace(monkeypatch, core_bridge.api_downloads, "queue_model_download", _raise(DownloadQueueException(message)))
+async def test_queue_model_download_turns_the_cores_refusals_into_codes(monkeypatch, refusal, code):
+    _replace(monkeypatch, core_bridge.api_downloads, "queue_model_download", _raise(refusal))
 
     with pytest.raises(CoreBridgeError) as raised:
         await core_bridge.queue_model_download(_URL, model_type="lora")
 
-    assert (raised.value.code, raised.value.message) == (code, message)
+    assert (raised.value.code, raised.value.message) == (code, str(refusal))
 
 
 async def test_an_unsafe_file_name_is_invalid(monkeypatch):
@@ -88,6 +91,12 @@ async def test_an_unsafe_file_name_is_invalid(monkeypatch):
         await core_bridge.queue_model_download(_URL, filename="..")
 
     assert raised.value.code == "invalid"
+
+
+def test_find_model_by_id_is_none_when_the_file_is_unavailable(monkeypatch):
+    _replace(monkeypatch, core_bridge.api_models, "resolve_model_file", _raise(ModelFileUnavailable("offline")))
+
+    assert core_bridge.find_model_by_id("model-1") is None
 
 
 def test_find_model_by_id_lets_any_other_failure_through(monkeypatch):

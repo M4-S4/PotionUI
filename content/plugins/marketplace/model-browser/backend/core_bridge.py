@@ -3,9 +3,11 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Mapping, Optional, Sequence, get_args
 
 from src.plugin_api import (
+    DownloadDestinationInvalid,
     DownloadQueueException,
     InvalidModelMetadataException,
     ModelAssignmentException,
+    ModelFileUnavailable,
     ModelNotFoundException,
     UnsafeFilenameException,
     User,
@@ -25,27 +27,11 @@ NOTIFICATION_SOURCE = "model-browser"
 
 MODEL_KEYS = ("id", "sha256", "is_available", "created_at", "filename", "model_type")
 
-_FILE_UNAVAILABLE = "ModelFileUnavailable"
-
-_INVALID_QUEUE_MESSAGES = (
-    "must be a relative path",
-    "escapes the configured directory",
-    "No backend configured with id",
-    "is not a native.remote backend",
-    "is not fully configured",
-    "Remote destinations are not available",
-)
-
-
 class CoreBridgeError(Exception):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
-
-
-def _queue_refusal_code(message: str) -> str:
-    return "invalid" if any(part in message for part in _INVALID_QUEUE_MESSAGES) else "blocked"
 
 
 async def queue_model_download(
@@ -72,10 +58,10 @@ async def queue_model_download(
             created_by=created_by,
             destination_backend_id=destination_backend_id,
         )
-    except UnsafeFilenameException as exc:
+    except (UnsafeFilenameException, DownloadDestinationInvalid) as exc:
         raise CoreBridgeError("invalid", str(exc)) from exc
     except DownloadQueueException as exc:
-        raise CoreBridgeError(_queue_refusal_code(str(exc)), str(exc)) from exc
+        raise CoreBridgeError("blocked", str(exc)) from exc
 
 
 def get_download(download_id: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -107,9 +93,7 @@ def find_model_by_id(model_id: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         path = api_models.resolve_model_file(model_id)
-    except Exception as exc:
-        if type(exc).__name__ != _FILE_UNAVAILABLE:
-            raise
+    except ModelFileUnavailable:
         return None
     return _trimmed(api_models.model_for_path(str(path), admin=True))
 

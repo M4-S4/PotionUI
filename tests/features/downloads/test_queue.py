@@ -9,6 +9,7 @@ from datetime import datetime
 
 from src.features.downloads.queue import DownloadQueue
 from src.features.downloads.exceptions import (
+    DownloadDestinationInvalid,
     DownloadNotFoundException,
     DownloadQueueException,
     DownloadOperationException,
@@ -274,14 +275,36 @@ class TestQueueModelDownloadDestinationResolution:
     @pytest.mark.asyncio
     async def test_relative_traversal_escape_is_rejected(self, manager_with_depot):
         manager, _depot = manager_with_depot
-        with pytest.raises(DownloadQueueException):
+        with pytest.raises(DownloadDestinationInvalid):
             await self._queue(manager, destination_dir='../../etc')
 
     @pytest.mark.asyncio
     async def test_absolute_path_outside_depot_is_rejected(self, manager_with_depot):
         manager, _depot = manager_with_depot
-        with pytest.raises(DownloadQueueException):
+        with pytest.raises(DownloadDestinationInvalid):
             await self._queue(manager, destination_dir='/etc/cron.d')
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('subdir', ['../x', '/abs/x', 'a/../../x'])
+    async def test_escaping_subdir_is_a_destination_refusal(self, manager_with_depot, subdir):
+        manager, _depot = manager_with_depot
+        with pytest.raises(DownloadDestinationInvalid):
+            await manager.queue_model_download(
+                url='https://example.com/m.safetensors', model_type='checkpoint', subdir=subdir
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_missing_model_root_resolver_is_a_plain_queue_refusal(self, mock_repository, mock_plugin_registry):
+        manager = DownloadQueue(
+            download_repository=mock_repository,
+            plugin_registry=mock_plugin_registry,
+            settings=_settings(),
+            connection_hub=AsyncMock(),
+        )
+        manager.worker = AsyncMock()
+        with pytest.raises(DownloadQueueException) as raised:
+            await manager.queue_model_download(url='https://example.com/m.safetensors', model_type='checkpoint')
+        assert not isinstance(raised.value, DownloadDestinationInvalid)
 
     @pytest.mark.asyncio
     async def test_absolute_path_already_inside_depot_is_accepted(self, manager_with_depot):
@@ -384,17 +407,17 @@ class TestQueueModelDownloadDestinationBackend:
 
     @pytest.mark.asyncio
     async def test_unknown_backend_id_is_rejected(self, manager_with_backend_registry):
-        with pytest.raises(DownloadQueueException):
+        with pytest.raises(DownloadDestinationInvalid):
             await self._queue(manager_with_backend_registry, destination_backend_id='does-not-exist')
 
     @pytest.mark.asyncio
     async def test_non_native_remote_driver_is_rejected(self, manager_with_backend_registry):
-        with pytest.raises(DownloadQueueException):
+        with pytest.raises(DownloadDestinationInvalid):
             await self._queue(manager_with_backend_registry, destination_backend_id='comfy-1')
 
     @pytest.mark.asyncio
     async def test_unconfigured_native_remote_backend_is_rejected(self, manager_with_backend_registry):
-        with pytest.raises(DownloadQueueException):
+        with pytest.raises(DownloadDestinationInvalid):
             await self._queue(manager_with_backend_registry, destination_backend_id='remote-unconfigured')
 
     @pytest.mark.asyncio
@@ -408,7 +431,7 @@ class TestQueueModelDownloadDestinationBackend:
             connection_hub=AsyncMock(),
         )
         manager.worker = AsyncMock()
-        with pytest.raises(DownloadQueueException):
+        with pytest.raises(DownloadDestinationInvalid):
             await self._queue(manager, destination_backend_id='remote-1')
 
     @pytest.mark.asyncio
