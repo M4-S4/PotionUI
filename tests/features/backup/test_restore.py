@@ -10,6 +10,7 @@ from src.features.backup.archive import run_backup
 from src.features.backup.manifest import MANIFEST_FILENAME, UnsupportedArchiveError
 from src.features.backup.restore import RestoreRefused, run_restore
 from src.features.backup.snapshot import table_row_counts
+from src.platform.database.database import Database
 
 from tests.features.backup.conftest import connect
 
@@ -93,6 +94,32 @@ def test_restore_keeps_the_previous_database_and_its_write_ahead_log(
     assert not existing.with_name("db.sqlite-wal").exists()
     assert "local_only" not in table_row_counts(existing)
     assert table_row_counts(kept[0])["local_only"] == 1
+
+
+def test_restore_reopens_a_database_this_process_holds_pooled_connections_to(
+    install, empty_install, tmp_path, monkeypatch
+):
+    result = _backup(install, tmp_path, monkeypatch, tier="config")
+    target = _target(empty_install, monkeypatch)
+
+    existing = target / "storage" / "db.sqlite"
+    conn = connect(existing)
+    with conn:
+        conn.execute("CREATE TABLE local_only (id INTEGER PRIMARY KEY)")
+    conn.close()
+    monkeypatch.setattr(Database, "_instance", None)
+    database = Database()
+    database.db_path = existing
+    with database.get_cursor() as cursor:
+        cursor.execute("SELECT COUNT(*) FROM local_only")
+
+    run_restore(result.archive_path, target)
+
+    with database.get_cursor() as cursor:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        tables = {row["name"] for row in cursor.fetchall()}
+    assert "local_only" not in tables
+    assert "generations" in tables
 
 
 def test_restore_keeps_the_previous_key_and_content_trees(

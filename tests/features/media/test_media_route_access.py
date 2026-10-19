@@ -311,6 +311,20 @@ class TestOwnership:
     def test_any_signed_in_user_sees_avatars(self, client, world):
         assert _get(client, "/api/users/avatars/someone.png", "tok-other").status_code == 200
 
+    def test_a_generation_tile_loads_its_generation_once(self, client, world, monkeypatch):
+        generation, routes = _owner_routes(world)
+        loaded = []
+        real_get_by_id = GenerationRepository.get_by_id
+
+        def counted_get_by_id(self, generation_id, *args, **kwargs):
+            loaded.append(generation_id)
+            return real_get_by_id(self, generation_id, *args, **kwargs)
+
+        monkeypatch.setattr(GenerationRepository, "get_by_id", counted_get_by_id)
+
+        assert _get(client, routes["generation"], "tok-owner").status_code == 200
+        assert loaded == [generation.id]
+
     def test_private_media_is_never_marked_publicly_cacheable(self, client, world):
         generation, routes = _owner_routes(world)
         for name in ("generation", "file"):

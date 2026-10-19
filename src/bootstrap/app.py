@@ -366,6 +366,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         """Application lifespan events"""
         # Startup
         from src.bootstrap.middleware import DEBUG_MODE
+        from src.platform.database.database import Database
         logging.info("Starting PotionUI API server...")
         logging.info(f"DEBUG mode: {'ENABLED' if DEBUG_MODE else 'DISABLED'} (set DEBUG=true to enable verbose logging)")
         # Note: Migrations are run synchronously before app creation (see run_migrations_sync())
@@ -471,6 +472,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         container.generation_history_facade.shutdown()
         container.chat_call_trace_recorder.shutdown(drain=True)
         await asyncio.to_thread(shutdown_offload)
+        Database.close_pool()
 
     # Create FastAPI app
     app = FastAPI(

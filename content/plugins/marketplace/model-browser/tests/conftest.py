@@ -30,6 +30,7 @@ def scratch_db(tmp_path):
     test_db.db_path.parent.mkdir(parents=True, exist_ok=True)
     test_db._initialized = True
     yield test_db
+    Database.close_pool()
     Database._instance = None
 
 

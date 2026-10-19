@@ -124,6 +124,7 @@ class TestExternalLoginEndToEnd(unittest.TestCase):
             login_provider_registry.unregister(definition.id)
         for definition in self._previous_providers:
             login_provider_registry.register(definition)
+        Database.close_pool()
         for leftover in sorted(
             Path(self.temp_dir).rglob("*"), key=lambda p: len(p.parts), reverse=True
         ):

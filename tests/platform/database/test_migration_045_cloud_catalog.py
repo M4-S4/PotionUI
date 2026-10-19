@@ -27,6 +27,7 @@ class TestMigration045CloudCatalog(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        self.addCleanup(Database.close_pool)
         self.temp_dir = temp.name
         Database._instance = None
         self.db = Database()

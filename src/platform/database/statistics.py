@@ -1,5 +1,7 @@
 import sqlite3
 
+from src.platform.database.database import Database
+
 HOUSEKEEPING_ANALYSIS_LIMIT = 10000
 
 
@@ -25,3 +27,4 @@ def analyze_if_missing(database) -> bool:
 def refresh_statistics(database, analysis_limit: int = HOUSEKEEPING_ANALYSIS_LIMIT) -> None:
     with database.get_connection() as conn:
         analyze(conn, analysis_limit)
+    Database.close_pool()

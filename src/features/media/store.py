@@ -158,7 +158,8 @@ class MediaStore:
         filename: str,
         user_id: Optional[str] = None,
         size: Optional[str] = None,
-        animated: bool = False
+        animated: bool = False,
+        generation: Optional[Any] = None,
     ) -> MediaResult:
         """Get media file from a generation.
 
@@ -189,7 +190,8 @@ class MediaStore:
             raise ValueError(hook_data.get("block_reason", "Media serve blocked"))
 
         # Get generation (allow access if user_id is None for public access)
-        generation = self.generation_repo.get_by_id(generation_id, user_id=None)
+        if generation is None:
+            generation = self.generation_repo.get_by_id(generation_id, user_id=None)
         if not generation:
             raise ValueError("Generation not found")
 

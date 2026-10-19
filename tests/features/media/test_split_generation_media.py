@@ -69,3 +69,12 @@ def test_a_file_the_generation_owns_never_needs_the_fallback(served):
     store.get_generation_media("orig", "4.png")
 
     generations.get_file_in_generation_directory.assert_not_called()
+
+
+def test_a_generation_the_caller_already_loaded_is_not_loaded_again(served):
+    store, generations = served
+
+    result = store.get_generation_media("orig", "4.png", generation=SimpleNamespace(user_id="u1"))
+
+    assert result.headers["Content-Length"] == "3"
+    generations.get_by_id.assert_not_called()

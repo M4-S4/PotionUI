@@ -148,6 +148,16 @@ def _restore_runtime_flags():
 
 
 @pytest.fixture(autouse=True)
+def _close_database_pool():
+    import sys
+
+    yield
+    database_module = sys.modules.get("src.platform.database.database")
+    if database_module is not None:
+        database_module.Database.close_pool()
+
+
+@pytest.fixture(autouse=True)
 def _plentiful_host_ram(monkeypatch):
     from src.platform.runtime.model_lifecycle import lifecycle
     from src.platform.runtime.system_memory import SystemMemory

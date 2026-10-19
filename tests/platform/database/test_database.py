@@ -18,6 +18,7 @@ class TestDatabase(unittest.TestCase):
     
     def tearDown(self):
         """Clean up test database"""
+        Database.close_pool()
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
         os.rmdir(self.temp_dir)
@@ -41,7 +42,7 @@ class TestDatabase(unittest.TestCase):
     def test_get_connection(self):
         """Test getting a database connection"""
         with self.db.get_connection() as conn:
-            self.assertIsInstance(conn, sqlite3.Connection)
+            self.assertEqual(conn.execute("SELECT 1 AS one").fetchone()["one"], 1)
             self.assertEqual(conn.row_factory, sqlite3.Row)
     
     def test_get_cursor(self):

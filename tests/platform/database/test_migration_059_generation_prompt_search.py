@@ -32,6 +32,7 @@ class TestMigration059GenerationPromptSearch(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        self.addCleanup(Database.close_pool)
         Database._instance = None
         self.db = Database()
         self.db.db_path = Path(temp.name) / "test.sqlite"

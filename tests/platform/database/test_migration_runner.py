@@ -41,6 +41,7 @@ class TestMigrationRunner(unittest.TestCase):
     def tearDown(self):
         """Clean up temporary files"""
         # Clean up database
+        Database.close_pool()
         if self.temp_db_path.exists():
             self.temp_db_path.unlink()
         os.rmdir(self.temp_dir)
@@ -265,6 +266,20 @@ def up():
         with self.db.get_cursor() as cursor:
             cursor.execute("SELECT stat FROM sqlite_stat1 WHERE idx = 'idx_items_kind'")
             self.assertEqual(cursor.fetchone()[0], "4 2 1")
+
+    def test_a_run_that_collects_planner_statistics_recycles_pooled_connections(self):
+        self._create_test_migration("001_indexed_table", """
+def up():
+    from src.platform.database.database import db
+    with db.get_cursor() as cursor:
+        cursor.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, kind TEXT)")
+        cursor.execute("CREATE INDEX idx_items_kind ON items (kind)")
+""")
+
+        with patch('builtins.print'), patch.object(Database, "close_pool") as close_pool:
+            self.migration_runner.run_migrations()
+
+        close_pool.assert_called_once_with()
 
     def test_a_run_that_only_changes_rows_collects_no_planner_statistics(self):
         with self.db.get_cursor() as cursor:

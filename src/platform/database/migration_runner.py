@@ -2,7 +2,7 @@ import os
 import importlib.util
 from pathlib import Path
 from typing import List, Dict, Any, Set, Tuple
-from .database import db
+from .database import Database, db
 from .statistics import analyze
 
 class MigrationRunner:
@@ -63,6 +63,7 @@ class MigrationRunner:
         if self._tables_and_indexes() - schema_before:
             with db.get_connection() as conn:
                 analyze(conn)
+            Database.close_pool()
 
     def _tables_and_indexes(self) -> Set[Tuple[str, str, str]]:
         with db.get_connection() as conn:

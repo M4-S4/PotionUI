@@ -151,6 +151,15 @@ is skipped on Windows because `Path.chmod(0o500)` does not make a directory
 unwritable there. A new Windows-only failure in this subset is therefore a
 real portability bug until proven otherwise.
 
+`Database` keeps its SQLite connections pooled, and a pooled connection holds
+the database file and its `-wal`/`-shm` open. Windows refuses to delete or
+move an open file, so a test that removes or replaces its own database (a
+`tearDown` that unlinks it, a `TemporaryDirectory` cleanup, a fixture that
+deletes its directory) must call `Database.close_pool()` first. The autouse
+fixture in `tests/conftest.py` closes the pool after every test, which is
+too late for cleanup that runs inside the test itself; on Linux the same
+mistake shows up as `Directory not empty` from an `rmdir`.
+
 ### Illegal-instruction crashes in bf16 tests (`0xc000001d`)
 
 Symptom: xdist workers die with `Windows fatal exception: code 0xc000001d`

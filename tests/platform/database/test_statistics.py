@@ -18,6 +18,7 @@ class TestPlannerStatistics(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
+        self.addCleanup(Database.close_pool)
         Database._instance = None
         self.addCleanup(setattr, Database, "_instance", None)
         self.db = Database()
@@ -86,6 +87,34 @@ class TestPlannerStatistics(unittest.TestCase):
             analyze(conn)
 
             assert conn.execute("PRAGMA analysis_limit").fetchone()[0] == 0
+
+    def _fill_pairs(self, rows):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("DELETE FROM pairs")
+            cursor.executemany("INSERT INTO pairs (a, b) VALUES (?, ?)", rows)
+
+    @staticmethod
+    def _pairs_plan(conn):
+        conn.execute("SELECT COUNT(*) FROM pairs").fetchall()
+        return conn.execute(
+            "EXPLAIN QUERY PLAN SELECT id FROM pairs WHERE a = 1 AND b = 1"
+        ).fetchall()[-1][-1]
+
+    def test_a_connection_pooled_before_a_refresh_plans_with_the_refreshed_statistics(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("CREATE TABLE pairs (id INTEGER PRIMARY KEY, a INTEGER, b INTEGER)")
+            cursor.execute("CREATE INDEX idx_pairs_a ON pairs (a)")
+            cursor.execute("CREATE INDEX idx_pairs_b ON pairs (b)")
+        self._fill_pairs([(i, i % 2) for i in range(2000)])
+        analyze_if_missing(self.db)
+
+        with self.db.get_connection() as warm:
+            assert "idx_pairs_a" in self._pairs_plan(warm)
+            self._fill_pairs([(i % 2, i) for i in range(2000)])
+            refresh_statistics(self.db)
+
+        with self.db.get_connection() as conn:
+            assert "idx_pairs_b" in self._pairs_plan(conn)
 
     def test_runs_while_a_reader_holds_a_snapshot(self):
         with self.db.get_connection() as reader:

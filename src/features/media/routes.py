@@ -71,10 +71,12 @@ class MediaController(BaseController):
         animated: Optional[bool] = False
     ):
         """Serve media file (image or video) from a generation."""
-        await self._require(self.access.generation_allowed, viewer, generation_id)
+        generation = await asyncio.to_thread(self.access.allowed_generation, viewer, generation_id)
+        if generation is None:
+            raise self._not_found()
         try:
             result = self.manager.get_generation_media(
-                generation_id, filename, size=size, animated=animated
+                generation_id, filename, size=size, animated=animated, generation=generation
             )
 
             # Check conditional request
