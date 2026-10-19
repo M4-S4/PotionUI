@@ -189,12 +189,19 @@ jobs:
 
       - name: Install ffmpeg and ffprobe (Chocolatey)
         if: matrix.shard.name == 'rest'
-        timeout-minutes: 10
-        shell: cmd
+        timeout-minutes: 15
+        shell: pwsh
         run: |
-          choco install ffmpeg -y --no-progress || exit /b
-          ffmpeg -version | findstr /b /c:"ffmpeg version" || exit /b
-          ffprobe -version | findstr /b /c:"ffprobe version" || exit /b
+          $installed = $false
+          foreach ($attempt in 1..4) {
+            choco install ffmpeg -y --no-progress
+            if ($LASTEXITCODE -eq 0) { $installed = $true; break }
+            Write-Host "choco install ffmpeg failed (attempt $attempt of 4)"
+            if ($attempt -lt 4) { Start-Sleep -Seconds (30 * $attempt) }
+          }
+          if (-not $installed) { exit 1 }
+          if (-not (ffmpeg -version | Select-String -Pattern '^ffmpeg version' -Quiet)) { exit 1 }
+          if (-not (ffprobe -version | Select-String -Pattern '^ffprobe version' -Quiet)) { exit 1 }
 
       - name: pytest (marketplace plugin test suites)
         if: matrix.shard.name == 'rest'
