@@ -2,6 +2,7 @@
 ratings, favorites, server-side search, mode/preset/rating filters, sorting, facets.
 """
 
+import json
 import sys
 import os
 
@@ -155,6 +156,44 @@ class TestGenerationHistoryFilters(PersistenceTestBase):
         s = self._make(prompt="landscape", preset_id="native/SDXL/realistic")
         results = self.repo.get_all(user_id=self.user_id, search="QwenImage")
         self.assertEqual({g.id for g in results}, {q.id})
+
+    def _search_ids(self, search):
+        return {g.id for g in self.repo.get_all(user_id=self.user_id, search=search)}
+
+    def test_search_matches_two_character_terms(self):
+        cat = self._make(prompt="a fluffy cat")
+        self._make(prompt="a happy dog")
+        self.assertEqual(self._search_ids("ca"), {cat.id})
+        self.assertEqual(self.repo.count_by_status(user_id=self.user_id, search="ca"), 1)
+
+    def test_search_non_ascii_terms_fold_ascii_case_only(self):
+        cafe = self._make(prompt="Caf\u00e9 terrace")
+        self.assertEqual(self._search_ids("caf\u00e9"), {cafe.id})
+        self.assertEqual(self._search_ids("CAF\u00e9"), {cafe.id})
+        self.assertEqual(self._search_ids("CAF\u00c9"), set())
+
+    def test_search_term_with_an_embedded_quote(self):
+        sized = self._make(prompt='a 5"x7" print')
+        self._make(prompt="a 5x7 print")
+        self.assertEqual(self._search_ids('5"x7"'), {sized.id})
+
+    def test_search_does_not_match_across_two_prompt_strings(self):
+        both = self._make(form_data={"prompt": "red", "positive_prompt": "fox"})
+        self.assertEqual(self._search_ids("redfox"), set())
+        self.assertEqual(self._search_ids("red, fox"), {both.id})
+
+    def test_search_follows_prompt_rewrites_and_deletes(self):
+        gen = self._make(prompt="a red fox")
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE generations SET form_data = ? WHERE id = ?",
+                           (json.dumps({"prompt": "a blue whale"}), gen.id))
+        self.assertEqual(self._search_ids("fox"), set())
+        self.assertEqual(self._search_ids("whale"), {gen.id})
+
+        self.repo.delete(gen.id)
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT COUNT(*) FROM generation_prompt_text WHERE generation_id = ?", (gen.id,))
+            self.assertEqual(cursor.fetchone()[0], 0)
 
     # --- Sorting ---
 

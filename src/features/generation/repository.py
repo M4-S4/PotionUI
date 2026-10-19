@@ -10,7 +10,7 @@ from src.features.generation.history_revision_repository import (
     read_history_revision,
 )
 from .file_repository import file_repo
-from .prompt_text import prompt_contains_params, prompt_contains_sql
+from .prompt_text import prompt_search_sql
 from src.platform.util.ids import generate_ulid
 from src.platform.database.collection_tree import membership_clause, unsorted_clause
 
@@ -335,15 +335,16 @@ class GenerationRepository:
         params: List[Any] = []
         for term, negate in self._parse_search_terms(search):
             like = f"%{term}%"
+            prompt_sql, prompt_params = prompt_search_sql(term, alias)
             clause = (
-                f"(({prompt_contains_sql(alias)}) OR {a}preset_id LIKE ? OR EXISTS ("
+                f"({prompt_sql} OR {a}preset_id LIKE ? OR EXISTS ("
                 f"SELECT 1 FROM generation_models gm JOIN models m ON gm.model_id = m.id "
                 f"WHERE gm.generation_id = {a}id AND m.filename LIKE ?))"
             )
             if negate:
                 clause = f"NOT {clause}"
             conditions.append(clause)
-            params.extend([*prompt_contains_params(term), like, like])
+            params.extend([*prompt_params, like, like])
         return conditions, params
 
     def _resolve_sort(self, sort_by: Optional[str], sort_dir: Optional[str]) -> str:

@@ -3,7 +3,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from src.features.generation.policy import GenerationPolicy
-from src.features.generation.prompt_text import prompt_contains_params, prompt_contains_sql, prompt_texts
+from src.features.generation.prompt_text import prompt_search_sql, prompt_texts
 from src.features.models.attributes.records import ModelAttributeDefinition
 from src.features.models.attributes.well_known import WellKnownModelAttribute
 from src.features.organize.evaluator import NEGATED_TEXT, as_list
@@ -231,11 +231,11 @@ def _duration_sql(operator: str, value: Any, alias: str) -> SqlResult:
 def _prompt_sql(operator: str, value: Any, alias: str) -> SqlResult:
     if alias != "g" or not isinstance(value, str) or not value:
         return None
-    exists = prompt_contains_sql(alias)
+    exists, params = prompt_search_sql(value, alias)
     if operator == "contains":
-        return f"({exists})", prompt_contains_params(value)
+        return f"({exists})", params
     if operator == "not_contains":
-        return f"NOT ({exists})", prompt_contains_params(value)
+        return f"NOT ({exists})", params
     return None
 
 
