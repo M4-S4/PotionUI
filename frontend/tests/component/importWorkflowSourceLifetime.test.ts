@@ -11,15 +11,14 @@
 // importWorkflowTab.test.ts) so the fix is exercised through the actual
 // wizard, not a mocked boundary.
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { stagePluginDist } from './helpers/stagePluginDist';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 function emptyAnalyzeResult(nodeCount: number) {
 	return {
@@ -42,10 +41,7 @@ const REQUIREMENTS_FRESH = { results: [{ type: 'comfyui_node', name: 'FreshForB'
 const IMPORT_RESULT = { preset_id: 'PRESET1', path: 'content/presets/local/SDXL/imported', mode: 'text2img', lint: { errors: [], warnings: [] } };
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, `import-workflow-tab-lifetime-${Math.random().toString(36).slice(2)}.mjs`);
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 

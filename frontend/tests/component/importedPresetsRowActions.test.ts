@@ -7,21 +7,17 @@
 // for), and delete (hand-built confirm modal, Esc/Enter, row disappears on
 // confirm). Same stage/load approach as importedPresetsTab.test.ts.
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { stagePluginDist } from './helpers/stagePluginDist';
 import { mount, unmount, flushSync } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportedPresetsTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, basename(DIST_PATH));
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 

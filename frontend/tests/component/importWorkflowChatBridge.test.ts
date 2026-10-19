@@ -8,15 +8,14 @@
 // on unmount, and an approved `propose_form_changes` tool result is applied
 // to the live form via the same code paths a manual edit uses.
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { stagePluginDist } from './helpers/stagePluginDist';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 const ANALYZE_RESULT = {
 	mode: 'text2img',
@@ -35,10 +34,7 @@ const ANALYZE_RESULT = {
 };
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, `import-workflow-tab-chat-${Math.random().toString(36).slice(2)}.mjs`);
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 
