@@ -1,3 +1,5 @@
+import type { SourceView } from './splatHeader';
+
 export type Vec3 = [number, number, number];
 
 export interface SplatFraming {
@@ -59,4 +61,47 @@ export function directionToward(from: Vec3, to: Vec3 = [0, 0, 0]): Vec3 {
 	const length = Math.hypot(dx, dy, dz);
 	if (length < 1e-6) return [0, 0, 1];
 	return [dx / length, dy / length, dz / length];
+}
+
+export const DEFAULT_FOV_Y = 50;
+
+export interface CameraView {
+	position: Vec3;
+	target: Vec3;
+	fov: number;
+	near: number;
+	far: number;
+	minDistance: number;
+	maxDistance: number;
+}
+
+export function viewFromFraming(
+	center: Vec3,
+	radius: number,
+	aspect: number,
+	fov = DEFAULT_FOV_Y
+): CameraView {
+	const [dx, dy, dz] = directionToward(center);
+	const distance = fitDistance(radius, fov, aspect);
+	return {
+		position: [center[0] + dx * distance, center[1] + dy * distance, center[2] + dz * distance],
+		target: center,
+		fov,
+		near: radius * 0.01,
+		far: distance + radius * 50,
+		minDistance: radius * 0.05,
+		maxDistance: distance * 8
+	};
+}
+
+export function viewFromSource(source: SourceView): CameraView {
+	return {
+		position: [0, 0, 0],
+		target: [0, 0, -source.depth],
+		fov: source.fovY,
+		near: source.depth * 0.01,
+		far: source.depth * 100,
+		minDistance: source.depth * 0.05,
+		maxDistance: source.depth * 8
+	};
 }

@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { frameFromCenters, sampleStride, fitDistance, directionToward } from './splatFraming';
+import {
+	DEFAULT_FOV_Y,
+	frameFromCenters,
+	sampleStride,
+	fitDistance,
+	directionToward,
+	viewFromFraming,
+	viewFromSource
+} from './splatFraming';
 
 function grid(min: number, max: number, steps: number): number[] {
 	const out: number[] = [];
@@ -102,5 +110,54 @@ describe('directionToward', () => {
 
 	it('falls back to +z when the content is centred on the origin', () => {
 		expect(directionToward([0, 0, 0])).toEqual([0, 0, 1]);
+	});
+});
+
+describe('viewFromSource', () => {
+	const view = viewFromSource({ fovY: 47.5, aspect: 1.5, depth: 4, width: 1536, height: 1024 });
+
+	it('puts the camera at the origin, the source camera, looking at the median depth', () => {
+		expect(view.position).toEqual([0, 0, 0]);
+		expect(view.target).toEqual([0, 0, -4]);
+	});
+
+	it('takes the vertical field of view from the header', () => {
+		expect(view.fov).toBe(47.5);
+	});
+
+	it('keeps the clipping planes and the zoom limits proportional to the depth', () => {
+		expect(view.near).toBeCloseTo(0.04, 6);
+		expect(view.far).toBeCloseTo(400, 6);
+		expect(view.minDistance).toBeCloseTo(0.2, 6);
+		expect(view.maxDistance).toBeCloseTo(32, 6);
+		expect(view.minDistance).toBeLessThan(4);
+		expect(view.maxDistance).toBeGreaterThan(4);
+	});
+
+	it('scales with a metric depth', () => {
+		const metric = viewFromSource({ fovY: 60, aspect: null, depth: 0.8, width: null, height: null });
+		expect(metric.target).toEqual([0, 0, -0.8]);
+		expect(metric.fov).toBe(60);
+		expect(metric.near).toBeCloseTo(0.008, 6);
+	});
+});
+
+describe('viewFromFraming', () => {
+	it('sits on the source camera side of the content, at the fitting distance', () => {
+		const view = viewFromFraming([0, 0, -4], 1, 1.5);
+		const distance = fitDistance(1, DEFAULT_FOV_Y, 1.5);
+		expect(view.target).toEqual([0, 0, -4]);
+		expect(view.position[0]).toBeCloseTo(0, 6);
+		expect(view.position[2]).toBeCloseTo(-4 + distance, 6);
+		expect(view.fov).toBe(DEFAULT_FOV_Y);
+	});
+
+	it('keeps the content between the near and far planes and inside the zoom limits', () => {
+		const view = viewFromFraming([3, 1, -10], 2, 1);
+		const distance = Math.hypot(...view.position.map((value, i) => value - view.target[i]));
+		expect(view.near).toBeLessThan(distance);
+		expect(view.far).toBeGreaterThan(distance + 2);
+		expect(view.minDistance).toBeLessThan(distance);
+		expect(view.maxDistance).toBeGreaterThan(distance);
 	});
 });

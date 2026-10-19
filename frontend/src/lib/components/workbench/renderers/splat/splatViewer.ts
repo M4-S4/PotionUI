@@ -3,15 +3,16 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { SparkRenderer, SplatFileType, SplatMesh } from '@sparkjsdev/spark';
 import type { SplatContainerFormat } from '../splatUrl';
 import {
-	directionToward,
-	fitDistance,
+	DEFAULT_FOV_Y,
 	frameFromCenters,
 	sampleStride,
-	type SplatFraming
+	viewFromFraming,
+	viewFromSource,
+	type CameraView
 } from './splatFraming';
+import { parseSourceView } from './splatHeader';
 import { SPLAT_BACKGROUND, SplatLoadError, splatErrorFromStatus } from './splatSupport';
 
-const FOV_Y = 50;
 const CENTER_SAMPLE_LIMIT = 200_000;
 const AUTO_ROTATE_SPEED = 2;
 
@@ -61,10 +62,10 @@ export function createSplatViewer({ container, onContextLost }: SplatViewerOptio
 	let frameId = 0;
 	let disposed = false;
 	let splat: SplatMesh | null = null;
-	let initialView: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
+	let initialView: CameraView | null = null;
 
 	const scene = new THREE.Scene();
-	const camera = new THREE.PerspectiveCamera(FOV_Y, 1, 0.01, 1000);
+	const camera = new THREE.PerspectiveCamera(DEFAULT_FOV_Y, 1, 0.01, 1000);
 	const group = new THREE.Group();
 	group.rotation.x = Math.PI;
 	scene.add(group);
@@ -123,24 +124,26 @@ export function createSplatViewer({ container, onContextLost }: SplatViewerOptio
 		return centers.subarray(0, written);
 	}
 
-	function applyFraming(framing: SplatFraming) {
-		group.updateMatrixWorld(true);
-		const target = new THREE.Vector3(...framing.center);
-		group.localToWorld(target);
-
-		const [dx, dy, dz] = directionToward([target.x, target.y, target.z]);
-		const distance = fitDistance(framing.radius, FOV_Y, camera.aspect);
-		camera.position.set(target.x + dx * distance, target.y + dy * distance, target.z + dz * distance);
-		camera.near = framing.radius * 0.01;
-		camera.far = distance + framing.radius * 50;
+	function applyView(view: CameraView) {
+		camera.fov = view.fov;
+		camera.near = view.near;
+		camera.far = view.far;
+		camera.position.set(...view.position);
 		camera.updateProjectionMatrix();
 
-		controls.target.copy(target);
-		controls.minDistance = framing.radius * 0.05;
-		controls.maxDistance = distance * 8;
+		controls.target.set(...view.target);
+		controls.minDistance = view.minDistance;
+		controls.maxDistance = view.maxDistance;
 		controls.update();
+	}
 
-		initialView = { position: camera.position.clone(), target: target.clone() };
+	function contentView(mesh: SplatMesh, total: number): CameraView | null {
+		const framing = frameFromCenters(centersOf(mesh, total));
+		if (!framing) return null;
+		group.updateMatrixWorld(true);
+		const center = new THREE.Vector3(...framing.center);
+		group.localToWorld(center);
+		return viewFromFraming([center.x, center.y, center.z], framing.radius, camera.aspect);
 	}
 
 	function clear() {
@@ -168,6 +171,7 @@ export function createSplatViewer({ container, onContextLost }: SplatViewerOptio
 		}
 		if (signal.aborted || disposed) throw abortError();
 
+		const sourceView = parseSourceView(bytes);
 		const mesh = new SplatMesh({
 			fileBytes: bytes,
 			fileType: format ? FILE_TYPES[format] : undefined
@@ -184,24 +188,23 @@ export function createSplatViewer({ container, onContextLost }: SplatViewerOptio
 		}
 
 		const total = mesh.numSplats;
-		const framing = total > 0 ? frameFromCenters(centersOf(mesh, total)) : null;
-		if (!framing) {
+		const view = total > 0 ? (sourceView ? viewFromSource(sourceView) : contentView(mesh, total)) : null;
+		if (!view) {
 			mesh.dispose();
 			throw new SplatLoadError('empty');
 		}
 
 		group.add(mesh);
 		splat = mesh;
-		applyFraming(framing);
+		initialView = view;
+		applyView(view);
 		requestRender();
 		return { splatCount: total };
 	}
 
 	function resetView() {
 		if (!initialView) return;
-		camera.position.copy(initialView.position);
-		controls.target.copy(initialView.target);
-		controls.update();
+		applyView(initialView);
 		requestRender();
 	}
 
