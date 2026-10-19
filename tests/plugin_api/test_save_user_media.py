@@ -137,3 +137,64 @@ async def test_a_user_is_required(container, export):
 
 def test_exported_from_the_plugin_api_root():
     assert plugin_api.save_user_media is save_user_media
+
+
+@pytest.mark.asyncio
+async def test_a_gaussian_splat_is_stored_with_its_splat_media_type(mock_db, container, storage, user, tmp_path, gaussian_ply_bytes):
+    scene = tmp_path / "work" / "scene.ply"
+    scene.parent.mkdir(exist_ok=True)
+    scene.write_bytes(gaussian_ply_bytes)
+
+    resolved = await save_user_media(user, scene)
+
+    assert resolved["value"].endswith(".ply")
+    assert resolved["media_type"] == "model"
+    assert (storage / resolved["value"]).read_bytes() == gaussian_ply_bytes
+    with mock_db.get_cursor() as cursor:
+        cursor.execute("SELECT mime_type FROM uploads WHERE user_id = ?", (user.id,))
+        assert cursor.fetchone()["mime_type"] == "model/x-ply"
+
+
+@pytest.mark.asyncio
+async def test_spz_and_antimatter_splats_are_stored(container, user, spz_file, antimatter_splat_file):
+    for path, extension in ((spz_file, ".spz"), (antimatter_splat_file, ".splat")):
+        resolved = await save_user_media(user, path)
+        assert resolved["value"].endswith(extension)
+
+
+@pytest.mark.asyncio
+async def test_a_ply_that_is_not_a_gaussian_splat_is_refused(mock_db, container, user, tmp_path):
+    from tests.fixtures.splat_fixtures import build_gaussian_ply
+
+    mesh_ply = tmp_path / "work" / "mesh.ply"
+    mesh_ply.parent.mkdir(exist_ok=True)
+    mesh_ply.write_bytes(build_gaussian_ply(properties=("x", "y", "z")))
+
+    with pytest.raises(MediaRefError) as refused:
+        await save_user_media(user, mesh_ply)
+
+    assert refused.value.code == "unsupported_media"
+    assert purposes(mock_db, user.id) == []
+
+
+def test_probe_splat_reads_format_count_and_view(gaussian_ply_file, spz_file):
+    from src.plugin_api.media import probe_splat
+
+    info = probe_splat(gaussian_ply_file)
+    assert (info["format"], info["count"]) == ("ply", 4)
+    assert info["view"] == {
+        "fov_y": 50.0, "aspect": 1.5, "depth": 4.0, "width": 768, "height": 512, "convention": "opencv",
+    }
+    assert probe_splat(str(spz_file)) == {"format": "spz", "count": 4, "view": None}
+
+
+def test_probe_splat_refuses_with_a_code(tmp_path):
+    from src.plugin_api.media import probe_splat
+
+    junk = tmp_path / "junk.splat"
+    junk.write_bytes(b"123")
+    cases = [(tmp_path / "gone.ply", "not_found"), (junk, "unsupported_media")]
+    for path, code in cases:
+        with pytest.raises(MediaRefError) as refused:
+            probe_splat(path)
+        assert refused.value.code == code

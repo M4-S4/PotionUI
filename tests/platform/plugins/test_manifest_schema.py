@@ -368,6 +368,14 @@ class TestPluginManifestSchema(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
 
+    def test_history_tool_accepts_the_splat_media_kind(self):
+        entry = {
+            'id': 'scene', 'label': 'Scene', 'category': 'analyze', 'component': 'Scene.svelte',
+            'applies_to': {'media_kinds': ['mesh', 'splat']},
+        }
+        schema = PluginManifestSchema.model_validate(self._minimal(history_tools=[entry]))
+        self.assertEqual(schema.history_tools[0].applies_to.media_kinds, ['mesh', 'splat'])
+
     def test_history_tool_rejects_max_selection_below_min(self):
         entry = {
             'id': 'thing', 'label': 'Thing', 'category': 'analyze', 'component': 'Thing.svelte',
