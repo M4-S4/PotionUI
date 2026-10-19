@@ -7,6 +7,8 @@
 	import { authStore } from '$lib/stores/auth';
 	import { submitGate, limits, limitsMeta } from '$lib/plans/store';
 	import { get } from 'svelte/store';
+	import { tabDraftSync } from '$lib/stores/tabDraftSync';
+	import { decideSessionVariables, finishDeferredSessionVariables } from '$lib/session/sessionVariablesRestore';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import {
 		cancelGrid,
@@ -990,6 +992,11 @@
 						const restoredPatch = buildSessionRestoreTabPatch(modeData, {
 							promptPanelWidth: tab.promptPanelWidth
 						});
+						const draftReady = await tabDraftSync.settled(4000);
+						const currentVariables = () => get(tabsStore).tabs.find((t) => t.id === tab.id)?.variables;
+						const variablesDecision = decideSessionVariables(draftReady, currentVariables());
+						const { variables: sessionVariables, ...patchWithoutVariables } = restoredPatch;
+						const appliedPatch = variablesDecision === 'replace' ? restoredPatch : patchWithoutVariables;
 						const restoredTab = {
 							...tab,
 							selectedPreset: modeData.selectedPreset || tab.selectedPreset,
@@ -1003,7 +1010,7 @@
 							selectedPreset: modeData.selectedPreset || tab.selectedPreset,
 							selectedVariant: modeData.selectedVariant || null,
 							selectedSessionId: tab.selectedSessionId, // Preserve session ID
-							...restoredPatch,
+							...appliedPatch,
 							// Seed the per-mode cache from every OTHER mode this session has
 							// data for, so a live mode switch after this restore picks up
 							// that mode's saved config instead of starting empty.
@@ -1015,6 +1022,18 @@
 							),
 							sessionBaselineAwaitingFormNormalization: true
 						});
+						if (variablesDecision === 'replace') tabDraftSync.replaceDraft(tab.id, sessionVariables ?? {});
+						if (variablesDecision === 'defer') {
+							void finishDeferredSessionVariables(
+								{
+									settled: () => tabDraftSync.settled(),
+									currentVariables,
+									apply: (variables) => tabsStore.updateTab(tab.id, { variables }),
+									replace: (variables) => tabDraftSync.replaceDraft(tab.id, variables)
+								},
+								sessionVariables ?? {}
+							);
+						}
 					}
 				} else if (isSessionMissingResponse(response)) {
 					console.warn(`[TabRestore] Session for tab ${tab.name} no longer exists, clearing the link.`);

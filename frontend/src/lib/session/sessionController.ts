@@ -60,6 +60,7 @@ import type {
 	SessionVersionSummary
 } from '$lib/types/api';
 import type { Tab } from '$lib/types/tabs';
+import type { VariablesMap } from '$lib/utils/variableDefs';
 import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 import { resolveVariant } from '$lib/utils/variants';
 import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
@@ -243,6 +244,7 @@ export interface SessionControllerDeps {
 	toasts: SessionControllerToasts;
 	logger: SessionControllerLogger;
 	timers?: SessionControllerTimers;
+	drafts?: { replaceVariables(tabId: string, variables: VariablesMap): void };
 	/** Wall clock for `lastSavedTime`. */
 	now?: () => Date;
 	/** Coalesces state derivation the way Svelte's own flush does; a test can
@@ -989,6 +991,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 					}
 				: {})
 		});
+		deps.drafts?.replaceVariables(ctx.tabId, restoredPatch.variables ?? {});
 
 		markAppliedDirectly();
 		setSelectedSessionId(sessionId);

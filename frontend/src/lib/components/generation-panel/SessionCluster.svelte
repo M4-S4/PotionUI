@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { sessionDrafts } from '$lib/stores/tabDraftSync';
 	import { logger } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
 	import { storage } from '$lib/utils/storage';
@@ -26,7 +27,7 @@
 	export let presetVersion: string | undefined = undefined;
 	export let availableModes: Array<{ id: string; variants?: PresetModeVariant[] }> = [];
 
-	const controller = createSessionController({ api, tabs: tabsStore, storage, toasts, logger });
+	const controller = createSessionController({ api, tabs: tabsStore, storage, toasts, logger, drafts: sessionDrafts });
 	const session = controller.state;
 
 	$: currentModeVariants = sortVariants(availableModes.find((mode) => mode.id === currentMode)?.variants);

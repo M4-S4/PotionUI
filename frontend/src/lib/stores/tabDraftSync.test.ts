@@ -4,6 +4,9 @@ import type { VariablesMap } from '$lib/utils/variableDefs';
 import { createTabDraftSync, type TabDraftApiPort, type TabsPort } from './tabDraftSync';
 import { adoptLegacyVariables, createTabDraftOutbox, type OutboxStorage } from './tabDraftOutbox';
 import { TAB_DRAFT_OUTBOX_KEY } from './tabDraftKeys';
+import { decideSessionVariables, finishDeferredSessionVariables } from '$lib/session/sessionVariablesRestore';
+import { collectTabSessionData } from '$lib/utils/sessionTabState';
+import { mergeVariables } from '$lib/utils/variablesTransfer';
 import { diffVariables, flattenDef, overlayOps, setOp, sameForSync } from './tabDraftOps';
 
 const text = (value: string) => ({ type: 'text' as const, value });
@@ -174,6 +177,27 @@ describe('tabDraftOps', () => {
 		const number = { type: 'number' as const, mode: 'shuffle' as const, min: 0, max: 5, step: 1, value: 2 };
 		expect(flattenDef(number)).toEqual({ type: 'number', mode: 'shuffle', min: 0, max: 5, step: 1, value: 2 });
 		expect(sameForSync(choice, { ...choice, linked: false })).toBe(true);
+	});
+});
+
+describe('tabDraftOutbox replace', () => {
+	it('keeps a newer replace when an older one is acknowledged', () => {
+		const outbox = createTabDraftOutbox(memoryStorage());
+		const first = { a: text('1') };
+		outbox.putReplace('t1', first);
+		outbox.putReplace('t1', { a: text('2') });
+		outbox.ackReplace('t1', first);
+		expect(outbox.pendingReplace('t1')).toEqual({ a: text('2') });
+		outbox.ackReplace('t1', { a: text('2') });
+		expect(outbox.pendingReplace('t1')).toBeNull();
+	});
+
+	it('discards pending ops when a replace is queued and lists the tab as pending', () => {
+		const outbox = createTabDraftOutbox(memoryStorage());
+		outbox.putOps('t1', [setOp('a', text('1'))]);
+		outbox.putReplace('t1', { b: text('2') });
+		expect(outbox.pendingOps('t1')).toEqual([]);
+		expect(outbox.pendingTabIds()).toEqual(['t1']);
 	});
 });
 
@@ -990,5 +1014,309 @@ describe('tabDraftSync stop', () => {
 		t.tabs.edit('t1', { a: text('1') });
 		await settle(2000);
 		expect(t.calls.apply).not.toHaveBeenCalled();
+	});
+});
+
+describe('tabDraftSync whole-document replace', () => {
+	const loaded: VariablesMap = { style: text('oil'), mood: text('noir'), pose: text('sit') };
+
+	it('sends one PUT for a whole replace instead of a batch of ops', async () => {
+		const t = setup({ seedServer: { t1: { old: text('x'), style: text('a') } } });
+		t.sync.start();
+		await settle();
+		t.sync.replaceDraft('t1', loaded);
+		t.tabs.edit('t1', loaded);
+		await settle(500);
+		expect(t.calls.replace).toHaveBeenCalledTimes(1);
+		expect(t.calls.replace).toHaveBeenCalledWith('t1', { variables: loaded });
+		expect(t.calls.apply).not.toHaveBeenCalled();
+		expect(t.server.get('t1')?.variables).toEqual(loaded);
+		expect(t.outbox.pendingTabIds()).toEqual([]);
+	});
+
+	it('works when the store update lands before the replace call', async () => {
+		const t = setup({ seedServer: { t1: { old: text('x') } } });
+		t.sync.start();
+		await settle();
+		t.tabs.edit('t1', loaded);
+		t.sync.replaceDraft('t1', loaded);
+		await settle(500);
+		expect(t.calls.replace).toHaveBeenCalledTimes(1);
+		expect(t.calls.apply).not.toHaveBeenCalled();
+	});
+
+	it('drops queued ops that the replace supersedes and sends later edits as ops', async () => {
+		const t = setup({ seedServer: { t1: { style: text('a') } } });
+		t.sync.start();
+		await settle();
+		t.tabs.edit('t1', { style: text('stale edit') });
+		t.sync.replaceDraft('t1', loaded);
+		t.tabs.edit('t1', loaded);
+		await settle(100);
+		t.tabs.edit('t1', { ...loaded, mood: text('bright') });
+		await settle(500);
+		expect(t.calls.replace).toHaveBeenCalledTimes(1);
+		expect(t.calls.replace).toHaveBeenCalledWith('t1', { variables: loaded });
+		expect(t.calls.apply).toHaveBeenCalledTimes(1);
+		expect(t.calls.apply.mock.calls[0][1].ops).toEqual([setOp('mood', text('bright'))]);
+		expect(t.server.get('t1')?.variables).toEqual({ ...loaded, mood: text('bright') });
+	});
+
+	it('keeps the replacement across a reload and does not resurrect server variables', async () => {
+		const storage = memoryStorage();
+		const down = setup({
+			storage,
+			seedServer: { t1: { old: text('x') } },
+			api: {
+				replace: async () => {
+					throw networkError();
+				}
+			}
+		});
+		down.sync.start();
+		await settle();
+		down.sync.replaceDraft('t1', loaded);
+		down.tabs.edit('t1', loaded);
+		await settle(500);
+		down.sync.stop();
+
+		const next = setup({ storage, seedServer: { t1: { old: text('x') } } });
+		next.sync.start();
+		expect(next.tabs.variables('t1')).toEqual(loaded);
+		await settle(1000);
+		expect(next.tabs.variables('t1')).toEqual(loaded);
+		expect(next.server.get('t1')?.variables).toEqual(loaded);
+	});
+
+	it('sends nothing for an empty replace on a tab the server has never seen', async () => {
+		const t = setup();
+		t.sync.start();
+		await settle();
+		t.sync.replaceDraft('t1', {});
+		await settle(2000);
+		expect(t.calls.replace).not.toHaveBeenCalled();
+		expect(t.calls.apply).not.toHaveBeenCalled();
+	});
+
+	it('sends an empty PUT when the server draft exists', async () => {
+		const t = setup({ seedServer: { t1: { old: text('x') } } });
+		t.sync.start();
+		await settle();
+		t.sync.replaceDraft('t1', {});
+		t.tabs.edit('t1', {});
+		await settle(500);
+		expect(t.calls.replace).toHaveBeenCalledWith('t1', { variables: {} });
+	});
+
+	it('resolves settled() once boot completes and after the timeout when it cannot', async () => {
+		const ok = setup();
+		ok.sync.start();
+		let done = false;
+		void ok.sync.settled().then(() => (done = true));
+		await settle();
+		expect(done).toBe(true);
+
+		const down = setup({
+			api: {
+				list: async () => {
+					throw networkError();
+				}
+			}
+		});
+		down.sync.start();
+		let waited = false;
+		void down.sync.settled(4000).then(() => (waited = true));
+		await settle(3999);
+		expect(waited).toBe(false);
+		await settle(1);
+		expect(waited).toBe(true);
+	});
+});
+
+describe('tabDraftSync with sessions and prompts', () => {
+	it('saves a session from the tab variables including edits still queued before a reload', async () => {
+		const storage = memoryStorage();
+		const first = setup({
+			storage,
+			api: {
+				list: async () => {
+					throw networkError();
+				}
+			}
+		});
+		first.sync.start();
+		await settle();
+		first.tabs.edit('t1', { style: text('queued') });
+		first.sync.stop();
+
+		const next = setup({ storage });
+		next.sync.start();
+		const data = collectTabSessionData(
+			{ id: 't1', variables: next.tabs.variables('t1') } as never,
+			'image'
+		);
+		expect(data.image?.variables).toEqual({ style: text('queued') });
+	});
+
+	it('round-trips variables through a saved prompt and back onto a tab as ops', async () => {
+		const t = setup({ tabs: [{ id: 't1', variables: { mood: text('noir') } }, { id: 't2' }], seedServer: { t1: { mood: text('noir') } } });
+		t.sync.start();
+		await settle();
+		const saved = JSON.parse(JSON.stringify(t.tabs.variables('t1')));
+		const applied = mergeVariables({}, saved, 'replace');
+		t.tabs.edit('t2', applied);
+		await settle(500);
+		expect(t.calls.apply).toHaveBeenCalledTimes(1);
+		expect(t.calls.apply.mock.calls[0][0]).toBe('t2');
+		expect(t.calls.apply.mock.calls[0][1].ops).toEqual([setOp('mood', text('noir'))]);
+		expect(t.server.get('t2')?.variables).toEqual({ mood: text('noir') });
+	});
+});
+
+describe('tabDraftSync slow boot with a session restore', () => {
+	const sessionVariables: VariablesMap = { style: text('from session'), pose: text('sit') };
+
+	async function slowBoot(seed: Record<string, VariablesMap>) {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const t = setup({
+			seedServer: seed,
+			api: {
+				list: async () => {
+					await gate;
+					return {
+						success: true,
+						data: Object.keys(seed).map((tab_id) => ({ tab_id, variable_count: 1, rev: 3, updated_at: null }))
+					};
+				}
+			}
+		});
+		t.sync.start();
+		return { t, release };
+	}
+
+	it('keeps the server draft and sends no PUT when boot finishes after the timeout', async () => {
+		const { t, release } = await slowBoot({ t1: { fromServer: text('newer') } });
+		const ready = t.sync.settled(4000);
+		await settle(4000);
+		expect(await ready).toBe(false);
+		expect(decideSessionVariables(false, t.tabs.variables('t1'))).toBe('defer');
+
+		const outcome = finishDeferredSessionVariables(
+			{
+				settled: () => t.sync.settled(),
+				currentVariables: () => t.tabs.variables('t1'),
+				apply: (variables) => t.tabs.edit('t1', variables),
+				replace: (variables) => t.sync.replaceDraft('t1', variables)
+			},
+			sessionVariables
+		);
+		release();
+		await settle(1000);
+		expect(await outcome).toBe('keep');
+		expect(t.tabs.variables('t1')).toEqual({ fromServer: text('newer') });
+		expect(t.calls.replace).not.toHaveBeenCalled();
+		expect(t.calls.apply).not.toHaveBeenCalled();
+		expect(t.server.get('t1')?.variables).toEqual({ fromServer: text('newer') });
+	});
+
+	it('applies the session variables with one PUT when the server turns out to have no draft', async () => {
+		const { t, release } = await slowBoot({});
+		const ready = t.sync.settled(4000);
+		await settle(4000);
+		expect(await ready).toBe(false);
+
+		const outcome = finishDeferredSessionVariables(
+			{
+				settled: () => t.sync.settled(),
+				currentVariables: () => t.tabs.variables('t1'),
+				apply: (variables) => t.tabs.edit('t1', variables),
+				replace: (variables) => t.sync.replaceDraft('t1', variables)
+			},
+			sessionVariables
+		);
+		release();
+		await settle(1000);
+		expect(await outcome).toBe('replace');
+		expect(t.calls.replace).toHaveBeenCalledTimes(1);
+		expect(t.calls.replace).toHaveBeenCalledWith('t1', { variables: sessionVariables });
+		expect(t.calls.apply).not.toHaveBeenCalled();
+	});
+
+	it('reports settled() as true once boot has completed', async () => {
+		const t = setup();
+		t.sync.start();
+		await settle();
+		expect(await t.sync.settled(4000)).toBe(true);
+	});
+});
+
+describe('tabDraftSync replace failures and races', () => {
+	const doc: VariablesMap = { a: text('1'), b: text('2'), c: text('3') };
+
+	it.each([400, 413, 422])('requeues a whole replace as per-name ops after a %i without losing or duplicating anything', async (status) => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		const t = setup({
+			seedServer: { t1: { old: text('x') } },
+			api: {
+				replace: async () => {
+					await gate;
+					throw httpError(status, { message: 'rejected' });
+				}
+			}
+		});
+		const apply = vi.spyOn(t.api, 'apply');
+		t.sync.start();
+		await settle();
+		t.sync.replaceDraft('t1', doc);
+		t.tabs.edit('t1', doc);
+		await settle(500);
+		t.tabs.edit('t1', { ...doc, b: text('newer') });
+		release();
+		await settle(1000);
+
+		expect(apply).toHaveBeenCalledTimes(1);
+		const ops = apply.mock.calls[0][1].ops;
+		expect(ops).toHaveLength(3);
+		expect(ops.map((op) => op.name).sort()).toEqual(['a', 'b', 'c']);
+		expect(ops.find((op) => op.name === 'b')).toEqual(setOp('b', text('newer')));
+		expect(t.outbox.pendingTabIds()).toEqual([]);
+		expect(t.outbox.pendingReplace('t1')).toBeNull();
+	});
+
+	it('sends a replace queued during an in-flight PUT after it lands and keeps only the newer one pending until then', async () => {
+		let release!: () => void;
+		const gate = new Promise<void>((resolve) => (release = resolve));
+		let first = true;
+		const t = setup({
+			seedServer: { t1: { old: text('x') } },
+			api: {
+				replace: async (tabId, document) => {
+					if (first) {
+						first = false;
+						await gate;
+					}
+					return { success: true, data: draft(tabId, document.variables ?? {}, 9) };
+				}
+			}
+		});
+		const replace = vi.spyOn(t.api, 'replace');
+		t.sync.start();
+		await settle();
+		t.sync.replaceDraft('t1', { a: text('first') });
+		t.tabs.edit('t1', { a: text('first') });
+		await settle(500);
+		expect(replace).toHaveBeenCalledTimes(1);
+
+		t.sync.replaceDraft('t1', { a: text('second') });
+		t.tabs.edit('t1', { a: text('second') });
+		expect(t.outbox.pendingReplace('t1')).toEqual({ a: text('second') });
+		release();
+		await settle(1000);
+
+		expect(replace).toHaveBeenCalledTimes(2);
+		expect(replace.mock.calls[1][1]).toEqual({ variables: { a: text('second') } });
+		expect(t.outbox.pendingReplace('t1')).toBeNull();
 	});
 });

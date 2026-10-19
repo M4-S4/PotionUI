@@ -118,6 +118,7 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 	let flushTimer: ReturnType<typeof setTimeout> | null = null;
 	let retryTimer: ReturnType<typeof setTimeout> | null = null;
 	let unsubscribe: (() => void) | null = null;
+	const waiters: Array<(ready: boolean) => void> = [];
 
 	function applyLocal(tabId: string, variables: VariablesMap): void {
 		shadow.set(tabId, variables);
@@ -139,7 +140,7 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 
 	function mergeServer(tabId: string, serverVariables: VariablesMap): void {
 		if (!shadow.has(tabId)) return;
-		const merged = resolveMerge(tabId, serverVariables);
+		const merged = resolveMerge(tabId, outbox.pendingReplace(tabId) ?? serverVariables);
 		if (merged) applyLocal(tabId, merged);
 	}
 
@@ -157,7 +158,8 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 			shadow.set(tab.id, next);
 			if (!seeded) {
 				const pending = outbox.pendingOps(tab.id);
-				if (pending.length > 0) overlays.push([tab.id, overlayOps(next, pending)]);
+				const replacement = outbox.pendingReplace(tab.id);
+				if (pending.length > 0 || replacement) overlays.push([tab.id, overlayOps(replacement ?? next, pending)]);
 				continue;
 			}
 			const ops = diffVariables(prev ?? EMPTY, next);
@@ -236,8 +238,37 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 			: `${ops.length} variable edits (${ops.map((op) => `"${op.name}"`).join(', ')})`;
 	}
 
+	async function flushReplace(tabId: string): Promise<StepResult> {
+		const mine = session;
+		const doc = outbox.pendingReplace(tabId);
+		if (!doc) return 'ok';
+		try {
+			const response = await drafts.replace(tabId, { variables: doc });
+			if (mine !== session) return 'stale';
+			outbox.ackReplace(tabId, doc);
+			limitWarned = false;
+			if (response.data) revs.set(tabId, response.data.rev);
+			return 'ok';
+		} catch (error) {
+			if (mine !== session) return 'stale';
+			const failure = describeFailure(error);
+			if (failure.status === 409) {
+				warnLimit();
+				return 'retry';
+			}
+			if (isTransient(failure.status)) return 'retry';
+			outbox.ackReplace(tabId, doc);
+			const queued = new Set(outbox.pendingOps(tabId).map((op) => op.name));
+			const fresh = diffVariables(EMPTY, doc).filter((op) => !queued.has(op.name));
+			if (!outbox.putOps(tabId, fresh)) warnStorage();
+			return 'ok';
+		}
+	}
+
 	async function flushTab(tabId: string): Promise<StepResult> {
 		const mine = session;
+		const replaced = await flushReplace(tabId);
+		if (replaced !== 'ok') return replaced;
 		for (;;) {
 			const chunk = outbox.pendingOps(tabId).slice(0, TAB_DRAFT_MAX_OPS_PER_REQUEST);
 			if (chunk.length === 0) return 'ok';
@@ -416,6 +447,7 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 			outbox.markMigrated();
 			booted = true;
 			retryAttempt = 0;
+			for (const wake of [...waiters]) wake(true);
 			void flush();
 		} finally {
 			if (mine === session) bootRunning = false;
@@ -444,6 +476,7 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 	function stop(): void {
 		if (!started) return;
 		started = false;
+		for (const wake of [...waiters]) wake(false);
 		session += 1;
 		flushing = false;
 		flushAgain = false;
@@ -474,13 +507,40 @@ export function createTabDraftSync(deps: TabDraftSyncDeps) {
 		mergeServer(tabId, doc?.variables ?? {});
 	}
 
+	function replaceDraft(tabId: string, variables: VariablesMap): void {
+		if (!started || !shadow.has(tabId)) return;
+		rejected.delete(tabId);
+		shadow.set(tabId, variables);
+		if (booted && Object.keys(variables).length === 0 && !revs.has(tabId) && !outbox.pendingReplace(tabId)) {
+			outbox.dropOps(tabId);
+			return;
+		}
+		if (!outbox.putReplace(tabId, variables)) warnStorage();
+		scheduleFlush();
+	}
+
+	function settled(timeoutMs?: number): Promise<boolean> {
+		if (booted) return Promise.resolve(true);
+		if (!started) return Promise.resolve(false);
+		return new Promise((resolve) => {
+			const timer = timeoutMs === undefined ? null : setTimeout(() => finish(false), timeoutMs);
+			function finish(ready: boolean) {
+				if (timer) clearTimeout(timer);
+				const index = waiters.indexOf(finish);
+				if (index >= 0) waiters.splice(index, 1);
+				resolve(ready);
+			}
+			waiters.push(finish);
+		});
+	}
+
 	async function flushNow(): Promise<void> {
 		if (flushTimer) clearTimeout(flushTimer);
 		flushTimer = null;
 		await flush();
 	}
 
-	return { start, stop, flushNow, receiveDraft, revOf: (tabId: string) => revs.get(tabId) };
+	return { start, stop, flushNow, receiveDraft, replaceDraft, settled, revOf: (tabId: string) => revs.get(tabId) };
 }
 
 export const tabDraftSync = createTabDraftSync({
@@ -501,3 +561,7 @@ export const tabDraftSync = createTabDraftSync({
 		warning: (message) => toasts.warning(message, 10000)
 	}
 });
+
+export const sessionDrafts = {
+	replaceVariables: (tabId: string, variables: VariablesMap) => tabDraftSync.replaceDraft(tabId, variables)
+};

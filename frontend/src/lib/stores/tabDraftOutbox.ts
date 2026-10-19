@@ -9,6 +9,7 @@ export interface OutboxState {
 	ops: Record<string, Record<string, TabDraftOp>>;
 	deletes: string[];
 	legacy: Record<string, VariablesMap>;
+	replace: Record<string, VariablesMap>;
 }
 
 export interface OutboxStorage {
@@ -17,7 +18,7 @@ export interface OutboxStorage {
 }
 
 function emptyState(): OutboxState {
-	return { ops: {}, deletes: [], legacy: {} };
+	return { ops: {}, deletes: [], legacy: {}, replace: {} };
 }
 
 function parseState(raw: string | null): OutboxState {
@@ -27,7 +28,8 @@ function parseState(raw: string | null): OutboxState {
 		return {
 			ops: parsed.ops && typeof parsed.ops === 'object' ? parsed.ops : {},
 			deletes: Array.isArray(parsed.deletes) ? parsed.deletes : [],
-			legacy: parsed.legacy && typeof parsed.legacy === 'object' ? parsed.legacy : {}
+			legacy: parsed.legacy && typeof parsed.legacy === 'object' ? parsed.legacy : {},
+			replace: parsed.replace && typeof parsed.replace === 'object' ? parsed.replace : {}
 		};
 	} catch {
 		return emptyState();
@@ -93,7 +95,36 @@ export function createTabDraftOutbox(storage: OutboxStorage) {
 		},
 
 		pendingTabIds(): string[] {
-			return Object.keys(state().ops).filter((id) => Object.keys(state().ops[id]).length > 0);
+			const current = state();
+			const ids = new Set(Object.keys(current.ops).filter((id) => Object.keys(current.ops[id]).length > 0));
+			for (const id of Object.keys(current.replace)) ids.add(id);
+			return [...ids];
+		},
+
+		putReplace(tabId: string, variables: VariablesMap): boolean {
+			const current = state();
+			delete current.ops[tabId];
+			current.replace[tabId] = variables;
+			return persist();
+		},
+
+		dropOps(tabId: string): boolean {
+			const current = state();
+			delete current.ops[tabId];
+			delete current.replace[tabId];
+			return persist();
+		},
+
+		pendingReplace(tabId: string): VariablesMap | null {
+			return state().replace[tabId] ?? null;
+		},
+
+		ackReplace(tabId: string, sent: VariablesMap): void {
+			const current = state();
+			if (current.replace[tabId] === sent || deepEqual(current.replace[tabId], sent)) {
+				delete current.replace[tabId];
+				persist();
+			}
 		},
 
 		ackOps(tabId: string, sent: TabDraftOp[]): void {
@@ -109,6 +140,7 @@ export function createTabDraftOutbox(storage: OutboxStorage) {
 		queueDelete(tabId: string): void {
 			const current = state();
 			delete current.ops[tabId];
+			delete current.replace[tabId];
 			delete current.legacy[tabId];
 			retained.delete(tabId);
 			if (!current.deletes.includes(tabId)) current.deletes.push(tabId);

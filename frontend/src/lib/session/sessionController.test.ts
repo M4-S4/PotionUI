@@ -150,7 +150,7 @@ function createFakeApi() {
 	};
 }
 
-function createHarness(options: { tab?: Partial<Tab>; storage?: Record<string, string> } = {}) {
+function createHarness(options: { tab?: Partial<Tab>; storage?: Record<string, string>; drafts?: { replaceVariables: (tabId: string, variables: never) => void } } = {}) {
 	const api = createFakeApi();
 	const tabs = createFakeTabs(options.tab ?? {});
 	const timers = createFakeTimers();
@@ -167,7 +167,8 @@ function createHarness(options: { tab?: Partial<Tab>; storage?: Record<string, s
 		},
 		toasts,
 		logger,
-		timers
+		timers,
+		drafts: options.drafts as never
 	});
 
 	return { api, tabs, timers, toasts, logger, controller, storage: store };
@@ -806,6 +807,50 @@ describe('createSessionController', () => {
 			publishForm({ steps: 30 });
 			await settle();
 			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		});
+	});
+
+	describe('draft sync on load', () => {
+		it('replaces the tab draft with the loaded session variables in one call', async () => {
+			const replaceVariables = vi.fn();
+			harness = createHarness({
+				tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<Tab>,
+				drafts: { replaceVariables }
+			});
+			const variables = { mood: { type: 'text', value: 'noir' } };
+			const withVariables = makeSession(SESSION_B, {
+				data: { [MODE]: { promptSegments: [], variables } } as never
+			});
+			harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [withVariables] });
+			harness.api.getSessionById.mockResolvedValue({ success: true, data: withVariables });
+			controller = harness.controller;
+			controller.setContext(context());
+			controller.start();
+			await settle();
+			await controller.select(SESSION_B);
+			await settle();
+			expect(replaceVariables).toHaveBeenCalledTimes(1);
+			expect(replaceVariables).toHaveBeenCalledWith(TAB_ID, variables);
+			expect(harness.tabs.tab.variables).toEqual(variables);
+		});
+
+		it('replaces with an empty map when the loaded session has no variables', async () => {
+			const replaceVariables = vi.fn();
+			harness = createHarness({
+				tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<Tab>,
+				drafts: { replaceVariables }
+			});
+			harness.api.getSessionsForPreset.mockResolvedValue({
+				success: true,
+				data: [makeSession(SESSION_B)]
+			});
+			controller = harness.controller;
+			controller.setContext(context());
+			controller.start();
+			await settle();
+			await controller.select(SESSION_B);
+			await settle();
+			expect(replaceVariables).toHaveBeenCalledWith(TAB_ID, {});
 		});
 	});
 

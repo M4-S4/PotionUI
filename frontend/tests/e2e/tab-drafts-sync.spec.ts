@@ -21,6 +21,7 @@ interface DraftRow {
 interface DraftServer {
 	rows: Map<string, DraftRow>;
 	posts: Array<{ tabId: string; ops: DraftOp[] }>;
+	puts: Array<{ tabId: string; variables: Record<string, unknown> }>;
 	deletes: string[];
 	reads: string[];
 	mode: { offline: boolean; limit: boolean };
@@ -30,6 +31,7 @@ async function mockTabDrafts(page: Page): Promise<DraftServer> {
 	const server: DraftServer = {
 		rows: new Map(),
 		posts: [],
+		puts: [],
 		deletes: [],
 		reads: [],
 		mode: { offline: false, limit: false }
@@ -73,6 +75,13 @@ async function mockTabDrafts(page: Page): Promise<DraftServer> {
 			server.reads.push(tabId);
 			const row = server.rows.get(tabId);
 			return row ? ok(route, draftBody(tabId, row)) : fail(route, 404, { error: 'tab_draft_not_found' });
+		}
+		if (tabId && !action && method === 'PUT') {
+			const variables = (request.postDataJSON().doc?.variables ?? {}) as Record<string, unknown>;
+			server.puts.push({ tabId, variables });
+			const row = { variables, rev: (server.rows.get(tabId)?.rev ?? 0) + 1 };
+			server.rows.set(tabId, row);
+			return ok(route, draftBody(tabId, row));
 		}
 		if (tabId && !action && method === 'DELETE') {
 			server.deletes.push(tabId);
@@ -272,4 +281,96 @@ test('a server push of a changed draft shows up in the open tab', async ({ page 
 		.toBe(true);
 	await page.waitForTimeout(1500);
 	expect(server.posts.length).toBe(postsBefore);
+});
+
+test('loading a saved session replaces the draft with one PUT', async ({ page }) => {
+	test.setTimeout(180000);
+	const server = await mockTabDrafts(page);
+	await loginAsOwner(page);
+	if (!(await selectPresetOrSkip(page))) return;
+
+	const tabsKey = await scopedStorageKey(page, TABS_KEY);
+	const readTabState = () =>
+		page.evaluate((key) => {
+			const parsed = JSON.parse(localStorage.getItem(key) || '{"tabs":[{}]}');
+			const tab = parsed.tabs[0];
+			return { presetId: tab.selectedPreset as string | null, mode: tab.selectedMode as string | null };
+		}, tabsKey);
+	await expect.poll(async () => (await readTabState()).presetId, { timeout: 15000 }).toBeTruthy();
+	await expect.poll(async () => (await readTabState()).mode, { timeout: 15000 }).toBeTruthy();
+	const tabState = await readTabState();
+	const mode = tabState.mode || 'txt2img';
+	const token = await page.evaluate(() => localStorage.getItem('auth_token'));
+	const created = await page.request.post('/api/sessions/save', {
+		headers: { Authorization: `Bearer ${token}` },
+		data: {
+			preset_id: tabState.presetId,
+			name: `drafts-${Date.now()}`,
+			data: {
+				[mode]: {
+					selectedPreset: tabState.presetId,
+					selectedMode: mode,
+					promptSegments: [],
+					variables: {
+						style: { type: 'text', value: 'oil painting' },
+						mood: { type: 'text', value: 'noir' },
+						pose: { type: 'text', value: 'sitting' }
+					}
+				}
+			}
+		}
+	});
+	expect(created.ok()).toBe(true);
+	const sessionId = (await created.json()).data.id as string;
+
+	await page.evaluate(
+		({ key, id }) => {
+			const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+			parsed.tabs[0].selectedSessionId = id;
+			localStorage.setItem(key, JSON.stringify(parsed));
+		},
+		{ key: tabsKey, id: sessionId }
+	);
+	await page.reload();
+
+	await expect.poll(() => server.puts.length, { timeout: 20000 }).toBe(1);
+	expect(Object.keys(server.puts[0].variables).sort()).toEqual(['mood', 'pose', 'style']);
+	await page.waitForTimeout(1500);
+	expect(server.puts).toHaveLength(1);
+	expect(server.posts).toHaveLength(0);
+});
+
+test('closing a tab with unsaved variables warns first and Cancel keeps the draft', async ({ page }) => {
+	test.setTimeout(180000);
+	const server = await mockTabDrafts(page);
+	await loginAsOwner(page);
+	if (!(await selectPresetOrSkip(page))) return;
+
+	const modal = await openVariables(page);
+	await modal.getByLabel('Variable name').fill('style');
+	await modal.getByLabel('Variable value').fill('oil painting');
+	await modal.getByRole('button', { name: 'Done' }).click();
+	await expect.poll(() => server.posts.length, { timeout: 10000 }).toBeGreaterThan(0);
+	const tabId = server.posts[0].tabId;
+
+	await page.getByRole('button', { name: 'Add new tab' }).click();
+	await page.locator('button.book-tab', { hasText: 'Generation 1' }).locator('.close-button').click({ force: true });
+	const warning = page.getByText("This tab's variables aren't saved anywhere else.");
+	await expect(warning).toBeVisible({ timeout: 10000 });
+
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await screenshot(page, JOURNEY, 'close-warning-1440');
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(warning).toBeVisible();
+	await screenshot(page, JOURNEY, 'close-warning-390');
+	await page.setViewportSize({ width: 1440, height: 900 });
+
+	await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await expect(warning).toHaveCount(0);
+	expect(server.deletes).toEqual([]);
+	expect(server.rows.has(tabId)).toBe(true);
+
+	await page.locator('button.book-tab', { hasText: 'Generation 1' }).locator('.close-button').click({ force: true });
+	await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+	await expect.poll(() => server.deletes, { timeout: 10000 }).toEqual([tabId]);
 });
