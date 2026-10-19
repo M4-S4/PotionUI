@@ -168,6 +168,15 @@ close that gap:
   lowvram approach, scoped to the native engine. `NativeGenerator._stream_dit_to_gpu` computes the
   budget (live free VRAM − sampling headroom, after evicting foreign residents) and streams only
   the overflow; an OOM backstop re-streams at a zero budget (only the small fixed tensors resident).
+  The streamed weights are pinned through one **pinned arena** per placement
+  (`memory/pinned_arena.py`): plain host memory registered with `cudaHostRegister` in segments of
+  at most 2 GB, each weight a 4 KiB-aligned view into it. Calling `pin_memory()` per weight instead
+  goes through PyTorch's caching host allocator, which rounds every block up to the next power of
+  two — for a fully streamed MiniMax-H3 fp8 DiT that is 30.6 GB pinned for 19.5 GB of weights
+  (computed from the layer shapes; LTX's power-of-two widths lose almost nothing). Teardown copies
+  each segment's weights back to plain RAM and unregisters the segment as soon as it is empty, so
+  offloading holds at most one segment twice. If registration fails, streaming falls back to
+  per-weight `pin_memory()`.
 - **On-the-fly fp8 quantise-at-load** (`ops/fp8_quant.py`). When a bf16/fp16 DiT would not fit
   resident but *would* as fp8 (e.g. Krea-2 24.5GB → ~12.5GB), the loader quantises its big 2D Linear
   weights to per-tensor scaled e4m3 (`weight` fp8 + a `weight_scale` sidecar — the exact format

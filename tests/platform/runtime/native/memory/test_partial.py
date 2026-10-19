@@ -11,6 +11,7 @@ from src.platform.runtime.native.memory.partial import (
     iter_streamable_leaves,
     plan_residency_split,
 )
+from src.platform.runtime.native.memory import pinned_arena
 from vendor.gpl.comfyui.ops import _scaled_mm_fast_path_reject_reason, disable_weight_init, fp8_ops
 
 
@@ -224,6 +225,10 @@ def test_pinned_gb_is_zero_when_pin_unavailable():
     assert streamer.pinned_gb == 0.0
 
 
+def _refuse_registration(ptr, nbytes):
+    raise RuntimeError("cudaHostRegister unavailable")
+
+
 def test_pinned_gb_reflects_streamed_set_when_pinned(monkeypatch):
     """With pinning available, ``pinned_gb`` equals the streamed set's size --
     the figure the engine compares against its release floor. Fakes CUDA
@@ -231,6 +236,7 @@ def test_pinned_gb_reflects_streamed_set_when_pinned(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.Tensor, "pin_memory", lambda self: self)
     monkeypatch.setattr(torch.Tensor, "is_pinned", lambda self: True)
+    monkeypatch.setattr(pinned_arena, "_host_register", _refuse_registration)
 
     m = _Tiny(n_linear=4, dim=8)
     plan = plan_residency_split(m, resident_budget_gb=0.0)
@@ -377,6 +383,7 @@ def _drain_calls(monkeypatch, streamer, chunk_bytes: int) -> list:
     monkeypatch.setattr(mlm, "empty_pinned_host_cache", lambda: calls.append(1))
     monkeypatch.setattr(partial_mod, "_TEARDOWN_RELEASE_CHUNK_GB", chunk_bytes / (1024 ** 3))
     streamer._pinned = True
+    streamer._pinned_bytes = streamer._streamed_bytes
     streamer.teardown()
     return calls
 
