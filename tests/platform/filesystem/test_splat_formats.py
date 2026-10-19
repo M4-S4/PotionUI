@@ -126,9 +126,9 @@ class TestProbeSpz:
         ("version zero", build_spz(version=0)),
         ("sh degree out of range", build_spz(sh_degree=4)),
         ("no points", build_spz(count=0)),
-        ("header truncated", gzip.compress(b'NGSP\x02\x00')),
+        ("header truncated", gzip.compress(b'NGSP\x02\x00', mtime=0)),
         ("corrupt gzip stream", b'\x1f\x8b\x08\x00' + bytes(40)),
-    ])
+    ], ids=lambda value: value if isinstance(value, str) else "")
     def test_invalid_spz_is_rejected(self, tmp_path, reason, payload):
         with pytest.raises(InvalidSplatError):
             probe_spz(_write(tmp_path, 'bad.spz', payload))

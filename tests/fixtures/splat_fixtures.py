@@ -64,7 +64,7 @@ def build_spz(
 ) -> bytes:
     header = struct.pack('<4sIIBBBB', magic, version, count, sh_degree, 12, 0, 0)
     body = bytes(count * (9 + 1 + 3 + 3 + 3))
-    return gzip.compress(header + body)
+    return gzip.compress(header + body, mtime=0)
 
 
 def build_antimatter_splat(count: int = SPLAT_COUNT) -> bytes:
