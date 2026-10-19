@@ -169,7 +169,7 @@ class TestSplatValidation:
         ("bad.spz", build_spz(magic=b'XXXX'), "bad spz magic"),
         ("scene.glb", build_minimal_glb(), "a mesh extension"),
         ("scene.splat", build_antimatter_splat(), "an import-only format"),
-    ])
+    ], ids=["mesh-ply", "truncated-ply", "bad-spz-magic", "mesh-glb", "import-only-splat"])
     def test_invalid_splat_never_reaches_storage(
         self, generation_id, settings, test_storage, tmp_path, name, payload, reason
     ):
