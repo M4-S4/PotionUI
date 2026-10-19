@@ -4,6 +4,10 @@ import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'segment-variables';
 
+test.afterEach(async ({ page }) => {
+	await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
 async function makeModelFieldsOptional(page: Page) {
 	const relax = (node: unknown): void => {
 		if (Array.isArray(node)) return node.forEach(relax);
