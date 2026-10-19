@@ -139,3 +139,54 @@ def test_missing_inputs_are_explained(inputs, message):
 def test_an_unknown_detail_is_refused():
     with pytest.raises(ValueError, match="unknown detail"):
         _run([_image()], config={"detail": "ultra"})
+
+
+class _FailingSecondImage(FakeEstimator):
+    def estimate_geometry(self, pixels, resolution_level, mask_threshold):
+        if self.calls:
+            self.calls.append("second")
+            raise RuntimeError("CUDA out of memory")
+        return super().estimate_geometry(pixels, resolution_level, mask_threshold)
+
+
+def test_an_error_in_the_batch_removes_the_splats_already_written(monkeypatch):
+    written = []
+    original = GeneratorImageToSplatPipe._write
+
+    def _spy(lifted):
+        path = original(lifted)
+        written.append(path)
+        return path
+
+    monkeypatch.setattr(GeneratorImageToSplatPipe, "_write", staticmethod(_spy))
+    with pytest.raises(RuntimeError, match="out of memory"):
+        _run([_image(), _image()], estimator=_FailingSecondImage())
+    assert len(written) == 1
+    assert not os.path.exists(written[0])
+
+
+def test_a_cancellation_between_two_images_skips_the_second(monkeypatch):
+    estimator = FakeEstimator()
+    written = []
+    original = GeneratorImageToSplatPipe._write
+
+    def _spy(lifted):
+        path = original(lifted)
+        written.append(path)
+        return path
+
+    monkeypatch.setattr(GeneratorImageToSplatPipe, "_write", staticmethod(_spy))
+    with pytest.raises(SamplingCancelled):
+        _run([_image(), _image()], estimator=estimator, is_cancelled=lambda: bool(written))
+    assert len(estimator.calls) == 1
+    assert written and not os.path.exists(written[0])
+
+
+def test_a_cancellation_after_moge_never_lifts_or_writes(monkeypatch):
+    estimator = FakeEstimator()
+    written = []
+    monkeypatch.setattr(GeneratorImageToSplatPipe, "_write", staticmethod(lambda lifted: written.append(1)))
+    with pytest.raises(SamplingCancelled):
+        _run([_image()], estimator=estimator, is_cancelled=lambda: bool(estimator.calls))
+    assert len(estimator.calls) == 1
+    assert written == []

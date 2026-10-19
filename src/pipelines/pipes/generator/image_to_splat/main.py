@@ -100,6 +100,7 @@ class GeneratorImageToSplatPipe(BasePipe):
                 lifted = run_image_to_splat(
                     estimator, image, detail=detail, device=device,
                     on_stage=self._stage_reporter(generation_outputs, index, len(images)),
+                    is_cancelled=is_cancelled,
                 )
                 if is_cancelled():
                     raise SamplingCancelled()
@@ -118,7 +119,7 @@ class GeneratorImageToSplatPipe(BasePipe):
                 generation_outputs(TextGenerationOutput(title="3D scene", text=self._summary(lifted), index=index))
             if is_cancelled():
                 raise SamplingCancelled()
-        except SamplingCancelled:
+        except BaseException:
             self._discard(paths)
             raise
 
