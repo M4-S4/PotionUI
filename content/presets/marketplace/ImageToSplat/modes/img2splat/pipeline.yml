@@ -1,0 +1,37 @@
+pipeline:
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "model_loader/image_to_splat"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      geometry_estimator:
+        file_path: "{{ form.geometry_estimator }}"
+        name: "{{ form.geometry_estimator }}"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.geometry_estimator }}"]
+        - ["detail", "{{ form.detail }}"]
+
+  - name: "generator/image_to_splat"
+    id: "generator"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      detail: "{{ form.detail }}"

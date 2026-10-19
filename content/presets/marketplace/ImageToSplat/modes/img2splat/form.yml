@@ -1,0 +1,19 @@
+name: "custom"
+short_description: "Turn an image into a 3D scene you can move a camera through."
+label: "Image to 3D scene"
+description: "Lifts a single image into a two-layer 3D Gaussian splat (.ply) seen from the original camera, with the hidden background filled in for small camera moves."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/img2splat/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/img2splat/tabs/references.yml"
