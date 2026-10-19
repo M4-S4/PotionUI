@@ -36,6 +36,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     _ACTIVATION_RESERVE_FLOOR_GB,
     _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
     _NVFP4_ACTIVATION_QUANT_BYTES_PER_ELEMENT,
+    _dit_dequant_transient_bytes,
     _dit_lora_profile,
     _dit_quant_activation_bytes_per_token,
     _ffn_transient_bytes_per_token,
@@ -45,6 +46,7 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     SamplingOutOfMemory,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
+    is_cuda_oom,
     place_dit_for_sequence,
 )
 
@@ -1838,3 +1840,235 @@ def test_native_lora_fused_flag_decides_the_term(monkeypatch):
     monkeypatch.setitem(comfy_ops.RUNTIME_FLAGS, "native_lora_fused", True)
     with patch(f"{_MOD}._nvfp4_matmul_enabled", return_value=True):
         assert _dit_lora_profile(dit).output_buffer_out_features == 0
+
+
+_DRIVER_OOM = "CUDA error: out of memory"
+
+
+def _driver_oom() -> BaseException:
+    return torch.AcceleratorError(_DRIVER_OOM)
+
+
+def test_a_driver_level_out_of_memory_counts_as_an_oom():
+    assert is_cuda_oom(_driver_oom())
+    assert is_cuda_oom(torch.cuda.OutOfMemoryError("CUDA out of memory"))
+
+
+def test_other_accelerator_errors_are_not_ooms():
+    assert not is_cuda_oom(torch.AcceleratorError("CUDA error: an illegal memory access was encountered"))
+    assert not is_cuda_oom(RuntimeError(_DRIVER_OOM))
+
+
+def test_partial_placement_degrades_to_fully_streamed_on_a_driver_level_oom():
+    calls = {"stream_to": []}
+
+    def stream_to(d, budget):
+        calls["stream_to"].append((d, budget))
+        if len(calls["stream_to"]) == 1:
+            raise _driver_oom()
+
+    dit = SimpleNamespace(estimated_vram_gb=19.61, move_to=lambda d: None, stream_to=stream_to,
+                          offload=lambda: None)
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=8_000, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        )
+    assert decision.mode == "partial"
+    assert calls["stream_to"][1] == ("cuda", 0.0)
+    assert manager.offload_all_calls
+
+
+def test_full_move_degrades_to_partial_on_a_driver_level_oom():
+    calls = {"move_to": 0, "stream_to": []}
+
+    def move_to(d):
+        calls["move_to"] += 1
+        raise _driver_oom()
+
+    dit = SimpleNamespace(estimated_vram_gb=2.0, move_to=move_to,
+                          stream_to=lambda d, budget: calls["stream_to"].append((d, budget)),
+                          offload=lambda: None)
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=1_000)
+    assert calls["move_to"] == 2
+    assert decision.mode == "partial"
+    assert calls["stream_to"] == [("cuda", pytest.approx(9.0))]
+
+
+def test_a_placement_error_that_is_not_an_oom_still_raises():
+    def stream_to(d, budget):
+        raise torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
+
+    dit = SimpleNamespace(estimated_vram_gb=19.61, move_to=lambda d: None, stream_to=stream_to,
+                          offload=lambda: None)
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        with pytest.raises(torch.AcceleratorError):
+            place_dit_for_sequence(dit, "cuda", video_tokens=8_000)
+
+
+def test_the_first_forward_degrades_on_a_driver_level_oom():
+    calls = {"n": 0}
+
+    def forward(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise _driver_oom()
+        return "ok"
+
+    dit, dit_calls = _dit()
+    patches, manager = _patched(free_gb=8.0)
+    with patches[0], patches[1], patches[2], patch(f"{_MOD}.torch.cuda.empty_cache"):
+        with patch(f"{_MOD}.torch.cuda.is_available", return_value=True):
+            guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+            assert guarded() == "ok"
+    assert calls["n"] == 3
+    assert dit_calls["stream_to"] == [("cuda", 0.0)]
+
+
+def test_a_driver_error_that_is_not_an_oom_is_not_retried():
+    calls = {"n": 0}
+
+    def forward(*args, **kwargs):
+        calls["n"] += 1
+        raise torch.AcceleratorError("CUDA error: an illegal memory access was encountered")
+
+    dit, _ = _dit()
+    guarded = guard_sampling_oom(forward, dit=dit, device="cuda", decision=_decision())
+    with pytest.raises(torch.AcceleratorError):
+        guarded()
+    assert calls["n"] == 1
+
+
+def test_cold_placement_hands_the_allocator_pool_back_before_measuring_free_vram():
+    order = []
+    dit, calls = _dit(estimated_vram_gb=19.61)
+    manager = _FakeResidencyRegistry()
+
+    def effective(device):
+        order.append("measure")
+        return 10.04
+
+    with patch(f"{_MOD}.free_vram_gb", return_value=1.55), \
+            patch(f"{_MOD}.effective_free_vram_gb", side_effect=effective), \
+            patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
+            patch(f"{_MOD}.get_residency_registry", return_value=manager), \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.empty_cache", side_effect=lambda: order.append("empty_cache")):
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=8_000, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        )
+    assert decision.mode == "partial"
+    assert order[-2:] == ["empty_cache", "measure"]
+
+
+def test_the_warm_fast_path_keeps_the_allocator_pool():
+    dit, calls = _dit(estimated_vram_gb=19.6)
+    dit.device = "cuda"
+    patches, manager = _patched(free_gb=2.0, effective_gb=10.0)
+    with patches[0], patches[1], patches[2], \
+            patch(f"{_MOD}.torch.cuda.is_available", return_value=True), \
+            patch(f"{_MOD}.torch.cuda.empty_cache") as empty, \
+            patch(f"{_MOD}.maybe_compile_dit"):
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=5.0)
+    assert decision.kept_resident is True
+    assert not empty.called
+
+
+class _Int8Linear(nn.Module):
+    def __init__(self, in_features: int, out_features: int):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(torch.zeros(1, dtype=torch.int8), requires_grad=False)
+        self.weight_scale = torch.ones(out_features, 1)
+
+
+_H3_FC1 = (5376, 28672)
+_H3_FC1_DEQUANT_BYTES = 2 * 5376 * 28672 * 2
+
+
+def test_an_int8_linear_costs_two_dequantised_copies_of_its_weight():
+    dit = SimpleNamespace(module=nn.Sequential(_Int8Linear(5376, 21504), _Int8Linear(*_H3_FC1)))
+    assert _dit_dequant_transient_bytes(dit) == _H3_FC1_DEQUANT_BYTES
+
+
+def test_an_int8_linear_dequantises_even_with_the_fp8_gemm_gate_on(monkeypatch):
+    monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: True)
+    dit = SimpleNamespace(module=nn.Sequential(_Int8Linear(*_H3_FC1)))
+    assert _dit_dequant_transient_bytes(dit) == _H3_FC1_DEQUANT_BYTES
+
+
+def test_an_fp8_linear_on_the_gemm_fast_path_has_no_dequant_transient(monkeypatch):
+    dit = SimpleNamespace(module=nn.Sequential(_QuantLinear(4096, fp8=True)))
+    monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: True)
+    assert _dit_dequant_transient_bytes(dit) == 0
+    monkeypatch.setattr(f"{_MOD}._fp8_matmul_enabled", lambda: False)
+    assert _dit_dequant_transient_bytes(dit) == 2 * 4096 * 4096 * 2
+
+
+def test_unquantized_linears_and_bare_doubles_have_no_dequant_transient():
+    assert _dit_dequant_transient_bytes(SimpleNamespace(module=nn.Sequential(nn.Linear(8, 8)))) == 0
+    assert _dit_dequant_transient_bytes(SimpleNamespace(module=lambda x: x)) == 0
+    assert _dit_dequant_transient_bytes(_dit()[0]) == 0
+
+
+def test_the_dequant_transient_is_a_flat_term_not_a_per_token_one():
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    for tokens in (8_000, 50_000):
+        without = estimate_activation_reserve_gb(tokens, **dims)
+        with_transient = estimate_activation_reserve_gb(
+            tokens, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims,
+        )
+        assert with_transient - without == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * 1.15, rel=1e-9)
+
+
+def test_placement_charges_the_dits_own_dequant_transient():
+    calls = []
+    dit = SimpleNamespace(
+        module=nn.Sequential(_Int8Linear(*_H3_FC1)), estimated_vram_gb=19.61, device="cpu",
+        move_to=lambda d: calls.append(("resident", d)),
+        stream_to=lambda d, budget: calls.append(("partial", d, budget)),
+    )
+    patches, manager = _patched(free_gb=10.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=8_000, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        )
+    expected = estimate_activation_reserve_gb(
+        8_000, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES,
+    )
+    assert decision.activation_reserve_gb == pytest.approx(expected)
+    assert calls == [("partial", "cuda", pytest.approx(10.0 - expected))]
+
+
+_T8_VIDEO_TOKENS = 6_713
+_T8_AUDIO_TOKENS = 244
+_T8_FREE_GB = 10.56
+
+
+def test_the_t8_orbit_at_512_on_a_12gb_card_streams_with_the_logged_budget():
+    calls = []
+    linear = _Int8Linear(*_H3_FC1)
+    linear.lora_masked_deltas = [SimpleNamespace(down=torch.zeros(16, 4), up=torch.zeros(4, 16))]
+    dit = SimpleNamespace(
+        module=nn.Sequential(linear), estimated_vram_gb=19.61, device="cpu",
+        move_to=lambda d: calls.append(("resident", d)),
+        stream_to=lambda d, budget: calls.append(("partial", d, budget)),
+    )
+    patches, manager = _patched(free_gb=_T8_FREE_GB)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=_T8_VIDEO_TOKENS, audio_tokens=_T8_AUDIO_TOKENS,
+            inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+        )
+    assert decision.mode == "partial"
+    assert decision.lora_active
+    assert decision.activation_reserve_gb == pytest.approx(2.69, abs=0.01)
+    assert decision.weight_budget_gb == pytest.approx(7.87, abs=0.01)
+    without_transient = estimate_activation_reserve_gb(
+        _T8_VIDEO_TOKENS, _T8_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
+    )
+    assert decision.activation_reserve_gb - without_transient == pytest.approx(0.66, abs=0.01)

@@ -109,6 +109,16 @@ from vendor.gpl.comfyui.ops import (
 
 logger = logging.getLogger(__name__)
 
+_ACCELERATOR_ERROR = getattr(torch, "AcceleratorError", torch.cuda.OutOfMemoryError)
+_CUDA_OOM_ERRORS = (torch.cuda.OutOfMemoryError, _ACCELERATOR_ERROR)
+
+
+def is_cuda_oom(exc: BaseException) -> bool:
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    # cudaErrorMemoryAllocation raised by a copy or a kernel launch, not by the caching allocator (WDDM/WSL2).
+    return isinstance(exc, _ACCELERATOR_ERROR) and "out of memory" in str(exc)
+
 
 class SamplingOutOfMemory(GenerationExecutionError):
     """The sampling forward ran out of VRAM and the degrade ladder is spent --
@@ -290,6 +300,7 @@ _LORA_OUTPUT_BUFFER_ALLOCATIONS = 2
 # ``weight.clone()`` plus the ``(out, in)`` delta built beside it in
 # ``apply_lora_deltas``.
 _LORA_WEIGHT_SIDE_ALLOCATIONS = 2
+_DEQUANT_WEIGHT_ALLOCATIONS = 2
 
 
 @dataclass(frozen=True)
@@ -343,7 +354,7 @@ _ACTIVATION_RESERVE_FLOOR_GB = 0.5
 def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
     inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None,
-    quant_activation_bytes_per_token: int = 0,
+    quant_activation_bytes_per_token: int = 0, dequant_transient_bytes: int = 0,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
 
@@ -376,7 +387,8 @@ def estimate_activation_reserve_gb(
     bytes_per_token = _activation_reserve_bytes_per_token(inner_dim, ffn_dim)
     bytes_per_token += lora.output_buffer_bytes_per_token
     bytes_per_token += max(0, int(quant_activation_bytes_per_token))
-    raw_gb = (s * bytes_per_token + lora.weight_side_bytes) / _BYTES_PER_GB
+    flat_bytes = lora.weight_side_bytes + max(0, int(dequant_transient_bytes))
+    raw_gb = (s * bytes_per_token + flat_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
@@ -416,6 +428,27 @@ def _dit_quant_activation_bytes_per_token(dit: Any) -> int:
         elif getattr(m, "weight_scale", None) is not None and _fp8_matmul_enabled():
             widest = max(widest, _FP8_ACTIVATION_QUANT_BYTES_PER_ELEMENT * in_features)
     return widest
+
+
+def _takes_dequant_path(linear: Any) -> bool:
+    if getattr(linear, "weight_scale", None) is None:
+        return False
+    weight = getattr(linear, "weight", None)
+    if isinstance(weight, torch.Tensor) and weight.dtype == torch.int8:
+        return True
+    return not _fp8_matmul_enabled()
+
+
+def _dit_dequant_transient_bytes(dit: Any) -> int:
+    walk = getattr(getattr(dit, "module", None), "modules", None)
+    if not callable(walk):
+        return 0
+    widest = 0
+    for m in walk():
+        if _takes_dequant_path(m):
+            elements = int(getattr(m, "in_features", 0) or 0) * int(getattr(m, "out_features", 0) or 0)
+            widest = max(widest, elements)
+    return _DEQUANT_WEIGHT_ALLOCATIONS * widest * _COMPUTE_DTYPE_BYTES
 
 
 def _dit_lora_profile(dit: Any) -> DitLoraProfile:
@@ -600,6 +633,7 @@ def place_dit_for_sequence(
     activation_reserve = estimate_activation_reserve_gb(
         video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
         quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
+        dequant_transient_bytes=_dit_dequant_transient_bytes(dit),
     )
     extra_reserve = max(0.0, float(reserve_gb))
     total_reserve = activation_reserve + extra_reserve
@@ -653,9 +687,9 @@ def place_dit_for_sequence(
         # are about to be freed anyway, then fall through to a placement
         # decision byte-identical to the cold-start path.
         dit.offload()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     need_gb = weight_gb + minimum_inference_memory_gb() if weight_gb > 0.0 else 0.0
     _ensure_room_for(device, need_gb, own_models)
     free = effective_free_vram_gb(device) or 0.0
@@ -676,7 +710,7 @@ def place_dit_for_sequence(
         mode, weight_gb, activation_reserve, weight_budget, video_tokens, audio_tokens,
         extra_reserve, lora_active, lora_weight_gb,
     )
-    _log_decision(decision, device)
+    _log_decision(decision, device, free_gb=free)
     return decision
 
 
@@ -763,7 +797,9 @@ def _forward_with_degrade(
 ) -> Any:
     try:
         return forward(*args, **kwargs)
-    except torch.cuda.OutOfMemoryError:
+    except _CUDA_OOM_ERRORS as exc:
+        if not is_cuda_oom(exc):
+            raise
         logger.warning(
             "[LTX PLACEMENT] first sampling forward OOM'd (S=%d video +%d audio, reserve %.2fGB); "
             "reclaiming the allocator pool and retrying",
@@ -777,8 +813,9 @@ def _forward_with_degrade(
         torch.cuda.empty_cache()
     try:
         return forward(*args, **kwargs)
-    except torch.cuda.OutOfMemoryError:
-        pass
+    except _CUDA_OOM_ERRORS as exc:
+        if not is_cuda_oom(exc):
+            raise
 
     # Tier 2: hand the forward the whole card by streaming every DiT weight
     # from pinned host RAM. Skipped when nothing is resident to shed -- a
@@ -794,8 +831,9 @@ def _forward_with_degrade(
         dit.stream_to(device, 0.0)
         try:
             return forward(*args, **kwargs)
-        except torch.cuda.OutOfMemoryError:
-            pass
+        except _CUDA_OOM_ERRORS as exc:
+            if not is_cuda_oom(exc):
+                raise
 
     raise _sampling_oom(device=device, decision=decision, fit_hint=fit_hint)
 
@@ -874,7 +912,9 @@ def _move_resident(dit: Any, device: str, own_models: Iterable[Any]) -> str:
     try:
         dit.move_to(device)
         return "resident"
-    except torch.cuda.OutOfMemoryError:
+    except _CUDA_OOM_ERRORS as exc:
+        if not is_cuda_oom(exc):
+            raise
         logger.warning("[LTX PLACEMENT] DiT move to %s OOM'd; evicting foreign residents and retrying", device)
         get_residency_registry().offload_all(device, exclude=own_models)
         if torch.cuda.is_available():
@@ -882,7 +922,9 @@ def _move_resident(dit: Any, device: str, own_models: Iterable[Any]) -> str:
         try:
             dit.move_to(device)
             return "resident"
-        except torch.cuda.OutOfMemoryError:
+        except _CUDA_OOM_ERRORS as exc:
+            if not is_cuda_oom(exc):
+                raise
             free = free_vram_gb(device) or 0.0
             budget = max(0.0, free - minimum_inference_memory_gb())
             logger.warning(
@@ -902,7 +944,9 @@ def _move_partial(dit: Any, device: str, weight_budget_gb: float, own_models: It
     try:
         dit.stream_to(device, weight_budget_gb)
         return "partial"
-    except torch.cuda.OutOfMemoryError:
+    except _CUDA_OOM_ERRORS as exc:
+        if not is_cuda_oom(exc):
+            raise
         logger.warning(
             "[LTX PLACEMENT] partial-residency DiT placement OOM'd (budget %.1fGB); "
             "evicting foreign residents and streaming fully", weight_budget_gb,
@@ -938,7 +982,7 @@ def _log_overcommit(
     )
 
 
-def _log_decision(decision: DitPlacementDecision, device: str) -> None:
+def _log_decision(decision: DitPlacementDecision, device: str, *, free_gb: float | None = None) -> None:
     get_profiler().mark(
         "ltx.dit_placement", mode=decision.mode, device=str(device),
         dit_weight_gb=round(decision.dit_weight_gb, 2),
@@ -949,11 +993,12 @@ def _log_decision(decision: DitPlacementDecision, device: str) -> None:
         lora_active=decision.lora_active, lora_weight_gb=round(decision.lora_weight_gb, 2),
         kept_resident=decision.kept_resident,
     )
-    logger.debug(
+    log = logger.debug if free_gb is None else logger.info
+    log(
         "[LTX PLACEMENT] %s%s: DiT %.2fGB (incl. %.2fGB LoRA), S=%d video (+%d audio), activation reserve "
-        "%.2fGB (+%.2fGB extra), weight budget %.2fGB, lora_active=%s",
+        "%.2fGB (+%.2fGB extra), weight budget %.2fGB%s, lora_active=%s",
         decision.mode, " (kept, no move)" if decision.kept_resident else "",
         decision.dit_weight_gb, decision.lora_weight_gb, decision.video_tokens,
         decision.audio_tokens, decision.activation_reserve_gb, decision.extra_reserve_gb, decision.weight_budget_gb,
-        decision.lora_active,
+        "" if free_gb is None else f" of {free_gb:.2f}GB free", decision.lora_active,
     )
