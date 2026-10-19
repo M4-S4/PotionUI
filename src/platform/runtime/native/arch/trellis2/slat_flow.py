@@ -27,7 +27,6 @@ by the caller the way every other native arch module here does.
 
 from __future__ import annotations
 
-import math
 from typing import Optional, Tuple
 
 import torch
@@ -42,6 +41,7 @@ from ...sparse3d import (
     sparse_scaled_dot_product_attention,
 )
 from ...attention import attention as native_attention
+from ...ops.embedding import sinusoidal_embedding
 
 __all__ = ["SLatFlowModel"]
 
@@ -59,20 +59,8 @@ class _TimestepEmbedder(nn.Module):
         )
         self.frequency_embedding_size = frequency_embedding_size
 
-    @staticmethod
-    def _timestep_embedding(t: torch.Tensor, dim: int, max_period: int = 10000) -> torch.Tensor:
-        half = dim // 2
-        freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=t.device) / half
-        )
-        args = t[:, None].float() * freqs[None]
-        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-        if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
-        return embedding
-
     def forward(self, t: torch.Tensor) -> torch.Tensor:
-        embedding = self._timestep_embedding(t, self.frequency_embedding_size)
+        embedding = sinusoidal_embedding(t, self.frequency_embedding_size)
         return self.mlp(embedding.to(self.mlp[0].weight.dtype))
 
 

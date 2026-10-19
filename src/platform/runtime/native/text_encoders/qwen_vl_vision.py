@@ -51,7 +51,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ._functional import optimized_attention
+from ._functional import optimized_attention, rotate_half
 
 # Fixed Qwen2.5-VL-7B vision-tower architecture constants. None of these are
 # recoverable from checkpoint tensor shapes alone (unlike hidden_size/num_layers,
@@ -204,16 +204,10 @@ class VisionRotaryEmbedding(nn.Module):
         return torch.outer(seq, inv_freq)
 
 
-def _rotate_half_vision(x: torch.Tensor) -> torch.Tensor:
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
 def apply_rotary_pos_emb_vision(q, k, cos, sin):
     cos, sin = cos.unsqueeze(-2).float(), sin.unsqueeze(-2).float()
-    q_embed = (q * cos) + (_rotate_half_vision(q) * sin)
-    k_embed = (k * cos) + (_rotate_half_vision(k) * sin)
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
 

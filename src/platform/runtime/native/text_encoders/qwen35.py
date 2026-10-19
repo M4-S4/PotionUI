@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..base import NativeArchModule
-from .base import NativeTextEncoder, _module_to, _module_unload
-from .qwen3 import _module_device, _rotate_half
+from ._functional import GatedMLP, module_device, rotate_half
+from .base import NativeTextEncoder
 
 LINEAR_ATTENTION = "linear_attention"
 FULL_ATTENTION = "full_attention"
@@ -221,8 +221,8 @@ class _GatedAttention(nn.Module):
         value = self.v_proj(x).view(b, s, self.num_kv_heads, self.head_dim).transpose(1, 2)
 
         rot = cos.shape[-1]
-        query = torch.cat([query[..., :rot] * cos + _rotate_half(query[..., :rot]) * sin, query[..., rot:]], dim=-1)
-        key = torch.cat([key[..., :rot] * cos + _rotate_half(key[..., :rot]) * sin, key[..., rot:]], dim=-1)
+        query = torch.cat([query[..., :rot] * cos + rotate_half(query[..., :rot]) * sin, query[..., rot:]], dim=-1)
+        key = torch.cat([key[..., :rot] * cos + rotate_half(key[..., :rot]) * sin, key[..., rot:]], dim=-1)
 
         groups = self.num_heads // self.num_kv_heads
         key = key.repeat_interleave(groups, dim=1)
@@ -230,17 +230,6 @@ class _GatedAttention(nn.Module):
         out = F.scaled_dot_product_attention(query, key, value, is_causal=True)
         out = out.transpose(1, 2).reshape(b, s, self.num_heads * self.head_dim)
         return self.o_proj(out * torch.sigmoid(gate))
-
-
-class _MLP(nn.Module):
-    def __init__(self, cfg: Qwen35Config, operations, device=None, dtype=None) -> None:
-        super().__init__()
-        self.gate_proj = operations.Linear(cfg.hidden_size, cfg.intermediate_size, bias=False, device=device, dtype=dtype)
-        self.up_proj = operations.Linear(cfg.hidden_size, cfg.intermediate_size, bias=False, device=device, dtype=dtype)
-        self.down_proj = operations.Linear(cfg.intermediate_size, cfg.hidden_size, bias=False, device=device, dtype=dtype)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
 
 
 class _Block(nn.Module):
@@ -253,7 +242,7 @@ class _Block(nn.Module):
             self.self_attn = _GatedAttention(cfg, operations, device=device, dtype=dtype)
         else:
             raise ValueError(f"unknown Qwen3.5 layer type: {layer_type!r}")
-        self.mlp = _MLP(cfg, operations, device=device, dtype=dtype)
+        self.mlp = GatedMLP(cfg.hidden_size, cfg.intermediate_size, operations, device=device, dtype=dtype)
         self.input_layernorm = _ZeroCenteredRMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
         self.post_attention_layernorm = _ZeroCenteredRMSNorm(
             cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype
@@ -282,7 +271,7 @@ class _Qwen35Transformer(nn.Module):
     def recompute_inv_freq(self) -> None:
         rot = self.cfg.rotary_dim
         exponent = torch.arange(0, rot, 2, dtype=torch.int64).float() / rot
-        self.inv_freq = (1.0 / (self.cfg.rope_theta ** exponent)).to(_module_device(self))
+        self.inv_freq = (1.0 / (self.cfg.rope_theta ** exponent)).to(module_device(self))
 
     def _rope(self, seq_len: int, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
         pos = torch.arange(seq_len, device=device, dtype=torch.float32)
@@ -324,14 +313,6 @@ class MossImageTextEncoder(NativeTextEncoder):
         self.tokenizer = tokenizer
         self.role = variant
         self._device = torch.device(device)
-
-    def to(self, device: str | torch.device) -> "MossImageTextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
 
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:

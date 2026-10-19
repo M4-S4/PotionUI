@@ -64,6 +64,7 @@ from vendor.gpl.comfyui.ltx.rope import CompressedTimestep, apply_rotary_emb
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...nag import apply_nag
+from ...ops.embedding import sinusoidal_embedding
 from ...sampling.step_cache import GroupedProbe
 from .config import LTXAVConfig
 
@@ -84,20 +85,6 @@ def _nag_active(nag: dict | None) -> bool:
 def _rms_norm(x: Tensor, eps: float = 1e-6) -> Tensor:
     """Unweighted RMS norm (ComfyUI ``comfy.ldm.common_dit.rms_norm`` with no weight)."""
     return F.rms_norm(x, (x.shape[-1],), eps=eps)
-
-
-def _timestep_embedding(timesteps: Tensor, dim: int = 256, max_period: int = 10000) -> Tensor:
-    """Sinusoidal timestep embedding (PixArt ``Timesteps``: flip_sin_to_cos, shift 0)."""
-    half = dim // 2
-    exponent = -math.log(max_period) * torch.arange(0, half, dtype=torch.float32, device=timesteps.device)
-    exponent = exponent / half
-    emb = timesteps[:, None].float() * torch.exp(exponent)[None, :]
-    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
-    # flip_sin_to_cos=True -> (cos, sin) ordering
-    emb = torch.cat([emb[:, half:], emb[:, :half]], dim=-1)
-    if dim % 2 == 1:
-        emb = F.pad(emb, (0, 1, 0, 0))
-    return emb
 
 
 def _ltx_attention(q: Tensor, k: Tensor, v: Tensor, heads: int, mask: Tensor | None = None) -> Tensor:
@@ -135,7 +122,7 @@ class _CombinedTimestepEmbeddings(nn.Module):
         self.timestep_embedder = _TimestepEmbedder(256, embedding_dim, operations, dtype=dtype, device=device)
 
     def forward(self, timestep: Tensor, hidden_dtype) -> Tensor:
-        return self.timestep_embedder(_timestep_embedding(timestep, 256).to(hidden_dtype))
+        return self.timestep_embedder(sinusoidal_embedding(timestep, 256).to(hidden_dtype))
 
 
 class AdaLayerNormSingle(nn.Module):

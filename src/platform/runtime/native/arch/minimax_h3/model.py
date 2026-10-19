@@ -72,6 +72,7 @@ from ...attention import attention as _dispatch_attention
 _fallback_sdpa = F.scaled_dot_product_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
+from ...ops.embedding import sinusoidal_embedding
 from ...lora.row_mask import FULL, ROWS, SKIP, RowMaskTarget, lora_row_mask, lora_row_window
 from ...sampling.step_cache import GroupedProbe
 from ...sla_attn import SlaAttnContext
@@ -131,19 +132,6 @@ def _apply_rotary_emb(x: Tensor, cos: Tensor | None, sin: Tensor | None) -> Tens
     return torch.cat((x_rot, x_pass), dim=-1)
 
 
-def _h3_timestep_embedding(t: Tensor, dim: int = 256, max_period: float = 10000.0) -> Tensor:
-    """Sinusoidal timestep embedding (flip_sin_to_cos, no frequency downscale).
-
-    ``t`` is the raw unscaled-[0,1] timestep vector; the sinusoid itself always
-    runs at ``max_period=10000`` regardless of ``rope_theta``. Returns
-    ``(len(t), dim)`` float32, cos-half then sin-half.
-    """
-    half = dim // 2
-    exponent = -math.log(max_period) * torch.arange(half, dtype=torch.float32, device=t.device) / half
-    args = t.to(torch.float32)[:, None] * torch.exp(exponent)[None, :]
-    return torch.cat((torch.cos(args), torch.sin(args)), dim=-1)
-
-
 def _cast_to(x: Tensor, linear: nn.Module) -> Tensor:
     """Align an activation with a mixed-precision boundary Linear's own dtype."""
     return x.to(linear.weight.dtype)
@@ -159,7 +147,7 @@ class MiniMaxH3TimeEmbedder(nn.Module):
         self.proj_out = operations.Linear(hidden_dim, out_dim, bias=True, dtype=dtype, device=device)
 
     def forward(self, timestep: Tensor) -> Tensor:
-        emb = _h3_timestep_embedding(timestep, self.freq_dim)
+        emb = sinusoidal_embedding(timestep, self.freq_dim)
         return self.proj_out(F.silu(self.proj_in(_cast_to(emb, self.proj_in))))
 
 

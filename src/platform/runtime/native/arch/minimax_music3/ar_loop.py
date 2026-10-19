@@ -25,8 +25,8 @@ from collections.abc import Callable
 import torch
 
 from ...errors import SamplingCancelled
+from ...text_encoders._functional import module_device
 from ._ar_timing import ArTiming
-from ._nn import module_device
 from .cfg_sampling import full_vocab_mask, guided_top_k_sample_id
 from .depth_decoder import depth_kv_cache, generate_depth_codes
 from .lm import MiniMaxMusic3AudioLM

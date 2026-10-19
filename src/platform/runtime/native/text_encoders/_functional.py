@@ -12,6 +12,7 @@ against ComfyUI stays valid.
 from __future__ import annotations
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -60,3 +61,51 @@ def optimized_attention(
 
     out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False, scale=scale)
     return out.transpose(1, 2).reshape(b, -1, heads * dim_head)
+
+
+def rotate_half(x: torch.Tensor) -> torch.Tensor:
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+
+def apply_rope_qk(xq: torch.Tensor, xk: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor):
+    org = xq.dtype
+    q = (xq * cos) + (rotate_half(xq) * sin)
+    k = (xk * cos) + (rotate_half(xk) * sin)
+    return q.to(org), k.to(org)
+
+def module_device(module: nn.Module) -> torch.device:
+    for p in module.parameters():
+        if p is not None:
+            return p.device
+    for b in module.buffers():
+        if b is not None:
+            return b.device
+    raise RuntimeError(f"{module.__class__.__name__} has no tensors to read a device from")
+
+class RMSNorm(nn.Module):
+    def __init__(self, dim: int, eps: float, device=None, dtype=None) -> None:
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.empty(dim, device=device, dtype=dtype))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return rms_norm(x, self.weight, self.eps)
+
+class GatedMLP(nn.Module):
+    def __init__(self, hidden_size: int, intermediate_size: int, operations, merged: bool = False, device=None, dtype=None) -> None:
+        super().__init__()
+        self.merged = merged
+        if merged:
+            self.gate_up_proj = operations.Linear(hidden_size, 2 * intermediate_size, bias=False, device=device, dtype=dtype)
+        else:
+            self.gate_proj = operations.Linear(hidden_size, intermediate_size, bias=False, device=device, dtype=dtype)
+            self.up_proj = operations.Linear(hidden_size, intermediate_size, bias=False, device=device, dtype=dtype)
+        self.down_proj = operations.Linear(intermediate_size, hidden_size, bias=False, device=device, dtype=dtype)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.merged:
+            gate, up = self.gate_up_proj(x).chunk(2, dim=-1)
+        else:
+            gate, up = self.gate_proj(x), self.up_proj(x)
+        return self.down_proj(F.silu(gate) * up)

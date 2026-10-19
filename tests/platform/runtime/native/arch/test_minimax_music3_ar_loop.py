@@ -15,7 +15,7 @@ from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3
 from src.platform.runtime.native.arch.minimax_music3.depth_decoder import NUM_RESIDUAL_CODEBOOKS, generate_depth_codes
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM
 from src.platform.runtime.native.arch.minimax_music3.prompt import AUDIO_CODE_OFFSET, AUDIO_END_TOKEN_ID
-from src.platform.runtime.native.arch.minimax_music3._nn import module_device
+from src.platform.runtime.native.text_encoders._functional import module_device
 from src.platform.runtime.native.errors import SamplingCancelled
 from vendor.gpl.comfyui.ops import disable_weight_init
 

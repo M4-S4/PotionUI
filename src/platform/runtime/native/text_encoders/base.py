@@ -141,7 +141,10 @@ class NativeTextEncoder(ABC):
         return result
 
     def to(self, device: str | torch.device) -> "NativeTextEncoder":
-        """Move the underlying module(s) to ``device``. Default: no-op."""
+        self._device = torch.device(device)
+        module = getattr(self, "module", None)
+        if isinstance(module, nn.Module):
+            module.to(device)
         return self
 
     def offload(self) -> None:
@@ -155,7 +158,7 @@ class NativeTextEncoder(ABC):
 
     def unload(self) -> None:
         """Release GPU/CPU memory held by the underlying module(s)."""
-        return None
+        _module_unload(getattr(self, "module", None))
 
 
 def _align_len(ids: torch.Tensor, mask: torch.Tensor, seq: int, pad_token: int):
@@ -172,10 +175,6 @@ def _align_len(ids: torch.Tensor, mask: torch.Tensor, seq: int, pad_token: int):
     pad_ids = torch.full((ids.shape[0], seq - cur), pad_token, dtype=ids.dtype, device=ids.device)
     pad_mask = torch.zeros((mask.shape[0], seq - cur), dtype=mask.dtype, device=mask.device)
     return torch.cat([ids, pad_ids], dim=1), torch.cat([mask, pad_mask], dim=1)
-
-
-def _module_to(module: nn.Module, device: str | torch.device) -> None:
-    module.to(device)
 
 
 def _module_unload(module: nn.Module | None) -> None:
