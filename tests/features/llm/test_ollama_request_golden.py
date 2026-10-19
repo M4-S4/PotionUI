@@ -169,7 +169,7 @@ async def test_provider_options_reach_the_options_object_and_the_root_keys(monke
 async def test_generate_with_history_pins_payload_and_trace(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("ollama"), "SYS")
+    await client.generate_with_tools(HISTORY, make_config("ollama"), "SYS")
 
     assert capture.body == {
         "model": "golden-model",
@@ -185,7 +185,9 @@ async def test_generate_with_history_pins_payload_and_trace(monkeypatch, client)
         "request_system": "SYS",
         "request_messages": PLAIN_MESSAGES,
         "request_params": DEFAULT_OPTIONS,
+        "request_tools": None,
         "response_text": "canned reply",
+        "response_tool_calls": None,
         "prompt_tokens": 20,
         "completion_tokens": 10,
     }
@@ -195,7 +197,7 @@ async def test_override_wins_over_provider_options(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
     config = make_config("ollama", provider_options=PROVIDER_OPTIONS)
 
-    await client.generate_with_history(HISTORY, config, "SYS", options_override=OVERRIDE)
+    await client.generate_with_tools(HISTORY, config, "SYS", options_override=OVERRIDE)
 
     assert capture.body["options"] == {
         "temperature": 0.1,
@@ -213,7 +215,7 @@ async def test_saved_min_p_reaches_the_options_object(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
     config = make_config("ollama", provider_options={"min_p": 0.05})
 
-    await client.generate_with_history(HISTORY, config, "SYS")
+    await client.generate_with_tools(HISTORY, config, "SYS")
 
     assert capture.body["options"]["min_p"] == 0.05
 
@@ -222,7 +224,7 @@ async def test_per_call_min_p_override_wins_over_saved_provider_option(monkeypat
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
     config = make_config("ollama", provider_options={"min_p": 0.05})
 
-    await client.generate_with_history(HISTORY, config, "SYS", options_override={"min_p": 0.2})
+    await client.generate_with_tools(HISTORY, config, "SYS", options_override={"min_p": 0.2})
 
     assert capture.body["options"]["min_p"] == 0.2
 
@@ -232,7 +234,7 @@ async def test_per_call_min_p_override_reaches_the_streamed_request_too(monkeypa
     config = make_config("ollama", provider_options={"min_p": 0.05})
 
     await collect(
-        client.stream_with_history(HISTORY, config, "SYS", options_override={"min_p": 0.2})
+        client.stream_with_tools(HISTORY, config, "SYS", options_override={"min_p": 0.2})
     )
 
     assert capture.body["options"]["min_p"] == 0.2
@@ -241,7 +243,7 @@ async def test_per_call_min_p_override_reaches_the_streamed_request_too(monkeypa
 async def test_history_image_attaches_to_the_last_user_message(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("ollama"), "SYS", image_data=IMAGE_B64)
+    await client.generate_with_tools(HISTORY, make_config("ollama"), "SYS", image_data=IMAGE_B64)
 
     assert capture.body["messages"][3] == {
         "role": "user",
@@ -253,7 +255,7 @@ async def test_history_image_attaches_to_the_last_user_message(monkeypatch, clie
 async def test_empty_system_message_sends_no_system_turn(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("ollama"), "")
+    await client.generate_with_tools(HISTORY, make_config("ollama"), "")
 
     assert capture.body["messages"] == PLAIN_MESSAGES[1:]
 
@@ -261,7 +263,7 @@ async def test_empty_system_message_sends_no_system_turn(monkeypatch, client):
 async def test_stream_with_history_pins_payload(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [_ndjson()])
 
-    await collect(client.stream_with_history(HISTORY, make_config("ollama"), "SYS"))
+    await collect(client.stream_with_tools(HISTORY, make_config("ollama"), "SYS"))
 
     assert capture.body == {
         "model": "golden-model",
@@ -457,10 +459,10 @@ async def test_stream_and_buffered_history_send_the_same_request(monkeypatch, cl
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY), _ndjson()])
     config = make_config("ollama", provider_options=PROVIDER_OPTIONS)
 
-    await client.generate_with_history(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
+    await client.generate_with_tools(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
     buffered = capture.body
     await collect(
-        client.stream_with_history(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
+        client.stream_with_tools(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
     )
     streamed = capture.body
 

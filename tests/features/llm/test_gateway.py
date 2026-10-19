@@ -105,10 +105,6 @@ class TestGatewayContextBudgetHook:
     def gateway(self):
         gw = LLMGateway(llm_repository=Mock())
         gw.repository.get_configuration.return_value = make_config()
-        gw._ollama.generate_with_history = AsyncMock(return_value=Mock(
-            content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
-        ))
-        gw._ollama.stream_with_history = _empty_stream
         gw._ollama.generate_with_tools = AsyncMock(return_value=Mock(
             content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
         ))
@@ -134,6 +130,19 @@ class TestGatewayContextBudgetHook:
             assert spy.call_count == 4
 
     @pytest.mark.asyncio
+    async def test_every_send_method_budgets_with_the_same_force_prompt_tools_eligibility(self, gateway):
+        messages = [{"role": "user", "content": "hello"}]
+        with patch.object(gateway, "_budgeted", wraps=gateway._budgeted) as spy:
+            await gateway.generate_with_history(messages=messages, llm_id="cfg-1")
+            async for _ in gateway.stream_with_history(messages=messages, llm_id="cfg-1"):
+                pass
+            await gateway.generate_with_tools(messages=messages, llm_id="cfg-1")
+            async for _ in gateway.stream_with_tools(messages=messages, llm_id="cfg-1"):
+                pass
+
+        assert [call.kwargs["force_prompt_tools_eligible"] for call in spy.call_args_list] == [True] * 4
+
+    @pytest.mark.asyncio
     async def test_trims_before_the_client_ever_sees_the_messages(self, gateway):
         gateway.repository.get_configuration.return_value = make_config(
             provider_options={"context_window": 200}, max_tokens=50,
@@ -145,7 +154,7 @@ class TestGatewayContextBudgetHook:
 
         await gateway.generate_with_history(messages=big_history, llm_id="cfg-1")
 
-        sent = gateway._ollama.generate_with_history.call_args.args[0]
+        sent = gateway._ollama.generate_with_tools.call_args.args[0]
         assert len(sent) < len(big_history)
         assert sent[-1]["content"] == "current question"
 
@@ -159,7 +168,7 @@ class TestGatewayContextBudgetHook:
         with pytest.raises(context_budget.ContextBudgetExceededError):
             await gateway.generate_with_history(messages=messages, llm_id="cfg-1")
 
-        gateway._ollama.generate_with_history.assert_not_called()
+        gateway._ollama.generate_with_tools.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_reserve_tokens_follow_options_override_max_tokens(self, gateway):
@@ -244,7 +253,7 @@ class TestGatewayReserveClampRegression:
     @pytest.fixture
     def gateway(self):
         gw = LLMGateway(llm_repository=Mock())
-        gw._ollama.generate_with_history = AsyncMock(return_value=Mock(
+        gw._ollama.generate_with_tools = AsyncMock(return_value=Mock(
             content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
         ))
         return gw
@@ -266,7 +275,7 @@ class TestGatewayReserveClampRegression:
 
         await gateway.generate_with_history(messages=history, llm_id="cfg-1")
 
-        sent = gateway._ollama.generate_with_history.call_args.args[0]
+        sent = gateway._ollama.generate_with_tools.call_args.args[0]
         assert len(sent) > 1
         assert sent[-1]["content"] == "current question"
 
@@ -295,7 +304,7 @@ class TestGatewayReserveClampRegression:
 
         await gateway.generate_with_history(messages=[{"role": "user", "content": "hi"}], llm_id="cfg-1")
 
-        sent_override = gateway._ollama.generate_with_history.call_args.args[4]
+        sent_override = gateway._ollama.generate_with_tools.call_args.args[5]
         assert sent_override is None
 
     def test_thinking_enabled_adds_a_reserve_allowance(self):
@@ -379,9 +388,7 @@ class TestSentMaxTokensNeverExceedsWindow:
         gw = LLMGateway(llm_repository=Mock())
         response = Mock(content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0)
         client = getattr(gw, f"_{provider_type}")
-        client.generate_with_history = AsyncMock(return_value=response)
         client.generate_with_tools = AsyncMock(return_value=response)
-        client.stream_with_history = Mock(side_effect=_empty_stream)
         client.stream_with_tools = Mock(side_effect=_empty_stream)
         return gw
 
@@ -389,8 +396,8 @@ class TestSentMaxTokensNeverExceedsWindow:
     @pytest.mark.parametrize("provider_type", ["openai", "ollama"])
     @pytest.mark.parametrize("max_tokens", [8192, 30000, 50000])
     @pytest.mark.parametrize("send_method,uses_tools,options_override_index", [
-        ("generate_with_history", False, 4),
-        ("stream_with_history", False, 4),
+        ("generate_with_history", False, 5),
+        ("stream_with_history", False, 5),
         ("generate_with_tools", True, 5),
         ("stream_with_tools", True, 5),
     ])
@@ -416,7 +423,7 @@ class TestSentMaxTokensNeverExceedsWindow:
             await method(**kwargs)
 
         client = getattr(gateway, f"_{provider_type}")
-        call = getattr(client, send_method).call_args
+        call = getattr(client, send_method.replace("history", "tools")).call_args
         sent_messages = call.args[0]
         sent_system_message = call.args[2]
         sent_options_override = call.args[options_override_index]
@@ -439,7 +446,7 @@ class TestGatewayImageTokenOverrideThreading:
     @pytest.fixture
     def gateway(self):
         gw = LLMGateway(llm_repository=Mock())
-        gw._ollama.generate_with_history = AsyncMock(return_value=Mock(
+        gw._ollama.generate_with_tools = AsyncMock(return_value=Mock(
             content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
         ))
         return gw
@@ -491,7 +498,7 @@ class TestLedgerMatchesGatewayHook:
         gateway.repository.get_configuration.return_value = config
         gateway._native.token_counter = Mock(return_value=lambda text: len(text))
         gateway._native.messages_token_counter = Mock(return_value=lambda system_message, messages, tools: 37)
-        gateway._native.generate_with_history = AsyncMock(return_value=Mock(
+        gateway._native.generate_with_tools = AsyncMock(return_value=Mock(
             content="ok", tool_calls=None, tokens_used=1, prompt_tokens=1, completion_tokens=0,
         ))
 
@@ -536,17 +543,12 @@ class _ParkingClient:
     def __init__(self):
         self.markers: list[str] = []
 
-    async def stream_with_history(self, *args, **kwargs):
+    async def stream_with_tools(self, *args, **kwargs):
         try:
             yield {"type": "token", "content": "hi"}
             await asyncio.Event().wait()
         finally:
             self.markers.append("client_stream_closed")
-
-    def stream_with_tools(self, *args, **kwargs):
-        # Tool-calling turns share the same wire shape here — reuse the same
-        # generator rather than duplicate it.
-        return self.stream_with_history(*args, **kwargs)
 
 
 class TestGatewayStreamClosePropagation:
@@ -559,7 +561,7 @@ class TestGatewayStreamClosePropagation:
     @pytest.mark.asyncio
     async def test_closing_stream_with_history_closes_the_client_at_once(self, gateway):
         client = _ParkingClient()
-        gateway._ollama.stream_with_history = client.stream_with_history
+        gateway._ollama.stream_with_tools = client.stream_with_tools
 
         agen = gateway.stream_with_history(messages=[{"role": "user", "content": "hi"}], llm_id="cfg-1")
         first = await agen.__anext__()

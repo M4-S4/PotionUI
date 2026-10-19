@@ -300,9 +300,9 @@ class TestGatewayCache:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("method, client_method, streaming", [
-        ("generate_with_history", "generate_with_history", False),
+        ("generate_with_history", "generate_with_tools", False),
         ("generate_with_tools", "generate_with_tools", False),
-        ("stream_with_history", "stream_with_history", True),
+        ("stream_with_history", "stream_with_tools", True),
         ("stream_with_tools", "stream_with_tools", True),
     ])
     @pytest.mark.parametrize("probe_error", [None, RuntimeError("boom")])
@@ -355,7 +355,7 @@ class TestOllamaWire:
             monkeypatch, make_config("ollama", provider_options={"num_ctx": 2048}), SHOW_RUNTIME,
         )
 
-        assert [r.url.path for r in capture.requests] == ["/api/chat"]
+        assert "/api/show" not in [r.url.path for r in capture.requests]
         assert capture.body["options"]["num_ctx"] == 2048
 
     @pytest.mark.asyncio

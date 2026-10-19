@@ -269,7 +269,6 @@ class ConversationRunner:
                     llm_id=session.llm_config_id,
                     system_message=system_prompt or "",
                     tool_context=tool_context,
-                    mode=mode.id,
                     image_data=image_base64,
                     max_iterations=_MAX_TOOL_ROUNDS,
                     allowed_tools=allowed_tools,
@@ -287,7 +286,6 @@ class ConversationRunner:
                     llm_id=session.llm_config_id,
                     image_data=image_base64,
                     custom_system_message=system_prompt or None,
-                    mode=mode.id,
                     options_override=mode.llm_options or None,
                 )
         # No distinct "answering" phase to time on the buffered path — the whole
@@ -666,7 +664,6 @@ class ConversationRunner:
                         llm_id=session.llm_config_id,
                         system_message=system_prompt or "",
                         tool_context=tool_context,
-                        mode=mode.id,
                         image_data=image_base64,
                         max_iterations=max(0, _MAX_TOOL_ROUNDS - base_rounds),
                         allowed_tools=allowed_tools,
@@ -740,7 +737,6 @@ class ConversationRunner:
                         llm_id=session.llm_config_id,
                         image_data=image_base64,
                         custom_system_message=system_prompt or None,
-                        mode=mode.id,
                         options_override=mode.llm_options or None,
                     )) as agen:
                         async for event in agen:

@@ -11,6 +11,7 @@ import inspect
 import json
 import logging
 import time
+from dataclasses import asdict
 from contextlib import aclosing
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple
 
@@ -228,17 +229,12 @@ def _usage_fields(usage: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 class _BufferedTurnSource:
     """Fetches each turn with one non-streaming `generate_with_tools` call.
-
-    Shared by `execute_with_tools` and `_execute_with_tools_stream_legacy`:
-    both need the whole response before they can tell a tool call apart from
-    an answer, and differ only in how they render it.
     """
 
-    def __init__(self, executor, llm_id, system_message, mode, llm_options):
+    def __init__(self, executor, llm_id, system_message, llm_options):
         self._executor = executor
         self._llm_id = llm_id
         self._system_message = system_message
-        self._mode = mode
         self._llm_options = llm_options
 
     async def acquire(self, request: TurnRequest) -> AsyncGenerator[Any, None]:
@@ -247,7 +243,6 @@ class _BufferedTurnSource:
             "llm_id": self._llm_id,
             "tools": [] if request.final else request.tools,
             "custom_system_message": self._system_message,
-            "mode": self._mode,
             "options_override": self._llm_options,
         }
         if not request.final:
@@ -280,12 +275,11 @@ class _LiveTurnSource:
     never shown either way, so the workflow's bounded retry applies.
     """
 
-    def __init__(self, executor, workflow, llm_id, system_message, mode, llm_options):
+    def __init__(self, executor, workflow, llm_id, system_message, llm_options):
         self._executor = executor
         self._workflow = workflow
         self._llm_id = llm_id
         self._system_message = system_message
-        self._mode = mode
         self._llm_options = llm_options
 
     def _stream(self, messages, tools, image_data):
@@ -295,7 +289,6 @@ class _LiveTurnSource:
             tools=tools,
             image_data=image_data,
             custom_system_message=self._system_message,
-            mode=self._mode,
             options_override=self._llm_options,
         )
 
@@ -569,8 +562,6 @@ class ToolExecutor:
             name, tool_context, arguments, allowed_tools=allowed_tools, deferred_tools=deferred_tools,
         )
         duration_ms = int((time.monotonic() - start_time) * 1000)
-        vision_note = await self._gate_tool_image(tool_context, result)
-
         execution = ToolExecution(
             tool_name=name,
             arguments=arguments,
@@ -580,38 +571,44 @@ class ToolExecutor:
         )
         tool_executions.append(execution)
 
+        await self._append_tool_message(working_messages, tool_context, result, call_id, name)
+        return execution
+
+    async def _append_tool_message(
+        self,
+        working_messages: List[Dict[str, Any]],
+        tool_context: ToolContext,
+        result: ToolResult,
+        tool_call_id: str,
+        tool_name: str,
+    ) -> None:
+        vision_note = await self._gate_tool_image(tool_context, result)
         content = _bound_tool_result_content(result.data if result.success else f"Error: {result.error}")
         if vision_note:
             content = f"{content}\n\n{vision_note}"
         working_messages.append({
             "role": "tool",
             "content": content,
-            "tool_call_id": call_id,
-            "name": name,
+            "tool_call_id": tool_call_id,
+            "name": tool_name,
         })
-        return execution
 
     @staticmethod
-    def _tool_end_event_data(execution: ToolExecution) -> Dict[str, Any]:
-        """Build the tool_end event payload for a completed execution."""
+    def _tool_end_payload(execution: ToolExecution) -> Dict[str, Any]:
+        result = execution.result
         data: Dict[str, Any] = {
             "tool_name": execution.tool_name,
-            "success": execution.result.success,
+            "success": result.success,
             "duration_ms": execution.duration_ms,
             "approval_status": execution.approval_status,
         }
-        if execution.result.sources:
-            data["sources"] = [
-                {
-                    "source_type": s.source_type,
-                    "title": s.title,
-                    "subtitle": s.subtitle,
-                    "description": s.description,
-                    "url": s.url,
-                    "icon": s.icon,
-                }
-                for s in execution.result.sources
-            ]
+        if execution.approval_status == "pending":
+            data["arguments"] = execution.arguments
+            preview = serialize_approval_preview(result.preview)
+            if preview:
+                data["preview"] = preview
+        if result.sources:
+            data["sources"] = [asdict(source) for source in result.sources]
         return data
 
     async def execute_with_tools(
@@ -620,7 +617,6 @@ class ToolExecutor:
         llm_id: str,
         system_message: str,
         tool_context: ToolContext,
-        mode: Optional[str] = None,
         image_data: Optional[str] = None,
         max_iterations: int = 20,
         on_tool_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
@@ -638,7 +634,6 @@ class ToolExecutor:
             llm_id: LLM configuration ID
             system_message: System message for the LLM
             tool_context: Context with service references for tool execution
-            mode: Optional chat mode id (pass-through for logging/hooks)
             image_data: Optional base64 image data
             max_iterations: Maximum tool call iterations (safety limit)
             on_tool_event: Optional callback for tool events
@@ -667,7 +662,7 @@ class ToolExecutor:
             iteration_nudge=iteration_nudge, wrap_up_on_limit=False,
             applied_calls=applied_calls, deferred_tools=deferred_tools,
         )
-        source = _BufferedTurnSource(self, llm_id, system_message, mode, llm_options)
+        source = _BufferedTurnSource(self, llm_id, system_message, llm_options)
 
         terminal: Any = None
         # Not itself an async-generator seam a caller can `aclose()` — this
@@ -704,13 +699,6 @@ class ToolExecutor:
 
     async def _force_prompt_tools_for(self, llm_id: str) -> bool:
         """Whether this config renders tools into the system prompt as XML instead of native tool calling.
-
-        force_prompt_tools models emit tool calls as `<tool_call>` XML embedded
-        in ordinary streamed content; safely telling that apart from a real
-        answer requires the whole response, so those configs keep the older
-        buffered-per-iteration streaming behavior (see
-        `_execute_with_tools_stream_legacy`) rather than the live per-iteration
-        streaming `execute_with_tools_stream` otherwise uses.
 
         A `type == "native"` config is ALWAYS this shape — NativeLLMClient has
         no structured tool-calling path at all (see its module docstring) and
@@ -820,30 +808,7 @@ class ToolExecutor:
             )
             tool_executions.append(execution)
 
-            tool_end_data: Dict[str, Any] = {
-                "tool_name": tool_name,
-                "success": result.success,
-                "duration_ms": duration_ms,
-                "approval_status": execution.approval_status,
-            }
-            if is_pending:
-                tool_end_data["arguments"] = arguments
-                preview = serialize_approval_preview(result.preview)
-                if preview:
-                    tool_end_data["preview"] = preview
-            if result.sources:
-                tool_end_data["sources"] = [
-                    {
-                        "source_type": s.source_type,
-                        "title": s.title,
-                        "subtitle": s.subtitle,
-                        "description": s.description,
-                        "url": s.url,
-                        "icon": s.icon,
-                    }
-                    for s in result.sources
-                ]
-            yield {"type": "tool_end", "data": tool_end_data}
+            yield {"type": "tool_end", "data": self._tool_end_payload(execution)}
 
             if is_pending:
                 logger.info(f"[ToolExecutor] Tool '{tool_name}' requires approval — pausing stream loop")
@@ -853,16 +818,7 @@ class ToolExecutor:
                 )
                 break
 
-            vision_note = await self._gate_tool_image(tool_context, result)
-            content = _bound_tool_result_content(result.data if result.success else f"Error: {result.error}")
-            if vision_note:
-                content = f"{content}\n\n{vision_note}"
-            working_messages.append({
-                "role": "tool",
-                "content": content,
-                "tool_call_id": tool_call_id,
-                "name": tool_name,
-            })
+            await self._append_tool_message(working_messages, tool_context, result, tool_call_id, tool_name)
 
             if result.image_data:
                 tool_image_data = result.image_data
@@ -875,7 +831,6 @@ class ToolExecutor:
         llm_id: str,
         system_message: str,
         tool_context: ToolContext,
-        mode: Optional[str] = None,
         image_data: Optional[str] = None,
         max_iterations: int = 20,
         allowed_tools: Optional[List[str]] = None,
@@ -898,39 +853,18 @@ class ToolExecutor:
         When a tool with requires_approval=True is executed, the generator emits a
         "done" event with pending_tool_approval=True and then returns immediately
         without feeding the result to the LLM.
-
-        force_prompt_tools configurations (see `_force_prompt_tools_for`) are
-        delegated to `_execute_with_tools_stream_legacy`, which buffers each
-        iteration's full response before deciding whether it was a tool call —
-        the same behavior this method used before it streamed natively.
         """
-        if await self._force_prompt_tools_for(llm_id):
-            async with aclosing(self._execute_with_tools_stream_legacy(
-                messages=messages,
-                llm_id=llm_id,
-                system_message=system_message,
-                tool_context=tool_context,
-                mode=mode,
-                image_data=image_data,
-                max_iterations=max_iterations,
-                allowed_tools=allowed_tools,
-                llm_options=llm_options,
-                forced_tool_call=forced_tool_call,
-                iteration_nudge=iteration_nudge,
-                applied_calls=applied_calls,
-                deferred_tools=deferred_tools,
-            )) as agen:
-                async for event in agen:
-                    yield event
-            return
-
+        buffered = await self._force_prompt_tools_for(llm_id)
         workflow = ToolWorkflow(
             self, messages, tool_context, allowed_tools, max_iterations,
             image_data=image_data, forced_tool_call=forced_tool_call,
             iteration_nudge=iteration_nudge, applied_calls=applied_calls,
             deferred_tools=deferred_tools,
         )
-        source = _LiveTurnSource(self, workflow, llm_id, system_message, mode, llm_options)
+        if buffered:
+            source = _BufferedTurnSource(self, llm_id, system_message, llm_options)
+        else:
+            source = _LiveTurnSource(self, workflow, llm_id, system_message, llm_options)
 
         # Owns the workflow's generator for this whole turn: closing THIS
         # generator (a caller's aclose(), or an exception unwinding through
@@ -952,6 +886,8 @@ class ToolExecutor:
                 elif isinstance(event, PendingDecision):
                     yield {"type": "done", "data": self._done_data(workflow, "", True)}
                 elif isinstance(event, Completed):
+                    if buffered and event.content:
+                        yield {"type": "token", "data": {"content": event.content}}
                     data = self._done_data(workflow, event.content, False)
                     # The text already reached the caller as tokens, so only a
                     # terminal the model actually generated carries usage; a
@@ -960,65 +896,6 @@ class ToolExecutor:
                         data.update(_usage_fields(event.usage))
                     yield {"type": "done", "data": data}
 
-
-    async def _execute_with_tools_stream_legacy(
-        self,
-        messages: List[Dict],
-        llm_id: str,
-        system_message: str,
-        tool_context: ToolContext,
-        mode: Optional[str] = None,
-        image_data: Optional[str] = None,
-        max_iterations: int = 20,
-        allowed_tools: Optional[List[str]] = None,
-        llm_options: Optional[Dict[str, Any]] = None,
-        forced_tool_call: Optional[Dict[str, Any]] = None,
-        iteration_nudge: Optional[str] = None,
-        applied_calls: Optional[set] = None,
-        deferred_tools: Optional[Dict[str, List[str]]] = None,
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Run the tool loop with a non-streaming decision call per iteration.
-
-        Used for force_prompt_tools configurations, where tool calls are XML
-        embedded in ordinary content and can't be safely told apart from a real
-        answer until the whole response is in. Because nothing is shown until
-        the turn is decided, the visible text arrives as a single token event
-        just before `done`.
-
-        Yields the same event shapes as `execute_with_tools_stream`.
-        """
-        workflow = ToolWorkflow(
-            self, messages, tool_context, allowed_tools, max_iterations,
-            image_data=image_data, forced_tool_call=forced_tool_call,
-            iteration_nudge=iteration_nudge, applied_calls=applied_calls,
-            deferred_tools=deferred_tools,
-        )
-        source = _BufferedTurnSource(self, llm_id, system_message, mode, llm_options)
-
-        async with aclosing(workflow.run(source)) as agen:
-            async for event in agen:
-                if isinstance(event, ToolStarted):
-                    yield {"type": "tool_start", "data": event.data}
-                elif isinstance(event, ToolFinished):
-                    yield {"type": "tool_end", "data": event.data}
-                elif isinstance(event, IterationLimitReached):
-                    yield {"type": "status", "data": {
-                        "step": "tool_budget_exhausted", "state": "completed",
-                        "detail": {"max_iterations": event.max_iterations},
-                    }}
-                elif isinstance(event, PendingDecision):
-                    yield {"type": "done", "data": self._done_data(workflow, "", True)}
-                elif isinstance(event, Completed):
-                    if event.content:
-                        yield {"type": "token", "data": {"content": event.content}}
-                    data = self._done_data(workflow, event.content, False)
-                    # Same "answer"/"budget" guard as execute_with_tools_stream:
-                    # a rescue's fallback message (truncated/ambiguous) is never a
-                    # genuine LLM completion, so its round's usage/completion must
-                    # not be attributed to it.
-                    if event.reason in ("answer", "budget"):
-                        data.update(_usage_fields(event.usage))
-                    yield {"type": "done", "data": data}
 
     @staticmethod
     def _done_data(workflow: ToolWorkflow, full_content: str, pending: bool) -> Dict[str, Any]:

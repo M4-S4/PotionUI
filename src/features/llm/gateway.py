@@ -242,7 +242,6 @@ class LLMGateway:
         self,
         config: LLMConfig,
         custom_system_message: Optional[str] = None,
-        log_prefix: str = "[Chat]",
     ) -> str:
         """Resolve the effective system message for a chat call.
 
@@ -253,13 +252,10 @@ class LLMGateway:
         """
         if custom_system_message:
             system_message = custom_system_message
-            logging.info(f"{log_prefix} Using custom_system_message (length: {len(system_message)})")
         elif config.disable_system_prompt:
             system_message = ""
-            logging.info(f"{log_prefix} System prompt disabled for config '{config.id}'")
         else:
             system_message = config.system_message
-            logging.info(f"{log_prefix} Using config default system_message")
         return system_message
 
     async def generate_with_config_id(
@@ -343,72 +339,33 @@ class LLMGateway:
         llm_id: str,
         image_data: Optional[str] = None,
         custom_system_message: Optional[str] = None,
-        mode: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
-        """Generate a response over a full conversation history.
-
-        Args:
-            messages: List of messages with 'role' and 'content' keys
-            llm_id: LLM configuration ID
-            image_data: Optional base64 encoded image for vision models
-            custom_system_message: Optional custom system message (overrides config default)
-            mode: Optional chat mode id (informational)
-            options_override: Optional sampling overrides (temperature, top_p, top_k, max_tokens,
-                think) applied on top of config/provider_options. Keys not recognized by the
-                target provider are ignored.
-
-        Returns:
-            LLMResponse with generated content
-
-        Raises:
-            ValueError: If LLM configuration not found
-        """
-        config = self.repository.get_configuration(llm_id)
-        if not config:
-            raise ValueError(f"LLM configuration '{llm_id}' not found")
-
-        if not config.enabled:
-            raise ValueError(f"LLM configuration '{config.id}' is disabled")
-
-        await self.ensure_context_window(config)
-        system_message = self._resolve_system_message(
-            config, custom_system_message, log_prefix="[Chat]"
-        )
-        messages, options_override = self._budgeted(config, system_message, messages, None, image_data, options_override)
-        config = self._wire_config(config)
-
-        return await self._client_for(config).generate_with_history(
-            messages, config, system_message, image_data, options_override
+        return await self.generate_with_tools(
+            messages, llm_id, None, image_data, custom_system_message, options_override
         )
 
-    async def stream_with_history(
+    def stream_with_history(
         self,
         messages: list[Dict[str, str]],
         llm_id: str,
         image_data: Optional[str] = None,
         custom_system_message: Optional[str] = None,
-        mode: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[dict, None]:
-        """Stream a response over a full conversation history.
+        return self.stream_with_tools(
+            messages, llm_id, None, image_data, custom_system_message, options_override
+        )
 
-        Args:
-            messages: List of messages with 'role' and 'content' keys
-            llm_id: LLM configuration ID
-            image_data: Optional base64 encoded image for vision models
-            custom_system_message: Optional custom system message (overrides config default)
-            mode: Optional chat mode id (informational)
-            options_override: Optional sampling overrides (temperature, top_p, top_k,
-                max_tokens, think) applied on top of config/provider_options
-
-        Yields:
-            Dicts: {"type": "token", "content": str} for text chunks,
-                   {"type": "usage", "tokens_used": int, "prompt_tokens": int, "completion_tokens": int} at end
-
-        Raises:
-            ValueError: If LLM configuration not found or unsupported type
-        """
+    async def _prepare(
+        self,
+        messages: list[Dict[str, Any]],
+        llm_id: str,
+        tools: Optional[List[Dict]],
+        image_data: Optional[str],
+        custom_system_message: Optional[str],
+        options_override: Optional[Dict[str, Any]],
+    ) -> tuple[LLMConfig, str, list[Dict[str, Any]], Optional[Dict[str, Any]]]:
         config = self.repository.get_configuration(llm_id)
         if not config:
             raise ValueError(f"LLM configuration '{llm_id}' not found")
@@ -417,23 +374,12 @@ class LLMGateway:
             raise ValueError(f"LLM configuration '{config.id}' is disabled")
 
         await self.ensure_context_window(config)
-        system_message = self._resolve_system_message(
-            config, custom_system_message, log_prefix="[Chat Stream]"
+        system_message = self._resolve_system_message(config, custom_system_message)
+        messages, options_override = self._budgeted(
+            config, system_message, messages, tools, image_data, options_override,
+            force_prompt_tools_eligible=True,
         )
-        messages, options_override = self._budgeted(config, system_message, messages, None, image_data, options_override)
-        config = self._wire_config(config)
-
-        # Owns the client's stream: closing THIS generator (aclose(), or an
-        # exception unwinding through it) must close the client's — an
-        # unguarded `async for` here would leave a suspended provider stream
-        # (and whatever it holds — an HTTP response, a lease) to the event
-        # loop's async-generator finalizer instead of closing it at the
-        # point this generator itself is closed.
-        async with aclosing(self._client_for(config).stream_with_history(
-            messages, config, system_message, image_data, options_override
-        )) as agen:
-            async for event in agen:
-                yield event
+        return self._wire_config(config), system_message, messages, options_override
 
     async def generate_with_tools(
         self,
@@ -442,7 +388,6 @@ class LLMGateway:
         tools: List[Dict] = None,
         image_data: Optional[str] = None,
         custom_system_message: Optional[str] = None,
-        mode: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
         """Generate a response with native tool calling support.
@@ -453,7 +398,6 @@ class LLMGateway:
             tools: Optional list of tool definitions to pass to the model
             image_data: Optional base64 encoded image for vision models
             custom_system_message: Optional custom system message (overrides config default)
-            mode: Optional chat mode id (informational)
             options_override: Optional sampling overrides (temperature, top_p, top_k,
                 max_tokens, think) applied on top of config/provider_options
 
@@ -463,22 +407,9 @@ class LLMGateway:
         Raises:
             ValueError: If LLM configuration not found
         """
-        config = self.repository.get_configuration(llm_id)
-        if not config:
-            raise ValueError(f"LLM configuration '{llm_id}' not found")
-
-        if not config.enabled:
-            raise ValueError(f"LLM configuration '{config.id}' is disabled")
-
-        await self.ensure_context_window(config)
-        system_message = self._resolve_system_message(
-            config, custom_system_message, log_prefix="[Chat]"
+        config, system_message, messages, options_override = await self._prepare(
+            messages, llm_id, tools, image_data, custom_system_message, options_override
         )
-        messages, options_override = self._budgeted(
-            config, system_message, messages, tools, image_data, options_override,
-            force_prompt_tools_eligible=True,
-        )
-        config = self._wire_config(config)
 
         return await self._client_for(config).generate_with_tools(
             messages, config, system_message, tools, image_data, options_override
@@ -491,7 +422,6 @@ class LLMGateway:
         tools: Optional[List[Dict]] = None,
         image_data: Optional[str] = None,
         custom_system_message: Optional[str] = None,
-        mode: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[dict, None]:
         """Stream a tool-calling turn, or the final response after tool iterations complete.
@@ -508,21 +438,10 @@ class LLMGateway:
                        model requested tool calls this turn,
                    {"type": "usage", "tokens_used": int, "prompt_tokens": int, "completion_tokens": int} at end
         """
-        config = self.repository.get_configuration(llm_id)
-        if not config:
-            raise ValueError(f"LLM configuration '{llm_id}' not found")
-
-        if not config.enabled:
-            raise ValueError(f"LLM configuration '{config.id}' is disabled")
-
-        await self.ensure_context_window(config)
-        system_message = self._resolve_system_message(
-            config, custom_system_message, log_prefix="[Chat Stream]"
+        config, system_message, messages, options_override = await self._prepare(
+            messages, llm_id, tools, image_data, custom_system_message, options_override
         )
-        messages, options_override = self._budgeted(config, system_message, messages, tools, image_data, options_override)
-        config = self._wire_config(config)
 
-        # See stream_with_history's comment above — same ownership rule.
         async with aclosing(self._client_for(config).stream_with_tools(
             messages, config, system_message, tools, image_data, options_override
         )) as agen:

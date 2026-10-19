@@ -65,7 +65,7 @@ def _tokens(events) -> list[str]:
 async def _stream(monkeypatch, client, chunks, *, tools=None, status=200):
     install_wire_capture(monkeypatch, [chunked_response(chunks, status)])
     if tools is None:
-        return await collect(client.stream_with_history(HISTORY, make_config("openai"), "SYS"))
+        return await collect(client.stream_with_tools(HISTORY, make_config("openai"), "SYS"))
     return await collect(
         client.stream_with_tools(HISTORY, make_config("openai"), "SYS", tools=tools)
     )
@@ -265,7 +265,7 @@ async def test_closing_the_generator_midstream_releases_the_response(monkeypatch
     chunks = [_delta("first"), _delta("second"), _frame("[DONE]")]
 
     install_wire_capture(monkeypatch, [closable_response(chunks, released)])
-    stream = client.stream_with_history(HISTORY, make_config("openai"), "SYS")
+    stream = client.stream_with_tools(HISTORY, make_config("openai"), "SYS")
 
     assert await stream.__anext__() == {"type": "token", "content": "first"}
     await stream.aclose()

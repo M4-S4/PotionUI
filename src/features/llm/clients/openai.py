@@ -4,7 +4,6 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import httpx
 
-from src.features.llm import trace_collector
 from src.features.llm.clients import completion as completion_outcome
 from src.features.llm.clients.base import LLMResponse
 from src.features.llm.clients.openai_wire import (
@@ -22,6 +21,7 @@ from src.features.llm.model_listing import (
     positive_int,
     sorted_models,
 )
+from src.features.llm.clients.transport import record_trace, stream_timeout
 from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ToolCallDelta, Usage
 from src.features.llm.repository import LLMConfig
 
@@ -36,12 +36,6 @@ class OpenAIClient:
     endpoints work unchanged. Payload building and chunk parsing live in
     ``openai_wire``; what stays here is the HTTP call and the response shaping.
     """
-
-    @staticmethod
-    def _stream_timeout(config: LLMConfig) -> httpx.Timeout:
-        return httpx.Timeout(
-            connect=config.timeout, read=None, write=config.timeout, pool=config.timeout
-        )
 
     display_name = "OpenAI-compatible server"
 
@@ -130,133 +124,6 @@ class OpenAIClient:
         except Exception as e:
             raise ValueError(f"Error generating OpenAI response: {str(e)}")
 
-    async def generate_with_history(
-        self,
-        messages: list[Dict[str, str]],
-        config: LLMConfig,
-        system_message: str,
-        image_data: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None
-    ) -> LLMResponse:
-        """Generate a response over a full conversation history."""
-        try:
-            request = build_openai_request(
-                config, messages, system_message, image_data, options_override
-            )
-
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
-                logging.info(f"[OpenAI Chat] Sending to {config.base_url}/chat/completions, model: {config.model}, messages: {len(request.messages)}, image: {bool(image_data)}")
-
-                _trace_start = time.monotonic()
-                response = await client.post(
-                    f"{config.base_url}/chat/completions",
-                    json=request.payload,
-                    headers=request.headers
-                )
-
-                if response.status_code != 200:
-                    logging.error(response.text)
-
-                response.raise_for_status()
-                data = response.json()
-                usage = data.get("usage", {})
-                choice = data["choices"][0]
-                content = choice["message"]["content"]
-                finish_reason = choice.get("finish_reason")
-
-                trace_collector.record(
-                    provider="openai",
-                    model=config.model,
-                    request_system=system_message,
-                    request_messages=request.messages,
-                    request_params=request.sampling_params,
-                    response_text=content,
-                    prompt_tokens=usage.get("prompt_tokens"),
-                    completion_tokens=usage.get("completion_tokens"),
-                    duration_ms=int((time.monotonic() - _trace_start) * 1000),
-                )
-
-                return LLMResponse(
-                    content=content,
-                    model=config.model,
-                    provider_id=config.id,
-                    tokens_used=usage.get("total_tokens"),
-                    prompt_tokens=usage.get("prompt_tokens"),
-                    completion_tokens=usage.get("completion_tokens"),
-                    finish_reason=finish_reason,
-                    completion=completion_outcome.from_openai_compat(finish_reason),
-                )
-        except Exception as e:
-            raise ValueError(f"Error generating OpenAI response: {str(e)}")
-
-    async def stream_with_history(
-        self,
-        messages: list[Dict[str, str]],
-        config: LLMConfig,
-        system_message: str,
-        image_data: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None
-    ) -> AsyncGenerator[dict, None]:
-        """Stream a response over a full conversation history."""
-        request = build_openai_request(
-            config, messages, system_message, image_data, options_override, stream=True
-        )
-
-        logging.info(f"[OpenAI Stream] Sending streaming request to {config.base_url}/chat/completions")
-
-        decoder = OpenAICompatSSEDecoder("OpenAI Stream")
-        usage_data = None
-        finish_reason_raw = None
-        full_content_parts: List[str] = []
-        _trace_start = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._stream_timeout(config)) as client:
-            async with client.stream("POST", f"{config.base_url}/chat/completions", json=request.payload, headers=request.headers) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    raise ValueError(f"OpenAI returned status {response.status_code}: {error_text.decode()}")
-
-                async for line in response.aiter_lines():
-                    stop = False
-                    for event in decoder.feed(line):
-                        if isinstance(event, Done):
-                            finish_reason_raw = event.finish_reason
-                            stop = True
-                            break
-                        if isinstance(event, Usage):
-                            usage_data = {
-                                "type": "usage",
-                                "tokens_used": event.tokens_used,
-                                "prompt_tokens": event.prompt_tokens,
-                                "completion_tokens": event.completion_tokens,
-                            }
-                        elif isinstance(event, TextDelta):
-                            full_content_parts.append(event.text)
-                            yield {"type": "token", "content": event.text}
-                        # RecordTooLarge falls through here on purpose: the
-                        # dropped record is never a completed payload, so
-                        # there is nothing to act on beyond the warning the
-                        # decoder itself already logged.
-                    if stop:
-                        break
-                decoder.finish()
-
-        trace_collector.record(
-            provider="openai",
-            model=config.model,
-            request_system=system_message,
-            request_messages=request.messages,
-            request_params=request.sampling_params,
-            response_text="".join(full_content_parts),
-            prompt_tokens=(usage_data or {}).get("prompt_tokens"),
-            completion_tokens=(usage_data or {}).get("completion_tokens"),
-            duration_ms=int((time.monotonic() - _trace_start) * 1000),
-        )
-
-        # Yield usage data at the end, always carrying the normalized completion outcome.
-        result = usage_data or dict(NO_USAGE)
-        result["completion"] = completion_outcome.from_openai_compat(finish_reason_raw)
-        yield result
-
     async def generate_with_tools(
         self,
         messages: list[Dict[str, Any]],
@@ -296,9 +163,8 @@ class OpenAIClient:
                 tool_calls = message.get("tool_calls") or None
                 finish_reason = choice.get("finish_reason")
 
-                trace_collector.record(
-                    provider="openai",
-                    model=config.model,
+                record_trace(
+                    "openai", config, _trace_start,
                     request_system=system_message,
                     request_messages=request.messages,
                     request_params=request.sampling_params,
@@ -307,7 +173,6 @@ class OpenAIClient:
                     response_tool_calls=tool_calls,
                     prompt_tokens=usage.get("prompt_tokens"),
                     completion_tokens=usage.get("completion_tokens"),
-                    duration_ms=int((time.monotonic() - _trace_start) * 1000),
                 )
 
                 return LLMResponse(
@@ -361,7 +226,7 @@ class OpenAIClient:
         finish_reason_raw = None
         full_content_parts: List[str] = []
         _trace_start = time.monotonic()
-        async with httpx.AsyncClient(timeout=self._stream_timeout(config)) as client:
+        async with httpx.AsyncClient(timeout=stream_timeout(config)) as client:
             async with client.stream("POST", f"{config.base_url}/chat/completions", json=request.payload, headers=request.headers) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()
@@ -396,9 +261,8 @@ class OpenAIClient:
 
         assembled_tool_calls = assembler.assembled()
 
-        trace_collector.record(
-            provider="openai",
-            model=config.model,
+        record_trace(
+            "openai", config, _trace_start,
             request_system=system_message,
             request_messages=request.messages,
             request_params=request.sampling_params,
@@ -407,7 +271,6 @@ class OpenAIClient:
             response_tool_calls=assembled_tool_calls,
             prompt_tokens=(usage_data or {}).get("prompt_tokens"),
             completion_tokens=(usage_data or {}).get("completion_tokens"),
-            duration_ms=int((time.monotonic() - _trace_start) * 1000),
         )
 
         if assembled_tool_calls:

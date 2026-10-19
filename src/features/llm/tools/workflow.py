@@ -495,7 +495,7 @@ class ToolWorkflow:
             self.forced_tool_call, self.tool_context, self.working_messages,
             self.tool_executions, self.allowed_tools, self.deferred_tools,
         )
-        yield ToolFinished(self._executor._tool_end_event_data(execution))
+        yield ToolFinished(self._executor._tool_end_payload(execution))
         if execution.result.image_data:
             self._tool_image_data = execution.result.image_data
         self._any_tool_round_completed = True

@@ -465,7 +465,6 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
             llm_id="llm-abc",
             image_data=None,
             custom_system_message=ANY,
-            mode="generation",
             options_override=None,
         )
 
@@ -1592,7 +1591,6 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
 
         call_kwargs = self.mock_llm.stream_with_history.call_args.kwargs
         assert call_kwargs["options_override"] == {"think": False}
-        assert call_kwargs["mode"] == "custom"
 
     @pytest.mark.asyncio
     async def test_llm_options_reach_tool_executor(self):

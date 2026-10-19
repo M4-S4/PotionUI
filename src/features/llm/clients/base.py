@@ -56,24 +56,6 @@ class LLMClient(Protocol):
         image_data: Optional[str] = None,
     ) -> LLMResponse: ...
 
-    async def generate_with_history(
-        self,
-        messages: list[Dict[str, str]],
-        config: LLMConfig,
-        system_message: str,
-        image_data: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None,
-    ) -> LLMResponse: ...
-
-    def stream_with_history(
-        self,
-        messages: list[Dict[str, str]],
-        config: LLMConfig,
-        system_message: str,
-        image_data: Optional[str] = None,
-        options_override: Optional[Dict[str, Any]] = None,
-    ) -> AsyncGenerator[dict, None]: ...
-
     async def generate_with_tools(
         self,
         messages: list[Dict[str, Any]],
