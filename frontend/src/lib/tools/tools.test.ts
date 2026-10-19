@@ -114,6 +114,17 @@ describe('buildHistoryToolContext', () => {
 		expect(ctx.files.map((entry) => entry.kind)).toEqual(['image', 'video', 'audio', 'mesh']);
 	});
 
+	it('classifies a splat as its own kind, never as a mesh', () => {
+		const ctx = buildHistoryToolContext(
+			[generation('a', [file(1, 'SPLAT'), file(2, 'splat'), file(3, 'MESH')])],
+			['a'],
+			null
+		);
+
+		expect(ctx.files.map((entry) => entry.kind)).toEqual(['splat', 'splat', 'mesh']);
+		expect([...ctx.kinds].sort()).toEqual(['mesh', 'splat']);
+	});
+
 	it('ignores a file whose type is not a media kind', () => {
 		const ctx = buildHistoryToolContext(
 			[generation('a', [file(1, 'JSON'), file(2, 'IMAGE')])],
