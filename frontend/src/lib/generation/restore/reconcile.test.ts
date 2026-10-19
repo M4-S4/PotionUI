@@ -359,6 +359,30 @@ describe('reconcileTabGenerations', () => {
 		expect(fake.historyCalls).toEqual(['gen-1', 'gen-1']);
 	});
 
+	it('restores a splat output that finished while the tab was disconnected', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-1', { ok: statusResponse({ status: 'completed', id: 'gen-1' }) });
+		fake.scriptHistory('gen-1', {
+			ok: {
+				success: true,
+				data: { files: [{ file_type: 'SPLAT', file_path: 'gen-1/0.ply', is_derived: false }] }
+			}
+		});
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { retryDelayMs: 0 });
+
+		const { generation } = currentTab(tabId);
+		expect(generation.batchSplats).toHaveLength(1);
+		expect(generation.batchSplats?.[0].url).toBe('/api/media/generations/gen-1/0.ply');
+		expect(generation.batchMeshes).toEqual([]);
+		expect(generation.currentGeneration?.file_type).toBe('splat');
+		expect(generation.currentGeneration?.current_splat).toBe('/api/media/generations/gen-1/0.ply');
+		expect(generation.currentGeneration?.current_mesh).toBeNull();
+		expect(generation.workbenchTotal).toBe(1);
+	});
+
 	it('ignores a stale restore response once a newer submission has taken over the tab and the shot was resubmitted', async () => {
 		const tabId = defaultTabId();
 		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-old' });
@@ -848,7 +872,8 @@ describe('reconcileTabGenerations retires the generationOutputs cache and unsubs
 			images: [],
 			videos: [{ url: '/stale.mp4', originalUrl: '/stale.mp4' } as any],
 			audios: [],
-			meshes: []
+			meshes: [],
+			splats: []
 		});
 		const fake = createFakeApi();
 		fake.scriptStatus('gen-1', { ok: statusResponse({ status: 'completed', id: 'gen-1' }) });
@@ -858,7 +883,7 @@ describe('reconcileTabGenerations retires the generationOutputs cache and unsubs
 		await reconcileTabGenerations(tabId, fake.api, tabsStore, { unsubscribe });
 
 		expect(unsubscribe).toHaveBeenCalledWith('gen-1');
-		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
 		expect(isGenerationOutputsRetired('gen-1')).toBe(true);
 	});
 
@@ -872,7 +897,8 @@ describe('reconcileTabGenerations retires the generationOutputs cache and unsubs
 			images: [],
 			videos: [],
 			audios: [{ url: '/a.wav' } as any],
-			meshes: []
+			meshes: [],
+			splats: []
 		});
 		const fake = createFakeApi();
 		fake.scriptStatus('gen-2', { err: notFoundError() });
@@ -881,7 +907,7 @@ describe('reconcileTabGenerations retires the generationOutputs cache and unsubs
 		await reconcileTabGenerations(tabId, fake.api, tabsStore, { unsubscribe });
 
 		expect(unsubscribe).toHaveBeenCalledWith('gen-2');
-		expect(peekGenerationOutputs('gen-2')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(peekGenerationOutputs('gen-2')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
 	});
 
 	it('never unsubscribes an id reconciliation resolves as "keep" (still pending/running)', async () => {

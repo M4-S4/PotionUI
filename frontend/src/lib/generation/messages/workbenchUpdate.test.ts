@@ -127,3 +127,107 @@ describe('workbench_update message handler - mesh', () => {
 		expect(gen.file_type).toBe('mesh');
 	});
 });
+
+describe('workbench_update message handler - splat', () => {
+	beforeEach(() => tabsStore.reset());
+
+	it('sets current_splat and splat_metadata for a final (non-temporary) splat', () => {
+		const tabId = defaultTabId();
+		seedCurrentGeneration(tabId, 'gen-splat-1');
+
+		dispatchGenerationMessage(
+			{
+				type: 'workbench_update',
+				generation_id: 'gen-splat-1',
+				pipe_id: 3,
+				pipe_name: 'generator_splat',
+				output_type: 'splat',
+				file_type: 'splat',
+				splat_format: 'ply',
+				temporary: false,
+				derived: false,
+				seed: 4242,
+				splat_count: 250000,
+				path: '/api/media/generations/gen-splat-1/0.ply',
+				splat_name: '0.ply'
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		const gen = currentGeneration(tabId);
+		expect(gen.current_splat).toBe('/api/media/generations/gen-splat-1/0.ply');
+		expect(gen.file_type).toBe('splat');
+		expect(gen.current_image).toBeNull();
+		expect(gen.current_video).toBeNull();
+		expect(gen.current_audio).toBeNull();
+		expect(gen.current_mesh).toBeUndefined();
+		expect(gen.splat_metadata).toEqual({
+			format: 'ply',
+			filename: '0.ply',
+			splat_count: 250000,
+			seed: 4242,
+			temporary: false,
+			derived: false
+		});
+	});
+
+	it('sets current_splat from the tmp route for a temporary splat', () => {
+		const tabId = defaultTabId();
+		seedCurrentGeneration(tabId, 'gen-splat-2');
+
+		dispatchGenerationMessage(
+			{
+				type: 'workbench_update',
+				generation_id: 'gen-splat-2',
+				file_type: 'splat',
+				splat_format: 'spz',
+				temporary: true,
+				path: '/api/media/tmp/gen-splat-2/0.spz'
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		const gen = currentGeneration(tabId);
+		expect(gen.current_splat).toBe('/api/media/tmp/gen-splat-2/0.spz');
+		expect(gen.splat_metadata.temporary).toBe(true);
+		expect(gen.splat_metadata.format).toBe('spz');
+	});
+
+	it('ignores an unsaved splat update that carries file_type but no path', () => {
+		const tabId = defaultTabId();
+		seedCurrentGeneration(tabId, 'gen-splat-3');
+
+		dispatchGenerationMessage(
+			{
+				type: 'workbench_update',
+				generation_id: 'gen-splat-3',
+				file_type: 'splat'
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		const gen = currentGeneration(tabId);
+		expect(gen.current_splat).toBeUndefined();
+		expect(gen.file_type).toBeUndefined();
+	});
+
+	it('does not mistake a splat update for a video update, nor for a mesh', () => {
+		const tabId = defaultTabId();
+		seedCurrentGeneration(tabId, 'gen-splat-4');
+
+		dispatchGenerationMessage(
+			{
+				type: 'workbench_update',
+				generation_id: 'gen-splat-4',
+				file_type: 'splat',
+				path: '/api/media/generations/gen-splat-4/0.ply'
+			} as any,
+			{ unsubscribe: vi.fn() }
+		);
+
+		const gen = currentGeneration(tabId);
+		expect(gen.current_video).toBeNull();
+		expect(gen.current_mesh).toBeUndefined();
+		expect(gen.file_type).toBe('splat');
+	});
+});

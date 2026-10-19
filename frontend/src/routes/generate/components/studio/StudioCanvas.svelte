@@ -39,7 +39,8 @@
 		images: generation.batchImages,
 		videos: generation.batchVideos,
 		audios: generation.batchAudios,
-		meshes: generation.batchMeshes
+		meshes: generation.batchMeshes,
+		splats: generation.batchSplats
 	} as WorkbenchBatches;
 	$: currentGenerationTotal = galleryTotal(batches);
 	$: hasGalleryItems = currentGenerationTotal > 0;
@@ -66,7 +67,7 @@
 		isGalleryMode && isAudioFileType(displayFileType) ? currentGalleryItem : currentGeneration?.current_audio;
 
 	// Same gate as Workbench.svelte: anything that isn't image/video/audio
-	// (mesh, or a plugin-registered `workbench.file` type) renders through the
+	// (mesh, splat, or a plugin-registered `workbench.file` type) renders through the
 	// registry instead of a dedicated branch here.
 	let resolvedFallbackRenderer: any = null;
 	$: isFallbackFileType = !!displayFileType && !['image', 'video', 'audio'].includes(displayFileType);

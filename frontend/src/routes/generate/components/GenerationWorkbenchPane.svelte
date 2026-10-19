@@ -32,6 +32,7 @@
 	batchVideos={tab.generation.batchVideos}
 	batchAudios={tab.generation.batchAudios}
 	batchMeshes={tab.generation.batchMeshes}
+	batchSplats={tab.generation.batchSplats}
 	workbenchMaxHeight={tab.workbenchMaxHeight || '600'}
 	on:previous={onWorkbenchPrevious}
 	on:next={onWorkbenchNext}

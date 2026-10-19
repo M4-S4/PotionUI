@@ -1,18 +1,18 @@
 /**
  * The workbench's gallery chain and per-file-type action set.
  *
- * A generation's outputs are addressed by ONE absolute index across four
- * ordered buckets - images, then videos, then audios, then meshes. That order
+ * A generation's outputs are addressed by ONE absolute index across five
+ * ordered buckets - images, then videos, then audios, then meshes, then splats. That order
  * is the contract between the prev/next arrows, the gallery strip, the
  * parameter lookup and the restore-from-history path; when a call site
  * re-derives it and forgets a bucket (meshes and audios both got forgotten),
  * the tail of the chain becomes unreachable.
  *
  * `kind` comes from the BUCKET, not from `item.file_type`: the history restore
- * path (mapGenerationFiles) only stamps `file_type` on audios and meshes, so an
+ * path (mapGenerationFiles) only stamps `file_type` on audios, meshes and splats, so an
  * image's and a video's bucket is the only thing that distinguishes them.
  */
-import type { ImageData, VideoData, MeshData } from '$lib/types/tabs';
+import type { ImageData, VideoData, MeshData, SplatData } from '$lib/types/tabs';
 import type { AudioData } from '$lib/types/audio';
 import { normalizeFileType, type MediaFileType } from '$lib/utils/fileType';
 
@@ -21,6 +21,7 @@ export interface WorkbenchBatches {
 	videos?: VideoData[] | null;
 	audios?: AudioData[] | null;
 	meshes?: MeshData[] | null;
+	splats?: SplatData[] | null;
 }
 
 export interface GalleryEntry {
@@ -35,7 +36,8 @@ const BUCKETS: Array<{ key: keyof WorkbenchBatches; kind: MediaFileType }> = [
 	{ key: 'images', kind: 'image' },
 	{ key: 'videos', kind: 'video' },
 	{ key: 'audios', kind: 'audio' },
-	{ key: 'meshes', kind: 'mesh' }
+	{ key: 'meshes', kind: 'mesh' },
+	{ key: 'splats', kind: 'splat' }
 ];
 
 function bucket(batches: WorkbenchBatches, key: keyof WorkbenchBatches): any[] {
@@ -43,7 +45,7 @@ function bucket(batches: WorkbenchBatches, key: keyof WorkbenchBatches): any[] {
 	return Array.isArray(list) ? list : [];
 }
 
-/** Total number of addressable gallery items across all four buckets. */
+/** Total number of addressable gallery items across all five buckets. */
 export function galleryTotal(batches: WorkbenchBatches): number {
 	return BUCKETS.reduce((sum, b) => sum + bucket(batches, b.key).length, 0);
 }
@@ -140,6 +142,7 @@ export function workbenchActionsFor(fileType: unknown): WorkbenchActions {
 	const isVideo = kind === 'video';
 	const isAudio = kind === 'audio';
 	const isMesh = kind === 'mesh';
+	const isSplat = kind === 'splat';
 
 	return {
 		canDownload: !isAudio,
@@ -147,7 +150,7 @@ export function workbenchActionsFor(fileType: unknown): WorkbenchActions {
 		// A mesh's fullscreen expand renders through MeshPreview (its own
 		// interactive viewer), not the modal's <img>/<video> pair - see the
 		// mesh branch of Workbench.svelte's "Image/Video Preview Modal".
-		canExpand: isImage || isVideo || isMesh,
+		canExpand: isImage || isVideo || isMesh || isSplat,
 		canCompare: isImage || isVideo,
 		canZoom: isImage,
 		canCopyImage: isImage,
@@ -159,7 +162,8 @@ const DEFAULT_EXTENSIONS: Record<string, string> = {
 	image: 'png',
 	video: 'mp4',
 	audio: 'wav',
-	mesh: 'glb'
+	mesh: 'glb',
+	splat: 'ply'
 };
 
 /**
@@ -177,6 +181,10 @@ export function downloadExtensionFor(fileType: unknown, item?: any): string {
 	}
 	if (kind === 'mesh') {
 		const format = typeof item?.mesh_format === 'string' ? item.mesh_format : '';
+		if (format) return format.toLowerCase();
+	}
+	if (kind === 'splat') {
+		const format = typeof item?.splat_format === 'string' ? item.splat_format : '';
 		if (format) return format.toLowerCase();
 	}
 	return DEFAULT_EXTENSIONS[kind] || 'png';

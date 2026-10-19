@@ -214,14 +214,15 @@ describe('removeTab retires the closed tab\'s abandoned generations', () => {
 			images: [],
 			videos: [{ url: '/v.mp4', originalUrl: '/v.mp4' } as any],
 			audios: [],
-			meshes: []
+			meshes: [],
+			splats: []
 		});
 		const closingTabId = tabsStore.addTabWithData('Closing', { activeGenerationId: 'gen-1' });
 
 		tabsStore.removeTab(closingTabId);
 
 		expect(unsubscribe).toHaveBeenCalledWith('gen-1');
-		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
 		expect(isGenerationOutputsRetired('gen-1')).toBe(true);
 	});
 
@@ -232,7 +233,8 @@ describe('removeTab retires the closed tab\'s abandoned generations', () => {
 			images: [],
 			videos: [{ url: '/v.mp4', originalUrl: '/v.mp4' } as any],
 			audios: [],
-			meshes: []
+			meshes: [],
+			splats: []
 		});
 		// Two tabs both reference the same generation id (e.g. a Video Director
 		// run linked from more than one place) -- closing one must not
@@ -284,7 +286,7 @@ describe('removeTab retires the closed tab\'s abandoned generations', () => {
 	it('retires nothing (there is nothing left to close) when removing the sole remaining tab', () => {
 		const unsubscribe = vi.fn();
 		setGenerationUnsubscribeHandler(unsubscribe);
-		setGenerationOutputs('gen-only', { images: [], videos: [], audios: [], meshes: [] });
+		setGenerationOutputs('gen-only', { images: [], videos: [], audios: [], meshes: [], splats: [] });
 		const state = get(tabsStore);
 		tabsStore.updateTab(state.tabs[0].id, { activeGenerationId: 'gen-only' });
 
