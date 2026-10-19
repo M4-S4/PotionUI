@@ -1,11 +1,13 @@
 """Tests for ChatRuntime."""
 
+from dataclasses import replace
 import pytest
 from types import SimpleNamespace
 from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from src.features.chat.runtime import ChatRuntime
+from src.features.llm.tools.base import ToolServices
 
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 
@@ -782,7 +784,7 @@ class TestSendMessageBehaviorTrace:
         self.mock_memory_ops.read_notes.side_effect = lambda repo, user_id, scope, scope_ref=None: (
             [note] if scope == "global" else []
         )
-        self.manager.llm_memory_repository = Mock()
+        self.manager.tool_services = replace(self.manager.tool_services, llm_memory_repository=Mock())
 
         return session
 
@@ -983,8 +985,7 @@ class TestMemoryCountedInHistoryBudget:
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
             chat_mode_registry=_mode_registry(),
-            llm_memory_repository=Mock(),
-            settings=self.mock_settings,
+            tool_services=ToolServices(llm_memory_repository=Mock(), settings=self.mock_settings),
         )
 
         session = Mock()
@@ -1418,8 +1419,7 @@ class TestInjectMemoryBlock:
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
             chat_mode_registry=_mode_registry(),
-            llm_memory_repository=Mock(),
-            model_index_manager=self.mock_model_index,
+            tool_services=ToolServices(llm_memory_repository=Mock(), model_index_manager=self.mock_model_index),
         )
 
     def teardown_method(self):
@@ -1603,8 +1603,7 @@ class TestInjectWorkspaceBlock:
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=_mode_registry(),
-            model_index_manager=self.mock_model_index,
-            preset_collaborators=None,
+            tool_services=ToolServices(model_index_manager=self.mock_model_index, preset_collaborators=None),
         )
 
     def _wire_models(self, by_path):
@@ -1807,8 +1806,7 @@ class TestInjectWorkspaceBlockMusicDirector:
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=_mode_registry(),
-            model_index_manager=Mock(),
-            preset_collaborators=None,
+            tool_services=ToolServices(model_index_manager=Mock(), preset_collaborators=None),
         )
 
     def test_steering_line_and_summary_when_active(self):
@@ -1893,8 +1891,7 @@ class TestInjectWorkspaceBlockVideoDirector:
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=_mode_registry(),
-            model_index_manager=Mock(),
-            preset_collaborators=self.mock_preset_collaborators,
+            tool_services=ToolServices(model_index_manager=Mock(), preset_collaborators=self.mock_preset_collaborators),
         )
 
     def _wire_form_schema(self, properties):
@@ -2029,8 +2026,7 @@ class TestInjectWorkspaceBlockLLMContext:
             response_processor=Mock(),
             plugin_registry=Mock(),
             chat_mode_registry=_mode_registry(),
-            model_index_manager=self.mock_model_index,
-            preset_collaborators=self.mock_preset_collaborators,
+            tool_services=ToolServices(model_index_manager=self.mock_model_index, preset_collaborators=self.mock_preset_collaborators),
         )
 
     def _wire_models(self, by_path):

@@ -1,5 +1,6 @@
 """Tests for ChatRuntime.send_message_stream method."""
 
+from dataclasses import replace
 import asyncio
 
 import pytest
@@ -1661,7 +1662,7 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         mock_memory_ops.read_notes.side_effect = lambda repo, user_id, scope, scope_ref=None: (
             [_make_memory_note("note-1")] if scope == "global" else []
         )
-        self.manager.llm_memory_repository = Mock()
+        self.manager.tool_services = replace(self.manager.tool_services, llm_memory_repository=Mock())
 
         # Optional @resource registry.
         if resources:

@@ -29,9 +29,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from src.features.llm.tools.base import ToolContext, ToolResult
+from src.features.llm.tools.base import ToolContext, ToolResult, ToolServices
 from src.features.llm.tools.errors import scrub_paths, unexpected
-from src.features.llm.tools.governance import compute_allowed_tool_names
+from src.features.llm.tools.governance import ToolScopeResolution, resolve_tool_scope
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
 from src.platform.version import POTIONUI_VERSION
@@ -106,85 +106,48 @@ class McpToolCollaborators:
     removed."""
     tool_registry: ToolRegistry
     tool_governance_repository: ToolGovernanceRepository
-    llm_repository: Any
-    segment_category_repository: Any = None
-    saved_segment_repository: Any = None
-    segment_template_repository: Any = None
-    model_index_manager: Any = None
-    preset_collaborators: Any = None
-    phrasebook_category_repository: Any = None
-    phrasebook_value_repository: Any = None
-    prompt_database: Any = None
-    generation_orchestrator: Any = None
-    llm_memory_repository: Any = None
-    prompt_enhancement_manager: Any = None
-    media_indexer: Any = None
-    settings: Any = None
-    collection_repository: Any = None
-    tag_repository: Any = None
-    plugin_registry: Any = None
-    generation_history_facade: Any = None
-    content_safety: Any = None
-    library_collaborators: Any = None
+    services: ToolServices = field(default_factory=ToolServices)
 
 
 # --- tool exposure ---
 
 def _candidate_tools(collaborators: McpToolCollaborators) -> List[Any]:
     """Every tool eligible for MCP exposure, before governance."""
+    return [tool for tool in _exposable_tools(collaborators) if tool.is_available(None)]
+
+
+def _exposable_tools(collaborators: McpToolCollaborators) -> List[Any]:
     return [
         tool for tool in collaborators.tool_registry.get_for_mode(_MCP_SCOPE)
-        if tool.name not in EXCLUDED_TOOL_NAMES and tool.is_available(None)
+        if tool.name not in EXCLUDED_TOOL_NAMES
     ]
 
 
-def _allowed_tool_names(collaborators: McpToolCollaborators, user_id: str) -> List[str]:
-    """Candidate tools narrowed by the same admin/user governance rules a
-    chat session's default LLM config applies (see
-    ChatContextBuilder.resolve_session_prompt_and_tools)."""
-    candidate_names = [t.name for t in _candidate_tools(collaborators)]
-    llm_repository = collaborators.llm_repository
+def _default_llm_id(collaborators: McpToolCollaborators) -> Optional[str]:
+    llm_repository = collaborators.services.llm_repository
     default_config = llm_repository.get_default_configuration() if llm_repository else None
-    llm_config_id = default_config.id if default_config else None
-    governance_repo = collaborators.tool_governance_repository
-    snapshot = (
-        governance_repo.get_config_snapshot(llm_config_id, candidate_names)
-        if llm_config_id else {}
+    return default_config.id if default_config else None
+
+
+def _resolve_scope(
+    collaborators: McpToolCollaborators, user_id: str, llm_id: Optional[str]
+) -> ToolScopeResolution:
+    return resolve_tool_scope(
+        _exposable_tools(collaborators), collaborators.tool_governance_repository, llm_id, user_id
     )
-    user_disabled = governance_repo.get_user_disabled(user_id)
-    return compute_allowed_tool_names(candidate_names, snapshot, user_disabled)
 
 
-def _build_tool_context(collaborators: McpToolCollaborators, user_id: str, is_admin: bool) -> ToolContext:
-    llm_repository = collaborators.llm_repository
-    default_config = llm_repository.get_default_configuration() if llm_repository else None
-    return ToolContext(
-        user_id=user_id,
+def _build_tool_context(
+    collaborators: McpToolCollaborators, user_id: str, is_admin: bool, llm_id: Optional[str]
+) -> ToolContext:
+    return ToolContext.for_session(
+        collaborators.services,
+        user_id,
         mode_id=_MCP_SCOPE.id,
         is_admin=is_admin,
         session_metadata={},
-        segment_category_repository=collaborators.segment_category_repository,
-        saved_segment_repository=collaborators.saved_segment_repository,
-        segment_template_repository=collaborators.segment_template_repository,
-        model_index_manager=collaborators.model_index_manager,
-        preset_collaborators=collaborators.preset_collaborators,
-        phrasebook_category_repository=collaborators.phrasebook_category_repository,
-        phrasebook_value_repository=collaborators.phrasebook_value_repository,
-        llm_repository=llm_repository,
-        prompt_database=collaborators.prompt_database,
-        generation_orchestrator=collaborators.generation_orchestrator,
-        llm_memory_repository=collaborators.llm_memory_repository,
-        prompt_enhancement_manager=collaborators.prompt_enhancement_manager,
-        media_indexer=collaborators.media_indexer,
-        settings=collaborators.settings,
-        collection_repository=collaborators.collection_repository,
-        tag_repository=collaborators.tag_repository,
-        plugin_registry=collaborators.plugin_registry,
-        generation_history_facade=collaborators.generation_history_facade,
-        content_safety=collaborators.content_safety,
-        library_collaborators=collaborators.library_collaborators,
         chat_session=False,
-        llm_id=default_config.id if default_config else None,
+        llm_id=llm_id,
     )
 
 
@@ -201,14 +164,15 @@ def _mcp_tool_schema(tool: Any, rendered: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def list_tools(collaborators: McpToolCollaborators, user_id: str) -> Dict[str, Any]:
-    allowed = set(_allowed_tool_names(collaborators, user_id))
+    scope = _resolve_scope(collaborators, user_id, _default_llm_id(collaborators))
+    allowed = set(scope.allowed_names())
     if not allowed:
         return {"tools": []}
     schemas = collaborators.tool_registry.get_schemas(sorted(allowed))
     by_name = {s.get("function", {}).get("name"): s for s in schemas}
     tools = [
         _mcp_tool_schema(tool, by_name[tool.name])
-        for tool in _candidate_tools(collaborators)
+        for tool in scope.tools
         if tool.name in allowed and tool.name in by_name
     ]
     return {"tools": tools}
@@ -218,7 +182,8 @@ async def call_tool(
     collaborators: McpToolCollaborators, user_id: str, name: str, arguments: Dict[str, Any],
     is_admin: bool = False,
 ) -> Dict[str, Any]:
-    allowed = _allowed_tool_names(collaborators, user_id)
+    llm_id = _default_llm_id(collaborators)
+    allowed = _resolve_scope(collaborators, user_id, llm_id).allowed_names()
     if name not in allowed:
         raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
 
@@ -226,7 +191,7 @@ async def call_tool(
     if tool is None:
         raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
 
-    context = _build_tool_context(collaborators, user_id, is_admin)
+    context = _build_tool_context(collaborators, user_id, is_admin, llm_id)
     try:
         if tool.requires_approval:
             # The MCP client already gated this call behind its own

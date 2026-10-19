@@ -260,7 +260,7 @@ class TestApplyHistoryBudget:
 
     def _runner(self, get_setting_return=None, get_setting_side_effect=None):
         manager = Mock()
-        manager.settings.get_setting = Mock(
+        manager.tool_services.settings.get_setting = Mock(
             return_value=get_setting_return, side_effect=get_setting_side_effect
         )
         return ConversationRunner(manager)
@@ -603,11 +603,11 @@ class TestResolveMessageResourcesParallel:
 
         registry.resolve = AsyncMock(side_effect=resolve)
         manager.resource_registry = registry
-        manager.model_index_manager = None
-        manager.phrasebook_category_repository = None
-        manager.phrasebook_value_repository = None
+        manager.tool_services.model_index_manager = None
+        manager.tool_services.phrasebook_category_repository = None
+        manager.tool_services.phrasebook_value_repository = None
         manager.phrasebook_search = None
-        manager.preset_collaborators = None
+        manager.tool_services.preset_collaborators = None
         manager.generation_repository = None
         manager.generation_parameter_repository = None
         manager.generation_model_repository = None

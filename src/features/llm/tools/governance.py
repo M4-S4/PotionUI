@@ -20,7 +20,8 @@ tool on.
 """
 
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Set
+from dataclasses import dataclass
+from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 
@@ -70,6 +71,45 @@ def compute_allowed_tool_names(
             continue
         allowed.append(name)
     return allowed
+
+
+@dataclass(frozen=True)
+class ToolScopeResolution:
+    tools: Tuple[Any, ...]
+    unavailable: Tuple[str, ...]
+    governance_snapshot: Dict[str, Any]
+    user_disabled: FrozenSet[str]
+    governed: FrozenSet[str]
+
+    def allowed_names(self, tools_enabled: bool = True, disabled_tools: Iterable[str] = ()) -> List[str]:
+        if not tools_enabled:
+            return []
+        blocked = set(disabled_tools)
+        return [
+            t.name for t in self.tools
+            if t.name in self.governed and t.name not in self.unavailable and t.name not in blocked
+        ]
+
+
+def resolve_tool_scope(
+    tools: Iterable[Any],
+    repository: Optional[ToolGovernanceRepository],
+    llm_config_id: Optional[str],
+    user_id: Optional[str],
+    form_state: Optional[Dict[str, Any]] = None,
+) -> ToolScopeResolution:
+    tools = tuple(tools)
+    names = [t.name for t in tools]
+    unavailable = tuple(sorted(t.name for t in tools if not t.is_available(form_state)))
+    snapshot: Dict[str, Any] = {}
+    user_disabled: FrozenSet[str] = frozenset()
+    if tools and repository is not None:
+        if llm_config_id:
+            snapshot = repository.get_config_snapshot(llm_config_id, names)
+        if user_id:
+            user_disabled = frozenset(repository.get_user_disabled(user_id))
+    governed = frozenset(compute_allowed_tool_names(names, snapshot, user_disabled))
+    return ToolScopeResolution(tools, unavailable, snapshot, user_disabled, governed)
 
 
 def build_admin_toolset_listing(tools: List[Any], admin_config: Dict[str, Dict[str, bool]], source_of) -> List[Dict[str, Any]]:

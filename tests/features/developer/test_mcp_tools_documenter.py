@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 
 from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
-from src.features.llm.tools.base import BaseTool, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.mcp import protocol
@@ -107,7 +107,9 @@ def _collaborators(governance_repo: ToolGovernanceRepository) -> McpToolCollabor
     return McpToolCollaborators(
         tool_registry=registry,
         tool_governance_repository=governance_repo,
-        llm_repository=None,
+        services=ToolServices(
+            llm_repository=None,
+        ),
     )
 
 

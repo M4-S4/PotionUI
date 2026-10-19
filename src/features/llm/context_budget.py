@@ -645,6 +645,7 @@ def enforce_budget(
     final_units = trim.kept_units
     final_fits = trim.fits
     final_history_and_system_tokens = system_count.tokens + trim.used_tokens
+    history_tokens: Optional[int] = trim.used_tokens
     chat_template_extra_dropped = 0
     exact_includes_tools = False
 
@@ -674,6 +675,8 @@ def enforce_budget(
             accounting = "chat_template_shrunk" if chat_template_extra_dropped else "chat_template"
             final_units = kept_units
             final_history_and_system_tokens = exact_combined
+            if chat_template_extra_dropped:
+                history_tokens = None
             final_fits = exact_combined + image_count <= available_total
             exact_includes_tools = True
         else:
@@ -697,6 +700,7 @@ def enforce_budget(
             )
             final_units = fallback_trim.kept_units
             final_history_and_system_tokens = system_count.tokens + fallback_trim.used_tokens
+            history_tokens = fallback_trim.used_tokens
             final_fits = fallback_trim.fits
 
     final_messages = [m for unit in final_units for m in unit]
@@ -729,7 +733,9 @@ def enforce_budget(
         # split back into a history-only share without a second tokenize
         # pass; `estimated_tokens` is the authoritative total, this is
         # diagnostic granularity only.
-        "history_tokens": count_messages(final_messages, counter).tokens,
+        "history_tokens": (
+            history_tokens if history_tokens is not None else count_messages(final_messages, counter).tokens
+        ),
         "messages_total": total_messages,
         "messages_sent": final_message_count,
         "messages_dropped": total_messages - final_message_count,

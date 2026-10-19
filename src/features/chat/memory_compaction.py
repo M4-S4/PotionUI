@@ -72,7 +72,7 @@ class MemoryCompactor:
             self._compacting_users.discard(user_id)
 
     async def _compact_all_groups(self, user_id: str, session_id: str, llm_config_id: str) -> None:
-        notes = memory_operations.read_notes(self._m.llm_memory_repository, user_id=user_id)
+        notes = memory_operations.read_notes(self._m.tool_services.llm_memory_repository, user_id=user_id)
         groups: Dict[Tuple[str, Optional[str]], List[LLMMemoryNote]] = defaultdict(list)
         for note in notes:
             groups[(note.scope, note.scope_ref)].append(note)
@@ -126,7 +126,7 @@ class MemoryCompactor:
                 continue
             try:
                 note = memory_operations.write_note(
-                    self._m.llm_memory_repository,
+                    self._m.tool_services.llm_memory_repository,
                     user_id=user_id,
                     key=ChatReflectionGenerator._slugify(key),
                     content=content.strip()[:MAX_CONTENT_LENGTH],
@@ -150,7 +150,7 @@ class MemoryCompactor:
         for note in group_notes:
             if note.key in written_keys:
                 continue
-            if memory_operations.delete_note(self._m.llm_memory_repository, user_id, note.id):
+            if memory_operations.delete_note(self._m.tool_services.llm_memory_repository, user_id, note.id):
                 deleted += 1
 
         logger.info(

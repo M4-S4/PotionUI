@@ -13,6 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from src.features.chat.routes import ChatController
 from src.features.chat.turns import ChatTurnRegistry
+from src.features.llm.tools.base import ToolServices
 from src.features.chat.dto import (
     CreateSessionRequest, SendMessageRequest, UpdateSessionRequest,
     SessionResponse, MessageResponse, SendMessageResponse
@@ -1303,10 +1304,10 @@ class TestMemoryEndpoints:
     @pytest.fixture
     def controller(self, monkeypatch):
         chat_runtime = Mock()
-        chat_runtime.llm_memory_repository = Mock()
+        chat_runtime.tool_services.llm_memory_repository = Mock()
         mock_ops = Mock()
         monkeypatch.setattr("src.features.chat.routes.memory_operations", mock_ops)
-        return ChatController(chat_runtime=chat_runtime, turn_registry=ChatTurnRegistry()), mock_ops, chat_runtime.llm_memory_repository
+        return ChatController(chat_runtime=chat_runtime, turn_registry=ChatTurnRegistry()), mock_ops, chat_runtime.tool_services.llm_memory_repository
 
     @pytest.fixture
     def user(self):
@@ -1343,7 +1344,7 @@ class TestMemoryEndpoints:
         assert result.data["injection"] == {"cap_per_group": 20, "max_content_len": 500}
 
     def test_list_memory_notes_no_manager(self, user):
-        ctrl = ChatController(chat_runtime=Mock(llm_memory_repository=None), turn_registry=ChatTurnRegistry())
+        ctrl = ChatController(chat_runtime=Mock(tool_services=ToolServices(llm_memory_repository=None)), turn_registry=ChatTurnRegistry())
 
         result = ctrl.list_memory_notes(user)
 

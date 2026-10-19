@@ -1672,14 +1672,12 @@ def build_container() -> AppContainer:
     # collaborator the tool context needs (segment/model/preset/prompt
     # database/generation/memory/media managers) is available — the same
     # ordering constraint that puts `build_chat` below.
+    from src.features.llm.tools.base import ToolServices
     from src.features.mcp.protocol import McpToolCollaborators
     from src.features.mcp.repository import McpTokenRepository
 
     mcp_token_repository = McpTokenRepository()
-    mcp_tool_collaborators = McpToolCollaborators(
-        tool_registry=tool_registry,
-        tool_governance_repository=tool_governance_repository,
-        llm_repository=llm_repository,
+    tool_services = ToolServices(
         segment_category_repository=segment_category_repo,
         saved_segment_repository=saved_segment_repo,
         segment_template_repository=segment_template_repo,
@@ -1687,6 +1685,7 @@ def build_container() -> AppContainer:
         preset_collaborators=preset_collaborators,
         phrasebook_category_repository=phrasebook_category_repo,
         phrasebook_value_repository=phrasebook_value_repo,
+        llm_repository=llm_repository,
         prompt_database=prompt_database,
         generation_orchestrator=generation_orchestrator,
         llm_memory_repository=llm_memory_repository,
@@ -1699,6 +1698,11 @@ def build_container() -> AppContainer:
         generation_history_facade=generation_history_facade,
         content_safety=content_safety,
         library_collaborators=library_collaborators,
+    )
+    mcp_tool_collaborators = McpToolCollaborators(
+        tool_registry=tool_registry,
+        tool_governance_repository=tool_governance_repository,
+        services=tool_services,
     )
 
     from src.features.developer.mcp_tools_documenter import McpToolsDocumenter
@@ -1723,29 +1727,13 @@ def build_container() -> AppContainer:
             resource_registry=resource_registry,
             tool_executor=tool_executor,
             tool_governance_repository=tool_governance_repository,
-            phrasebook_category_repository=phrasebook_category_repo,
-            phrasebook_value_repository=phrasebook_value_repo,
+            tool_services=tool_services,
             phrasebook_search=phrasebook_search,
-            segment_category_repository=segment_category_repo,
-            saved_segment_repository=saved_segment_repo,
-            segment_template_repository=segment_template_repo,
-            model_index_manager=model_index_manager,
-            preset_collaborators=preset_collaborators,
             preset_lookup=preset_lookup,
             preset_form_schema_lookup=preset_form_schema_lookup,
-            prompt_database=prompt_database,
-            prompt_enhancement_manager=prompt_enhancement_manager,
-            generation_orchestrator=generation_orchestrator,
             generation_repository=generation_repository,
             generation_parameter_repository=generation_parameter_repository,
             generation_model_repository=generation_model_repository,
-            generation_history_facade=generation_history_facade,
-            llm_memory_repository=llm_memory_repository,
-            media_indexer=media_indexer,
-            collection_repository=collection_repository,
-            tag_repository=tag_repository,
-            content_safety=content_safety,
-            library_collaborators=library_collaborators,
         )
     )
     chat.pre_chat_action_registry.discover_actions()

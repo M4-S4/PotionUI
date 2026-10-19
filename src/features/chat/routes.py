@@ -761,9 +761,9 @@ class ChatController(BaseController):
         scope_ref: Optional[str] = None,
     ) -> APIResponse:
         """List the user's persistent LLM memory notes, optionally filtered."""
-        if not self.chat_runtime.llm_memory_repository:
+        if not self.chat_runtime.tool_services.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
-        notes = memory_operations.read_notes(self.chat_runtime.llm_memory_repository, user.id, scope=scope, scope_ref=scope_ref)
+        notes = memory_operations.read_notes(self.chat_runtime.tool_services.llm_memory_repository, user.id, scope=scope, scope_ref=scope_ref)
         return self.success_response(data={
             "notes": [note.to_dict() for note in notes],
             "injection": {
@@ -774,11 +774,11 @@ class ChatController(BaseController):
 
     def write_memory_note(self, request: MemoryWriteRequest, user: User) -> APIResponse:
         """Create or update a persistent LLM memory note."""
-        if not self.chat_runtime.llm_memory_repository:
+        if not self.chat_runtime.tool_services.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
         try:
             note = memory_operations.write_note(
-                self.chat_runtime.llm_memory_repository,
+                self.chat_runtime.tool_services.llm_memory_repository,
                 user_id=user.id,
                 key=request.key,
                 content=request.content,
@@ -794,11 +794,11 @@ class ChatController(BaseController):
 
     def update_memory_note(self, note_id: str, request: MemoryUpdateRequest, user: User) -> APIResponse:
         """Update an existing persistent LLM memory note's key/content."""
-        if not self.chat_runtime.llm_memory_repository:
+        if not self.chat_runtime.tool_services.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
         try:
             note = memory_operations.update_note(
-                self.chat_runtime.llm_memory_repository,
+                self.chat_runtime.tool_services.llm_memory_repository,
                 user_id=user.id, note_id=note_id, key=request.key, content=request.content,
             )
         except ValueError as e:
@@ -812,9 +812,9 @@ class ChatController(BaseController):
 
     def delete_memory_note(self, note_id: str, user: User) -> APIResponse:
         """Delete a persistent LLM memory note."""
-        if not self.chat_runtime.llm_memory_repository:
+        if not self.chat_runtime.tool_services.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
-        deleted = memory_operations.delete_note(self.chat_runtime.llm_memory_repository, user_id=user.id, note_id=note_id)
+        deleted = memory_operations.delete_note(self.chat_runtime.tool_services.llm_memory_repository, user_id=user.id, note_id=note_id)
         if not deleted:
             return self.error_api_response(error="note_not_found", message=f"Memory note '{note_id}' not found")
         return self.success_response(message="Memory note deleted successfully")

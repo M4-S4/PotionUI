@@ -41,14 +41,14 @@ c = build_container()
 r = c.chat_runtime
 indexer = c.media_indexer
 report = {
-    "unwired": sorted(k for k, v in vars(r).items() if v is None),
+    "unwired": sorted(k for k, v in {**vars(r), **vars(r.tool_services)}.items() if v is None),
     "same": {
-        "preset_collaborators": r.preset_collaborators is c.preset_collaborators,
-        "model_index_manager": r.model_index_manager is c.model_index_manager,
-        "generation_orchestrator": r.generation_orchestrator is c.generation_orchestrator,
-        "generation_history_facade": r.generation_history_facade is c.generation_history_facade,
+        "preset_collaborators": r.tool_services.preset_collaborators is c.preset_collaborators,
+        "model_index_manager": r.tool_services.model_index_manager is c.model_index_manager,
+        "generation_orchestrator": r.tool_services.generation_orchestrator is c.generation_orchestrator,
+        "generation_history_facade": r.tool_services.generation_history_facade is c.generation_history_facade,
         "generation_repository": r.generation_repository is c.generation_repository,
-        "prompt_database": r.prompt_database is c.prompt_database,
+        "prompt_database": r.tool_services.prompt_database is c.prompt_database,
         "chat_repository": r.chat_repository is c.chat_repository,
         "response_processor": r.response_processor is c.response_processor,
         "controller_runtime": c.chat_controller.chat_runtime is r,

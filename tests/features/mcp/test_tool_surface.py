@@ -9,7 +9,7 @@ from src.features.library.repository import LibraryRepository
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
 from src.features.tags.repository import TagRepository
-from src.features.llm.tools.base import BaseTool, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolResult, ToolServices
 from src.features.llm.tools.builtin import register_builtin_tools
 from src.features.llm.tools.governance_repository import ToolGovernanceRepository
 from src.features.llm.tools.registry import ToolRegistry
@@ -209,25 +209,27 @@ def world(mcp_db):
     collaborators = McpToolCollaborators(
         tool_registry=registry,
         tool_governance_repository=ToolGovernanceRepository(),
-        llm_repository=llm_repository,
-        segment_category_repository=categories,
-        saved_segment_repository=segments,
-        segment_template_repository=SegmentTemplateRepository(),
-        model_index_manager=SimpleNamespace(
-            model_repo=model_repo, access=access,
-            catalog=ModelCatalog(model_repo, access, scanner=None),
+        services=ToolServices(
+            llm_repository=llm_repository,
+            segment_category_repository=categories,
+            saved_segment_repository=segments,
+            segment_template_repository=SegmentTemplateRepository(),
+            model_index_manager=SimpleNamespace(
+                model_repo=model_repo, access=access,
+                catalog=ModelCatalog(model_repo, access, scanner=None),
+            ),
+            preset_collaborators=SimpleNamespace(file_repo=_FakePresetFiles(), db_repo=_FakePresetDb()),
+            phrasebook_category_repository=phrase_categories,
+            phrasebook_value_repository=phrase_values,
+            prompt_database=prompt_database,
+            llm_memory_repository=memory,
+            media_indexer=indexer,
+            collection_repository=CollectionRepository(),
+            tag_repository=TagRepository(),
+            library_collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository()),
+            generation_history_facade=history,
+            plugin_registry=_Registry(),
         ),
-        preset_collaborators=SimpleNamespace(file_repo=_FakePresetFiles(), db_repo=_FakePresetDb()),
-        phrasebook_category_repository=phrase_categories,
-        phrasebook_value_repository=phrase_values,
-        prompt_database=prompt_database,
-        llm_memory_repository=memory,
-        media_indexer=indexer,
-        collection_repository=CollectionRepository(),
-        tag_repository=TagRepository(),
-        library_collaborators=SimpleNamespace(repository=LibraryRepository(), tag_repository=TagRepository()),
-        generation_history_facade=history,
-        plugin_registry=_Registry(),
     )
     return SimpleNamespace(
         collaborators=collaborators, registry=registry, segment=segment, category=category,

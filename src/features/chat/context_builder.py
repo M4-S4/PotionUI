@@ -7,10 +7,6 @@ current user turn (@resource snapshots, the mode's context contributor and
 recalled persistent memory) via ``context_budget.attach_context_block``. Also
 serves @resource autocomplete suggestions.
 
-Split out of the ChatRuntime coordinator; it reads its collaborators (resource
-registry, memory manager, model/preset managers, chat-mode registry, tool
-executor) through the manager so the composition root's late binding keeps
-working.
 """
 
 import asyncio
@@ -22,7 +18,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
 from src.features.llm import context_budget
-from src.features.llm.tools.governance import ToolGovernanceRepository, compute_allowed_tool_names
+from src.features.llm.tools.governance import ToolGovernanceRepository, ToolScopeResolution, resolve_tool_scope
 from src.features.llm.tools.use_tools import deferred_tool_groups
 from src.features.llm.ttl_cache import TTLCache
 from src.features.llm_memory import operations as memory_operations
@@ -190,12 +186,28 @@ class ChatContextBuilder:
             _PROMPT_TOOLS_CACHE_TTL_SECONDS
         )
 
+    def resolve_tool_scope(self, session, form_state: Optional[Dict[str, Any]] = None) -> ToolScopeResolution:
+        mode = self._m.chat_mode_registry.require(session.mode)
+        registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
+        mode_tools = registry.get_for_mode(mode) if registry else []
+        governance_repo = getattr(self._m, "tool_governance_repository", None)
+        if not isinstance(governance_repo, ToolGovernanceRepository):
+            governance_repo = None
+        return resolve_tool_scope(
+            mode_tools,
+            governance_repo,
+            getattr(session, "llm_config_id", None),
+            getattr(session, "user_id", None),
+            form_state,
+        )
+
     def resolve_session_prompt_and_tools(
         self,
         session,
         form_state: Optional[Dict[str, Any]] = None,
         tool_tier: str = context_budget.TOOL_TIER_LARGE,
         loaded_groups: Iterable[str] = (),
+        scope: Optional[ToolScopeResolution] = None,
     ) -> Tuple[str, List[str], ChatMode, Dict[str, List[str]]]:
         """Resolve the session's mode into a system prompt and allowed tool names.
 
@@ -235,34 +247,14 @@ class ChatContextBuilder:
         custom_system_message = session_metadata.get('system_message')
 
         registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
-        mode_tools = registry.get_for_mode(mode) if registry else []
+        if scope is None:
+            scope = self.resolve_tool_scope(session, form_state)
+        mode_tools = list(scope.tools)
         mode_tool_names = [t.name for t in mode_tools]
-
-        unavailable = tuple(sorted(t.name for t in mode_tools if not t.is_available(form_state)))
-
-        # isinstance-guarded rather than a bare truthiness/None check: a
-        # generic Mock() collaborator (common in tests that don't care about
-        # governance) auto-vivifies any attribute access, so `getattr(...,
-        # None)` alone would hand back a Mock here instead of skipping this
-        # block.
-        governance_repo = getattr(self._m, "tool_governance_repository", None)
-        if not isinstance(governance_repo, ToolGovernanceRepository):
-            governance_repo = None
-        user_id = getattr(session, "user_id", None)
-        # Governance is per LLM config (see src.features.llm.tools.governance) -
-        # a session with no config assigned yet degrades to pure passthrough
-        # on the admin-enabled/locked axis, but the user's own opt-out set is
-        # global and still applies regardless.
+        unavailable = scope.unavailable
+        governance_snapshot = scope.governance_snapshot
+        user_disabled = scope.user_disabled
         llm_config_id = getattr(session, "llm_config_id", None)
-        if governance_repo is not None:
-            governance_snapshot = (
-                governance_repo.get_config_snapshot(llm_config_id, mode_tool_names) if llm_config_id else {}
-            )
-            user_disabled = governance_repo.get_user_disabled(user_id) if user_id else set()
-        else:
-            governance_snapshot = {}
-            user_disabled = set()
-        governed = set(compute_allowed_tool_names(mode_tool_names, governance_snapshot, user_disabled))
 
         cache_key = (
             mode.id,
@@ -281,10 +273,7 @@ class ChatContextBuilder:
             prompt, allowed_names, deferred = cached
             return prompt, allowed_names, mode, deferred
 
-        allowed_names = [
-            t.name for t in mode_tools
-            if t.name in governed and t.name not in unavailable and tools_enabled and t.name not in disabled_tools
-        ]
+        allowed_names = scope.allowed_names(tools_enabled, disabled_tools)
         deferred = deferred_tool_groups(
             [t for t in mode_tools if t.name in allowed_names],
             tool_tier,
@@ -313,6 +302,7 @@ class ChatContextBuilder:
         self,
         session,
         form_state: Optional[Dict[str, Any]] = None,
+        scope: Optional[ToolScopeResolution] = None,
     ) -> Dict[str, str]:
         """Reasons the session's mode declares tools that ``allowed_names`` omits.
 
@@ -323,40 +313,19 @@ class ChatContextBuilder:
         prompt/allowed-names cache hit. Empty when the mode declares no tools
         or every declared tool is allowed.
         """
-        mode = self._m.chat_mode_registry.require(session.mode)
         session_metadata = getattr(session, 'metadata', None) or {}
         tools_enabled = session_metadata.get('tools_enabled', True)
         disabled_tools = session_metadata.get('disabled_tools') or []
 
-        registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
-        mode_tools = registry.get_for_mode(mode) if registry else []
+        if scope is None:
+            scope = self.resolve_tool_scope(session, form_state)
+        mode_tools = list(scope.tools)
         if not mode_tools:
             return {}
-        mode_tool_names = [t.name for t in mode_tools]
 
-        unavailable = tuple(sorted(t.name for t in mode_tools if not t.is_available(form_state)))
-
-        governance_repo = getattr(self._m, "tool_governance_repository", None)
-        if not isinstance(governance_repo, ToolGovernanceRepository):
-            governance_repo = None
-        user_id = getattr(session, "user_id", None)
-        llm_config_id = getattr(session, "llm_config_id", None)
-        if governance_repo is not None:
-            governance_snapshot = (
-                governance_repo.get_config_snapshot(llm_config_id, mode_tool_names) if llm_config_id else {}
-            )
-            user_disabled = governance_repo.get_user_disabled(user_id) if user_id else set()
-        else:
-            governance_snapshot = {}
-            user_disabled = set()
-        governed = set(compute_allowed_tool_names(mode_tool_names, governance_snapshot, user_disabled))
-
-        allowed_names = [
-            t.name for t in mode_tools
-            if t.name in governed and t.name not in unavailable and tools_enabled and t.name not in disabled_tools
-        ]
+        allowed_names = scope.allowed_names(tools_enabled, disabled_tools)
         return _classify_withheld_tools(
-            mode_tools, allowed_names, unavailable, tools_enabled, disabled_tools, governance_snapshot
+            mode_tools, allowed_names, scope.unavailable, tools_enabled, disabled_tools, scope.governance_snapshot
         )
 
     # --- @Resource helpers ---
@@ -373,11 +342,11 @@ class ChatContextBuilder:
             user_id=user_id,
             mode_id=mode_id,
             is_admin=is_admin,
-            model_index_manager=self._m.model_index_manager,
-            phrasebook_category_repository=self._m.phrasebook_category_repository,
-            phrasebook_value_repository=self._m.phrasebook_value_repository,
+            model_index_manager=self._m.tool_services.model_index_manager,
+            phrasebook_category_repository=self._m.tool_services.phrasebook_category_repository,
+            phrasebook_value_repository=self._m.tool_services.phrasebook_value_repository,
             phrasebook_search=self._m.phrasebook_search,
-            preset_collaborators=self._m.preset_collaborators,
+            preset_collaborators=self._m.tool_services.preset_collaborators,
             preset_lookup=self._m.preset_lookup,
             preset_form_schema_lookup=self._m.preset_form_schema_lookup,
             generation_repository=self._m.generation_repository,
@@ -562,7 +531,7 @@ class ChatContextBuilder:
             "by_scope_dropped": {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0},
             "injected_chars": 0,
         }
-        if not self._m.llm_memory_repository:
+        if not self._m.tool_services.llm_memory_repository:
             return empty
         try:
             from src.features.llm.tools.builtin.utils import (
@@ -574,7 +543,7 @@ class ChatContextBuilder:
             by_scope = {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0}
             note_ids: List[str] = []
 
-            global_notes = memory_operations.read_notes(self._m.llm_memory_repository, user_id=user_id, scope="global")
+            global_notes = memory_operations.read_notes(self._m.tool_services.llm_memory_repository, user_id=user_id, scope="global")
             if global_notes:
                 groups.append(("global", global_notes))
                 by_scope["global"] = len(global_notes)
@@ -585,17 +554,17 @@ class ChatContextBuilder:
             preset_ref = resolve_active_preset_id(form_state)
             if preset_ref:
                 preset_notes = memory_operations.read_notes(
-                    self._m.llm_memory_repository, user_id=user_id, scope="preset", scope_ref=preset_ref,
+                    self._m.tool_services.llm_memory_repository, user_id=user_id, scope="preset", scope_ref=preset_ref,
                 )
                 if preset_notes:
                     groups.append(("this preset", preset_notes))
                     by_scope["preset"] = len(preset_notes)
                     note_ids.extend(note.id for note in preset_notes if note.id)
 
-            model_ref = resolve_active_model_id(form_state, self._m.model_index_manager)
+            model_ref = resolve_active_model_id(form_state, self._m.tool_services.model_index_manager)
             if model_ref:
                 model_notes = memory_operations.read_notes(
-                    self._m.llm_memory_repository, user_id=user_id, scope="model", scope_ref=model_ref,
+                    self._m.tool_services.llm_memory_repository, user_id=user_id, scope="model", scope_ref=model_ref,
                 )
                 if model_notes:
                     groups.append(("this model", model_notes))
@@ -604,7 +573,7 @@ class ChatContextBuilder:
 
             if mode_id:
                 mode_notes = memory_operations.read_notes(
-                    self._m.llm_memory_repository, user_id=user_id, scope="mode", scope_ref=mode_id,
+                    self._m.tool_services.llm_memory_repository, user_id=user_id, scope="mode", scope_ref=mode_id,
                 )
                 if mode_notes:
                     groups.append(("this mode", mode_notes))
@@ -614,7 +583,7 @@ class ChatContextBuilder:
             session_ref = form_state.get("session_id") if isinstance(form_state, dict) else None
             if session_ref:
                 session_notes = memory_operations.read_notes(
-                    self._m.llm_memory_repository, user_id=user_id, scope="session", scope_ref=session_ref,
+                    self._m.tool_services.llm_memory_repository, user_id=user_id, scope="session", scope_ref=session_ref,
                 )
                 if session_notes:
                     groups.append(("this session", session_notes))
@@ -725,7 +694,7 @@ class ChatContextBuilder:
             "preset": None, "checkpoint": None, "loras": [], "guidance_included": False,
         }
         form_state = (context_metadata or {}).get("form_state")
-        if not isinstance(form_state, dict) or not form_state or not self._m.model_index_manager:
+        if not isinstance(form_state, dict) or not form_state or not self._m.tool_services.model_index_manager:
             return empty
         try:
             from src.features.llm.tools.builtin.utils import (
@@ -739,12 +708,12 @@ class ChatContextBuilder:
             variant = form_state.get("variant")
             video_director = form_state.get("video_director")
             music_director = form_state.get("music_director")
-            field_meta = build_model_field_metadata(self._m.preset_collaborators, form_state)
+            field_meta = build_model_field_metadata(self._m.tool_services.preset_collaborators, form_state)
 
             preset_template = None
-            if preset_id and self._m.preset_collaborators:
+            if preset_id and self._m.tool_services.preset_collaborators:
                 try:
-                    preset_template = self._m.preset_collaborators.file_repo.find_preset_by_id(preset_id)
+                    preset_template = self._m.tool_services.preset_collaborators.file_repo.find_preset_by_id(preset_id)
                 except Exception:
                     preset_template = None
             llm_spec = (getattr(preset_template, "llm", None) or {}) if preset_template else {}
@@ -756,7 +725,7 @@ class ChatContextBuilder:
             checkpoint: Optional[Dict[str, Any]] = None
             loras: List[Dict[str, Any]] = []
             for field_name, model_path, weight, model_info in resolve_active_models(
-                form_data, self._m.model_index_manager
+                form_data, self._m.tool_services.model_index_manager
             ):
                 meta = field_meta.get(field_name, {})
                 model_type = model_info.get("type") or meta.get("model_type") or "unknown"
@@ -883,10 +852,10 @@ class ChatContextBuilder:
         from src.features.llm.tools.media_values import media_field_names
 
         media_fields: List[str] = []
-        if self._m.preset_collaborators and preset_id:
+        if self._m.tool_services.preset_collaborators and preset_id:
             try:
                 schema_data = operations.get_form_schema(
-                    self._m.preset_collaborators, preset_id, mode=mode, form_name=variant
+                    self._m.tool_services.preset_collaborators, preset_id, mode=mode, form_name=variant
                 )
                 props = (schema_data.get("form_schema") or {}).get("properties")
                 media_fields = sorted(media_field_names(props))
@@ -969,11 +938,11 @@ class ChatContextBuilder:
         Never raises — a schema lookup failure yields an empty listing rather than
         dropping the rest of the already-built workspace block.
         """
-        if not self._m.preset_collaborators:
+        if not self._m.tool_services.preset_collaborators:
             return []
         try:
             schema_data = operations.get_form_schema(
-                self._m.preset_collaborators, preset_id, mode=mode, form_name=variant
+                self._m.tool_services.preset_collaborators, preset_id, mode=mode, form_name=variant
             )
         except Exception:
             logger.warning(

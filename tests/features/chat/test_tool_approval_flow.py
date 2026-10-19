@@ -1,5 +1,6 @@
 import asyncio
 from src.features.chat.reply_contract import approval_continuation_message
+from src.features.llm.tools.base import ToolServices
 import copy
 import json
 from types import SimpleNamespace
@@ -155,7 +156,7 @@ def _manager(tools, llm, generation_orchestrator=None):
         plugin_registry=plugins,
         chat_mode_registry=_mode_registry(),
         tool_executor=ToolExecutor(tool_registry=registry, llm_service=llm),
-        generation_orchestrator=generation_orchestrator,
+        tool_services=ToolServices(generation_orchestrator=generation_orchestrator),
     )
     session = repo.create_session(user_id=USER_ID, llm_config_id="llm-1", mode="generation")
     return manager, repo, session.id
@@ -559,7 +560,7 @@ class TestSendWhilePending:
 class TestHistoryBudget:
     def _runner(self, budget_tokens):
         manager = Mock()
-        manager.settings.get_setting = Mock(return_value=budget_tokens)
+        manager.tool_services.settings.get_setting = Mock(return_value=budget_tokens)
         return conversation_module.ConversationRunner(manager)
 
     def test_trims_whole_rounds_only(self):

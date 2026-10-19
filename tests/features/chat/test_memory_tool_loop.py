@@ -24,6 +24,7 @@ from unittest.mock import Mock
 import pytest
 
 from src.features.chat.runtime import ChatRuntime
+from src.features.llm.tools.base import ToolServices
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 from src.features.llm.tools.builtin.memory_tool import WriteMemoryTool
 from src.features.llm.tools.executor import ToolExecutor
@@ -124,7 +125,7 @@ def make_memory_chat_manager(scripts):
         plugin_registry=plugins,
         chat_mode_registry=_mode_registry(),
         tool_executor=executor,
-        llm_memory_repository=make_memory_repository(),
+        tool_services=ToolServices(llm_memory_repository=make_memory_repository()),
     )
     return manager, repo, llm_service
 

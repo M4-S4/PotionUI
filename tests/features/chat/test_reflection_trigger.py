@@ -2,6 +2,7 @@
 as a background task after a turn, never awaited by the response path, and
 only actually calls the LLM once its own gating conditions are met."""
 
+from dataclasses import replace
 import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
@@ -59,7 +60,7 @@ class TestReflectionFiresOnSend:
             chat_mode_registry=_mode_registry(),
         )
         # Late-bound the same way the composition root does.
-        self.manager.llm_memory_repository = self.mock_memory
+        self.manager.tool_services = replace(self.manager.tool_services, llm_memory_repository=self.mock_memory)
 
         # `memory_operations` (as imported into reflection.py) is patched to a
         # Mock so tests can assert on write_note calls without exercising the

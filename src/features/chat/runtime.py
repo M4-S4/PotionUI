@@ -34,6 +34,7 @@ from src.features.chat.session_store import ChatSessionStore
 from src.features.chat.context_builder import ChatContextBuilder
 from src.features.chat.tool_dispatcher import ToolCallDispatcher
 from src.features.chat.conversation import ConversationRunner
+from src.features.llm.tools.base import ToolServices
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ class ChatRuntime:
     and plugin hook execution into cohesive chat workflows.
     """
 
+
     def __init__(
         self,
         chat_repository: ChatRepository,
@@ -54,30 +56,13 @@ class ChatRuntime:
         plugin_registry: PluginRegistry,
         chat_mode_registry: ChatModeRegistry,
         tool_executor: Optional[Any] = None,
-        segment_category_repository: Optional[Any] = None,
-        saved_segment_repository: Optional[Any] = None,
-        segment_template_repository: Optional[Any] = None,
-        model_index_manager: Optional[Any] = None,
-        preset_collaborators: Optional[Any] = None,
         preset_lookup: Optional[Any] = None,
         preset_form_schema_lookup: Optional[Any] = None,
-        phrasebook_category_repository: Optional[Any] = None,
-        phrasebook_value_repository: Optional[Any] = None,
         phrasebook_search: Optional[Any] = None,
-        prompt_database: Optional[Any] = None,
-        generation_orchestrator: Optional[Any] = None,
         pre_chat_action_registry: Optional[Any] = None,
-        llm_memory_repository: Optional[Any] = None,
-        prompt_enhancement_manager: Optional[Any] = None,
-        media_indexer: Optional[Any] = None,
         resource_registry: Optional[Any] = None,
-        settings: Optional[Any] = None,
-        collection_repository: Optional[Any] = None,
-        tag_repository: Optional[Any] = None,
-        generation_history_facade: Optional[Any] = None,
-        content_safety: Optional[Any] = None,
-        library_collaborators: Optional[Any] = None,
         tool_governance_repository: Optional[Any] = None,
+        tool_services: Optional[ToolServices] = None,
         generation_repository: Optional[Any] = None,
         generation_parameter_repository: Optional[Any] = None,
         generation_model_repository: Optional[Any] = None,
@@ -91,30 +76,11 @@ class ChatRuntime:
             plugin_registry: Plugin registry for hook execution
             chat_mode_registry: Registry of available chat modes
             tool_executor: Optional tool executor for LLM tool calling
-            segment_category_repository: Optional segment category repository for tool context
-            saved_segment_repository: Optional saved segment repository for tool context
-            segment_template_repository: Optional segment template repository for tool context
-            model_index_manager: Optional model index manager for tool context
-            preset_collaborators: Optional preset manager for tool context
-            phrasebook_category_repository: Optional phrasebook category repository for tool context
-            phrasebook_value_repository: Optional phrasebook value repository for tool context
             phrasebook_search: Optional callable(path, user_id, limit=...) -> dict, bound to
                 `src.features.phrasebook.operations.search_phrasebook`, for the @phrasebook
                 resource provider (which cannot import a feature module directly)
-            prompt_database: Optional `PromptDatabaseCollaborators` bundle for tool context
-            generation_orchestrator: Optional generation orchestrator for tool context
             pre_chat_action_registry: Optional pre-chat action manager for executing actions before LLM calls
-            llm_memory_repository: Optional LLM memory repository for tool context
-            prompt_enhancement_manager: Optional `PromptEnhancementCollaborators` bundle backing the enhance_prompt tool
-            media_indexer: Optional media index manager backing the
-                search_gallery tool
             resource_registry: Optional registry resolving @resource mentions
-            settings: Optional settings manager, read for the admin
-                session-debug viewer's ``chat_llm_call_tracing`` flag
-            collection_repository: Optional collection repository for tool context
-            tag_repository: Optional tag repository for tool context
-            generation_history_facade: Optional generation history manager
-                for tool context
         """
         self.chat_repository = chat_repository
         self.llm_service = llm_service
@@ -122,30 +88,13 @@ class ChatRuntime:
         self.plugins = plugin_registry
         self.chat_mode_registry = chat_mode_registry
         self.tool_executor = tool_executor
-        self.segment_category_repository = segment_category_repository
-        self.saved_segment_repository = saved_segment_repository
-        self.segment_template_repository = segment_template_repository
-        self.model_index_manager = model_index_manager
-        self.preset_collaborators = preset_collaborators
         self.preset_lookup = preset_lookup
         self.preset_form_schema_lookup = preset_form_schema_lookup
-        self.phrasebook_category_repository = phrasebook_category_repository
-        self.phrasebook_value_repository = phrasebook_value_repository
         self.phrasebook_search = phrasebook_search
-        self.prompt_database = prompt_database
-        self.generation_orchestrator = generation_orchestrator
         self.pre_chat_action_registry = pre_chat_action_registry
-        self.llm_memory_repository = llm_memory_repository
-        self.prompt_enhancement_manager = prompt_enhancement_manager
-        self.media_indexer = media_indexer
         self.resource_registry = resource_registry
-        self.settings = settings
-        self.collection_repository = collection_repository
-        self.tag_repository = tag_repository
-        self.generation_history_facade = generation_history_facade
-        self.content_safety = content_safety
-        self.library_collaborators = library_collaborators
         self.tool_governance_repository = tool_governance_repository
+        self.tool_services = tool_services if tool_services is not None else ToolServices()
         # Generation repositories for the @generations resource provider.
         self.generation_repository = generation_repository
         self.generation_parameter_repository = generation_parameter_repository
@@ -153,14 +102,10 @@ class ChatRuntime:
         self.title_generator = ChatTitleGenerator(llm_service, chat_repository)
         # Fire-and-forget title tasks; referenced so they aren't garbage-collected mid-run.
         self._title_tasks: set = set()
-        # Takes `self`, not its collaborators directly — llm_memory_repository is
-        # late-bound onto this manager after construction (see class docstring).
         self.reflection_generator = ChatReflectionGenerator(self)
         # Fire-and-forget reflection tasks; same GC-safety reason as _title_tasks.
         self._reflection_tasks: set = set()
 
-        # Role classes. Each reads its dependencies back through this manager so
-        # the composition root's post-construction late binding keeps working.
         self._policy = ChatPolicy(self)
         self._sessions = ChatSessionStore(self)
         self._context = ChatContextBuilder(self)
@@ -396,8 +341,8 @@ class ChatRuntime:
             search=search, limit=limit, offset=offset,
         )
         tracing_enabled = True
-        if self.settings is not None:
-            tracing_enabled = bool(self.settings.get_setting("chat_llm_call_tracing", True))
+        if self.tool_services.settings is not None:
+            tracing_enabled = bool(self.tool_services.settings.get_setting("chat_llm_call_tracing", True))
         return {"sessions": sessions, "total": total, "tracing_enabled": tracing_enabled}
 
     def get_admin_session_detail(self, session_id: str) -> Dict[str, Any]:

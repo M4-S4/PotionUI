@@ -7,9 +7,6 @@ generation. Both the buffered (`send_message`) and streaming
 (`send_message_stream`) paths live here, plus the learning-loop feedback
 recorder and the title/pre-chat helpers they share.
 
-Extracted from the ChatRuntime coordinator; it drives the other chat
-collaborators (context builder) and reads its dependencies through the
-manager so the composition root's late binding keeps working.
 """
 
 import asyncio
@@ -174,8 +171,10 @@ class ConversationRunner:
 
         await self._prime_context_window(session)
         tool_tier = self._tool_tier(session)
+        form_state = (context_metadata or {}).get("form_state")
+        tool_scope = self._m._context.resolve_tool_scope(session, form_state)
         system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=(context_metadata or {}).get("form_state"), tool_tier=tool_tier,
+            session, form_state=form_state, tool_tier=tool_tier, scope=tool_scope,
         )
         tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
 
@@ -200,7 +199,7 @@ class ConversationRunner:
         # the model narrates using a tool it was never given. Computed even when
         # some tools ARE allowed so a partial set doesn't get promised either.
         withheld_tools = self._m._context.withheld_tools_for_session(
-            session, form_state=(context_metadata or {}).get("form_state"),
+            session, form_state=form_state, scope=tool_scope,
         )
         if withheld_tools:
             step_records.append({"step": "tools", "duration_ms": 0})
@@ -510,8 +509,10 @@ class ConversationRunner:
 
         await self._prime_context_window(session)
         tool_tier = self._tool_tier(session)
+        form_state = (context_metadata or {}).get("form_state")
+        tool_scope = self._m._context.resolve_tool_scope(session, form_state)
         system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=(context_metadata or {}).get("form_state"), tool_tier=tool_tier,
+            session, form_state=form_state, tool_tier=tool_tier, scope=tool_scope,
             loaded_groups=continuation.loaded_groups if continuation else (),
         )
         tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
@@ -536,7 +537,7 @@ class ConversationRunner:
         # the model narrates using a tool it was never given. Computed even when
         # some tools ARE allowed so a partial set doesn't get promised either.
         withheld_tools = self._m._context.withheld_tools_for_session(
-            session, form_state=(context_metadata or {}).get("form_state"),
+            session, form_state=form_state, scope=tool_scope,
         )
         if withheld_tools:
             step_records.append({"step": "tools", "duration_ms": 0})
@@ -911,7 +912,7 @@ class ConversationRunner:
     def _history_token_budget(self) -> int:
         """Read the `chat_history_token_budget` setting; 0 or unset/unparsable = unlimited."""
         try:
-            value = self._m.settings.get_setting(
+            value = self._m.tool_services.settings.get_setting(
                 'chat_history_token_budget', _DEFAULT_HISTORY_TOKEN_BUDGET
             )
             if value is not None:
@@ -1261,7 +1262,7 @@ class ConversationRunner:
         if verdict not in ("approved", "rejected"):
             raise MessageCreationFailedException(f"Invalid verdict '{verdict}'")
 
-        if not self._m.prompt_enhancement_manager:
+        if not self._m.tool_services.prompt_enhancement_manager:
             raise MessageCreationFailedException("Prompt enhancement not available")
 
         message = self._m.chat_repository.get_message(message_id)
@@ -1286,7 +1287,7 @@ class ConversationRunner:
 
         prompt_text = candidates[action_index]
         result = await prompt_enhancement_operations.record_feedback(
-            self._m.prompt_enhancement_manager,
+            self._m.tool_services.prompt_enhancement_manager,
             user_id=user_id,
             session_id=session_id,
             message_id=message_id,

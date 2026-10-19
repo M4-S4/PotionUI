@@ -4,7 +4,7 @@ import inspect
 import json
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,30 @@ def serialize_approval_preview(preview: Optional[ToolApprovalPreview]) -> Option
     }
 
 
+@dataclass(frozen=True)
+class ToolServices:
+    segment_category_repository: Any = None
+    saved_segment_repository: Any = None
+    segment_template_repository: Any = None
+    model_index_manager: Any = None
+    preset_collaborators: Any = None
+    phrasebook_category_repository: Any = None
+    phrasebook_value_repository: Any = None
+    llm_repository: Any = None
+    prompt_database: Any = None
+    generation_orchestrator: Any = None
+    llm_memory_repository: Any = None
+    prompt_enhancement_manager: Any = None
+    media_indexer: Any = None
+    settings: Any = None
+    collection_repository: Any = None
+    tag_repository: Any = None
+    plugin_registry: Any = None
+    generation_history_facade: Any = None
+    content_safety: Any = None
+    library_collaborators: Any = None
+
+
 @dataclass
 class ToolContext:
     """Context passed to tools during execution.
@@ -127,6 +151,11 @@ class ToolContext:
     content_safety: Any = None
     library_collaborators: Any = None
     chat_session: bool = True
+
+    @classmethod
+    def for_session(cls, services: ToolServices, user_id: str, **fields_: Any) -> "ToolContext":
+        shared = {f.name: getattr(services, f.name) for f in fields(services)}
+        return cls(user_id=user_id, **{**shared, **fields_})
 
     def storage_dir(self) -> Optional[str]:
         """The requesting user's file storage root, or None if unavailable."""
