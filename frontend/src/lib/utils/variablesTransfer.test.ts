@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { serializeVariables, parseVariablesImport, mergeVariables, selectReferencedVariables, summarizeVariables } from './variablesTransfer';
+import { serializeVariables, parseVariablesImport, mergeVariables, summarizeVariables } from './variablesTransfer';
 import type { VariablesMap } from './variableDefs';
 
 describe('serializeVariables / parseVariablesImport round-trip', () => {
@@ -165,40 +165,6 @@ describe('mergeVariables', () => {
 		expect(merged.mood).toEqual({ type: 'text', value: 'imported' });
 		expect(merged.fresh).toEqual({ type: 'text', value: 'new' });
 		expect(merged.keepme).toEqual({ type: 'text', value: 'only here' });
-	});
-});
-
-describe('selectReferencedVariables', () => {
-	const variables: VariablesMap = {
-		music: { type: 'choice', mode: 'shuffle', pinnedIndex: null, options: ['hip hop', 'classical'] },
-		dance: {
-			type: 'choice',
-			mode: 'shuffle',
-			pinnedIndex: null,
-			options: [{ text: 'breaking', when: { var: 'music', values: ['hip hop'] } }, 'freestyle']
-		},
-		mood: { type: 'text', value: 'moody' },
-		unused: { type: 'text', value: 'never referenced' }
-	};
-
-	it('includes only variables the text references, dropping unused ones', () => {
-		const result = selectReferencedVariables('a ${mood} scene', variables);
-		expect(Object.keys(result)).toEqual(['mood']);
-	});
-
-	it('pulls in a transitive `when` dependency alongside the variable that references it', () => {
-		const result = selectReferencedVariables('${dance} moves', variables);
-		expect(Object.keys(result).sort()).toEqual(['dance', 'music']);
-	});
-
-	it('ignores `${name}` usages for names not present in the map', () => {
-		const result = selectReferencedVariables('${ghost} and ${mood}', variables);
-		expect(Object.keys(result)).toEqual(['mood']);
-	});
-
-	it('returns an empty map when the text references nothing', () => {
-		const result = selectReferencedVariables('no variables here', variables);
-		expect(result).toEqual({});
 	});
 });
 

@@ -10,7 +10,7 @@ import {
 	type VariableOptionWhen,
 	type VariablesMap
 } from './variableDefs';
-import { isValidVariableName, extractVariableUsages } from './promptVariables';
+import { isValidVariableName } from './promptVariables';
 
 const MAX_NAME_CHARS = 60;
 
@@ -251,23 +251,6 @@ export function summarizeVariables(variables: VariablesMap): VariablesImportSumm
 		return sum + def.options.filter((o) => !!optionWhen(o)).length;
 	}, 0);
 	return { variables: Object.keys(variables).length, conditions };
-}
-
-/** Names `text` references via `${name}`, plus their transitive `when`
- *  dependencies, restricted to names actually present in `variables` -- the
- *  subset a saved Prompt should carry so an imported `$dance` conditioned on
- *  `$music` brings `$music` along with it. */
-export function selectReferencedVariables(text: string, variables: VariablesMap): VariablesMap {
-	const used = extractVariableUsages(text).filter((name) => name in variables);
-	const names = new Set(used);
-	for (const name of used) {
-		for (const dep of dependencies(name, variables, true)) {
-			if (dep in variables) names.add(dep);
-		}
-	}
-	const out: VariablesMap = {};
-	for (const name of names) out[name] = variables[name];
-	return out;
 }
 
 export function mergeVariables(existing: VariablesMap, imported: VariablesMap, rule: 'keep' | 'replace'): VariablesMap {

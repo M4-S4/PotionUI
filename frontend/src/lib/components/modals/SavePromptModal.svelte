@@ -4,7 +4,7 @@
 	import type { PromptUsageHint, Segment } from '$lib/types/segments';
 	import { flattenRichSegments, toRichSegment } from '$lib/utils/richSegments';
 	import type { VariablesMap } from '$lib/utils/variableDefs';
-	import { selectReferencedVariables, summarizeVariables } from '$lib/utils/variablesTransfer';
+	import { summarizeVariables } from '$lib/utils/variablesTransfer';
 	import { toasts } from '$lib/stores/toast';
 	import BaseModal from './BaseModal.svelte';
 	import ConfirmFooter from './ConfirmFooter.svelte';
@@ -22,11 +22,10 @@
 	const settlementGate = createConfirmSettlementGate();
 	$: if (isOpen !== previousOpen) { previousOpen = isOpen; if (isOpen) { name = ''; settlementGate.reset(); } }
 	$: preview = flattenRichSegments(segments);
-	$: referencedVariables = selectReferencedVariables(preview, variables);
-	$: referencedSummary = summarizeVariables(referencedVariables);
+	$: variablesSummary = summarizeVariables(variables);
 	$: variablesSummaryLine =
-		referencedSummary.variables > 0
-			? `Includes ${referencedSummary.variables} variable${referencedSummary.variables === 1 ? '' : 's'} · ${referencedSummary.conditions} condition${referencedSummary.conditions === 1 ? '' : 's'}`
+		variablesSummary.variables > 0
+			? `Includes ${variablesSummary.variables} variable${variablesSummary.variables === 1 ? '' : 's'} · ${variablesSummary.conditions} condition${variablesSummary.conditions === 1 ? '' : 's'}`
 			: '';
 
 	async function save() {
@@ -36,7 +35,7 @@
 				name: name.trim() || null,
 				usage_hint: usageHint,
 				segments: segments.map(toRichSegment),
-				variables: Object.keys(referencedVariables).length ? referencedVariables : null
+				variables: Object.keys(variables).length ? variables : null
 			});
 			if (!response.success || !response.data) throw new Error(response.error || 'Failed to save Prompt');
 			toasts.success('New detached Prompt saved');
