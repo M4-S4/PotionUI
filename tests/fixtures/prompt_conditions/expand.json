@@ -1,0 +1,281 @@
+{
+ "format": "prompt-conditions-corpus",
+ "version": 1,
+ "kind": "expand",
+ "describes": "full expand_prompts run (backend only): template + variables + seed -> text of image `image`; random groups follow the Python sampler so these cases are not portable to other implementations",
+ "case_fields": {
+  "name": "unique id",
+  "template": "positive template",
+  "negative": "optional negative template",
+  "variables": "wire variables (name -> string, may be a {a|b} template)",
+  "seed": "base seed",
+  "image": "image index within the batch",
+  "expected": "positive text",
+  "expected_negative": "negative text, default empty",
+  "warns": "true when the malformed-prompt warning must fire"
+ },
+ "cases": [
+  {
+   "name": "dress_colour_stable_age_70_image_0",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "70"
+   },
+   "seed": 0,
+   "image": 0,
+   "expected": "woman, grey hair, black dress, 70 years"
+  },
+  {
+   "name": "dress_colour_stable_age_70_image_1",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "70"
+   },
+   "seed": 0,
+   "image": 1,
+   "expected": "woman, grey hair, green dress, 70 years"
+  },
+  {
+   "name": "dress_colour_stable_age_70_image_2",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "70"
+   },
+   "seed": 0,
+   "image": 2,
+   "expected": "woman, grey hair, red dress, 70 years"
+  },
+  {
+   "name": "dress_colour_stable_age_70_image_3",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "70"
+   },
+   "seed": 0,
+   "image": 3,
+   "expected": "woman, grey hair, green dress, 70 years"
+  },
+  {
+   "name": "dress_colour_stable_age_70_image_4",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "70"
+   },
+   "seed": 0,
+   "image": 4,
+   "expected": "woman, grey hair, blue dress, 70 years"
+  },
+  {
+   "name": "dress_colour_stable_age_70_image_5",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "70"
+   },
+   "seed": 0,
+   "image": 5,
+   "expected": "woman, grey hair, green dress, 70 years"
+  },
+  {
+   "name": "dress_colour_stable_age_30_image_0",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "30"
+   },
+   "seed": 0,
+   "image": 0,
+   "expected": "woman, freckles, black dress, 30 years"
+  },
+  {
+   "name": "dress_colour_stable_age_30_image_1",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "30"
+   },
+   "seed": 0,
+   "image": 1,
+   "expected": "woman, freckles, green dress, 30 years"
+  },
+  {
+   "name": "dress_colour_stable_age_30_image_2",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "30"
+   },
+   "seed": 0,
+   "image": 2,
+   "expected": "woman, scar, red dress, 30 years"
+  },
+  {
+   "name": "dress_colour_stable_age_30_image_3",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "30"
+   },
+   "seed": 0,
+   "image": 3,
+   "expected": "woman, freckles, green dress, 30 years"
+  },
+  {
+   "name": "dress_colour_stable_age_30_image_4",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "30"
+   },
+   "seed": 0,
+   "image": 4,
+   "expected": "woman, scar, blue dress, 30 years"
+  },
+  {
+   "name": "dress_colour_stable_age_30_image_5",
+   "template": "woman, <<if $age > 65>>grey hair<<else>>{freckles|scar}<<end>>, {red|blue|green|black} dress, ${age} years",
+   "variables": {
+    "age": "30"
+   },
+   "seed": 0,
+   "image": 5,
+   "expected": "woman, scar, green dress, 30 years"
+  },
+  {
+   "name": "per_image_number_binding_image_0",
+   "template": "x <<if $age >= 40>>old<<else>>young<<end>> ${age}",
+   "variables": {
+    "age": "{18|30|45|60}"
+   },
+   "seed": 3,
+   "image": 0,
+   "expected": "x old 60"
+  },
+  {
+   "name": "per_image_number_binding_image_1",
+   "template": "x <<if $age >= 40>>old<<else>>young<<end>> ${age}",
+   "variables": {
+    "age": "{18|30|45|60}"
+   },
+   "seed": 3,
+   "image": 1,
+   "expected": "x young 18"
+  },
+  {
+   "name": "per_image_number_binding_image_2",
+   "template": "x <<if $age >= 40>>old<<else>>young<<end>> ${age}",
+   "variables": {
+    "age": "{18|30|45|60}"
+   },
+   "seed": 3,
+   "image": 2,
+   "expected": "x young 30"
+  },
+  {
+   "name": "per_image_number_binding_image_3",
+   "template": "x <<if $age >= 40>>old<<else>>young<<end>> ${age}",
+   "variables": {
+    "age": "{18|30|45|60}"
+   },
+   "seed": 3,
+   "image": 3,
+   "expected": "x young 30"
+  },
+  {
+   "name": "per_image_number_binding_image_4",
+   "template": "x <<if $age >= 40>>old<<else>>young<<end>> ${age}",
+   "variables": {
+    "age": "{18|30|45|60}"
+   },
+   "seed": 3,
+   "image": 4,
+   "expected": "x young 18"
+  },
+  {
+   "name": "variable_read_by_condition_is_one_roll_per_image",
+   "template": "<<if $m = \"a\">>A<<else>>B<<end>> ${m} ${m}",
+   "variables": {
+    "m": "{a|b}"
+   },
+   "seed": 11,
+   "image": 2,
+   "expected": "A a a"
+  },
+  {
+   "name": "branch_body_uses_variables_and_groups",
+   "template": "<<if $x = \"y\">>{a|b} ${x}<<end>>, end",
+   "variables": {
+    "x": "y"
+   },
+   "seed": 5,
+   "image": 0,
+   "expected": "b y, end"
+  },
+  {
+   "name": "negative_channel_conditions",
+   "template": "cat",
+   "variables": {
+    "x": "y"
+   },
+   "seed": 1,
+   "image": 0,
+   "expected": "cat",
+   "negative": "<<if $x = \"y\">>blurry<<else>>sharp<<end>>, text",
+   "expected_negative": "blurry, text"
+  },
+  {
+   "name": "tags_with_dollar_literal_elsewhere",
+   "template": "a $100 bill, <<if $x = \"y\">>B<<end>>, {c|d}",
+   "variables": {
+    "x": "y"
+   },
+   "seed": 2,
+   "image": 0,
+   "expected": "a $100 bill, B, c"
+  },
+  {
+   "name": "percent_and_hash_inside_branch",
+   "template": "<<if $x = \"y\">>100% cotton #1<<end>>",
+   "variables": {
+    "x": "y"
+   },
+   "seed": 2,
+   "image": 0,
+   "expected": "100% cotton #1"
+  },
+  {
+   "name": "undefined_variable_takes_otherwise",
+   "template": "<<if $x = \"y\">>A<<else>>fallback<<end>>",
+   "variables": {},
+   "seed": 0,
+   "image": 0,
+   "expected": "fallback"
+  },
+  {
+   "name": "malformed_tag_is_stripped_and_warns",
+   "template": "a <<if $x = \"y\">>B",
+   "variables": {
+    "x": "y"
+   },
+   "seed": 0,
+   "image": 0,
+   "expected": "a B",
+   "warns": true
+  },
+  {
+   "name": "bad_head_warns_and_is_false",
+   "template": "<<if $x ~ \"y\">>A<<else>>B<<end>>",
+   "variables": {
+    "x": "y"
+   },
+   "seed": 0,
+   "image": 0,
+   "expected": "B",
+   "warns": true
+  },
+  {
+   "name": "no_tags_unchanged",
+   "template": "a {red|blue} dress, ${x}, $5 <<hello>>",
+   "variables": {
+    "x": "1"
+   },
+   "seed": 4,
+   "image": 0,
+   "expected": "a red dress, 1, $5 <<hello>>"
+  }
+ ]
+}

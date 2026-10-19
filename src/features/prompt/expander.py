@@ -26,6 +26,12 @@ from dynamicprompts.sampling_context import SamplingContext
 from dynamicprompts.wildcards import WildcardManager
 
 from src.platform.plugins.hooks import HookContext
+from src.features.prompt.conditions import (
+    CondError,
+    ParsedTemplate,
+    parse_template,
+    render_parsed,
+)
 from src.features.prompt.escaping import protect_literals, restore_literals
 from src.features.prompt.hooks import PROMPT_HOOKS
 
@@ -73,6 +79,11 @@ MALFORMED_TEMPLATE_WARNING = (
     "{a|b} choices and ${variables} were not expanded."
 )
 
+
+CONDITION_WARNING = (
+    "A condition in the prompt is malformed, so its <<if>> tags were removed "
+    "and the text around them was kept."
+)
 
 def _sample_one(ctx: SamplingContext, template: str, failures: Optional[List[bool]] = None) -> str:
     """Sample a single realization. Empty templates yield [] from dynamicprompts."""
@@ -129,6 +140,51 @@ def _run_transform(
     )
 
 
+def _bind_reads(
+    ctx: SamplingContext,
+    variables: Optional[Dict[str, str]],
+    names: List[str],
+    seed: int,
+    failures: List[bool],
+) -> Tuple[SamplingContext, Dict[str, str]]:
+    values: Dict[str, str] = {}
+    bindings = {}
+    for name in names:
+        raw = variables.get(name) if variables else None
+        if raw is None:
+            continue
+        rolled = dataclasses.replace(ctx, rand=random.Random(f"{seed}:var:{name}"))
+        text = _sample_one(rolled, str(raw), failures)
+        values[name] = text
+        try:
+            bindings[name] = parse(protect_literals(text), parser_config=default_parser_config)
+        except Exception as e:
+            logger.warning(f"Ignoring unparseable rolled prompt variable '{name}': {e}")
+    return ctx.with_variables(bindings), values
+
+
+def _sample_channel(
+    ctx: SamplingContext,
+    seeded: SamplingContext,
+    template: str,
+    parsed: Optional[ParsedTemplate],
+    channel: str,
+    values: Dict[str, str],
+    seed: int,
+    failures: List[bool],
+) -> str:
+    if parsed is None:
+        return _sample_one(seeded, template, failures)
+
+    def sample_body(index: int, body: str) -> str:
+        rolled = dataclasses.replace(ctx, rand=random.Random(f"{seed}:{channel}:{index}"))
+        return _sample_one(rolled, body, failures)
+
+    return render_parsed(
+        parsed, values, lambda skeleton: _sample_one(seeded, skeleton, failures), sample_body
+    )
+
+
 def expand_prompts(
     positive: str,
     negative: str,
@@ -152,6 +208,18 @@ def expand_prompts(
 
     expanded: List[ExpandedPrompt] = []
     failures: List[bool] = []
+    parsed_cache: Dict[Tuple[str, str], Optional[ParsedTemplate]] = {}
+    cond_errors: Dict[Tuple[str, str, int], CondError] = {}
+
+    def parse_channel(channel: str, template: str) -> Optional[ParsedTemplate]:
+        key = (channel, template)
+        if key not in parsed_cache:
+            parsed = parse_template(template)
+            parsed_cache[key] = parsed
+            for err in parsed.errors if parsed is not None else ():
+                cond_errors[(channel, err.kind, err.offset)] = err
+        return parsed_cache[key]
+
     for i in range(count):
         seed = base_seed + i
 
@@ -159,10 +227,26 @@ def expand_prompts(
             plugin_registry, generation_id, i, seed, "pre", positive, negative
         )
 
+        p_parsed = parse_channel("positive", p_template)
+        n_parsed = parse_channel("negative", n_template)
+
+        image_ctx = ctx
+        values: Dict[str, str] = {}
+        if p_parsed is not None or n_parsed is not None:
+            reads = set()
+            for parsed in (p_parsed, n_parsed):
+                if parsed is not None:
+                    reads |= parsed.reads()
+            image_ctx, values = _bind_reads(ctx, variables, sorted(reads), seed, failures)
+
         # SamplingContext is a frozen dataclass, so per-image seeding is a replace.
-        seeded = dataclasses.replace(ctx, rand=random.Random(seed))
-        p_text = _sample_one(seeded, p_template, failures).strip()
-        n_text = _sample_one(seeded, n_template, failures).strip()
+        seeded = dataclasses.replace(image_ctx, rand=random.Random(seed))
+        p_text = _sample_channel(
+            image_ctx, seeded, p_template, p_parsed, "positive", values, seed, failures
+        ).strip()
+        n_text = _sample_channel(
+            image_ctx, seeded, n_template, n_parsed, "negative", values, seed, failures
+        ).strip()
 
         p_text, n_text = _run_transform(
             plugin_registry, generation_id, i, seed, "post", p_text, n_text
@@ -170,6 +254,11 @@ def expand_prompts(
 
         expanded.append(ExpandedPrompt(positive=p_text, negative=n_text, seed=seed))
 
+    if cond_errors:
+        listing = ", ".join(f"{c}:{k}@{o}" for (c, k, o) in sorted(cond_errors))
+        logger.warning(f"Prompt conditions had errors for {generation_id}: {listing}")
+        if on_warning is not None:
+            on_warning(CONDITION_WARNING)
     if failures and on_warning is not None:
         on_warning(MALFORMED_TEMPLATE_WARNING)
 

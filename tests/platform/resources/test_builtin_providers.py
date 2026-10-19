@@ -392,7 +392,7 @@ class TestPhrasebookProvider:
         assert resolved.metadata["sample_count"] == 20
         assert resolved.metadata["value_count"] == 50
         assert "sample, not the full list" in resolved.content
-        assert "list_phrasebook_values" in resolved.content
+        assert "get_phrasebook_values" in resolved.content
 
     @pytest.mark.asyncio
     async def test_resolve_category_includes_subcategory_counts(self):

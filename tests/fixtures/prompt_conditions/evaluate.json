@@ -1,0 +1,876 @@
+{
+ "format": "prompt-conditions-corpus",
+ "version": 1,
+ "kind": "evaluate",
+ "describes": "template + resolved variable values -> text after conditions are decided; branch bodies are not sampled (no {a|b}/${x} expansion); errors lists the error kinds in offset order",
+ "case_fields": {
+  "name": "unique id",
+  "template": "prompt text",
+  "values": "variable name -> resolved value string; absent = undefined",
+  "expected": "text",
+  "errors": "error kinds in offset order"
+ },
+ "cases": [
+  {
+   "name": "true_branch",
+   "template": "a <<if $x = \"y\">>B<<end>> c",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a B c",
+   "errors": []
+  },
+  {
+   "name": "false_without_else_closes_the_gap",
+   "template": "a <<if $x = \"y\">>B<<end>> c",
+   "values": {
+    "x": "z"
+   },
+   "expected": "a c",
+   "errors": []
+  },
+  {
+   "name": "else_branch",
+   "template": "a <<if $x = \"y\">>B<<else>>E<<end>> c",
+   "values": {
+    "x": "z"
+   },
+   "expected": "a E c",
+   "errors": []
+  },
+  {
+   "name": "else_if_chain_second_wins",
+   "template": "<<if $x = \"a\">>A<<else if $x = \"b\">>B<<else if $x = \"c\">>C<<else>>Z<<end>>",
+   "values": {
+    "x": "b"
+   },
+   "expected": "B",
+   "errors": []
+  },
+  {
+   "name": "else_if_chain_first_true_wins",
+   "template": "<<if $x = \"b\">>A<<else if $x = \"b\">>B<<end>>",
+   "values": {
+    "x": "b"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "else_if_whitespace_tolerant",
+   "template": "<<else if $x = \"b\">>stray",
+   "values": {
+    "x": "b"
+   },
+   "expected": "stray",
+   "errors": [
+    "stray"
+   ]
+  },
+  {
+   "name": "number_compare_is_numeric_not_lexicographic",
+   "template": "<<if $age > 9>>yes<<else>>no<<end>>",
+   "values": {
+    "age": "10"
+   },
+   "expected": "yes",
+   "errors": []
+  },
+  {
+   "name": "number_compare_nine_is_not_above_ten",
+   "template": "<<if $age > 10>>yes<<else>>no<<end>>",
+   "values": {
+    "age": "9"
+   },
+   "expected": "no",
+   "errors": []
+  },
+  {
+   "name": "number_at_least_boundary",
+   "template": "<<if $age >= 65>>old<<else>>young<<end>>",
+   "values": {
+    "age": "65"
+   },
+   "expected": "old",
+   "errors": []
+  },
+  {
+   "name": "number_less_than_boundary",
+   "template": "<<if $age < 25>>teen<<else>>adult<<end>>",
+   "values": {
+    "age": "25"
+   },
+   "expected": "adult",
+   "errors": []
+  },
+  {
+   "name": "number_at_most_boundary",
+   "template": "<<if $age <= 25>>teen<<else>>adult<<end>>",
+   "values": {
+    "age": "25"
+   },
+   "expected": "teen",
+   "errors": []
+  },
+  {
+   "name": "range_includes_low_end",
+   "template": "<<if $age in 18..30>>in<<else>>out<<end>>",
+   "values": {
+    "age": "18"
+   },
+   "expected": "in",
+   "errors": []
+  },
+  {
+   "name": "range_includes_high_end",
+   "template": "<<if $age in 18..30>>in<<else>>out<<end>>",
+   "values": {
+    "age": "30"
+   },
+   "expected": "in",
+   "errors": []
+  },
+  {
+   "name": "range_excludes_just_outside",
+   "template": "<<if $age in 18..30>>in<<else>>out<<end>>",
+   "values": {
+    "age": "31"
+   },
+   "expected": "out",
+   "errors": []
+  },
+  {
+   "name": "range_below_low_end",
+   "template": "<<if $age in 18..30>>in<<else>>out<<end>>",
+   "values": {
+    "age": "17"
+   },
+   "expected": "out",
+   "errors": []
+  },
+  {
+   "name": "not_in_range",
+   "template": "<<if $age not in 18..30>>out<<else>>in<<end>>",
+   "values": {
+    "age": "40"
+   },
+   "expected": "out",
+   "errors": []
+  },
+  {
+   "name": "decimal_equality_ignores_trailing_zeros",
+   "template": "<<if $w = 0.3>>eq<<else>>ne<<end>>",
+   "values": {
+    "w": "0.30"
+   },
+   "expected": "eq",
+   "errors": []
+  },
+  {
+   "name": "decimal_step_value_compares_exactly",
+   "template": "<<if $w > 0.3>>over<<else>>not over<<end>>",
+   "values": {
+    "w": "0.3"
+   },
+   "expected": "not over",
+   "errors": []
+  },
+  {
+   "name": "decimal_range",
+   "template": "<<if $w in 0.1..0.5>>mid<<else>>edge<<end>>",
+   "values": {
+    "w": "0.5"
+   },
+   "expected": "mid",
+   "errors": []
+  },
+  {
+   "name": "negative_numbers",
+   "template": "<<if $t < -5>>cold<<else>>mild<<end>>",
+   "values": {
+    "t": "-10"
+   },
+   "expected": "cold",
+   "errors": []
+  },
+  {
+   "name": "number_not_equal",
+   "template": "<<if $n != 3>>other<<else>>three<<end>>",
+   "values": {
+    "n": "4"
+   },
+   "expected": "other",
+   "errors": []
+  },
+  {
+   "name": "number_value_with_whitespace_is_trimmed",
+   "template": "<<if $n = 5>>five<<else>>no<<end>>",
+   "values": {
+    "n": " 5 "
+   },
+   "expected": "five",
+   "errors": []
+  },
+  {
+   "name": "number_test_on_non_numeric_value_is_false",
+   "template": "<<if $n = 5>>five<<else>>no<<end>>",
+   "values": {
+    "n": "abc"
+   },
+   "expected": "no",
+   "errors": []
+  },
+  {
+   "name": "negated_number_test_on_non_numeric_value_is_false",
+   "template": "<<if $n != 5>>other<<else>>no<<end>>",
+   "values": {
+    "n": "abc"
+   },
+   "expected": "no",
+   "errors": []
+  },
+  {
+   "name": "exponent_notation_is_not_a_number",
+   "template": "<<if $n > 1>>big<<else>>no<<end>>",
+   "values": {
+    "n": "1e5"
+   },
+   "expected": "no",
+   "errors": []
+  },
+  {
+   "name": "undefined_variable_makes_equals_false",
+   "template": "<<if $nope = \"x\">>A<<else>>B<<end>>",
+   "values": {},
+   "expected": "B",
+   "errors": []
+  },
+  {
+   "name": "undefined_variable_makes_not_equals_false",
+   "template": "<<if $nope != \"x\">>A<<else>>B<<end>>",
+   "values": {},
+   "expected": "B",
+   "errors": []
+  },
+  {
+   "name": "undefined_variable_makes_every_negated_form_false",
+   "template": "<<if $n not in \"x\">>1<<else if $n not contains \"x\">>2<<else if $n is empty>>3<<else if $n is not empty>>4<<else if $n not in 1..2>>5<<else>>none<<end>>",
+   "values": {},
+   "expected": "none",
+   "errors": []
+  },
+  {
+   "name": "empty_text_is_empty",
+   "template": "<<if $t is empty>>E<<else>>N<<end>>",
+   "values": {
+    "t": ""
+   },
+   "expected": "E",
+   "errors": []
+  },
+  {
+   "name": "blank_text_is_empty",
+   "template": "<<if $t is empty>>E<<else>>N<<end>>",
+   "values": {
+    "t": "  "
+   },
+   "expected": "E",
+   "errors": []
+  },
+  {
+   "name": "text_is_not_empty",
+   "template": "<<if $t is not empty>>N<<else>>E<<end>>",
+   "values": {
+    "t": "x"
+   },
+   "expected": "N",
+   "errors": []
+  },
+  {
+   "name": "empty_text_satisfies_not_equals",
+   "template": "<<if $t != \"x\">>A<<else>>B<<end>>",
+   "values": {
+    "t": ""
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "empty_text_satisfies_not_in",
+   "template": "<<if $t not in \"x\",\"y\">>A<<else>>B<<end>>",
+   "values": {
+    "t": ""
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "empty_text_satisfies_not_contains",
+   "template": "<<if $t not contains \"x\">>A<<else>>B<<end>>",
+   "values": {
+    "t": ""
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "empty_text_fails_equals",
+   "template": "<<if $t = \"x\">>A<<else>>B<<end>>",
+   "values": {
+    "t": ""
+   },
+   "expected": "B",
+   "errors": []
+  },
+  {
+   "name": "string_equality_trims_the_value",
+   "template": "<<if $x = \"y\">>A<<else>>B<<end>>",
+   "values": {
+    "x": "  y "
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "string_equality_is_case_sensitive",
+   "template": "<<if $x = \"y\">>A<<else>>B<<end>>",
+   "values": {
+    "x": "Y"
+   },
+   "expected": "B",
+   "errors": []
+  },
+  {
+   "name": "contains_is_case_insensitive",
+   "template": "<<if $d contains \"RED\">>A<<else>>B<<end>>",
+   "values": {
+    "d": "a red dress"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "not_contains",
+   "template": "<<if $d not contains \"blue\">>A<<else>>B<<end>>",
+   "values": {
+    "d": "a red dress"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "in_list_matches_any",
+   "template": "<<if $m in \"calm\", \"serene\">>A<<else>>B<<end>>",
+   "values": {
+    "m": "serene"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "in_list_tight_commas",
+   "template": "<<if $m in \"calm\",\"serene\">>A<<else>>B<<end>>",
+   "values": {
+    "m": "calm"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "in_list_misses",
+   "template": "<<if $m in \"calm\",\"serene\">>A<<else>>B<<end>>",
+   "values": {
+    "m": "angry"
+   },
+   "expected": "B",
+   "errors": []
+  },
+  {
+   "name": "not_in_list",
+   "template": "<<if $m not in \"calm\",\"serene\">>A<<else>>B<<end>>",
+   "values": {
+    "m": "angry"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "not_in_tolerates_extra_whitespace",
+   "template": "<<if $m not   in \"calm\">>A<<else>>B<<end>>",
+   "values": {
+    "m": "angry"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "and_requires_all",
+   "template": "<<if $a > 1 and $b = \"x\">>A<<else>>B<<end>>",
+   "values": {
+    "a": "5",
+    "b": "x"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "and_fails_when_one_fails",
+   "template": "<<if $a > 1 and $b = \"x\">>A<<else>>B<<end>>",
+   "values": {
+    "a": "5",
+    "b": "z"
+   },
+   "expected": "B",
+   "errors": []
+  },
+  {
+   "name": "or_needs_one",
+   "template": "<<if $a > 100 or $b = \"x\">>A<<else>>B<<end>>",
+   "values": {
+    "a": "5",
+    "b": "x"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "or_fails_when_none",
+   "template": "<<if $a > 100 or $b = \"x\">>A<<else>>B<<end>>",
+   "values": {
+    "a": "5",
+    "b": "z"
+   },
+   "expected": "B",
+   "errors": []
+  },
+  {
+   "name": "mixed_and_or_is_a_bad_head",
+   "template": "<<if $a > 1 and $b = \"x\" or $c = \"z\">>A<<else>>B<<end>>",
+   "values": {
+    "a": "5",
+    "b": "x",
+    "c": "z"
+   },
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "seven_tests_is_a_bad_head",
+   "template": "<<if $a = 1 and $a = 1 and $a = 1 and $a = 1 and $a = 1 and $a = 1 and $a = 1>>A<<else>>B<<end>>",
+   "values": {
+    "a": "1"
+   },
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "six_tests_is_allowed",
+   "template": "<<if $a = 1 and $a = 1 and $a = 1 and $a = 1 and $a = 1 and $a = 1>>A<<else>>B<<end>>",
+   "values": {
+    "a": "1"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "thirteen_list_values_is_a_bad_head",
+   "template": "<<if $a in \"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\",\"11\",\"12\",\"13\">>A<<else>>B<<end>>",
+   "values": {
+    "a": "1"
+   },
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "twelve_list_values_is_allowed",
+   "template": "<<if $a in \"1\",\"2\",\"3\",\"4\",\"5\",\"6\",\"7\",\"8\",\"9\",\"10\",\"11\",\"12\">>A<<else>>B<<end>>",
+   "values": {
+    "a": "12"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "escaped_quote_in_string",
+   "template": "<<if $q = \"say \\\"hi\\\"\">>A<<else>>B<<end>>",
+   "values": {
+    "q": "say \"hi\""
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "escaped_backslash_in_string",
+   "template": "<<if $q = \"a\\\\b\">>A<<else>>B<<end>>",
+   "values": {
+    "q": "a\\b"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "terminator_inside_a_string_does_not_end_the_head",
+   "template": "<<if $q = \"a>>b\">>A<<else>>B<<end>>",
+   "values": {
+    "q": "a>>b"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "unicode_string",
+   "template": "<<if $k = \"红\">>A<<else>>B<<end>>",
+   "values": {
+    "k": "红"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "newlines_in_a_body_are_preserved",
+   "template": "<<if $x = \"y\">>line one\nline two<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "line one\nline two",
+   "errors": []
+  },
+  {
+   "name": "newlines_around_a_body_are_preserved",
+   "template": "a\n<<if $x = \"y\">>B<<end>>\nc",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a\nB\nc",
+   "errors": []
+  },
+  {
+   "name": "head_may_span_lines",
+   "template": "<<if $a > 1\n and $b = \"x\">>A<<else>>B<<end>>",
+   "values": {
+    "a": "5",
+    "b": "x"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "trailing_space_before_terminator",
+   "template": "<<if $x = \"y\" >>A<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "A",
+   "errors": []
+  },
+  {
+   "name": "chosen_body_is_inserted_verbatim",
+   "template": "a<<if $x = \"y\">> B <<end>>c",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a B c",
+   "errors": []
+  },
+  {
+   "name": "empty_result_between_commas_drops_one_comma",
+   "template": "woman, <<if $x = \"n\">>grey hair<<end>>, soft light",
+   "values": {
+    "x": "y"
+   },
+   "expected": "woman, soft light",
+   "errors": []
+  },
+  {
+   "name": "empty_result_at_the_end_drops_the_trailing_comma",
+   "template": "woman, <<if $x = \"n\">>grey hair<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "woman",
+   "errors": []
+  },
+  {
+   "name": "empty_result_at_the_start_drops_the_leading_comma",
+   "template": "<<if $x = \"n\">>grey hair<<end>>, soft light",
+   "values": {
+    "x": "y"
+   },
+   "expected": "soft light",
+   "errors": []
+  },
+  {
+   "name": "empty_result_without_commas_joins_with_one_space",
+   "template": "a   <<if $x = \"n\">>B<<end>>   c",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a c",
+   "errors": []
+  },
+  {
+   "name": "empty_result_before_a_comma_hugs_it",
+   "template": "woman <<if $x = \"n\">>B<<end>>, soft",
+   "values": {
+    "x": "y"
+   },
+   "expected": "woman, soft",
+   "errors": []
+  },
+  {
+   "name": "empty_otherwise_body_is_a_hole",
+   "template": "a, <<if $x = \"n\">>X<<else>><<end>>, b",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a, b",
+   "errors": []
+  },
+  {
+   "name": "empty_result_keeps_newlines",
+   "template": "a,\n<<if $x = \"n\">>X<<end>>\nb",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a,\n\nb",
+   "errors": []
+  },
+  {
+   "name": "empty_result_before_newline_drops_the_comma",
+   "template": "line one, <<if $x = \"n\">>X<<end>>\nline two",
+   "values": {
+    "x": "y"
+   },
+   "expected": "line one\nline two",
+   "errors": []
+  },
+  {
+   "name": "two_blocks",
+   "template": "<<if $x = \"y\">>A<<end>> and <<if $x = \"n\">>B<<else>>C<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "A and C",
+   "errors": []
+  },
+  {
+   "name": "adjacent_empty_blocks",
+   "template": "a, <<if $x = \"n\">>X<<end>><<if $x = \"n\">>Y<<end>>, b",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a, b",
+   "errors": []
+  },
+  {
+   "name": "body_keeps_prompt_syntax",
+   "template": "<<if $x = \"y\">>(red dress:1.2), {a|b}, ${x}, [x]<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "(red dress:1.2), {a|b}, ${x}, [x]",
+   "errors": []
+  },
+  {
+   "name": "surrounding_prompt_syntax_is_untouched",
+   "template": "(red:1.2) [x] BREAK {a|b} ${x}, <<if $x = \"y\">>(s:1.1)<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "(red:1.2) [x] BREAK {a|b} ${x}, (s:1.1)",
+   "errors": []
+  },
+  {
+   "name": "look_alikes_stay_literal",
+   "template": "<<hello>> <lora:x:1> <Picture 1> <d></d> <<iffy $x>> <<endif>> <<IF $x = \"y\">>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "<<hello>> <lora:x:1> <Picture 1> <d></d> <<iffy $x>> <<endif>> <<IF $x = \"y\">>",
+   "errors": []
+  },
+  {
+   "name": "elif_spelling_is_not_a_tag",
+   "template": "<<if $x = \"a\">>A<<elif $x = \"b\">>B<<end>>",
+   "values": {
+    "x": "a"
+   },
+   "expected": "A<<elif $x = \"b\">>B",
+   "errors": []
+  },
+  {
+   "name": "unclosed_if_is_stripped_and_text_kept",
+   "template": "a <<if $x = \"y\">>abc",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a abc",
+   "errors": [
+    "unclosed"
+   ]
+  },
+  {
+   "name": "stray_else_is_stripped",
+   "template": "a <<else>> b",
+   "values": {},
+   "expected": "a  b",
+   "errors": [
+    "stray"
+   ]
+  },
+  {
+   "name": "stray_end_is_stripped",
+   "template": "a <<end>> b",
+   "values": {},
+   "expected": "a  b",
+   "errors": [
+    "stray"
+   ]
+  },
+  {
+   "name": "second_else_breaks_the_block",
+   "template": "<<if $x = \"y\">>A<<else>>B<<else>>C<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "ABC",
+   "errors": [
+    "stray"
+   ]
+  },
+  {
+   "name": "nested_if_drops_the_outer_block",
+   "template": "<<if $x = \"y\">>outer <<if $x = \"y\">>inner<<end>> tail<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "outer inner tail",
+   "errors": [
+    "nested",
+    "stray"
+   ]
+  },
+  {
+   "name": "bad_operator_is_a_bad_head_and_false",
+   "template": "<<if $x == \"y\">>A<<else>>B<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "missing_spaces_around_operator_is_a_bad_head",
+   "template": "<<if $age>65>>A<<else>>B<<end>>",
+   "values": {
+    "age": "70"
+   },
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "unquoted_string_is_a_bad_head",
+   "template": "<<if $x = y>>A<<else>>B<<end>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "reversed_range_is_a_bad_head",
+   "template": "<<if $age in 30..18>>A<<else>>B<<end>>",
+   "values": {
+    "age": "20"
+   },
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "quoted_operand_for_ordering_is_a_bad_head",
+   "template": "<<if $x < \"a\">>A<<else>>B<<end>>",
+   "values": {
+    "x": "a"
+   },
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "empty_head_is_a_bad_head",
+   "template": "<<if >>A<<else>>B<<end>>",
+   "values": {},
+   "expected": "B",
+   "errors": [
+    "bad_head"
+   ]
+  },
+  {
+   "name": "unterminated_head_is_stripped",
+   "template": "a <<if $x = \"y\" b",
+   "values": {
+    "x": "y"
+   },
+   "expected": "a $x = \"y\" b",
+   "errors": [
+    "malformed_tag"
+   ]
+  },
+  {
+   "name": "keywords_are_lowercase_only",
+   "template": "<<if $x = \"y\">>A<<End>>",
+   "values": {
+    "x": "y"
+   },
+   "expected": "A<<End>>",
+   "errors": [
+    "unclosed"
+   ]
+  },
+  {
+   "name": "canonical_example_senior",
+   "template": "portrait of a woman, <<if $age > 65>>grey hair, deep wrinkles<<else if $age < 25 and $mood in \"calm\", \"serene\">>youthful, soft skin<<else>>auburn hair<<end>>, soft window light, ${age} years old",
+   "values": {
+    "age": "70",
+    "mood": "calm"
+   },
+   "expected": "portrait of a woman, grey hair, deep wrinkles, soft window light, ${age} years old",
+   "errors": []
+  },
+  {
+   "name": "canonical_example_youth",
+   "template": "portrait of a woman, <<if $age > 65>>grey hair, deep wrinkles<<else if $age < 25 and $mood in \"calm\", \"serene\">>youthful, soft skin<<else>>auburn hair<<end>>, soft window light, ${age} years old",
+   "values": {
+    "age": "20",
+    "mood": "serene"
+   },
+   "expected": "portrait of a woman, youthful, soft skin, soft window light, ${age} years old",
+   "errors": []
+  },
+  {
+   "name": "canonical_example_otherwise",
+   "template": "portrait of a woman, <<if $age > 65>>grey hair, deep wrinkles<<else if $age < 25 and $mood in \"calm\", \"serene\">>youthful, soft skin<<else>>auburn hair<<end>>, soft window light, ${age} years old",
+   "values": {
+    "age": "20",
+    "mood": "angry"
+   },
+   "expected": "portrait of a woman, auburn hair, soft window light, ${age} years old",
+   "errors": []
+  }
+ ]
+}

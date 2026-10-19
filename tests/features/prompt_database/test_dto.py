@@ -44,10 +44,24 @@ class TestPromptRequestVariables:
             )
 
     def test_rejects_an_unknown_definition_shape(self):
-        with pytest.raises(ValidationError, match="Use text or choice"):
+        with pytest.raises(ValidationError, match="Use text, choice or number"):
             PromptRequest(
                 segments=[RichSegment(content="a fox")],
-                variables={"mood": {"type": "number", "value": 1}},
+                variables={"mood": {"type": "date", "value": 1}},
+            )
+
+    def test_accepts_a_number_variable(self):
+        req = PromptRequest(
+            segments=[RichSegment(content="a fox")],
+            variables={"age": {"type": "number", "mode": "per-image", "min": 18, "max": 80, "step": 1}},
+        )
+        assert req.variables["age"]["max"] == 80
+
+    def test_rejects_a_number_grid_over_the_cap_with_a_teaching_error(self):
+        with pytest.raises(ValidationError, match="Raise the step to at least 6"):
+            PromptRequest(
+                segments=[RichSegment(content="a fox")],
+                variables={"age": {"type": "number", "min": 0, "max": 1000, "step": 1}},
             )
 
     def test_rejects_a_condition_cycle(self):

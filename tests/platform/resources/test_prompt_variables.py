@@ -279,8 +279,8 @@ class TestValidateVariablesMap:
     def test_unknown_definition_type_is_rejected(self):
         from src.platform.resources.prompt_variables import validate_variables_map
 
-        errors = validate_variables_map({"mood": {"type": "number", "value": 1}})
-        assert any("Use text or choice" in e for e in errors)
+        errors = validate_variables_map({"mood": {"type": "date", "value": 1}})
+        assert any("Use text, choice or number" in e for e in errors)
 
     def test_condition_referencing_a_variable_outside_the_map_is_rejected(self):
         from src.platform.resources.prompt_variables import validate_variables_map
