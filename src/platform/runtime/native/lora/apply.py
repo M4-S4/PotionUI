@@ -43,6 +43,7 @@ import torch.nn as nn
 
 from src.platform.observability.profiling import get_profiler
 from vendor.gpl.comfyui.ops import apply_lora_deltas, invalidate_lora_fused_cache
+from ..ops.model_tools.delta import accumulate_delta
 from .key_mapping import LoraDelta, map_lora_keys
 from .row_mask import (
     attach_masked_deltas,
@@ -462,54 +463,6 @@ def apply_loras_with_report(
     return len(patched_params), all_unmatched, reports
 
 
-def _slice_of(target_slice: tuple) -> tuple:
-    """``target_slice`` is ``(dim, start, length)`` on dim 0 today (see
-    ``LoraDelta``) - build the matching ``tensor[...]`` index tuple."""
-    _dim, start, length = target_slice
-    return (slice(start, start + length),)
-
-
-def _compute_delta_into(
-    out: torch.Tensor,
-    deltas: list[LoraDelta],
-    compute_device: torch.device,
-    pool: _ScratchPool,
-) -> None:
-    """Sum ``deltas`` (fp32, on ``compute_device``) INTO ``out`` (fp32, same
-    shape/device, already zeroed by the caller) - the delta math is unchanged
-    from the original ``_compute_delta`` (same fp32 accumulation, same LoKr
-    ``torch.kron`` / plain-LoRA rank expansion, same slice handling); only the
-    destination is now a reused buffer instead of a fresh allocation per call.
-
-    Each term (the ``torch.kron``/matmul rank expansion, ``weight_shape``-sized)
-    is written directly into a pool-provided "term" scratch tensor via ``out=``
-    instead of allocating a new one, then scaled in place and accumulated into
-    ``out``. ``out`` uses a DIFFERENT pool slot than "term" so the running
-    accumulator and the current term never alias the same physical buffer.
-    """
-    for d in deltas:
-        up = d.up.to(device=compute_device, dtype=torch.float32)
-        down = d.down.to(device=compute_device, dtype=torch.float32)
-        dest = out[_slice_of(d.target_slice)] if d.target_slice is not None else out
-        if d.kron:
-            # LoKr targets the whole weight (see LoraDelta docstring - never
-            # sliced); torch.kron's own natural output shape is
-            # (up.rows*down.rows, up.cols*down.cols), which the original code
-            # reshaped to weight_shape - do the same here via a same-storage
-            # .view() (no copy) once torch.kron has filled the scratch buffer.
-            natural_shape = torch.Size((up.shape[0] * down.shape[0], up.shape[1] * down.shape[1]))
-            term = pool.view("term", compute_device, torch.float32, natural_shape)
-            torch.kron(up, down, out=term)
-            term = term.view(dest.shape)
-            term.mul_(float(d.scale) * float(d.alpha))
-        else:
-            rank = d.down.shape[0]
-            term = pool.view("term", compute_device, torch.float32, dest.shape)
-            torch.matmul(up, down, out=term)
-            term.mul_(float(d.scale) * float(d.alpha) / rank)
-        dest += term
-
-
 def _apply_inplace(linear: nn.Module, deltas: list[LoraDelta], pool: "_ScratchPool | None" = None) -> None:
     """Materialise ``deltas`` into ``linear.weight``'s EXISTING storage.
 
@@ -523,7 +476,6 @@ def _apply_inplace(linear: nn.Module, deltas: list[LoraDelta], pool: "_ScratchPo
     device+dtype transfer onto ``weight``'s own storage come from ``pool`` -
     a persistent, call-scoped buffer reused across every Linear instead of a
     fresh ``weight_shape``-sized allocation per Linear (see ``_ScratchPool``
-    and ``_compute_delta_into``). ``pool`` defaults to a fresh one-Linear-only
     pool when omitted (e.g. a direct/unit-test call on a single Linear, where
     there is nothing to amortize a shared pool across).
     """
@@ -534,7 +486,7 @@ def _apply_inplace(linear: nn.Module, deltas: list[LoraDelta], pool: "_ScratchPo
     with torch.no_grad():
         total = pool.view("accum", compute_device, torch.float32, weight.shape)
         total.zero_()
-        _compute_delta_into(total, deltas, compute_device, pool)
+        accumulate_delta(total, deltas, compute_device, pool)
         host = pool.view("host", weight.device, weight.dtype, weight.shape)
         host.copy_(total)  # single call does both the dtype cast and the device transfer
         weight.add_(host)
@@ -581,7 +533,7 @@ def remove_loras(module: nn.Module) -> None:
             with torch.no_grad():
                 total = pool.view("accum", compute_device, torch.float32, weight.shape)
                 total.zero_()
-                _compute_delta_into(total, negated, compute_device, pool)
+                accumulate_delta(total, negated, compute_device, pool)
                 host = pool.view("host", weight.device, weight.dtype, weight.shape)
                 host.copy_(total)
                 weight.add_(host)
@@ -649,7 +601,7 @@ def _restore_linear_states(
             with torch.no_grad():
                 total = pool.view("accum", compute_device, torch.float32, weight.shape)
                 total.zero_()
-                _compute_delta_into(total, negated, compute_device, pool)
+                accumulate_delta(total, negated, compute_device, pool)
                 host = pool.view("host", weight.device, weight.dtype, weight.shape)
                 host.copy_(total)
                 weight.add_(host)

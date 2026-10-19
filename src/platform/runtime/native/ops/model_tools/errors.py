@@ -23,3 +23,13 @@ class AlreadyQuantizedError(ModelToolsError):
 
 class SourceFormatError(ModelToolsError):
     pass
+
+
+class BakeError(ModelToolsError):
+    def __init__(self, message: str, unmatched: dict[str, list[str]] | None = None) -> None:
+        super().__init__(message)
+        self.unmatched = unmatched or {}
+
+
+class MergeError(ModelToolsError):
+    pass
