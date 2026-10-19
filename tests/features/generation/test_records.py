@@ -132,6 +132,8 @@ class TestGenerationModel(unittest.TestCase):
             'rating': 3,
             'is_favorite': True,
             'duration_ms': 1500,
+            'run_seconds': None,
+            'queued_seconds': 60,
             'error_message': None,
             'error_code': None,
             'error_user_message': None,
@@ -401,6 +403,46 @@ class TestGenerationFormNameAndSeed(unittest.TestCase):
         )
         result = gen.to_dict()
         self.assertIsNone(result['seed'])
+
+
+class TestGenerationTimingSeconds(unittest.TestCase):
+
+    @staticmethod
+    def _gen(created=None, started=None, completed=None):
+        return Generation(
+            id="g", preset_id="p", form_data={}, user_id="u",
+            created_at=created, started_at=started, completed_at=completed,
+        )
+
+    @staticmethod
+    def _t(second):
+        return datetime(2026, 1, 1, 12, 0, second, tzinfo=timezone.utc)
+
+    def test_run_and_queue_seconds(self):
+        result = self._gen(self._t(0), self._t(7), self._t(40)).to_dict()
+        self.assertEqual(result['queued_seconds'], 7)
+        self.assertEqual(result['run_seconds'], 33)
+
+    def test_fractional_stamps_round_to_whole_seconds(self):
+        created = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        started = datetime(2026, 1, 1, 12, 0, 0, 400000, tzinfo=timezone.utc)
+        completed = datetime(2026, 1, 1, 12, 0, 8, 900000, tzinfo=timezone.utc)
+        result = self._gen(created, started, completed).to_dict()
+        self.assertEqual(result['queued_seconds'], 0)
+        self.assertEqual(result['run_seconds'], 8)
+
+    def test_missing_stamps_yield_none(self):
+        result = self._gen(self._t(0), None, self._t(40)).to_dict()
+        self.assertIsNone(result['run_seconds'])
+        self.assertIsNone(result['queued_seconds'])
+        result = self._gen(self._t(0), self._t(5), None).to_dict()
+        self.assertIsNone(result['run_seconds'])
+        self.assertEqual(result['queued_seconds'], 5)
+
+    def test_negative_skew_clamped_to_zero(self):
+        result = self._gen(self._t(10), self._t(5), self._t(4)).to_dict()
+        self.assertEqual(result['queued_seconds'], 0)
+        self.assertEqual(result['run_seconds'], 0)
 
 
 class TestFileModel(unittest.TestCase):

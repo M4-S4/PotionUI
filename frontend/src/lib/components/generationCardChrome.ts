@@ -18,6 +18,9 @@ export interface ChromeBucket {
 	showStars: boolean;
 	showRatingChip: boolean;
 	showBarTime: boolean;
+	showBarDuration: boolean;
+	durationReplacesResolution: boolean;
+	durationIcon: boolean;
 	starSize: number;
 	menuChipSize: number;
 	deleteInRow: boolean;
@@ -35,6 +38,9 @@ const FULL: ChromeBucket = {
 	showStars: true,
 	showRatingChip: false,
 	showBarTime: true,
+	showBarDuration: true,
+	durationReplacesResolution: false,
+	durationIcon: true,
 	starSize: 13,
 	menuChipSize: 26,
 	deleteInRow: true,
@@ -50,6 +56,9 @@ const REGULAR: ChromeBucket = {
 	showStars: true,
 	showRatingChip: false,
 	showBarTime: false,
+	showBarDuration: true,
+	durationReplacesResolution: false,
+	durationIcon: true,
 	starSize: 12,
 	menuChipSize: 26,
 	deleteInRow: true,
@@ -65,6 +74,9 @@ const COMPACT: ChromeBucket = {
 	showStars: false,
 	showRatingChip: true,
 	showBarTime: false,
+	showBarDuration: true,
+	durationReplacesResolution: true,
+	durationIcon: true,
 	starSize: 11,
 	menuChipSize: 24,
 	deleteInRow: true,
@@ -80,6 +92,9 @@ const MICRO: ChromeBucket = {
 	showStars: false,
 	showRatingChip: false,
 	showBarTime: false,
+	showBarDuration: true,
+	durationReplacesResolution: true,
+	durationIcon: false,
 	starSize: 11,
 	menuChipSize: 22,
 	deleteInRow: false,
@@ -95,6 +110,9 @@ const NANO: ChromeBucket = {
 	showStars: false,
 	showRatingChip: false,
 	showBarTime: false,
+	showBarDuration: true,
+	durationReplacesResolution: true,
+	durationIcon: false,
 	starSize: 11,
 	menuChipSize: 20,
 	deleteInRow: false,

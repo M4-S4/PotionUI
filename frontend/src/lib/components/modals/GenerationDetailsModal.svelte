@@ -5,6 +5,7 @@
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { resolveReusePresetLabel } from '$lib/utils/historyReuse';
+	import { generationRunSummary, generationQueueLabel } from '$lib/utils/generationTime';
 	import type { GenerationHistoryItem, Tag } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
 	import TagSelector from '$lib/components/TagSelector.svelte';
@@ -157,6 +158,8 @@
 	let selectedTags: Array<{ id: string; name: string }> = [];
 	let isSavingTags: boolean = false;
 
+	$: runSummary = activeGeneration ? generationRunSummary(activeGeneration) : null;
+	$: queueWait = activeGeneration ? generationQueueLabel(activeGeneration) : null;
 	// Structured prompt segments recorded with this generation (may be absent on
 	// old rows). Split by channel for display.
 	$: segments = activeGeneration?.segments ?? [];
@@ -976,6 +979,14 @@
 								<div class="flex items-center justify-between px-3 py-2">
 									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Completed</span>
 									<span class="font-mono text-xs tabular-nums text-fg">{formatDate(activeGeneration.completed_at)}</span>
+								</div>
+							{/if}
+							{#if runSummary}
+								<div class="flex items-center justify-between px-3 py-2" data-testid="detail-generation-time">
+									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Generation time</span>
+									<span class="font-mono text-xs tabular-nums text-fg">
+										{runSummary}{#if queueWait}<span class="text-fg-muted">{' · '}queued {queueWait}</span>{/if}
+									</span>
 								</div>
 							{/if}
 						</div>

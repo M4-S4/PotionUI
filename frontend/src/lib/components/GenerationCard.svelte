@@ -12,6 +12,7 @@
 	import { Badge, CopyButton } from '$lib/components/ui';
 	import { historyStore } from '$lib/stores/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
+	import { generationRunLabel } from '$lib/utils/generationTime';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
 	import { nsfwFilterStore, selectableMediaFiles, visibleMediaFiles, isUnratedFile } from '$lib/stores/nsfwFilter';
 	import FailureNotice from '$lib/components/FailureNotice.svelte';
@@ -153,6 +154,8 @@
 	// fixed-aspect card).
 	$: chromeBucket = tile ? bucketForCardWidth(tile.width) : null;
 	$: menuEnabled = !!(tile && chromeBucket && entryMenu);
+	$: barRunLabel = chromeBucket?.showBarDuration ? generationRunLabel(generation) : null;
+	$: durationReplacesResolution = !!(barRunLabel && chromeBucket?.durationReplacesResolution);
 	$: cardResolution = resolveCardResolution(currentMediaFile, generation.form_data);
 	$: fullResolutionTitle = cardResolution ? `${cardResolution.width}×${cardResolution.height}` : undefined;
 	$: barResolutionText =
@@ -711,8 +714,16 @@
 					{/if}
 				</div>
 				<div class="flex items-center gap-1.5 ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em]">
-					{#if barResolutionText}
+					{#if barResolutionText && !durationReplacesResolution}
 						<span class="text-fg-muted whitespace-nowrap" title={fullResolutionTitle}>{barResolutionText}</span>
+					{/if}
+					{#if barRunLabel}
+						{#if barResolutionText && !durationReplacesResolution}<span class="text-line-hover">·</span>{/if}
+						<Tooltip text="Generation time" position="top" wrapperClass="inline-flex items-center">
+							<span class="inline-flex items-center gap-0.5 text-xs text-fg-muted whitespace-nowrap" data-testid="card-run-time">
+								{#if chromeBucket.durationIcon}<Icon name="clock" className="w-2.5 h-2.5" />{/if}{barRunLabel}
+							</span>
+						</Tooltip>
 					{/if}
 					{#if chromeBucket.showBarTime}
 						<span class="text-line-hover">·</span>

@@ -115,7 +115,10 @@ export interface GenerationHistoryItem {
 	status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 	progress: number;
 	created_at: string;
+	started_at?: string | null;
 	completed_at?: string;
+	run_seconds?: number | null;
+	queued_seconds?: number | null;
 	updated_at: string;
 	error_message?: string;
 	error_code?: string | null;

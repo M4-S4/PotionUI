@@ -217,6 +217,12 @@ class Generation:
             updated_at=dt_column(row['updated_at'])
         )
     
+    @staticmethod
+    def _seconds_between(start: Optional[datetime], end: Optional[datetime]) -> Optional[int]:
+        if start is None or end is None:
+            return None
+        return max(0, round((end - start).total_seconds()))
+
     def to_dict(self, include_files: bool = False, include_tags: bool = False) -> dict:
         """Convert to dictionary for API responses"""
         result = {
@@ -244,6 +250,8 @@ class Generation:
             'rating': self.rating,
             'is_favorite': self.is_favorite,
             'duration_ms': self.duration_ms,
+            'run_seconds': self._seconds_between(self.started_at, self.completed_at),
+            'queued_seconds': self._seconds_between(self.created_at, self.started_at),
             'error_message': self.error_message,
             'error_code': self.error_code,
             'error_user_message': self.error_user_message,

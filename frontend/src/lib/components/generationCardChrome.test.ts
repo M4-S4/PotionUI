@@ -31,6 +31,18 @@ describe('bucketForCardWidth', () => {
 		expect(bucketForCardWidth(80)).toMatchObject({ showStars: false, showRatingChip: false });
 	});
 
+	it('shows the generation time in every bucket, replacing the resolution below regular', () => {
+		for (const width of [320, 220, 180, 120, 80]) {
+			expect(bucketForCardWidth(width).showBarDuration).toBe(true);
+		}
+		expect(bucketForCardWidth(320).durationReplacesResolution).toBe(false);
+		expect(bucketForCardWidth(220).durationReplacesResolution).toBe(false);
+		expect(bucketForCardWidth(180).durationReplacesResolution).toBe(true);
+		expect(bucketForCardWidth(80).durationReplacesResolution).toBe(true);
+		expect(bucketForCardWidth(180).durationIcon).toBe(true);
+		expect(bucketForCardWidth(120).durationIcon).toBe(false);
+	});
+
 	it('only the full bucket keeps the bar-time lane and only nano shortens resolution', () => {
 		expect(bucketForCardWidth(320).showBarTime).toBe(true);
 		expect(bucketForCardWidth(220).showBarTime).toBe(false);
