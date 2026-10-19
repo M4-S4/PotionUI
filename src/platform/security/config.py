@@ -5,10 +5,10 @@ import os
 import secrets
 import logging
 import stat
-import tempfile
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
+from src.platform.util.private_file import write_private_file
 
 if TYPE_CHECKING:
     # Injected, never constructed here. Importing it for real would reach
@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 # The generated JWT secret is persisted here, under the file storage directory,
 # so sessions survive a restart on installs that never set a secret explicitly.
 SECRET_KEY_FILENAME = "auth_secret.key"
-# Owner read/write only (0600). A secret readable by other users is a leak.
-_SECRET_FILE_MODE = stat.S_IRUSR | stat.S_IWUSR
 
 
 def warn_if_insecure_permissions(path: Path, what: str) -> None:
@@ -95,16 +93,13 @@ class AuthConfig:
         """Resolve the on-disk location of the persisted secret, or None if the
         file storage directory cannot be determined."""
         try:
-            storage_dir = self._settings.get_file_storage_directory()
+            return self._settings.storage_file(SECRET_KEY_FILENAME)
         except Exception as exc:  # settings/DB not ready - fall back to in-memory
             logger.warning(
                 "Could not resolve the file storage directory for the auth "
                 "secret (%s); a persistent secret cannot be stored yet.", exc
             )
             return None
-        if not storage_dir:
-            return None
-        return Path(storage_dir) / SECRET_KEY_FILENAME
 
     def _load_or_create_persisted_secret(self) -> str:
         """Read the secret from its key file, or generate and persist one.
@@ -155,34 +150,7 @@ class AuthConfig:
         the last writer wins and both processes end up with a valid key file.
         """
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp_name = tempfile.mkstemp(
-                prefix=f".{SECRET_KEY_FILENAME}.", dir=str(path.parent)
-            )
-            try:
-                # fchmod does not exist on Windows; chmod-by-path on the still-open
-                # temp file achieves the same restriction there before any reader
-                # can observe it (Windows chmod only toggles the read-only bit, but
-                # that is the closest equivalent this platform offers).
-                if hasattr(os, "fchmod"):
-                    os.fchmod(fd, _SECRET_FILE_MODE)
-                else:
-                    os.chmod(tmp_name, _SECRET_FILE_MODE)
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    handle.write(secret)
-            except BaseException:
-                # fdopen consumes fd; guard the pre-fdopen window too.
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-                raise
-            os.replace(tmp_name, path)
-            # Re-assert mode in case a restrictive umask altered the final file.
-            try:
-                os.chmod(path, _SECRET_FILE_MODE)
-            except OSError:
-                pass
+            write_private_file(path, secret)
             return True
         except OSError as exc:
             logger.warning(
@@ -191,12 +159,6 @@ class AuthConfig:
                 "restart until this path is writable or "
                 "POTIONUI_AUTH_SECRET_KEY is set.", path, exc
             )
-            # Best-effort cleanup of a stray temp file.
-            try:
-                if 'tmp_name' in locals() and os.path.exists(tmp_name):
-                    os.unlink(tmp_name)
-            except OSError:
-                pass
             return False
 
     def _ephemeral_secret(self, reason: str) -> str:

@@ -1049,15 +1049,10 @@ class DownloadWorker:
 
         logger.info(f"Verifying checksum for {download.filename}")
 
-        sha256_hash = hashlib.sha256()
-        chunk_size = 8192
-
         try:
             with open(download.destination_path, 'rb') as f:
-                while chunk := f.read(chunk_size):
-                    sha256_hash.update(chunk)
+                calculated = hashlib.file_digest(f, "sha256").hexdigest().lower()
 
-            calculated = sha256_hash.hexdigest().lower()
             expected = download.checksum_sha256.lower()
 
             if calculated != expected:

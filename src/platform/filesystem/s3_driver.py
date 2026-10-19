@@ -189,36 +189,3 @@ class S3FileStorageDriver(FileStorageDriver):
         response.raise_for_status()
         content_length = response.headers.get("content-length")
         return int(content_length) if content_length is not None else None
-
-    # ---- optional: presigned URLs (not wired to any route in this pass) ----
-
-    def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
-        """A time-limited, unsigned-by-the-server GET URL for `key`.
-
-        Query-string SigV4 presigning, per AWS's "authentication information
-        in the query string" variant. Not used by any route yet - servers
-        proxy through the authenticated media routes instead - but the
-        primitive is here for a future public-redirect optimization.
-        """
-        object_key = self._object_key(key)
-        timestamp = self._timestamp()
-        date_stamp = timestamp[:8]
-        credential_scope = f"{date_stamp}/{self.region}/s3/aws4_request"
-
-        query_params = {
-            "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
-            "X-Amz-Credential": f"{self.access_key_id}/{credential_scope}",
-            "X-Amz-Date": timestamp,
-            "X-Amz-Expires": str(expires_in),
-            "X-Amz-SignedHeaders": "host",
-        }
-        canonical_uri = self._canonical_uri(object_key)
-        canonical_query = aws_sigv4.canonical_query_string(query_params)
-        creq, signed_headers = aws_sigv4.canonical_request(
-            "GET", canonical_uri, canonical_query, {"host": self.host}, UNSIGNED_PAYLOAD
-        )
-        sts = aws_sigv4.string_to_sign(timestamp, credential_scope, creq)
-        signature = aws_sigv4.sign_string(
-            self.secret_access_key, date_stamp, self.region, "s3", sts
-        )
-        return f"{self.scheme}://{self.host}{canonical_uri}?{canonical_query}&X-Amz-Signature={signature}"

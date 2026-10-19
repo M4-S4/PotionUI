@@ -37,7 +37,7 @@ class TestConnectionHub:
         client_id = "test_client_1"
         mock_websocket.accept.side_effect = Exception("Connection failed")
         
-        with patch('logging.error') as mock_log:
+        with patch('src.platform.websocket.base_connection_hub.logger.error') as mock_log:
             result = await manager.connect(mock_websocket, client_id)
         
         assert result is False
@@ -45,19 +45,20 @@ class TestConnectionHub:
         assert client_id not in manager.active_connections
         mock_log.assert_called_once()
     
-    def test_disconnect_existing_client(self, manager, mock_websocket):
+    @pytest.mark.asyncio
+    async def test_disconnect_existing_client(self, manager, mock_websocket):
         client_id = "test_client_1"
         generation_id = "gen_1"
-        
+
         # Setup initial state
         manager.active_connections[client_id] = mock_websocket
-        manager.generation_connections[generation_id] = [client_id]
-        
+        await manager.subscribe_to_generation(client_id, generation_id)
+
         manager.disconnect(client_id)
-        
+
         assert client_id not in manager.active_connections
-        assert client_id not in manager.generation_connections[generation_id]
-    
+        assert generation_id not in manager.generation_connections
+
     def test_disconnect_nonexistent_client(self, manager):
         client_id = "nonexistent_client"
         
@@ -66,23 +67,37 @@ class TestConnectionHub:
         
         assert client_id not in manager.active_connections
     
-    def test_disconnect_removes_from_multiple_generations(self, manager, mock_websocket):
+    @pytest.mark.asyncio
+    async def test_disconnect_removes_from_multiple_generations(self, manager, mock_websocket):
         client_id = "test_client_1"
         gen_id_1 = "gen_1"
         gen_id_2 = "gen_2"
-        
+
         # Setup initial state
         manager.active_connections[client_id] = mock_websocket
-        manager.generation_connections[gen_id_1] = [client_id, "other_client"]
-        manager.generation_connections[gen_id_2] = [client_id]
-        
+        manager.active_connections["other_client"] = mock_websocket
+        await manager.subscribe_to_generation(client_id, gen_id_1)
+        await manager.subscribe_to_generation("other_client", gen_id_1)
+        await manager.subscribe_to_generation(client_id, gen_id_2)
+
         manager.disconnect(client_id)
-        
+
         assert client_id not in manager.active_connections
         assert client_id not in manager.generation_connections[gen_id_1]
-        assert client_id not in manager.generation_connections[gen_id_2]
+        assert gen_id_2 not in manager.generation_connections
         assert "other_client" in manager.generation_connections[gen_id_1]
-    
+
+    @pytest.mark.asyncio
+    async def test_disconnect_never_leaves_an_empty_generation_key(self, manager, mock_websocket):
+        for index in range(3):
+            client_id = f"client_{index}"
+            manager.active_connections[client_id] = mock_websocket
+            await manager.subscribe_to_generation(client_id, f"gen_{index}")
+            manager.disconnect(client_id)
+
+        assert manager.generation_connections == {}
+        assert manager._client_generations == {}
+
     @pytest.mark.asyncio
     async def test_subscribe_to_generation_success(self, manager, mock_websocket):
         client_id = "test_client_1"
@@ -153,17 +168,17 @@ class TestConnectionHub:
         
         # Setup active connection and subscription
         manager.active_connections[client_id] = mock_websocket
-        manager.generation_connections[generation_id] = [client_id]
-        
+        await manager.subscribe_to_generation(client_id, generation_id)
+
         # Make send_text raise an exception
         mock_websocket.send_text.side_effect = Exception("Connection broken")
-        
+
         await manager.broadcast_to_generation(generation_id, message)
-        
+
         # Client should be disconnected
         assert client_id not in manager.active_connections
-        assert client_id not in manager.generation_connections[generation_id]
-    
+        assert generation_id not in manager.generation_connections
+
     @pytest.mark.asyncio
     async def test_broadcast_to_generation_serialization_error(self, manager, mock_websocket):
         client_id = "test_client_1"

@@ -523,18 +523,3 @@ class HookChain:
                 ))
 
         return context, results
-
-    def clear_handlers(self, hook_name: Optional[str] = None) -> None:
-        """
-        Clear handlers for a specific hook or all hooks.
-
-        Args:
-            hook_name: Name of the hook to clear, or None to clear all hooks
-        """
-        if hook_name is None:
-            self._handlers.clear()
-            logger.debug("Cleared all hook handlers")
-        else:
-            if hook_name in self._handlers:
-                del self._handlers[hook_name]
-                logger.debug(f"Cleared handlers for {hook_name}")

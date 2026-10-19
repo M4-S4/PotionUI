@@ -17,6 +17,7 @@ from src.platform.filesystem.model_roots import (
     root_path_key,
 )
 from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS, binding_scans_headers_by_default
+from src.platform.util.path_resolution import is_within
 
 DETECTION_BUDGET_SECONDS = 6.0
 COUNT_LIMIT = 10_000
@@ -106,14 +107,6 @@ def _segments(value: str) -> Tuple[str, ...]:
 def _same(a: Path, b: Path) -> bool:
     return os.path.normcase(os.path.normpath(str(a))) == os.path.normcase(os.path.normpath(str(b)))
 
-
-def _inside(base: Path, target: Path) -> bool:
-    anchor = os.path.normcase(os.path.normpath(str(base)))
-    other = os.path.normcase(os.path.normpath(str(target)))
-    try:
-        return os.path.commonpath([anchor, other]) == anchor
-    except ValueError:
-        return False
 
 
 def _posix_rel(base: Path, target: Path) -> str:
@@ -329,7 +322,7 @@ def _folder_suggestions(
             if real in seen_real:
                 continue
             seen_real.append(real)
-            if not _inside(root, directory) or _same(root, directory):
+            if not is_within(root, directory) or _same(root, directory):
                 outside.append(
                     {
                         "model_type": folder.model_type,

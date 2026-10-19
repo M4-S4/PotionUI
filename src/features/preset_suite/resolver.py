@@ -35,7 +35,6 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-_HASH_CHUNK = 1024 * 1024  # 1 MiB read blocks when hashing a file
 _HF_BASE_URL = "https://huggingface.co"
 _DOWNLOAD_POLL_SECONDS = 2.0
 _DOWNLOAD_TIMEOUT_SECONDS = 3600
@@ -60,11 +59,8 @@ class ResolveResult:
 
 
 def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
     with open(path, "rb") as f:
-        for block in iter(lambda: f.read(_HASH_CHUNK), b""):
-            h.update(block)
-    return h.hexdigest()
+        return hashlib.file_digest(f, "sha256").hexdigest()
 
 
 class ModelResolver:

@@ -256,7 +256,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             return
 
         client_id = str(uuid.uuid4())
-        await notification_connection_hub.connect(websocket, user.id, client_id)
+        await notification_connection_hub.connect(websocket, client_id, user.id)
 
         try:
             unread_count = await asyncio.to_thread(controller.repository.unread_count, user.id)
@@ -275,6 +275,6 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         except Exception as e:
             logging.error(f"Notification WebSocket handler error for client {client_id}: {e}")
         finally:
-            notification_connection_hub.disconnect(user.id, client_id)
+            notification_connection_hub.disconnect(client_id)
 
     return ws_router

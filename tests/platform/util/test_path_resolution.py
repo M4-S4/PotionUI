@@ -1,12 +1,16 @@
 """Coverage for the shared path-containment primitive and the Director
 document helpers built on it (shared between video_director/music_director)."""
 
+import ntpath
 from pathlib import Path
 
 import pytest
 
+from src.platform.util import path_resolution
+
 from src.platform.util.path_resolution import (
     apply_preset_mode_overlay,
+    is_within,
     resolve_media_ref,
     resolve_within,
 )
@@ -92,3 +96,41 @@ class TestResolveMediaRef:
 
         assert result is None
         assert "requires a 'path'" in errors[0]
+
+
+class TestIsWithin:
+    def test_a_descendant_is_within(self, tmp_path):
+        assert is_within(tmp_path, tmp_path / "a" / "b")
+
+    def test_the_base_itself_is_within(self, tmp_path):
+        assert is_within(tmp_path, tmp_path)
+
+    def test_a_sibling_sharing_a_name_prefix_is_not_within(self, tmp_path):
+        assert not is_within(tmp_path / "plugin", tmp_path / "plugin-evil" / "x")
+
+    def test_dotdot_segments_are_collapsed(self, tmp_path):
+        assert not is_within(tmp_path / "root", tmp_path / "root" / ".." / "other")
+
+    def test_a_relative_target_against_an_absolute_base_is_not_within(self, tmp_path):
+        assert not is_within(tmp_path, Path("relative/dir"))
+
+    def test_accepts_plain_strings(self, tmp_path):
+        assert is_within(str(tmp_path), str(tmp_path / "child"))
+
+
+class TestIsWithinWindows:
+    @pytest.fixture(autouse=True)
+    def _windows_paths(self, monkeypatch):
+        monkeypatch.setattr(path_resolution, "_path", ntpath)
+
+    def test_containment_ignores_case(self):
+        assert is_within("C:\\Base", "c:\\base\\x")
+
+    def test_a_target_on_another_drive_is_not_within(self):
+        assert not is_within("C:\\a", "D:\\a")
+
+    def test_a_sibling_sharing_a_prefix_is_not_within(self):
+        assert not is_within("C:\\plugin", "C:\\plugin-evil\\x")
+
+    def test_forward_slashes_are_normalised(self):
+        assert is_within("C:\\Base", "C:/base/sub/x")

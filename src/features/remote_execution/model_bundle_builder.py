@@ -37,7 +37,6 @@ from src.platform.worker_protocol import (
 )
 
 _DIGEST_ALGORITHM = "sha256"
-_HASH_CHUNK_BYTES = 1024 * 1024
 
 
 class ModelBundleResolutionError(RuntimeError):
@@ -197,11 +196,8 @@ def _hash_and_persist(model: Model, repo: ModelRepository, locator: ModelLocator
 
 
 def _hash_file(path: Path) -> str:
-    hasher = hashlib.new(_DIGEST_ALGORITHM)
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(_HASH_CHUNK_BYTES), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+        return hashlib.file_digest(handle, _DIGEST_ALGORITHM).hexdigest()
 
 
 def _bundle_digest(entries: Tuple[ModelBundleEntryV1, ...]) -> ContentDigest:

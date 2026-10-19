@@ -45,4 +45,4 @@ async def test_connect_reports_the_unread_count_read_off_the_event_loop(monkeypa
     assert websocket.sent[0]["unread_count"] == 7
     controller.repository.unread_count.assert_called_once_with("u-1")
     assert threads[0] != threading.get_ident()
-    hub.disconnect.assert_called_once_with("u-1", websocket.sent[0]["client_id"])
+    hub.disconnect.assert_called_once_with(websocket.sent[0]["client_id"])

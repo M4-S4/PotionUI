@@ -26,7 +26,7 @@ def test_non_loopback_hosts(host):
 
 def _token_manager(tmp_path):
     settings = Mock()
-    settings.get_file_storage_directory.return_value = str(tmp_path)
+    settings.storage_file.side_effect = lambda name: tmp_path / name
     return ClaimTokenStore(settings), settings
 
 

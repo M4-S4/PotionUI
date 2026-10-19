@@ -14,6 +14,7 @@ from enum import Enum
 import logging
 
 from src.platform.plugins.loader import PluginLoader, PluginManifest
+from src.platform.util.path_resolution import is_within
 from src.platform.plugins.hooks import HookChain, HookContext, hooks_registry
 from src.platform.plugins.lifecycle_hooks import PLUGIN_LIFECYCLE_HOOKS
 from src.platform.plugins.router_mounter import (
@@ -1132,7 +1133,7 @@ class PluginRegistry:
             prompt_file = spec.get('system_prompt_file')
             if system_prompt is None and prompt_file:
                 prompt_path = (manifest.plugin_dir / prompt_file).resolve()
-                if not str(prompt_path).startswith(str(manifest.plugin_dir.resolve())):
+                if not is_within(manifest.plugin_dir.resolve(), prompt_path):
                     return f"system_prompt_file escapes the plugin directory: {prompt_file}"
                 try:
                     system_prompt = prompt_path.read_text(encoding='utf-8')

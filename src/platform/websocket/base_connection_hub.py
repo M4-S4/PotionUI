@@ -8,7 +8,7 @@ call back into this base implementation - see `DownloadConnectionHub`.
 """
 import json
 import logging
-from typing import Dict
+from typing import Callable, Dict, Mapping, Union
 from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
@@ -73,15 +73,23 @@ class BaseConnectionHub:
         await self._broadcast_raw(json_message)
 
     async def _broadcast_raw(self, json_message: str) -> None:
-        disconnected_clients = []
-        for client_id, websocket in self.active_connections.items():
-            try:
-                await websocket.send_text(json_message)
-            except Exception as e:
-                logger.error(f"Failed to broadcast to client {client_id}: {e}")
-                disconnected_clients.append(client_id)
+        await self._send_all(self.active_connections, json_message, "broadcast")
 
-        for client_id in disconnected_clients:
+    async def _send_all(
+        self,
+        targets: Mapping[str, WebSocket],
+        payload: Union[str, Callable[[str], str]],
+        action: str,
+    ) -> None:
+        failed = []
+        for client_id, websocket in list(targets.items()):
+            try:
+                await websocket.send_text(payload(client_id) if callable(payload) else payload)
+            except Exception as e:
+                logger.error(f"Failed to {action} to client {client_id}: {e}")
+                failed.append(client_id)
+
+        for client_id in failed:
             self.disconnect(client_id)
 
     async def send_notification(

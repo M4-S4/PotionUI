@@ -42,6 +42,7 @@ from src.features.downloads.hooks import DOWNLOAD_HOOKS
 from src.features.downloads.utils import safe_download_name, url_path_name
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
+from src.platform.util.path_resolution import is_within
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 
 if TYPE_CHECKING:
@@ -362,9 +363,7 @@ class DownloadQueue:
         layout no longer explains. `label` names the path in the refusal when
         the caller has a more meaningful spelling of it than the joined result.
         """
-        root_abs = os.path.abspath(str(root))
-        candidate_abs = os.path.abspath(str(candidate))
-        if candidate_abs != root_abs and os.path.commonpath([root_abs, candidate_abs]) != root_abs:
+        if not is_within(os.path.abspath(str(root)), os.path.abspath(str(candidate))):
             raise DownloadDestinationInvalid(
                 f"Destination directory '{label if label is not None else candidate}' "
                 f"escapes the configured directory '{root}'"

@@ -13,41 +13,42 @@ push messages without awaiting a coroutine directly.
 import asyncio
 import json
 import logging
-from typing import Dict, Optional, Set
+from typing import Set
 from fastapi import WebSocket
 
 from src.platform.security.failure_text import GENERIC_FAILURE, scrub_paths
+from src.platform.websocket.base_connection_hub import BaseConnectionHub
 from src.platform.websocket.loop_dispatch import LoopDispatchMixin
 
 logger = logging.getLogger(__name__)
 
 
-class AutomationConnectionHub(LoopDispatchMixin):
+class AutomationConnectionHub(BaseConnectionHub, LoopDispatchMixin):
     """Manages WebSocket connections for the automation run-status channel."""
 
     _DISPATCH_LABEL = "automation send"
 
+    _CONNECTION_LABEL = "Automation client"
+
     def __init__(self):
-        # client_id -> WebSocket
-        self.connections: Dict[str, WebSocket] = {}
+        super().__init__()
         self._admin_clients: Set[str] = set()
         self._init_loop_dispatch()
 
-    async def connect(self, websocket: WebSocket, client_id: str, is_admin: bool = False) -> None:
+    async def connect(self, websocket: WebSocket, client_id: str, is_admin: bool = False) -> bool:
         """Accept a WebSocket connection and register it."""
-        await websocket.accept()
-        self.connections[client_id] = websocket
+        if not await super().connect(websocket, client_id):
+            return False
         if is_admin:
             self._admin_clients.add(client_id)
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
-        logger.debug(f"Automation client {client_id} connected")
+        return True
 
     def disconnect(self, client_id: str) -> None:
         """Remove a client connection."""
-        self.connections.pop(client_id, None)
+        super().disconnect(client_id)
         self._admin_clients.discard(client_id)
-        logger.debug(f"Automation client {client_id} disconnected")
 
     @staticmethod
     def _for_audience(message: dict, is_admin: bool) -> dict:
@@ -67,16 +68,11 @@ class AutomationConnectionHub(LoopDispatchMixin):
             logger.error(f"Failed to serialize automation message: {e}")
             return
 
-        disconnected = []
-        for client_id, websocket in list(self.connections.items()):
-            try:
-                await websocket.send_text(admin_message if client_id in self._admin_clients else public_message)
-            except Exception as e:
-                logger.error(f"Failed to send automation message to client {client_id}: {e}")
-                disconnected.append(client_id)
-
-        for client_id in disconnected:
-            self.disconnect(client_id)
+        await self._send_all(
+            self.active_connections,
+            lambda client_id: admin_message if client_id in self._admin_clients else public_message,
+            "send automation message",
+        )
 
     def schedule_send(self, message: dict) -> None:
         """Sync-to-async bridge: schedule a broadcast from non-async code."""

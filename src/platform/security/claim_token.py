@@ -24,10 +24,10 @@ from __future__ import annotations
 import logging
 import os
 import secrets
-import stat
-import tempfile
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
+
+from src.platform.util.private_file import write_private_file
 
 if TYPE_CHECKING:
     from src.platform.settings.settings import Settings
@@ -37,9 +37,6 @@ logger = logging.getLogger(__name__)
 # File name under the file storage directory. Part of the bootstrap-CLI contract
 # (see module docstring); keep it stable.
 CLAIM_TOKEN_FILENAME = "setup_claim_token"
-
-# Owner read/write only (0600). A token readable by other users is a leak.
-_TOKEN_FILE_MODE = stat.S_IRUSR | stat.S_IWUSR
 
 
 class ClaimTokenStore:
@@ -51,16 +48,13 @@ class ClaimTokenStore:
     def _token_path(self) -> Optional[Path]:
         """On-disk location of the token file, or None if storage is undetermined."""
         try:
-            storage_dir = self._settings.get_file_storage_directory()
+            return self._settings.storage_file(CLAIM_TOKEN_FILENAME)
         except Exception as exc:  # settings/DB not ready yet
             logger.warning(
                 "Could not resolve the file storage directory for the setup "
                 "claim token (%s); it cannot be generated yet.", exc
             )
             return None
-        if not storage_dir:
-            return None
-        return Path(storage_dir) / CLAIM_TOKEN_FILENAME
 
     def exists(self) -> bool:
         """True when a setup token is currently on disk."""
@@ -122,32 +116,7 @@ class ClaimTokenStore:
         """Create a fresh token and atomically persist it with 0600 perms."""
         token = secrets.token_urlsafe(32)
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp_name = tempfile.mkstemp(
-                prefix=f".{CLAIM_TOKEN_FILENAME}.", dir=str(path.parent)
-            )
-            try:
-                # fchmod does not exist on Windows; chmod-by-path on the still-open
-                # temp file achieves the same restriction there before any reader
-                # can observe it (Windows chmod only toggles the read-only bit, but
-                # that is the closest equivalent this platform offers).
-                if hasattr(os, "fchmod"):
-                    os.fchmod(fd, _TOKEN_FILE_MODE)
-                else:
-                    os.chmod(tmp_name, _TOKEN_FILE_MODE)
-                with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                    handle.write(token)
-            except BaseException:
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-                raise
-            os.replace(tmp_name, path)
-            try:
-                os.chmod(path, _TOKEN_FILE_MODE)
-            except OSError:
-                pass
+            write_private_file(path, token)
             logger.info(
                 "This instance has no owner yet; wrote a one-time setup token to "
                 "%s. A claim from a non-local address must present it.", path
@@ -159,9 +128,4 @@ class ClaimTokenStore:
                 "claiming cannot be gated by a token until this path is "
                 "writable.", path, exc
             )
-            try:
-                if "tmp_name" in locals() and os.path.exists(tmp_name):
-                    os.unlink(tmp_name)
-            except OSError:
-                pass
             return None
