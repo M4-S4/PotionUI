@@ -16,6 +16,8 @@
 // coverage independent of the Svelte components that consume them.
 
 import {
+	clampNumberValue,
+	isNumberRangeValid,
 	normalizeVariableDef,
 	optionText,
 	type ChoiceVariableMode,
@@ -54,7 +56,7 @@ function validOptions(def: Extract<VariableDef, { type: 'choice' }>): string[] {
  *  design — only the fields the backend renderer reads. */
 export interface VariableSnapshotEntry {
 	name: string;
-	type: 'text' | 'choice';
+	type: 'text' | 'choice' | 'number';
 	/** text variables only — the current value, clipped. */
 	value?: string;
 	/** choice variables only — non-blank options, clipped and count-capped. */
@@ -65,6 +67,9 @@ export interface VariableSnapshotEntry {
 	pinnedIndex?: number;
 	/** choice + shuffle only — the last client-side roll's value, if present. */
 	lastRoll?: string;
+	min?: number;
+	max?: number;
+	step?: number;
 }
 
 /**
@@ -88,6 +93,16 @@ export function buildVariablesSnapshot(
 			const entry: VariableSnapshotEntry = { name, type: 'text' };
 			const value = def.value.trim();
 			if (value) entry.value = clip(value);
+			out.push(entry);
+			continue;
+		}
+
+		if (def.type === 'number') {
+			if (!isNumberRangeValid(def)) continue;
+			const entry: VariableSnapshotEntry = { name, type: 'number', mode: def.mode, min: def.min, max: def.max, step: def.step };
+			if (def.mode === 'pin') entry.value = clampNumberValue(def);
+			const roll = rolls?.[name];
+			if (def.mode === 'shuffle' && roll?.value) entry.lastRoll = clip(roll.value);
 			out.push(entry);
 			continue;
 		}
@@ -123,6 +138,13 @@ function describeVariable(def: VariableDef, roll: VariableRoll | undefined): str
 	if (def.type === 'text') {
 		const value = def.value.trim();
 		return value ? clip(value) : 'Text variable';
+	}
+	if (def.type === 'number') {
+		const range = `a number from ${def.min} to ${def.max} in steps of ${def.step}`;
+		if (def.mode === 'pin') return `${range} — pinned to ${clampNumberValue(def)}`;
+		if (def.mode === 'per-image') return `${range} — re-rolls per image`;
+		const last = roll?.value ? `; last roll: ${clip(roll.value.trim())}` : '';
+		return `${range} — shuffles each generation${last}`;
 	}
 	const opts = validOptions(def);
 	const shown = opts.slice(0, MAX_OPTIONS).map((o) => clip(o));

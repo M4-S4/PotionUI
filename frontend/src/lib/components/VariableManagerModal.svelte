@@ -8,6 +8,7 @@
 	import Icon from './Icon.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import VariableConditionChip from './VariableConditionChip.svelte';
+	import NumberVariableEditor from './NumberVariableEditor.svelte';
 	import PasteVariablesModal from './PasteVariablesModal.svelte';
 	import { isValidVariableName } from '$lib/utils/promptVariables';
 	import { toasts } from '$lib/stores/toast';
@@ -17,6 +18,9 @@
 		normalizeVariableDef,
 		createTextVariable,
 		createChoiceVariable,
+		createNumberVariable,
+		clampNumberValue,
+		numberRangeLabel,
 		optionText,
 		optionWhen,
 		dependencies,
@@ -28,6 +32,8 @@
 		usagesShareRoll,
 		isWhenTarget,
 		type ChoiceVariableMode,
+		type ConditionReaders,
+		type NumberVariableDef,
 		type VariableDef,
 		type VariableOption,
 		type VariableOptionWhen,
@@ -46,6 +52,7 @@
 	export let isOpen = false;
 	export let variables: VariablesMap = {};
 	export let usageCounts: Record<string, number> = {};
+	export let readers: ConditionReaders = {};
 
 	const dispatch = createEventDispatcher<{ close: void; change: VariablesMap }>();
 
@@ -178,6 +185,8 @@
 	$: anyCondition = rows.some(
 		(r) => r.def.type === 'choice' && r.def.options.some((o) => !!optionWhen(o))
 	);
+	$: anyNumber = rows.some((r) => r.def.type === 'number');
+	$: showRollPreview = anyCondition || anyNumber;
 
 	interface RollPreviewEntry {
 		name: string;
@@ -187,7 +196,7 @@
 	}
 
 	let rollPreview: RollPreviewEntry[] | null = null;
-	$: if (!anyCondition) rollPreview = null;
+	$: if (!showRollPreview) rollPreview = null;
 
 	function runRollPreview() {
 		const { wireMap, rolls } = buildVariablesForSubmit(liveVariables);
@@ -201,6 +210,17 @@
 
 			if (def.type === 'text') {
 				resolved[name] = (def.value ?? '').trim();
+				continue;
+			}
+			if (def.type === 'number') {
+				const numberValue = wireMap[name];
+				if (numberValue !== undefined && !numberValue.startsWith('{')) resolved[name] = numberValue;
+				entries.push({
+					name,
+					value: numberValue !== undefined && numberValue.startsWith('{') ? 'per image' : (numberValue ?? ''),
+					note: '',
+					warn: numberValue === undefined
+				});
 				continue;
 			}
 			if (!def.options.some((o) => optionText(o).trim().length > 0)) continue;
@@ -262,6 +282,13 @@
 
 	function rowMeta(row: Row): string {
 		if (row.def.type === 'text') return 'text';
+		if (row.def.type === 'number') {
+			const numberUses = usageCounts[row.name.trim()] ?? 0;
+			const lead = row.def.mode === 'pin' ? clampNumberValue(row.def) : numberRangeLabel(row.def);
+			const numberParts = [lead, row.def.mode];
+			if (numberUses > 0) numberParts.push(`${numberUses} use${numberUses === 1 ? '' : 's'}`);
+			return numberParts.join(' · ');
+		}
 		const uses = usageCounts[row.name.trim()] ?? 0;
 		const parts = [`${row.def.options.length} opt`, row.def.mode];
 		if (uses > 0) parts.push(`${uses} use${uses === 1 ? '' : 's'}`);
@@ -308,11 +335,17 @@
 		commit();
 	}
 
-	function setType(key: string, type: 'text' | 'choice') {
+	function setType(key: string, type: 'text' | 'choice' | 'number') {
 		rows = rows.map((r) => {
 			if (r.key !== key || r.def.type === type) return r;
-			return { ...r, def: type === 'text' ? createTextVariable() : createChoiceVariable() };
+			const def = type === 'text' ? createTextVariable() : type === 'number' ? createNumberVariable() : createChoiceVariable();
+			return { ...r, def };
 		});
+		commit();
+	}
+
+	function updateNumberDef(key: string, def: NumberVariableDef) {
+		rows = rows.map((r) => (r.key === key && r.def.type === 'number' ? { ...r, def } : r));
 		commit();
 	}
 
@@ -418,7 +451,7 @@
 		<p class="text-xs text-fg-subtle">
 			Defined here, used in any segment as <code class="rounded bg-surface-2 px-1 py-0.5 font-mono text-xs text-fg">${'{'}name{'}'}</code>.
 			A <span class="text-fg">Choice</span> variable picks a new option each time you click Generate — same idea as a
-			phrasebook chip's shuffle. Shared by every segment of this tab, for the life of the session.
+			phrasebook chip's shuffle. A <span class="text-fg">Number</span> variable rolls a value between a minimum and a maximum. Shared by every segment of this tab, for the life of the session.
 		</p>
 
 		<div class="flex min-h-0 flex-col gap-3 md:h-[62vh] md:flex-row">
@@ -464,7 +497,12 @@
 									</Tooltip>
 								{/if}
 							</span>
-							<span class="truncate font-mono text-xs tabular-nums text-fg-subtle">{rowMeta(row)}</span>
+							<span class="flex min-w-0 items-center gap-1.5">
+							<span class="min-w-0 flex-1 truncate font-mono text-xs tabular-nums text-fg-subtle">{rowMeta(row)}</span>
+							<span class="flex-shrink-0 rounded bg-surface-2 px-1 font-mono text-xs text-fg-subtle" aria-label={`${row.def.type} variable`}>
+								{row.def.type === 'number' ? '123' : row.def.type === 'text' ? 'Aa' : '[ ]'}
+							</span>
+						</span>
 						</button>
 					{:else}
 						<p class="px-2.5 py-3 text-xs text-fg-subtle">No variables match.</p>
@@ -520,6 +558,17 @@
 									>
 										Choice
 									</button>
+									<button
+										type="button"
+										role="tab"
+										aria-selected={row.def.type === 'number'}
+										class="rounded px-2.5 py-1 text-xs font-medium transition-colors {row.def.type === 'number'
+											? 'bg-signal/15 text-signal'
+											: 'text-fg-muted hover:text-fg'}"
+										on:click={() => setType(row.key, 'number')}
+									>
+										Number
+									</button>
 								</div>
 
 								{#if row.def.type === 'choice'}
@@ -568,6 +617,15 @@
 									on:input={(e) => updateTextValue(row.key, e.currentTarget.value)}
 									aria-label="Variable value"
 								/>
+							{:else if row.def.type === 'number'}
+								<NumberVariableEditor
+									name={row.name.trim()}
+									def={row.def}
+									variables={liveVariables}
+									usageCount={usageCounts[row.name.trim()] ?? 0}
+									readers={readers[row.name.trim()] ?? []}
+									onChange={(next) => updateNumberDef(row.key, next)}
+								/>
 							{:else}
 								{@const whenTarget = isWhenTarget(row.name.trim(), liveVariables)}
 								{@const usageCount = usageCounts[row.name.trim()] ?? 0}
@@ -598,9 +656,9 @@
 												<button
 													type="button"
 													role="radio"
-													aria-checked={usagesShareRoll(row.name.trim(), liveVariables) === choice.linked}
+													aria-checked={usagesShareRoll(row.name.trim(), liveVariables, readers) === choice.linked}
 													disabled={usagesLocked}
-													class="rounded px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 {usagesShareRoll(row.name.trim(), liveVariables) === choice.linked
+													class="rounded px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 {usagesShareRoll(row.name.trim(), liveVariables, readers) === choice.linked
 														? 'bg-surface-1 text-fg shadow-raised'
 														: 'text-fg-muted hover:text-fg'}"
 													on:click={() => setLinked(row.key, choice.linked)}
@@ -618,7 +676,7 @@
 										Always uses the pinned option; pick it with the radio on the left.
 									{:else if row.def.mode === 'per-image'}
 										Rolls again for every image, and every usage rolls on its own, so usages can't be linked in this mode. Check the result card to see what each image got.
-									{:else if isVariableLinked(row.name.trim(), liveVariables)}
+									{:else if isVariableLinked(row.name.trim(), liveVariables, readers)}
 										Every usage shares one roll per generation.
 									{:else}
 										Each usage rolls its own value per generation.
@@ -708,7 +766,7 @@
 		on:confirm={handlePasteConfirm}
 	/>
 	<svelte:fragment slot="footer">
-		<ConfirmFooter confirmLabel="Done" onCancel={handleCancel} onConfirm={handleConfirm}>
+		<ConfirmFooter confirmLabel="Done" stackOnPhone onCancel={handleCancel} onConfirm={handleConfirm}>
 			{#snippet leftActions()}
 				<Tooltip text="Copy variables as JSON">
 					<Button
@@ -726,8 +784,8 @@
 						Paste
 					</Button>
 				</Tooltip>
-				{#if anyCondition}
-					<span class="mx-1 h-4 w-px flex-shrink-0 bg-line-strong/60"></span>
+				{#if showRollPreview}
+					<span class="mx-1 h-4 w-px flex-shrink-0 bg-line-strong/60 max-sm:hidden"></span>
 					<Button variant="secondary" size="xs" onclick={runRollPreview}>Roll preview</Button>
 					{#each rollPreview ?? [] as entry, i (entry.name)}
 						{#if i > 0}<Icon name="chevron-right" className="h-3 w-3 flex-shrink-0 text-fg-subtle" />{/if}

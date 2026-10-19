@@ -8,7 +8,7 @@
 	import { Badge, Button, IconButton, Input, Spinner } from '$lib/components/ui';
 	import AddToCollectionMenu from '$lib/components/collections/AddToCollectionMenu.svelte';
 	import PromptModelField from './PromptModelField.svelte';
-	import { normalizeVariableDef } from '$lib/utils/variableDefs';
+	import { normalizeVariableDef, numberSummary } from '$lib/utils/variableDefs';
 	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
 	import type { Prompt, PromptUsageHint, Segment } from '$lib/types/segments';
 	import type { GenerationHistoryItem } from '$lib/types/history';
@@ -85,7 +85,12 @@
 			const def = normalizeVariableDef(stored);
 			return {
 				name: varName,
-				kind: def.type === 'choice' ? `${def.mode} · ${def.options.length} option${def.options.length === 1 ? '' : 's'}` : 'text'
+				kind:
+					def.type === 'choice'
+						? `${def.mode} · ${def.options.length} option${def.options.length === 1 ? '' : 's'}`
+						: def.type === 'number'
+							? numberSummary(def)
+							: 'text'
 			};
 		})
 	);

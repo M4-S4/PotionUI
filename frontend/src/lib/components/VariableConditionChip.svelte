@@ -46,7 +46,7 @@
 			const def = normalizeVariableDef(variables[name]);
 			let reason: string | null = null;
 			if (name === ownerName) reason = 'this variable';
-			else if (def.type !== 'choice') reason = 'text variable';
+			else if (def.type !== 'choice') reason = def.type === 'number' ? 'number variable' : 'text variable';
 			else if (dependents(ownerName, variables, true).includes(name)) reason = `depends on $${ownerName}`;
 			return { name, reason };
 		})

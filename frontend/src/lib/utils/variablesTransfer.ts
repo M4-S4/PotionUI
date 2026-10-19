@@ -3,6 +3,7 @@ import {
 	optionText,
 	optionWhen,
 	dependencies,
+	isNumberRangeValid,
 	type ChoiceVariableDef,
 	type ChoiceVariableMode,
 	type VariableDef,
@@ -38,6 +39,10 @@ export function serializeVariables(variables: VariablesMap): string {
 		const def = normalizeVariableDef(variables[name]);
 		if (def.type === 'text') {
 			out[name] = { type: 'text', value: def.value };
+			continue;
+		}
+		if (def.type === 'number') {
+			out[name] = { type: 'number', mode: def.mode, min: def.min, max: def.max, step: def.step, value: def.value };
 			continue;
 		}
 		const { options, pinnedIndex } = dropBlankOptions(def);
@@ -104,6 +109,23 @@ function parseDefShape(name: string, rawDef: unknown, errors: string[]): Variabl
 			return null;
 		}
 		return { type: 'text', value: obj.value };
+	}
+
+	if (obj.type === 'number') {
+		const { min, max, step } = obj;
+		if (typeof min !== 'number' || typeof max !== 'number' || typeof step !== 'number') {
+			errors.push(`'${name}': a number variable needs numeric min, max and step.`);
+			return null;
+		}
+		const value = typeof obj.value === 'number' && Number.isFinite(obj.value) ? obj.value : min;
+		if (!isNumberRangeValid({ min, max, step, value })) {
+			errors.push(
+				`'${name}': a number variable needs step above 0 with at most 6 decimal places, max at or above min, min no finer than the step, at most 200 values, and numbers below 1 trillion with at most 12 digits.`
+			);
+			return null;
+		}
+		const mode: ChoiceVariableMode = obj.mode === 'pin' || obj.mode === 'per-image' ? obj.mode : 'shuffle';
+		return { type: 'number', mode, min, max, step, value };
 	}
 
 	if (obj.type === 'choice') {
@@ -218,7 +240,7 @@ export function parseVariablesImport(text: string, existing: VariablesMap = {}):
 
 	for (const name of Object.keys(draft)) {
 		const def = draft[name] as VariableDef;
-		if (def.type === 'text') {
+		if (def.type !== 'choice') {
 			variables[name] = def;
 			continue;
 		}

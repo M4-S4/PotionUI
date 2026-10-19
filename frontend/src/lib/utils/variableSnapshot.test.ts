@@ -194,3 +194,30 @@ describe('conditioned options in the snapshot', () => {
 		expect(dance?.options).toEqual([{ text: 'breaking', when: { var: 'music', values: ['hip hop'] } }, 'freestyle']);
 	});
 });
+
+describe('number variables in the chat snapshot', () => {
+	const number = { type: 'number', mode: 'shuffle', min: 18, max: 80, step: 1, value: 47 } as const;
+
+	it('describes range and mode', () => {
+		expect(buildVariablesSnapshot({ age: number })).toEqual([
+			{ name: 'age', type: 'number', mode: 'shuffle', min: 18, max: 80, step: 1 }
+		]);
+	});
+
+	it('adds the clamped value for pin and the last roll for shuffle', () => {
+		expect(buildVariablesSnapshot({ age: { ...number, mode: 'pin', value: 99 } })[0].value).toBe('80');
+		const rolls = { age: { optionIndex: 3, value: '21', rolledAt: 1 } };
+		expect(buildVariablesSnapshot({ age: number }, rolls)[0].lastRoll).toBe('21');
+	});
+
+	it('skips an invalid range', () => {
+		expect(buildVariablesSnapshot({ age: { ...number, step: 0 } })).toEqual([]);
+	});
+
+	it('writes the tooltip for a chat chip', () => {
+		expect(buildVariableChipTooltips({ age: { ...number, mode: 'pin', value: 47 } }).age).toBe(
+			'a number from 18 to 80 in steps of 1 — pinned to 47'
+		);
+		expect(buildVariableChipTooltips({ age: { ...number, mode: 'per-image' } }).age).toContain('re-rolls per image');
+	});
+});

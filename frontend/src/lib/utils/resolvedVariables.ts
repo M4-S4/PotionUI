@@ -1,4 +1,6 @@
 import {
+	buildNumberWireValue,
+	numberGridSize,
 	buildVariableWireValue,
 	buildVariablesForSubmit,
 	normalizeVariableDef,
@@ -42,6 +44,23 @@ export function resolvePreviewVariables(variables: VariablesMap | undefined): Re
 				replacements[name] = wireMap[name];
 				settled[name] = def.value.trim();
 			}
+			continue;
+		}
+
+		if (def.type === 'number') {
+			const value = wireMap[name];
+			if (def.mode === 'per-image') {
+				if (buildNumberWireValue(def).startsWith('{')) notes.push({ name, phrase: PER_IMAGE_PHRASE });
+				else if (value) {
+					replacements[name] = value;
+					settled[name] = value;
+				}
+				continue;
+			}
+			if (!value) continue;
+			replacements[name] = value;
+			if (def.mode === 'shuffle' && numberGridSize(def) > 1) notes.push({ name, phrase: SHUFFLE_PHRASE });
+			else settled[name] = value;
 			continue;
 		}
 

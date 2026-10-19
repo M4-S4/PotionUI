@@ -136,3 +136,17 @@ describe('applyVariableChanges', () => {
 		});
 	});
 });
+
+describe('applyVariableChanges number', () => {
+	it('creates a number variable with its range and mode', () => {
+		const result = applyVariableChanges({}, [
+			{ op: 'set', name: 'age', type: 'number', min: 18, max: 80, step: 1, mode: 'pin', value: 47 }
+		]);
+		expect(result).toEqual({ age: { type: 'number', mode: 'pin', min: 18, max: 80, step: 1, value: 47 } });
+	});
+
+	it('defaults to shuffle and the value to min', () => {
+		const result = applyVariableChanges({}, [{ op: 'set', name: 'age', type: 'number', min: 5, max: 9 }]);
+		expect(result.age).toMatchObject({ type: 'number', mode: 'shuffle', min: 5, max: 9, step: 1, value: 5 });
+	});
+});

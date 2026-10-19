@@ -60,7 +60,7 @@ describe('parseVariablesImport error handling', () => {
 	});
 
 	it('rejects an unrecognized definition shape', () => {
-		const result = parseVariablesImport(JSON.stringify({ mood: { type: 'number', value: 5 } }));
+		const result = parseVariablesImport(JSON.stringify({ mood: { type: 'slider', value: 5 } }));
 		expect(result.variables).toEqual({});
 		expect(result.errors).toEqual(["'mood': unrecognized variable definition."]);
 	});
@@ -185,5 +185,36 @@ describe('summarizeVariables', () => {
 
 	it('is empty for an empty map', () => {
 		expect(summarizeVariables({})).toEqual({ variables: 0, conditions: 0 });
+	});
+});
+
+describe('number variables in transfer', () => {
+	const number = { type: 'number', mode: 'per-image', min: 0.8, max: 1.4, step: 0.1, value: 1 } as const;
+
+	it('round-trips through serialize and parse', () => {
+		const text = serializeVariables({ weight: number });
+		const parsed = parseVariablesImport(text);
+		expect(parsed.errors).toEqual([]);
+		expect(parsed.variables.weight).toEqual(number);
+		expect(parsed.summary).toEqual({ variables: 1, conditions: 0 });
+	});
+
+	it('defaults the mode to shuffle and the value to min', () => {
+		const parsed = parseVariablesImport(JSON.stringify({ age: { type: 'number', min: 18, max: 80, step: 1 } }));
+		expect(parsed.variables.age).toEqual({ type: 'number', mode: 'shuffle', min: 18, max: 80, step: 1, value: 18 });
+	});
+
+	it('rejects a malformed or empty range', () => {
+		const missing = parseVariablesImport(JSON.stringify({ age: { type: 'number', min: 18 } }));
+		expect(missing.variables).toEqual({});
+		expect(missing.errors[0]).toContain('numeric min, max and step');
+		const reversed = parseVariablesImport(JSON.stringify({ age: { type: 'number', min: 9, max: 1, step: 1 } }));
+		expect(reversed.variables).toEqual({});
+		expect(reversed.errors[0]).toContain('step above 0');
+	});
+
+	it('merges with keep and replace', () => {
+		expect(mergeVariables({ age: number }, { age: { ...number, mode: 'pin' } }, 'keep').age).toEqual(number);
+		expect((mergeVariables({ age: number }, { age: { ...number, mode: 'pin' } }, 'replace').age as any).mode).toBe('pin');
 	});
 });

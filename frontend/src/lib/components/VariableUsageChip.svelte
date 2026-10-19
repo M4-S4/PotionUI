@@ -7,9 +7,12 @@
 		type StoredVariableDef,
 		type VariableRoll,
 		type VariablesMap,
+		type ConditionReaders,
 		isVariableLinked,
 		isWhenTarget,
-		usageRollKey
+		numberChipLabel,
+		numberRangeLabel,
+usageRollKey
 	} from '$lib/utils/variableDefs';
 	import { filterOptionIndices, showOptionFilter } from '$lib/utils/variableOptionList';
 	import Icon from './Icon.svelte';
@@ -51,6 +54,7 @@
 	 *  read fresh each render, never mutated here. */
 	export let rolls: Record<string, VariableRoll> = {};
 	export let variables: VariablesMap = {};
+	export let readers: ConditionReaders = {};
 	export let usage: { ordinal: number; total: number } = { ordinal: 1, total: 1 };
 	export let onLinkedChange: ((linked: boolean) => void) | undefined = undefined;
 	export let disabled: boolean = false;
@@ -75,21 +79,22 @@
 
 	let def: VariableDef | null;
 	$: def = definition !== undefined ? normalizeVariableDef(definition) : null;
-	$: linked = def?.type === 'choice' && isVariableLinked(name, variables);
-	$: whenTarget = def?.type === 'choice' && isWhenTarget(name, variables);
+	$: linked = !!def && def.type !== 'text' && isVariableLinked(name, variables, readers);
+	$: whenTarget = !!def && def.type !== 'text' && isWhenTarget(name, variables);
 	$: multiUsage = usage.total > 1;
 	$: roll = rolls[usageRollKey(name, linked ? 1 : usage.ordinal)];
 	$: optionTexts = def?.type === 'choice' ? def.options.map((o) => optionText(o)) : [];
 	$: visibleIndices = filterOptionIndices(optionTexts, filterQuery);
 	$: usagesLockReason = whenTarget
 		? 'Other options depend on this variable, so every usage shares one roll.'
-		: def?.type === 'choice' && def.mode !== 'shuffle'
+		: def && def.type !== 'text' && def.mode !== 'shuffle'
 			? 'Pin and Per image apply to every usage.'
 			: '';
 	$: isUndefined = def === null;
 	$: isShuffleWithRoll = def?.type === 'choice' && def.mode === 'shuffle' && !!roll;
 	$: isEmptyRoll = def?.type === 'choice' && def.mode === 'shuffle' && !!roll && roll.value === '';
 	$: isPerImage = def?.type === 'choice' && def.mode === 'per-image';
+	$: numberLabel = def?.type === 'number' ? numberChipLabel(def) : '';
 
 	// A stable-per-name color, the same visual language InlineChip.svelte uses
 	// for a phrasebook chip's picked value (colored dot + label).
@@ -144,7 +149,7 @@
 	popoverLabel={`Variable ${name}`}
 	headerMark="$"
 	headerTitle={name}
-	headerSubtitle={def?.type === 'choice' ? 'Choice variable' : def?.type === 'text' ? 'Text variable' : 'Undefined variable'}
+	headerSubtitle={def?.type === 'choice' ? 'Choice variable' : def?.type === 'number' ? 'Number variable' : def?.type === 'text' ? 'Text variable' : 'Undefined variable'}
 >
 	{#snippet label()}
 		{#if isUndefined}
@@ -163,6 +168,12 @@
 			<span class="text-sm font-medium text-fg whitespace-nowrap max-w-[8rem] truncate">{roll.value}</span>
 		{:else if isPerImage}
 			<Icon name="layers" className="w-3 h-3 text-fg-subtle flex-shrink-0" />
+		{:else if def?.type === 'number'}
+			<span class="text-fg-subtle">&middot;</span>
+			<span class="text-sm font-mono tabular-nums text-fg whitespace-nowrap" data-testid="number-chip-label">{numberLabel}</span>
+			{#if def.mode === 'per-image'}
+				<Icon name="layers" className="w-3 h-3 text-fg-subtle flex-shrink-0" />
+			{/if}
 		{/if}
 	{/snippet}
 
@@ -177,10 +188,12 @@
 			<span class="chip-label">{roll.value}</span>
 		{:else if def?.type === 'text'}
 			<span class="chip-label">{def.value || '(empty)'}</span>
+		{:else if def?.type === 'number'}
+			<span class="chip-label">{numberLabel}</span>
 		{/if}
 		{#if def?.type === 'choice' && def.mode !== 'shuffle'}
 			<span class="chip-state">{def.mode === 'pin' ? 'Pinned' : 'Per image'}</span>
-		{:else if def?.type === 'choice' && multiUsage}
+		{:else if def && def.type !== 'text' && multiUsage}
 			<span class="chip-state">{linked ? `Linked ${usage.total}` : `${usage.ordinal}/${usage.total}`}</span>
 		{/if}
 	{/snippet}
@@ -272,6 +285,17 @@
 						{/each}
 					</div>
 				</div>
+			{:else if def.type === 'number'}
+				<div class="section-label">Value</div>
+				<p class="helper" data-testid="number-popover-note">
+					{#if def.mode === 'pin'}
+						Pinned to {numberChipLabel(def)}, the same on every image.
+					{:else if def.mode === 'per-image'}
+						Rolls a number from {numberRangeLabel(def)} for every image.
+					{:else}
+						Rolls a number from {numberRangeLabel(def)} when Generate is clicked.
+					{/if}
+				</p>
 			{:else}
 				<div class="section-label">Value</div>
 				<p class="helper">{def.value || '(empty)'}</p>
@@ -295,7 +319,7 @@
 		{:else if def}
 			<div class="flex items-center justify-between gap-2">
 				<span class="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-2xs uppercase tracking-[0.06em] text-fg-muted">
-					{def.type === 'choice' ? 'Choice' : 'Text'}
+					{def.type === 'choice' ? 'Choice' : def.type === 'number' ? 'Number' : 'Text'}
 				</span>
 			</div>
 
@@ -303,6 +327,16 @@
 				<p class="mt-2 break-words text-sm text-fg">
 					{def.value || '(empty)'}
 				</p>
+			{:else if def.type === 'number'}
+				<p class="mt-2 text-sm text-fg" data-testid="number-popover-note">
+					{#if def.mode === 'pin'}
+						Pinned to <span class="font-mono tabular-nums">{numberChipLabel(def)}</span>
+					{:else}
+						<span class="font-mono tabular-nums">{numberRangeLabel(def)}</span>
+						&middot; {def.mode === 'per-image' ? 'rolls per image' : 'rolls each generation'}
+					{/if}
+				</p>
+				<p class="mt-1.5 text-2xs text-fg-subtle">Change the range or mode in Variables.</p>
 			{:else}
 				<ul class="mt-2 space-y-1">
 					{#each def.options as option, index (index)}

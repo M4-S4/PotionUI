@@ -6,7 +6,9 @@
 
 import {
 	createChoiceVariable,
+	createNumberVariable,
 	createTextVariable,
+	isNumberRangeValid,
 	type ChoiceVariableMode,
 	type VariableOption,
 	type VariablesMap
@@ -15,11 +17,14 @@ import {
 export interface PromptVariableOperation {
 	op: 'set' | 'remove';
 	name: string;
-	type?: 'text' | 'choice';
-	value?: string;
+	type?: 'text' | 'choice' | 'number';
+	value?: string | number;
 	options?: VariableOption[];
 	mode?: ChoiceVariableMode;
 	pinned_index?: number | null;
+	min?: number;
+	max?: number;
+	step?: number;
 }
 
 /**
@@ -51,8 +56,16 @@ export function applyVariableChanges(
 			def.mode = op.mode ?? 'shuffle';
 			def.pinnedIndex = def.mode === 'pin' ? (op.pinned_index ?? null) : null;
 			next[op.name] = def;
+		} else if (op.type === 'number') {
+			const def = createNumberVariable();
+			def.mode = op.mode ?? 'shuffle';
+			if (typeof op.min === 'number') def.min = op.min;
+			if (typeof op.max === 'number') def.max = op.max;
+			if (typeof op.step === 'number') def.step = op.step;
+			def.value = typeof op.value === 'number' ? op.value : def.min;
+			if (isNumberRangeValid(def)) next[op.name] = def;
 		} else {
-			next[op.name] = createTextVariable(op.value ?? '');
+			next[op.name] = createTextVariable(typeof op.value === 'string' ? op.value : '');
 		}
 	}
 
