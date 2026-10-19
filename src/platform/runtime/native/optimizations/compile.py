@@ -1,52 +1,21 @@
-"""Regional ``torch.compile`` for native DiTs — opt-in, resident-only, reversible.
-
-Naive ``torch.compile(model)`` pays a multi-minute full-graph warm-up that is
-miserable in an interactive app. Regional compilation compiles the *repeated
-transformer block* instead: one shared compiled artifact reused for every block,
-so warm-up is a single block's graph and the outer control flow (FBCache's
-first-block skip, guidance branches) stays in eager Python and never graph-breaks
-the whole forward.
-
-Hard constraints for THIS engine, all enforced by :func:`maybe_compile_dit`:
-
-  * **Resident only.** The partial-residency streamer swaps a leaf's ``weight.data``
-    to a freshly staged GPU tensor per forward (see ``memory/partial.py``); a
-    compiled graph guards on weight identity/device and would recompile or break
-    every step. So compile only when the DiT is *fully* GPU-resident.
-  * **No runtime LoRA deltas.** In-place-patched LoRA is plain-tensor and
-    compile-friendly, but the cast-mode ``lora_deltas`` path rebuilds the weight
-    per forward — graph-breaks. Skip if any leaf carries a non-empty ``lora_deltas``.
-  * **No quantized Linears (v1).** ``Fp8ScaledLinear`` / ``Nvfp4Linear`` dequantise
-    on forward; that belongs to the fp8-matmul lane (§3.3), not here. Skip if the
-    DiT is quantised.
-
-The compile is **reversible**: :func:`maybe_compile_dit` records a
-:class:`CompileHandle` on the ``NativeModel`` and ``restore()`` puts the original
-block modules back into their ``ModuleList``s. The engine calls ``restore()``
-whenever the DiT leaves the GPU (offload / unload / move-to-CPU), so the
-RAM-cached copy the model lifecycle keeps is always a plain, un-compiled module —
-no dynamo graph or CUDA guard state survives an offload/reload cycle.
-
-Toggle: the admin-set ``native_torch_compile`` setting (held in memory via
-:func:`set_torch_compile_override`, mirroring the attention-backend pin) wins;
-with no explicit setting the ``$NATIVE_TORCH_COMPILE`` env var decides
-(``off`` default | ``on`` | ``auto``==on, same shape as ``$NATIVE_FP8_MATMUL``).
-There is no catalog entry: the optimizations catalog models *installable
-attention backends* (its ``active`` state is ``probe.active_backend``), and
-``torch.compile`` is neither installable nor an attention backend.
-"""
-
 from __future__ import annotations
 
+import importlib.util
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterator
 
 import torch
 import torch.nn as nn
 
 from src.platform.settings.runtime_flags import runtime_flag
-from vendor.gpl.comfyui.ops import CastWeightBiasOp, Fp8ScaledLinear
+from vendor.gpl.comfyui.ops import (
+    _FP8_DTYPES,
+    QUANT_FP8_SCALED,
+    CastWeightBiasOp,
+    Fp8ScaledLinear,
+    _fp8_matmul_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,20 +55,62 @@ class CompileHandle:
     """Undo record for a regional compile: restore the original blocks in place."""
 
     entries: list[tuple[nn.ModuleList, int, nn.Module]] = field(default_factory=list)
+    forwards: list[nn.Module] = field(default_factory=list)
 
     @property
     def active(self) -> bool:
-        return bool(self.entries)
+        return bool(self.entries or self.forwards)
 
     def restore(self) -> None:
-        """Put every original (un-compiled) block back into its ``ModuleList``."""
         for module_list, index, original in self.entries:
             module_list[index] = original
+        for block in self.forwards:
+            vars(block).pop("forward", None)
         self.entries = []
+        self.forwards = []
 
 
 def _quantized(module: nn.Module) -> bool:
     return any(isinstance(m, Fp8ScaledLinear) for m in module.modules())
+
+
+def _block_modules(module: nn.Module) -> Iterator[nn.Module]:
+    for module_list in find_block_lists(module):
+        yield from module_list
+
+
+def _has_nvfp4(blocks: list[nn.Module]) -> bool:
+    return any(getattr(m, "_is_nvfp4", False) for block in blocks for m in block.modules())
+
+
+def _uses_scaled_mm(blocks: list[nn.Module]) -> bool:
+    if not _fp8_matmul_enabled():
+        return False
+    return any(
+        isinstance(m, Fp8ScaledLinear)
+        and m.weight_scale is not None
+        and m.weight is not None
+        and m.weight.dtype in _FP8_DTYPES
+        for block in blocks
+        for m in block.modules()
+    )
+
+
+def _has_leaf_hooks(blocks: list[nn.Module]) -> bool:
+    return any(
+        m._forward_hooks or m._forward_pre_hooks
+        for block in blocks
+        for m in block.modules()
+        if m is not block
+    )
+
+
+def _forward_compiled(block: nn.Module) -> bool:
+    return "forward" in vars(block)
+
+
+def _triton_available() -> bool:
+    return importlib.util.find_spec("triton") is not None
 
 
 def _has_runtime_lora(module: nn.Module) -> bool:
@@ -122,23 +133,30 @@ def compile_gate(native_model, *, resident: bool, is_cuda: bool) -> tuple[bool, 
         return False, "torch-no-compile"
     if not is_cuda:
         return False, "cpu"
-    if not resident:
-        return False, "streaming"
-    if getattr(native_model, "quant_format", None) is not None:
+    if not _triton_available():
+        return False, "no-triton"
+    if not resident and not getattr(native_model, "is_streaming", False):
+        return False, "not-resident"
+    if getattr(native_model, "quant_format", None) not in (None, QUANT_FP8_SCALED):
         return False, "quantized"
     module = native_model.module
     if module is None:
         return False, "no-module"
-    if _quantized(module):
-        return False, "quantized-linear"
     if _has_runtime_lora(module):
         return False, "runtime-lora"
     if not find_block_lists(module):
         return False, "no-block-lists"
+    blocks = list(_block_modules(module))
+    if _has_nvfp4(blocks):
+        return False, "nvfp4"
+    if _uses_scaled_mm(blocks):
+        return False, "fp8-scaled-mm"
+    if not resident and _has_leaf_hooks(blocks):
+        return False, "streaming-hooks"
     return True, "ok"
 
 
-def compile_blocks(module: nn.Module) -> CompileHandle:
+def compile_blocks(module: nn.Module, *, streaming: bool = False) -> CompileHandle:
     """Regionally compile every discovered block ``ModuleList`` IN PLACE.
 
     Idempotent: an already-compiled block is left as-is (not re-wrapped). Returns a
@@ -153,10 +171,14 @@ def compile_blocks(module: nn.Module) -> CompileHandle:
         for module_list in find_block_lists(module):
             for index in range(len(module_list)):
                 block = module_list[index]
-                if is_compiled(block):
+                if is_compiled(block) or _forward_compiled(block):
                     continue
-                module_list[index] = torch.compile(block, mode="default", dynamic=True)
-                handle.entries.append((module_list, index, block))
+                if streaming:
+                    block.forward = torch.compile(block.forward, mode="default", dynamic=True)
+                    handle.forwards.append(block)
+                else:
+                    module_list[index] = torch.compile(block, mode="default", dynamic=True)
+                    handle.entries.append((module_list, index, block))
                 total += 1
     except Exception:
         # A failure partway through must not leave untracked compiled wrappers
@@ -181,7 +203,7 @@ def maybe_compile_dit(native_model, *, resident: bool, is_cuda: bool) -> None:
         return  # already compiled this resident placement — idempotent
     ok, reason = compile_gate(native_model, resident=resident, is_cuda=is_cuda)
     if not ok:
-        if reason not in ("disabled", "cpu", "streaming"):
+        if reason not in ("disabled", "cpu", "not-resident"):
             logger.debug("torch.compile: skipped (%s)", reason)
         return
     # torch.compile wraps lazily: Dynamo/Inductor actually compile on the FIRST
@@ -195,7 +217,7 @@ def maybe_compile_dit(native_model, *, resident: bool, is_cuda: bool) -> None:
     except Exception:  # pragma: no cover - dynamo config surface is torch-version dependent
         logger.debug("torch.compile: could not set dynamo suppress_errors", exc_info=True)
     try:
-        handle = compile_blocks(native_model.module)
+        handle = compile_blocks(native_model.module, streaming=not resident)
     except Exception:  # noqa: BLE001 - compile is an optimisation; never fatal
         global _warned_compile_failed
         if not _warned_compile_failed:

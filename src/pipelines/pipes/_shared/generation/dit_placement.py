@@ -51,9 +51,9 @@ path), :func:`place_dit_for_sequence` also calls
 regional ``torch.compile`` ``NativeGenerator.sample`` applies to the image
 path (``engine.py``'s own ``_maybe_compile``). These BYO-loop pipes have no
 ``NativeGenerator`` instance to call that private method on, so this is the
-seam that gives LTX/DFR/MiniMax-H3 compile parity with the image families;
-"partial" residency is never compiled (the gate itself would refuse it too --
-this is a fast local skip, not a second source of truth).
+seam that gives LTX/DFR/MiniMax-H3 compile parity with the image families.
+A "partial" placement is offered to the same gate as non-resident, which
+compiles only while the DiT's streamer is active.
 
 :func:`place_dit_for_sequence` also takes an optional ``reserve_gb`` on top of
 the token-derived ``activation_reserve``. The token-only reserve is wrong for a
@@ -666,11 +666,7 @@ def place_dit_for_sequence(
     else:
         mode = _move_partial(dit, device, weight_budget, own_models)
 
-    if mode == "resident":
-        # Regional torch.compile only ever engages on a FULLY resident DiT
-        # (compile.py's own gate re-checks quantization/runtime-LoRA/env); a
-        # "partial" mode here means an OOM-degrade already ruled it out.
-        maybe_compile_dit(dit, resident=True, is_cuda=True)
+    maybe_compile_dit(dit, resident=mode == "resident", is_cuda=True)
 
     decision = DitPlacementDecision(
         mode, weight_gb, activation_reserve, weight_budget, video_tokens, audio_tokens,

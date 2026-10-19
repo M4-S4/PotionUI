@@ -17,6 +17,7 @@ no actual device).
 from __future__ import annotations
 
 import logging
+import types
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -1549,6 +1550,7 @@ def _enable_compile(monkeypatch):
     from src.platform.runtime.native.optimizations import compile as tc
 
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", True)
+    monkeypatch.setattr(tc, "_triton_available", lambda: True)
     return tc
 
 
@@ -1563,7 +1565,7 @@ def test_resident_placement_compiles_when_enabled(monkeypatch):
     assert all(tc.is_compiled(b) for b in dit.module.blocks)
 
 
-def test_partial_placement_never_compiles(monkeypatch):
+def test_partial_placement_without_active_streamer_does_not_compile(monkeypatch):
     _enable_compile(monkeypatch)
     dit, _calls = _dit_compilable()
     patches, _manager = _patched(free_gb=32.0)
@@ -1571,6 +1573,19 @@ def test_partial_placement_never_compiles(monkeypatch):
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=_video_tokens_for(40))
     assert decision.mode == "partial"
     assert getattr(dit, "_compiled", None) is None
+
+
+def test_partial_placement_with_active_streamer_compiles_block_forwards(monkeypatch):
+    tc = _enable_compile(monkeypatch)
+    dit, _calls = _dit_compilable()
+    dit.is_streaming = True
+    patches, _manager = _patched(free_gb=32.0)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=_video_tokens_for(40))
+    assert decision.mode == "partial"
+    assert dit._compiled is not None and dit._compiled.active
+    assert len(dit._compiled.forwards) == len(dit.module.blocks)
+    assert all("forward" in vars(b) and not tc.is_compiled(b) for b in dit.module.blocks)
 
 
 def test_compile_disabled_by_default_leaves_dit_untouched(monkeypatch):
