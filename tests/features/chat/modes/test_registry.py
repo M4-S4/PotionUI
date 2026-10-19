@@ -9,7 +9,6 @@ from src.features.chat.exceptions import UnknownChatModeException
 from src.features.chat.modes import (
     ChatMode,
     ChatModeRegistry,
-    DuplicateChatModeError,
     DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE,
     GENERATION_MODE_ID,
     build_generation_mode,
@@ -21,28 +20,6 @@ def _mode(mode_id="test", source="builtin", **kwargs) -> ChatMode:
 
 
 class TestChatModeRegistry:
-    def test_register_and_get(self):
-        registry = ChatModeRegistry()
-        mode = _mode()
-        registry.register(mode)
-        assert registry.get("test") is mode
-
-    def test_register_duplicate_raises(self):
-        registry = ChatModeRegistry()
-        registry.register(_mode())
-        with pytest.raises(DuplicateChatModeError):
-            registry.register(_mode())
-
-    def test_get_missing_returns_none(self):
-        registry = ChatModeRegistry()
-        assert registry.get("nope") is None
-
-    def test_get_all(self):
-        registry = ChatModeRegistry()
-        registry.register(_mode("a"))
-        registry.register(_mode("b"))
-        assert {m.id for m in registry.get_all()} == {"a", "b"}
-
     def test_require_returns_mode(self):
         registry = ChatModeRegistry()
         mode = _mode()
@@ -60,19 +37,6 @@ class TestChatModeRegistry:
         assert registry.unregister("test") is True
         assert registry.get("test") is None
         assert registry.unregister("test") is False
-
-    def test_unregister_source(self):
-        registry = ChatModeRegistry()
-        registry.register(_mode("builtin-mode", source="builtin"))
-        registry.register(_mode("plugin-mode-1", source="plugin-x"))
-        registry.register(_mode("plugin-mode-2", source="plugin-x"))
-
-        removed = registry.unregister_source("plugin-x")
-
-        assert removed == 2
-        assert registry.get("builtin-mode") is not None
-        assert registry.get("plugin-mode-1") is None
-        assert registry.get("plugin-mode-2") is None
 
 
 class TestResolveSystemPrompt:

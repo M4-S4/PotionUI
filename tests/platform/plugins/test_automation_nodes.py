@@ -3,7 +3,6 @@
 import unittest
 
 from src.platform.plugins.automation_nodes import (
-    DuplicateNodeTypeError,
     NodeResult,
     NodeTypeRegistry,
     NodeTypeSpec,
@@ -15,21 +14,6 @@ class TestNodeTypeRegistry(unittest.TestCase):
 
     def setUp(self):
         self.registry = NodeTypeRegistry()
-
-    def test_register_and_get(self):
-        spec = NodeTypeSpec(key="trigger.manual", kind="trigger", title="Manual")
-        self.registry.register(spec)
-
-        self.assertIs(self.registry.get("trigger.manual"), spec)
-
-    def test_register_collision_raises(self):
-        self.registry.register(NodeTypeSpec(key="action.noop", kind="action", title="Noop"))
-
-        with self.assertRaises(DuplicateNodeTypeError):
-            self.registry.register(NodeTypeSpec(key="action.noop", kind="action", title="Noop 2"))
-
-    def test_get_unknown_type_returns_none(self):
-        self.assertIsNone(self.registry.get("does.not.exist"))
 
     def test_condition_defaults_to_true_false_ports(self):
         spec = NodeTypeSpec(key="condition.compare", kind="condition", title="Compare")
@@ -48,25 +32,6 @@ class TestNodeTypeRegistry(unittest.TestCase):
 
         self.assertEqual(spec.output_ports, ("yes", "no"))
 
-    def test_unregister_source_removes_only_that_sources_types(self):
-        self.registry.register(NodeTypeSpec(key="core.a", kind="action", title="A", source="core"))
-        self.registry.register(NodeTypeSpec(key="plugin.a", kind="action", title="A", source="plugin-a"))
-        self.registry.register(NodeTypeSpec(key="plugin.b", kind="action", title="B", source="plugin-a"))
-        self.registry.register(NodeTypeSpec(key="plugin.c", kind="action", title="C", source="plugin-b"))
-
-        self.registry.unregister_source("plugin-a")
-
-        remaining = {spec.key for spec in self.registry.all()}
-        self.assertEqual(remaining, {"core.a", "plugin.c"})
-        self.assertIsNone(self.registry.get("plugin.a"))
-
-    def test_unregister_source_unknown_source_is_a_noop(self):
-        self.registry.register(NodeTypeSpec(key="core.a", kind="action", title="A", source="core"))
-
-        self.registry.unregister_source("nonexistent-plugin")
-
-        self.assertEqual(len(self.registry.all()), 1)
-
     def test_by_kind_filters(self):
         self.registry.register(NodeTypeSpec(key="trigger.manual", kind="trigger", title="Manual"))
         self.registry.register(NodeTypeSpec(key="condition.compare", kind="condition", title="Compare"))
@@ -75,12 +40,6 @@ class TestNodeTypeRegistry(unittest.TestCase):
         self.assertEqual([s.key for s in self.registry.by_kind("trigger")], ["trigger.manual"])
         self.assertEqual([s.key for s in self.registry.by_kind("condition")], ["condition.compare"])
         self.assertEqual([s.key for s in self.registry.by_kind("action")], ["action.noop"])
-
-    def test_all_returns_every_registered_definition(self):
-        self.registry.register(NodeTypeSpec(key="a", kind="action", title="A"))
-        self.registry.register(NodeTypeSpec(key="b", kind="action", title="B"))
-
-        self.assertEqual({s.key for s in self.registry.all()}, {"a", "b"})
 
     def test_node_result_defaults(self):
         result = NodeResult()

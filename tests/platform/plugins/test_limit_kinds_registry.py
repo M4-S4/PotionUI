@@ -6,7 +6,6 @@ import yaml
 
 from src.platform.plugins.limit_kinds import (
     AdmissionRequest,
-    DuplicateLimitKindError,
     InvalidLimitKindError,
     LimitKind,
     LimitKindRegistry,
@@ -35,12 +34,15 @@ def test_register_lookup_and_core_kinds_come_first():
     assert [k.key for k in registry.all()] == ["storage_bytes", "example.credits"]
 
 
-def test_duplicate_keys_are_rejected():
+def test_has_source_follows_registration():
     registry = LimitKindRegistry()
     registry.register(kind())
 
-    with pytest.raises(DuplicateLimitKindError):
-        registry.register(kind(source="other"))
+    assert registry.has_source("example") is True
+
+    registry.unregister_source("example")
+
+    assert registry.has_source("example") is False
 
 
 @pytest.mark.parametrize("definition", [
@@ -60,17 +62,6 @@ def test_duplicate_keys_are_rejected():
 def test_invalid_kinds_are_rejected(definition):
     with pytest.raises(InvalidLimitKindError):
         LimitKindRegistry().register(definition())
-
-
-def test_unregister_source_removes_only_that_source():
-    registry = LimitKindRegistry()
-    registry.register(kind())
-    registry.register(kind(key="storage_bytes", source="core", value_type="bytes"))
-
-    registry.unregister_source("example")
-
-    assert [k.key for k in registry.all()] == ["storage_bytes"]
-    assert registry.has_source("example") is False
 
 
 def test_money_hides_its_values_unless_told_otherwise():

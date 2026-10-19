@@ -158,6 +158,17 @@ class PluginManifest:
     content_hash: str = ""
 
 
+_DICT_LIST_FIELDS = tuple(
+    """
+    pipes presets preset_modes recipes model_layouts filters filter_ops
+    recipe_steps samplers schedules model_classifiers pages admin_tabs quick_actions
+    sidebar_widgets settings field_types model_metadata_fields renderers contributions docs
+    chat_modes resources automation_nodes automation_templates organize_facts organize_actions limit_kinds
+    prompt_importers phrasebook_ops history_tools requirement_checkers setup
+    """.split()
+)
+
+
 class PluginLoader:
     """
     Loads plugins from filesystem directories.
@@ -434,6 +445,11 @@ class PluginLoader:
             for h in schema.hooks.frontend
         ]
 
+        dict_lists = {
+            name: [item.model_dump() for item in getattr(schema, name)]
+            for name in _DICT_LIST_FIELDS
+        }
+
         return PluginManifest(
             id=schema.id,
             name=schema.name,
@@ -447,17 +463,7 @@ class PluginLoader:
             hooks=hooks,
             frontend_hooks=frontend_hooks,
             remote_hooks=remote_hooks,
-            pipes=[p.model_dump() for p in schema.pipes],
-            presets=[p.model_dump() for p in schema.presets],
-            preset_modes=[p.model_dump() for p in schema.preset_modes],
-            recipes=[r.model_dump() for r in schema.recipes],
-            model_layouts=[m.model_dump() for m in schema.model_layouts],
-            filters=[f.model_dump() for f in schema.filters],
-            filter_ops=[o.model_dump() for o in schema.filter_ops],
-            recipe_steps=[s.model_dump() for s in schema.recipe_steps],
-            samplers=[s.model_dump() for s in schema.samplers],
-            schedules=[s.model_dump() for s in schema.schedules],
-            model_classifiers=[c.model_dump() for c in schema.model_classifiers],
+            **dict_lists,
             frontend_entry=schema.frontend,
             manifest_path=manifest_path,
             plugin_dir=plugin_dir,
@@ -467,37 +473,15 @@ class PluginLoader:
             license=schema.license,
             tags=schema.tags,
             category=schema.category.value,
-            pages=[p.model_dump() for p in schema.pages],
             api_routes={"module": schema.api.module} if schema.api else {},
             sidebar_items=[s.model_dump() for s in schema.sidebar],
-            admin_tabs=[t.model_dump() for t in schema.admin_tabs],
-            quick_actions=[q.model_dump() for q in schema.quick_actions],
-            sidebar_widgets=[w.model_dump() for w in schema.sidebar_widgets],
-            settings=[s.model_dump() for s in schema.settings],
-            field_types=[f.model_dump() for f in schema.field_types],
-            model_metadata_fields=[f.model_dump() for f in schema.model_metadata_fields],
-            renderers=[r.model_dump() for r in schema.renderers],
-            contributions=[c.model_dump() for c in schema.contributions],
             provides_hooks=[
                 {"name": h, "description": "", "payload": {}, "mutable": [], "use_when": [], "example": ""}
                 if isinstance(h, str)
                 else h.model_dump()
                 for h in schema.provides_hooks
             ],
-            docs=[d.model_dump() for d in schema.docs],
-            chat_modes=[m.model_dump() for m in schema.chat_modes],
             tools=[t.model_dump(by_alias=True) for t in schema.tools],
-            resources=[r.model_dump() for r in schema.resources],
-            automation_nodes=[n.model_dump() for n in schema.automation_nodes],
-            automation_templates=[t.model_dump() for t in schema.automation_templates],
-            organize_facts=[f.model_dump() for f in schema.organize_facts],
-            organize_actions=[a.model_dump() for a in schema.organize_actions],
-            limit_kinds=[k.model_dump() for k in schema.limit_kinds],
-            prompt_importers=[p.model_dump() for p in schema.prompt_importers],
-            phrasebook_ops=[o.model_dump() for o in schema.phrasebook_ops],
-            history_tools=[h.model_dump() for h in schema.history_tools],
-            requirement_checkers=[r.model_dump() for r in schema.requirement_checkers],
-            setup=[s.model_dump() for s in schema.setup],
         )
 
     def load_plugin_module(

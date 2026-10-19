@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
+
 
 PLUGIN_ROUTE_PREFIX = "/api/plugins/"
 
 
-class DuplicateLoginProviderError(ValueError):
+class DuplicateLoginProviderError(DuplicateRegistrationError):
     pass
 
 
@@ -32,9 +34,10 @@ class LoginProviderDefinition:
         return {"id": self.id, "label": self.label, "start_path": self.start_path}
 
 
-class LoginProviderRegistry:
-    def __init__(self):
-        self._by_id: Dict[str, LoginProviderDefinition] = {}
+class LoginProviderRegistry(SourcedRegistry[LoginProviderDefinition]):
+    key_attr = "id"
+    label = "Login provider"
+    duplicate_error = DuplicateLoginProviderError
 
     def register(self, definition: LoginProviderDefinition) -> None:
         if not definition.id:
@@ -47,28 +50,10 @@ class LoginProviderRegistry:
             raise InvalidLoginProviderError(
                 f"Login provider '{definition.id}' needs an absolute start_path"
             )
-        if definition.id in self._by_id:
-            raise DuplicateLoginProviderError(
-                f"Login provider already registered: '{definition.id}'"
-            )
-        self._by_id[definition.id] = definition
+        super().register(definition)
 
     def unregister(self, provider_id: str) -> None:
-        self._by_id.pop(provider_id, None)
-
-    def unregister_source(self, source: str) -> None:
-        for provider_id in [
-            provider_id
-            for provider_id, defn in self._by_id.items()
-            if defn.source == source
-        ]:
-            del self._by_id[provider_id]
-
-    def get(self, provider_id: str) -> Optional[LoginProviderDefinition]:
-        return self._by_id.get(provider_id)
-
-    def all(self) -> List[LoginProviderDefinition]:
-        return list(self._by_id.values())
+        self._entries.pop(provider_id, None)
 
     def manifest(self) -> List[Dict[str, Any]]:
         return [defn.to_dict() for defn in self.all()]

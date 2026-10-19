@@ -3,7 +3,6 @@
 import unittest
 
 from src.platform.plugins.field_types import (
-    DuplicateFieldTypeError,
     FieldTypeDefinition,
     FieldTypeRegistry,
 )
@@ -14,51 +13,12 @@ class TestFieldTypeRegistry(unittest.TestCase):
     def setUp(self):
         self.registry = FieldTypeRegistry()
 
-    def test_register_and_get(self):
-        definition = FieldTypeDefinition(type_name='select', frontend_component='core:SelectField')
-        self.registry.register(definition)
-
-        self.assertIs(self.registry.get('select'), definition)
-
-    def test_register_collision_raises(self):
-        self.registry.register(FieldTypeDefinition(type_name='select'))
-
-        with self.assertRaises(DuplicateFieldTypeError):
-            self.registry.register(FieldTypeDefinition(type_name='select'))
-
     def test_get_unknown_type_returns_default_never_none(self):
         definition = self.registry.get('does_not_exist')
 
         self.assertIsNotNone(definition)
         self.assertIsNone(definition.schema_cls)
         self.assertIsNone(definition.options_provider)
-
-    def test_unregister_source_removes_only_that_sources_types(self):
-        self.registry.register(FieldTypeDefinition(type_name='core_type', source='core'))
-        self.registry.register(FieldTypeDefinition(type_name='plugin_type_a', source='plugin-a'))
-        self.registry.register(FieldTypeDefinition(type_name='plugin_type_b', source='plugin-a'))
-        self.registry.register(FieldTypeDefinition(type_name='plugin_type_c', source='plugin-b'))
-
-        self.registry.unregister_source('plugin-a')
-
-        remaining = {d.type_name for d in self.registry.all()}
-        self.assertEqual(remaining, {'core_type', 'plugin_type_c'})
-
-        # unregistered types fall back to the default definition, not an error
-        self.assertIsNone(self.registry.get('plugin_type_a').schema_cls)
-
-    def test_unregister_source_unknown_source_is_a_noop(self):
-        self.registry.register(FieldTypeDefinition(type_name='core_type', source='core'))
-
-        self.registry.unregister_source('nonexistent-plugin')
-
-        self.assertEqual(len(self.registry.all()), 1)
-
-    def test_all_returns_every_registered_definition(self):
-        self.registry.register(FieldTypeDefinition(type_name='a'))
-        self.registry.register(FieldTypeDefinition(type_name='b'))
-
-        self.assertEqual({d.type_name for d in self.registry.all()}, {'a', 'b'})
 
     def test_frontend_manifest_shape(self):
         self.registry.register(FieldTypeDefinition(

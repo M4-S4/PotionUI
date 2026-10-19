@@ -18,8 +18,10 @@ having them removed via `unregister_source` when disabled.
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Type
 
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
 
-class DuplicateFieldTypeError(ValueError):
+
+class DuplicateFieldTypeError(DuplicateRegistrationError):
     """Raised when registering a field type name that is already registered."""
 
 
@@ -42,11 +44,15 @@ class FieldTypeDefinition:
     axis_editor: str = ""
 
 
-class FieldTypeRegistry:
+class FieldTypeRegistry(SourcedRegistry[FieldTypeDefinition]):
     """Registry mapping field type name -> `FieldTypeDefinition`."""
 
+    key_attr = "type_name"
+    label = "Field type"
+    duplicate_error = DuplicateFieldTypeError
+
     def __init__(self):
-        self._by_type: Dict[str, FieldTypeDefinition] = {}
+        super().__init__()
         # Returned by `get()` for any type name that was never registered -
         # `get()` never returns None so callers can always dispatch safely.
         self._default = FieldTypeDefinition(
@@ -58,28 +64,9 @@ class FieldTypeRegistry:
             source="core",
         )
 
-    def register(self, definition: FieldTypeDefinition) -> None:
-        """Register a field type. Raises `DuplicateFieldTypeError` on name collision."""
-        if definition.type_name in self._by_type:
-            raise DuplicateFieldTypeError(
-                f"Field type already registered: '{definition.type_name}'"
-            )
-        self._by_type[definition.type_name] = definition
-
-    def unregister_source(self, source: str) -> None:
-        """Remove every field type definition registered by `source` (e.g. a plugin id)."""
-        for type_name in [
-            type_name for type_name, defn in self._by_type.items() if defn.source == source
-        ]:
-            del self._by_type[type_name]
-
     def get(self, type_name: str) -> FieldTypeDefinition:
         """Look up a field type. Unknown type names resolve to the default definition."""
-        return self._by_type.get(type_name, self._default)
-
-    def all(self) -> List[FieldTypeDefinition]:
-        """Return every registered field type definition."""
-        return list(self._by_type.values())
+        return self._entries.get(type_name, self._default)
 
     def frontend_manifest(self) -> List[Dict[str, Any]]:
         """Serialize the registry for the `/api/fields/types` endpoint."""

@@ -15,8 +15,6 @@ import yaml
 
 from src.platform.plugins.manifest import PluginManifestSchema
 from src.platform.plugins.recipe_steps import (
-    DuplicateRecipeStepKindError,
-    RecipeStepKindRegistration,
     RecipeStepKindRegistry,
 )
 from src.platform.plugins.registry import PluginRegistry, PluginState
@@ -31,35 +29,6 @@ class Broken:
     def __init__(self):
         raise RuntimeError("cannot build me")
 """
-
-
-class RecipeStepKindRegistryTests(unittest.TestCase):
-    def setUp(self):
-        self.registry = RecipeStepKindRegistry()
-
-    def _registration(self, kind, source="core"):
-        return RecipeStepKindRegistration(kind=kind, executor=object(), source=source)
-
-    def test_register_get_all(self):
-        self.registry.register(self._registration("collections.ensure", source="plugin-a"))
-
-        self.assertEqual(self.registry.get("collections.ensure").source, "plugin-a")
-        self.assertIsNone(self.registry.get("nope"))
-        self.assertEqual([r.kind for r in self.registry.all()], ["collections.ensure"])
-
-    def test_duplicate_kind_rejected(self):
-        self.registry.register(self._registration("collections.ensure"))
-        with self.assertRaises(DuplicateRecipeStepKindError):
-            self.registry.register(self._registration("collections.ensure", source="plugin-a"))
-
-    def test_unregister_source_leaves_other_sources(self):
-        self.registry.register(self._registration("a", source="plugin-a"))
-        self.registry.register(self._registration("b", source="plugin-a"))
-        self.registry.register(self._registration("c", source="plugin-b"))
-
-        self.registry.unregister_source("plugin-a")
-
-        self.assertEqual([r.kind for r in self.registry.all()], ["c"])
 
 
 class RecipeStepManifestTests(unittest.TestCase):

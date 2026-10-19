@@ -8,7 +8,8 @@ and their integration with the hook system.
 import hashlib
 import threading
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from functools import partial
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 from enum import Enum
 import logging
 
@@ -20,12 +21,15 @@ from src.platform.plugins.router_mounter import (
     MountResult,
     PluginRouterMounter,
 )
-from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry, DuplicateFieldTypeError
+from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry
 from src.platform.plugins.login_providers import login_provider_registry
-from src.platform.plugins.prompt_importers import PromptImporterRegistry
-from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
-from src.platform.plugins.recipe_steps import RecipeStepKindRegistry
-from src.platform.plugins.requirement_checkers import RequirementCheckerRegistry
+from src.platform.plugins.automation_nodes import NodeField, NodeTypeSpec
+from src.platform.plugins.chat_modes import ChatMode
+from src.platform.plugins.prompt_importers import PromptImporterDefinition, PromptImporterRegistry
+from src.platform.plugins.phrasebook_ops import PhrasebookBatchOperationDefinition, PhrasebookOperationRegistry
+from src.platform.plugins.recipe_steps import RecipeStepKindRegistration, RecipeStepKindRegistry
+from src.platform.plugins.requirement_checkers import RequirementCheckerRegistration, RequirementCheckerRegistry
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError
 from src.platform.runtime.model_headers import ModelClassifierDefinition, model_classifier_registry
 from src.platform.plugins.organize import (
     DuplicateOrganizeEntryError,
@@ -92,6 +96,71 @@ class PluginState(Enum):
     ENABLED = "enabled"  # Active and hooks registered
     ERROR = "error"  # Failed to load or enable
     DISABLED = "disabled"  # Explicitly disabled by user
+
+
+def _plugin_asset(plugin_id: str, name: Optional[str], empty: Optional[str] = "") -> Optional[str]:
+    return f"plugin:{plugin_id}:{name}" if name else empty
+
+
+@dataclass(frozen=True)
+class _BackendSection:
+    section: str
+    registry_attr: str
+    key_field: str
+    registry_label: str
+    backend_label: str
+    build: Callable[[str, Dict[str, Any], str, Any], Any]
+
+
+_BACKEND_SECTIONS = (
+    _BackendSection(
+        "prompt_importers", "prompt_importer_registry", "id", "prompt importer", "prompt importer backend",
+        lambda plugin_id, entry, key, backend: PromptImporterDefinition(
+            importer_id=key,
+            label=entry.get('label') or key,
+            frontend_component=_plugin_asset(plugin_id, entry.get('component')),
+            backend=backend,
+            source=plugin_id,
+        ),
+    ),
+    _BackendSection(
+        "phrasebook_ops", "phrasebook_operation_registry", "id",
+        "phrasebook batch operation", "phrasebook batch operation backend",
+        lambda plugin_id, entry, key, backend: PhrasebookBatchOperationDefinition(
+            op_id=key,
+            label=entry.get('label') or key,
+            backend=backend,
+            frontend_component=_plugin_asset(plugin_id, entry.get('component'), None),
+            source=plugin_id,
+        ),
+    ),
+    _BackendSection(
+        "requirement_checkers", "requirement_checker_registry", "type",
+        "requirement checker", "requirement checker backend",
+        lambda plugin_id, entry, key, backend: RequirementCheckerRegistration(
+            type_name=key, checker=backend, source=plugin_id
+        ),
+    ),
+    _BackendSection(
+        "recipe_steps", "recipe_step_kind_registry", "kind",
+        "recipe step kind", "recipe step executor backend",
+        lambda plugin_id, entry, key, backend: RecipeStepKindRegistration(
+            kind=key, executor=backend, source=plugin_id
+        ),
+    ),
+)
+
+_SOURCE_REGISTRY_ATTRS = (
+    "field_registry",
+    "tool_registry",
+    "chat_mode_registry",
+    "resource_registry",
+    "automation_node_registry",
+    "prompt_importer_registry",
+    "phrasebook_operation_registry",
+    "requirement_checker_registry",
+    "recipe_step_kind_registry",
+)
 
 
 class PluginRegistry:
@@ -441,10 +510,7 @@ class PluginRegistry:
             self._register_plugin_resources,
             self._register_plugin_automation_nodes,
             self._register_plugin_automation_templates,
-            self._register_plugin_prompt_importers,
-            self._register_plugin_phrasebook_ops,
-            self._register_plugin_requirement_checkers,
-            self._register_plugin_recipe_steps,
+            *(partial(self._register_backend_section, section) for section in _BACKEND_SECTIONS),
             self._register_plugin_samplers,
             self._register_plugin_schedules,
             self._register_plugin_model_classifiers,
@@ -555,24 +621,21 @@ class PluginRegistry:
                 if options_provider is None:
                     return f"Failed to load field options handler: {options_handler_ref}"
 
-            component = field_type.get('component')
-            frontend_component = f"plugin:{plugin_id}:{component}" if component else ""
-            axis_editor = field_type.get('axis_editor')
-            axis_editor_ref = f"plugin:{plugin_id}:{axis_editor}" if axis_editor else ""
+            frontend_component = _plugin_asset(plugin_id, field_type.get('component'))
+            axis_editor_ref = _plugin_asset(plugin_id, field_type.get('axis_editor'))
 
-            try:
-                self.field_registry.register(FieldTypeDefinition(
-                    type_name=type_name,
-                    schema_cls=schema_cls,
-                    options_provider=options_provider,
-                    frontend_component=frontend_component,
-                    container=False,
-                    source=plugin_id,
-                    shareable=bool(field_type.get('shareable', False)),
-                    axis_editor=axis_editor_ref,
-                ))
-            except DuplicateFieldTypeError as e:
-                return str(e)
+            error = self._register_entry(self.field_registry.register, FieldTypeDefinition(
+                type_name=type_name,
+                schema_cls=schema_cls,
+                options_provider=options_provider,
+                frontend_component=frontend_component,
+                container=False,
+                source=plugin_id,
+                shareable=bool(field_type.get('shareable', False)),
+                axis_editor=axis_editor_ref,
+            ), DuplicateRegistrationError)
+            if error:
+                return error
 
         return None
 
@@ -590,216 +653,6 @@ class PluginRegistry:
             return None
 
         return self.model_attributes_manager.upsert_from_plugin(manifest.id, manifest.model_metadata_fields)
-
-    def _register_plugin_prompt_importers(self, manifest: PluginManifest) -> Optional[str]:
-        """
-        Load and register a plugin's `prompt_importers:` manifest entries onto
-        `self.prompt_importer_registry`.
-
-        Returns an error message string on failure (backend class failed to
-        load/instantiate, or the id collides with an existing registration),
-        or None on success.
-        """
-        skip, error = self._require_registry(
-            manifest.prompt_importers, self.prompt_importer_registry, "prompt_importers", "prompt importer"
-        )
-        if skip:
-            return error
-
-        from src.platform.plugins.prompt_importers import (
-            DuplicatePromptImporterError,
-            PromptImporterDefinition,
-        )
-
-        plugin_id = manifest.id
-
-        for entry in manifest.prompt_importers:
-            importer_id = entry.get('id')
-            if not importer_id:
-                return "prompt_importers entry missing 'id'"
-
-            backend_ref = entry.get('backend')
-            if not backend_ref:
-                return f"prompt_importers entry '{importer_id}' missing 'backend'"
-            backend_cls = self.loader.load_class(manifest, backend_ref)
-            if backend_cls is None:
-                return f"Failed to load prompt importer backend: {backend_ref}"
-
-            try:
-                backend = backend_cls()
-            except Exception as e:
-                return f"Failed to instantiate prompt importer backend '{backend_ref}': {e}"
-
-            component = entry.get('component')
-            frontend_component = f"plugin:{plugin_id}:{component}" if component else ""
-
-            try:
-                self.prompt_importer_registry.register(PromptImporterDefinition(
-                    importer_id=importer_id,
-                    label=entry.get('label') or importer_id,
-                    frontend_component=frontend_component,
-                    backend=backend,
-                    source=plugin_id,
-                ))
-            except DuplicatePromptImporterError as e:
-                return str(e)
-
-        return None
-
-    def _register_plugin_phrasebook_ops(self, manifest: PluginManifest) -> Optional[str]:
-        """
-        Load and register a plugin's `phrasebook_ops:` manifest entries onto
-        `self.phrasebook_operation_registry`. Returns an error message on
-        failure, None on success.
-        """
-        skip, error = self._require_registry(
-            manifest.phrasebook_ops, self.phrasebook_operation_registry,
-            "phrasebook_ops", "phrasebook batch operation",
-        )
-        if skip:
-            return error
-
-        from src.platform.plugins.phrasebook_ops import (
-            DuplicatePhrasebookOperationError,
-            PhrasebookBatchOperationDefinition,
-        )
-
-        plugin_id = manifest.id
-
-        for entry in manifest.phrasebook_ops:
-            op_id = entry.get('id')
-            if not op_id:
-                return "phrasebook_ops entry missing 'id'"
-
-            backend_ref = entry.get('backend')
-            if not backend_ref:
-                return f"phrasebook_ops entry '{op_id}' missing 'backend'"
-            backend_cls = self.loader.load_class(manifest, backend_ref)
-            if backend_cls is None:
-                return f"Failed to load phrasebook batch operation backend: {backend_ref}"
-
-            try:
-                backend = backend_cls()
-            except Exception as e:
-                return f"Failed to instantiate phrasebook batch operation backend '{backend_ref}': {e}"
-
-            component = entry.get('component')
-            frontend_component = f"plugin:{plugin_id}:{component}" if component else None
-
-            try:
-                self.phrasebook_operation_registry.register(PhrasebookBatchOperationDefinition(
-                    op_id=op_id,
-                    label=entry.get('label') or op_id,
-                    backend=backend,
-                    frontend_component=frontend_component,
-                    source=plugin_id,
-                ))
-            except DuplicatePhrasebookOperationError as e:
-                return str(e)
-
-        return None
-
-    def _register_plugin_requirement_checkers(self, manifest: PluginManifest) -> Optional[str]:
-        """
-        Load and register a plugin's `requirement_checkers:` manifest entries
-        onto `self.requirement_checker_registry`. Returns an error message on
-        failure, None on success.
-        """
-        skip, error = self._require_registry(
-            manifest.requirement_checkers, self.requirement_checker_registry,
-            "requirement_checkers", "requirement checker",
-        )
-        if skip:
-            return error
-
-        from src.platform.plugins.requirement_checkers import (
-            DuplicateRequirementCheckerError,
-            RequirementCheckerRegistration,
-        )
-
-        plugin_id = manifest.id
-
-        for entry in manifest.requirement_checkers:
-            type_name = entry.get('type')
-            if not type_name:
-                return "requirement_checkers entry missing 'type'"
-
-            backend_ref = entry.get('backend')
-            if not backend_ref:
-                return f"requirement_checkers entry '{type_name}' missing 'backend'"
-            checker_cls = self.loader.load_class(manifest, backend_ref)
-            if checker_cls is None:
-                return f"Failed to load requirement checker backend: {backend_ref}"
-
-            try:
-                checker = checker_cls()
-            except Exception as e:
-                return f"Failed to instantiate requirement checker backend '{backend_ref}': {e}"
-
-            try:
-                self.requirement_checker_registry.register(RequirementCheckerRegistration(
-                    type_name=type_name,
-                    checker=checker,
-                    source=plugin_id,
-                ))
-            except DuplicateRequirementCheckerError as e:
-                return str(e)
-
-        return None
-
-    def _register_plugin_recipe_steps(self, manifest: PluginManifest) -> Optional[str]:
-        """
-        Load and register a plugin's `recipe_steps:` manifest entries onto
-        `self.recipe_step_kind_registry`. Returns an error message on failure,
-        None on success.
-        """
-        skip, error = self._require_registry(
-            manifest.recipe_steps, self.recipe_step_kind_registry,
-            "recipe_steps", "recipe step kind",
-        )
-        if skip:
-            return error
-
-        from src.platform.plugins.recipe_steps import (
-            DuplicateRecipeStepKindError,
-            RecipeStepKindRegistration,
-        )
-
-        plugin_id = manifest.id
-
-        for entry in manifest.recipe_steps:
-            kind = entry.get('kind')
-            if not kind:
-                return "recipe_steps entry missing 'kind'"
-
-            backend_ref = entry.get('backend')
-            if not backend_ref:
-                return f"recipe_steps entry '{kind}' missing 'backend'"
-            executor_cls = self.loader.load_class(manifest, backend_ref)
-            if executor_cls is None:
-                return f"Failed to load recipe step executor backend: {backend_ref}"
-
-            try:
-                executor = executor_cls()
-            except Exception as e:
-                return f"Failed to instantiate recipe step executor backend '{backend_ref}': {e}"
-
-            try:
-                self.recipe_step_kind_registry.register(RecipeStepKindRegistration(
-                    kind=kind,
-                    executor=executor,
-                    source=plugin_id,
-                ))
-            except DuplicateRecipeStepKindError as e:
-                return str(e)
-
-        return None
-
-    def _unregister_sampling_entries(self, plugin_id: str) -> None:
-        """Drop the plugin's samplers and schedules off the sampler/schedule
-        registries."""
-        sampler_registry.unregister_source(plugin_id)
-        schedule_registry.unregister_source(plugin_id)
 
     def _sampling_option_specs(self, entries) -> tuple:
         """Turn a manifest entry's `options:` list into `OptionSpec`s."""
@@ -836,19 +689,18 @@ class PluginRegistry:
             if handler is None:
                 return f"Failed to load sampler handler: {handler_ref}"
 
-            try:
-                sampler_registry.register(SamplerDefinition(
-                    key=key,
-                    sample=handler,
-                    label=entry.get('label') or key,
-                    stochastic=bool(entry.get('stochastic', False)),
-                    options=self._sampling_option_specs(entry.get('options')),
-                    families=tuple(entry.get('families') or (ANY_FAMILY,)),
-                    description=entry.get('description', ''),
-                    source=manifest.id,
-                ))
-            except DuplicateSamplingEntryError as e:
-                return str(e)
+            error = self._register_entry(sampler_registry.register, SamplerDefinition(
+                key=key,
+                sample=handler,
+                label=entry.get('label') or key,
+                stochastic=bool(entry.get('stochastic', False)),
+                options=self._sampling_option_specs(entry.get('options')),
+                families=tuple(entry.get('families') or (ANY_FAMILY,)),
+                description=entry.get('description', ''),
+                source=manifest.id,
+            ), DuplicateSamplingEntryError)
+            if error:
+                return error
 
         return None
 
@@ -873,20 +725,19 @@ class PluginRegistry:
             if handler is None:
                 return f"Failed to load schedule handler: {handler_ref}"
 
-            try:
-                schedule_registry.register(ScheduleDefinition(
-                    key=key,
-                    build=handler,
-                    label=entry.get('label') or key,
-                    options=self._sampling_option_specs(entry.get('options')),
-                    families=tuple(entry.get('families') or (ANY_FAMILY,)),
-                    description=entry.get('description', ''),
-                    owns_steps=bool(entry.get('owns_steps', False)),
-                    requires_image_seq_len=bool(entry.get('requires_image_seq_len', False)),
-                    source=manifest.id,
-                ))
-            except DuplicateSamplingEntryError as e:
-                return str(e)
+            error = self._register_entry(schedule_registry.register, ScheduleDefinition(
+                key=key,
+                build=handler,
+                label=entry.get('label') or key,
+                options=self._sampling_option_specs(entry.get('options')),
+                families=tuple(entry.get('families') or (ANY_FAMILY,)),
+                description=entry.get('description', ''),
+                owns_steps=bool(entry.get('owns_steps', False)),
+                requires_image_seq_len=bool(entry.get('requires_image_seq_len', False)),
+                source=manifest.id,
+            ), DuplicateSamplingEntryError)
+            if error:
+                return error
 
         return None
 
@@ -896,18 +747,17 @@ class PluginRegistry:
             handler = self.loader.load_hook_handler(manifest, handler_ref)
             if handler is None:
                 return f"Failed to load model classifier handler: {handler_ref}"
-            try:
-                model_classifier_registry.register(ModelClassifierDefinition(
-                    key=entry['key'],
-                    classify=handler,
-                    label=entry['label'],
-                    version=entry['version'],
-                    formats=tuple(entry['formats']),
-                    source=manifest.id,
-                    priority=entry.get('priority', 0),
-                ))
-            except ValueError as e:
-                return str(e)
+            error = self._register_entry(model_classifier_registry.register, ModelClassifierDefinition(
+                key=entry['key'],
+                classify=handler,
+                label=entry['label'],
+                version=entry['version'],
+                formats=tuple(entry['formats']),
+                source=manifest.id,
+                priority=entry.get('priority', 0),
+            ), ValueError)
+            if error:
+                return error
         return None
 
     def _load_optional_handler(self, manifest: PluginManifest, ref: Optional[str], label: str):
@@ -931,26 +781,24 @@ class PluginRegistry:
             )
             if error:
                 return error
-            component = entry.get('component')
-            try:
-                self.organize_registry.register_fact(OrganizeFactDefinition(
-                    key=entry['key'],
-                    label=entry['label'],
-                    subjects=tuple(entry['subjects']),
-                    kind=entry['kind'],
-                    extract=handler,
-                    operators=tuple(entry.get('operators') or ()),
-                    sql=sql_handler,
-                    options=tuple(entry.get('options') or ()),
-                    options_handler=options_handler,
-                    picker=dict(entry.get('picker') or {}),
-                    description=entry.get('description', ''),
-                    triggers=tuple(entry.get('triggers') or ("item_created",)),
-                    component=f"plugin:{manifest.id}:{component}" if component else None,
-                    source=manifest.id,
-                ))
-            except (DuplicateOrganizeEntryError, InvalidOrganizeEntryError) as e:
-                return str(e)
+            error = self._register_entry(self.organize_registry.register_fact, OrganizeFactDefinition(
+                key=entry['key'],
+                label=entry['label'],
+                subjects=tuple(entry['subjects']),
+                kind=entry['kind'],
+                extract=handler,
+                operators=tuple(entry.get('operators') or ()),
+                sql=sql_handler,
+                options=tuple(entry.get('options') or ()),
+                options_handler=options_handler,
+                picker=dict(entry.get('picker') or {}),
+                description=entry.get('description', ''),
+                triggers=tuple(entry.get('triggers') or ("item_created",)),
+                component=_plugin_asset(manifest.id, entry.get('component'), None),
+                source=manifest.id,
+            ), DuplicateOrganizeEntryError, InvalidOrganizeEntryError)
+            if error:
+                return error
         return None
 
     def _register_plugin_organize_actions(self, manifest: PluginManifest) -> Optional[str]:
@@ -963,22 +811,20 @@ class PluginRegistry:
             )
             if error:
                 return error
-            component = entry.get('component')
-            try:
-                self.organize_registry.register_action(OrganizeActionDefinition(
-                    key=entry['key'],
-                    label=entry['label'],
-                    subjects=tuple(entry['subjects']),
-                    apply=handler,
-                    config_schema=tuple(entry.get('config_schema') or ()),
-                    undo=undo_handler,
-                    requires_admin=bool(entry.get('requires_admin', False)),
-                    description=entry.get('description', ''),
-                    component=f"plugin:{manifest.id}:{component}" if component else None,
-                    source=manifest.id,
-                ))
-            except (DuplicateOrganizeEntryError, InvalidOrganizeEntryError) as e:
-                return str(e)
+            error = self._register_entry(self.organize_registry.register_action, OrganizeActionDefinition(
+                key=entry['key'],
+                label=entry['label'],
+                subjects=tuple(entry['subjects']),
+                apply=handler,
+                config_schema=tuple(entry.get('config_schema') or ()),
+                undo=undo_handler,
+                requires_admin=bool(entry.get('requires_admin', False)),
+                description=entry.get('description', ''),
+                component=_plugin_asset(manifest.id, entry.get('component'), None),
+                source=manifest.id,
+            ), DuplicateOrganizeEntryError, InvalidOrganizeEntryError)
+            if error:
+                return error
         return None
 
     def _register_plugin_limit_kinds(self, manifest: PluginManifest) -> Optional[str]:
@@ -989,30 +835,29 @@ class PluginRegistry:
                 if error:
                     return error
                 handlers[name] = handler
-            try:
-                self.limit_kind_registry.register(LimitKind(
-                    key=entry['key'],
-                    label=entry['label'],
-                    short_label=entry.get('short_label', ''),
-                    description=entry.get('description', ''),
-                    value_type=entry['value_type'],
-                    unit=entry.get('unit'),
-                    format=entry.get('format'),
-                    window=entry.get('window', 'none'),
-                    enforce_at=tuple(entry['enforce_at']),
-                    ledger=bool(entry.get('ledger', False)),
-                    measure=handlers['measure_handler'],
-                    applies=handlers['applies_handler'],
-                    incoming=handlers['incoming_handler'],
-                    refusal_message=entry.get('refusal_message', ''),
-                    refusal_code=entry.get('refusal_code') or '',
-                    admin_only_values=entry.get('admin_only_values'),
-                    warn_at=entry.get('warn_at', 0.8),
-                    icon=entry.get('icon', ''),
-                    source=manifest.id,
-                ))
-            except (DuplicateLimitKindError, InvalidLimitKindError) as e:
-                return str(e)
+            error = self._register_entry(self.limit_kind_registry.register, LimitKind(
+                key=entry['key'],
+                label=entry['label'],
+                short_label=entry.get('short_label', ''),
+                description=entry.get('description', ''),
+                value_type=entry['value_type'],
+                unit=entry.get('unit'),
+                format=entry.get('format'),
+                window=entry.get('window', 'none'),
+                enforce_at=tuple(entry['enforce_at']),
+                ledger=bool(entry.get('ledger', False)),
+                measure=handlers['measure_handler'],
+                applies=handlers['applies_handler'],
+                incoming=handlers['incoming_handler'],
+                refusal_message=entry.get('refusal_message', ''),
+                refusal_code=entry.get('refusal_code') or '',
+                admin_only_values=entry.get('admin_only_values'),
+                warn_at=entry.get('warn_at', 0.8),
+                icon=entry.get('icon', ''),
+                source=manifest.id,
+            ), DuplicateLimitKindError, InvalidLimitKindError)
+            if error:
+                return error
         return None
 
     def _teardown_plugin(self, plugin_id: str) -> None:
@@ -1045,28 +890,23 @@ class PluginRegistry:
             self.hook_chain.unregister(hook_name, plugin_id)
         if plugin_id in self._plugin_hooks:
             self._plugin_hooks[plugin_id].clear()
-        if self.field_registry is not None:
-            self.field_registry.unregister_source(plugin_id)
         if self.model_attributes_manager is not None:
             self.model_attributes_manager.remove_source(plugin_id)
-        self._unregister_chat_extensions(plugin_id)
-        if self.automation_node_registry is not None:
-            self.automation_node_registry.unregister_source(plugin_id)
+        for attr in _SOURCE_REGISTRY_ATTRS:
+            registry = getattr(self, attr)
+            if registry is not None:
+                registry.unregister_source(plugin_id)
         if self.automation_template_registry is not None:
             self.automation_template_registry.unregister_source(plugin_template_source(plugin_id))
-        if self.prompt_importer_registry is not None:
-            self.prompt_importer_registry.unregister_source(plugin_id)
-        if self.phrasebook_operation_registry is not None:
-            self.phrasebook_operation_registry.unregister_source(plugin_id)
-        if self.requirement_checker_registry is not None:
-            self.requirement_checker_registry.unregister_source(plugin_id)
-        if self.recipe_step_kind_registry is not None:
-            self.recipe_step_kind_registry.unregister_source(plugin_id)
-        self._unregister_sampling_entries(plugin_id)
-        model_classifier_registry.unregister_source(plugin_id)
-        login_provider_registry.unregister_source(plugin_id)
-        self.organize_registry.unregister_source(plugin_id)
-        self.limit_kind_registry.unregister_source(plugin_id)
+        for registry in (
+            sampler_registry,
+            schedule_registry,
+            model_classifier_registry,
+            login_provider_registry,
+            self.organize_registry,
+            self.limit_kind_registry,
+        ):
+            registry.unregister_source(plugin_id)
         if self.router_mounter is not None:
             self.router_mounter.unmount(plugin_id)
         # Drop this plugin's imported modules so a retry re-imports fresh code;
@@ -1090,14 +930,48 @@ class PluginRegistry:
             return True, f"Plugin declares {attr_name} but no {singular} registry is available"
         return False, None
 
-    def _unregister_chat_extensions(self, plugin_id: str) -> None:
-        """Remove the plugin's tools, chat modes, and resource providers."""
-        if self.tool_registry is not None:
-            self.tool_registry.unregister_source(plugin_id)
-        if self.chat_mode_registry is not None:
-            self.chat_mode_registry.unregister_source(plugin_id)
-        if self.resource_registry is not None:
-            self.resource_registry.unregister_source(plugin_id)
+    def _instantiate_entry(self, manifest: PluginManifest, ref: str, label: str) -> Tuple[Any, Optional[str]]:
+        cls = self.loader.load_class(manifest, ref)
+        if cls is None:
+            return None, f"Failed to load {label}: {ref}"
+        try:
+            return cls(), None
+        except Exception as e:
+            return None, f"Failed to instantiate {label} '{ref}': {e}"
+
+    @staticmethod
+    def _register_entry(register: Callable[[Any], Any], definition: Any, *errors: type) -> Optional[str]:
+        try:
+            register(definition)
+        except errors as e:
+            return str(e)
+        return None
+
+    def _register_backend_section(self, section: _BackendSection, manifest: PluginManifest) -> Optional[str]:
+        entries = getattr(manifest, section.section)
+        registry = getattr(self, section.registry_attr)
+        skip, error = self._require_registry(entries, registry, section.section, section.registry_label)
+        if skip:
+            return error
+
+        for entry in entries:
+            key = entry.get(section.key_field)
+            if not key:
+                return f"{section.section} entry missing '{section.key_field}'"
+
+            ref = entry.get('backend')
+            if not ref:
+                return f"{section.section} entry '{key}' missing 'backend'"
+            backend, error = self._instantiate_entry(manifest, ref, section.backend_label)
+            if error:
+                return error
+
+            definition = section.build(manifest.id, entry, key, backend)
+            error = self._register_entry(registry.register, definition, DuplicateRegistrationError)
+            if error:
+                return error
+
+        return None
 
     def _register_plugin_automation_nodes(self, manifest: PluginManifest) -> Optional[str]:
         """
@@ -1111,8 +985,6 @@ class PluginRegistry:
         )
         if skip:
             return error
-
-        from src.platform.plugins.automation_nodes import DuplicateNodeTypeError, NodeField, NodeTypeSpec
 
         plugin_id = manifest.id
 
@@ -1149,25 +1021,24 @@ class PluginRegistry:
             except TypeError as exc:
                 return f"Invalid automation node 'outputs' for '{key}': {exc}"
 
-            try:
-                self.automation_node_registry.register(NodeTypeSpec(
-                    key=key,
-                    kind=spec.get('kind'),
-                    title=spec.get('title', key),
-                    description=spec.get('description', ''),
-                    icon=spec.get('icon', ''),
-                    category=spec.get('category', 'general'),
-                    config_schema=list(spec.get('config_schema') or []),
-                    outputs=outputs,
-                    dynamic_outputs=bool(spec.get('dynamic_outputs', False)),
-                    execute=handler,
-                    start=start_handler,
-                    stop=stop_handler,
-                    source=plugin_id,
-                    dynamic_ports_config_key=spec.get('dynamic_ports_config_key'),
-                ))
-            except DuplicateNodeTypeError as e:
-                return str(e)
+            error = self._register_entry(self.automation_node_registry.register, NodeTypeSpec(
+                key=key,
+                kind=spec.get('kind'),
+                title=spec.get('title', key),
+                description=spec.get('description', ''),
+                icon=spec.get('icon', ''),
+                category=spec.get('category', 'general'),
+                config_schema=list(spec.get('config_schema') or []),
+                outputs=outputs,
+                dynamic_outputs=bool(spec.get('dynamic_outputs', False)),
+                execute=handler,
+                start=start_handler,
+                stop=stop_handler,
+                source=plugin_id,
+                dynamic_ports_config_key=spec.get('dynamic_ports_config_key'),
+            ), DuplicateRegistrationError)
+            if error:
+                return error
 
         return None
 
@@ -1224,14 +1095,9 @@ class PluginRegistry:
             if not class_ref:
                 return "tools entry missing 'class'"
 
-            tool_cls = self.loader.load_class(manifest, class_ref)
-            if tool_cls is None:
-                return f"Failed to load tool class: {class_ref}"
-
-            try:
-                tool = tool_cls()
-            except Exception as e:
-                return f"Failed to instantiate tool class {class_ref}: {e}"
+            tool, error = self._instantiate_entry(manifest, class_ref, "tool class")
+            if error:
+                return error
 
             # Per-instance mode scoping override (BaseTool.modes is a plain
             # class attribute, so an instance attribute shadows it).
@@ -1258,8 +1124,6 @@ class PluginRegistry:
         )
         if skip:
             return error
-
-        from src.platform.plugins.chat_modes import ChatMode, DuplicateChatModeError
 
         plugin_id = manifest.id
 
@@ -1300,10 +1164,9 @@ class PluginRegistry:
                 admin_only=spec.get('admin_only', False),
             )
 
-            try:
-                self.chat_mode_registry.register(mode)
-            except DuplicateChatModeError as e:
-                return str(e)
+            error = self._register_entry(self.chat_mode_registry.register, mode, DuplicateRegistrationError)
+            if error:
+                return error
 
         return None
 
@@ -1329,14 +1192,9 @@ class PluginRegistry:
             if not provider_ref:
                 return "resources entry missing 'provider'"
 
-            provider_cls = self.loader.load_class(manifest, provider_ref)
-            if provider_cls is None:
-                return f"Failed to load resource provider class: {provider_ref}"
-
-            try:
-                provider = provider_cls()
-            except Exception as e:
-                return f"Failed to instantiate resource provider {provider_ref}: {e}"
+            provider, error = self._instantiate_entry(manifest, provider_ref, "resource provider class")
+            if error:
+                return error
 
             declared_namespace = spec.get('namespace')
             if declared_namespace and provider.namespace != declared_namespace:

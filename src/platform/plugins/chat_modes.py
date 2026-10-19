@@ -16,8 +16,10 @@ lives with the chat, in `src.features.chat.modes.registry`.
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError
 
-class DuplicateChatModeError(Exception):
+
+class DuplicateChatModeError(DuplicateRegistrationError):
     """A mode with the same id is already registered."""
     pass
 
