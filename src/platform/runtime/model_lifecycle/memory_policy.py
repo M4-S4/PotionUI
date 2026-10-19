@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 OffloadStrategy = Literal["sequential", "model", "none"]
 AttentionSlicing = Literal["max", "auto", "none"]
-MemoryStrategyName = Literal["conservative", "balanced", "full_vram"]
 
 
 class MemoryPolicy:
@@ -56,41 +55,6 @@ class MemoryPolicy:
 
     def should_enable_tf32(self) -> bool:
         return True
-
-    def get_memory_strategy(self) -> MemoryStrategyName:
-        """Coarse strategy name, used by MemoryAdvisor for tiling/batch-size math."""
-        if self.vram_gb >= 24.0:
-            return "full_vram"
-        elif self.vram_gb >= 12.0:
-            return "balanced"
-        return "conservative"
-
-    def should_use_cpu_offload(self, model_type: str = "sdxl") -> bool:
-        strategy = self.get_memory_strategy()
-        if strategy == "conservative":
-            return True
-        if strategy == "balanced":
-            # Approximate resident footprint in GB (not params-in-billions) of
-            # the diffusion model at its typically-deployed checkpoint
-            # precision, used only for the `base_cost_gb > vram*0.5` offload
-            # heuristic in this tier.
-            base_costs_gb = {
-                "sdxl": 4.0,
-                "flux": 24.0,        # 12B DiT bf16, ~23.8GB Flux.1-dev safetensors
-                "sd15": 2.0,
-                "qwen_image": 20.0,  # bare-fp8 DiT, GPU-validated peak 19.37GB total
-                # Native engine v2 families.
-                "flux2": 18.0,       # 9B DiT bf16 (~9GB when fp8-scaled)
-                "flux_klein": 18.0,  # same 9B Flux2 DiT checkpoint (Klein)
-                "flux3": 11.5,
-                "moss_image": 10.5,
-                "krea2": 26.0,       # ~12B DiT bf16 (features 6144 x 28 layers), 26GB on disk
-                "wan22": 14.0,       # 14B expert resident at a time (video), fp8 default
-                "ltx2": 27.0,        # LTX-2 AV DiT (19-22B)
-            }
-            base_cost_gb = base_costs_gb.get(model_type.lower(), 4.0)
-            return base_cost_gb > (self.vram_gb * 0.5)
-        return False
 
     def __repr__(self) -> str:
         return f"MemoryPolicy(vram_gb={self.vram_gb:.2f})"

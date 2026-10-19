@@ -163,7 +163,6 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
 
     def _resolve_vram_limit_gb(self, pipe_input: PipeInput) -> float:
         gpu_monitor = pipe_input.input.get("GPU", None)
-        memory_advisor = pipe_input.input.get("MEMORY", None)
 
         vram_limit_gb = self.config.get("vram_limit_gb", None)
         if gpu_monitor:
@@ -178,14 +177,6 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
             # No service and no config - use conservative default
             vram_limit_gb = 8.0
             logger.info(f"[CHECKPOINT LOADER SDXL] No VRAM limit specified, using default: {vram_limit_gb}GB")
-
-        # Log memory recommendation if available
-        if memory_advisor:
-            memory_advisor.log_memory_recommendation(
-                image_size=(1024, 1024),  # Default SDXL resolution for estimation
-                model_type="sdxl",
-                context="checkpoint_loader"
-            )
 
         return vram_limit_gb
 
