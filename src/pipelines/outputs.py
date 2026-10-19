@@ -145,6 +145,20 @@ class MeshGenerationOutput(GenerationOutput):
 
 
 @dataclass
+class SplatGenerationOutput(GenerationOutput):
+    splat_path: Path
+    temporary: bool = True
+    derived: bool = False
+    seed: int = None
+    splat_count: int = None
+    preview: Image = None
+
+    def __post_init__(self):
+        if self.preview is not None:
+            _force_eager_decode(self.preview)
+
+
+@dataclass
 class ProgressGenerationOutput(GenerationOutput):
     state: str
     icon: Icon = None
@@ -216,6 +230,7 @@ class GalleryGenerationOutput(GenerationOutput):
     videos: List[VideoGenerationOutput] = field(default_factory=list)
     audios: List["AudioGenerationOutput"] = field(default_factory=list)
     meshes: List[MeshGenerationOutput] = field(default_factory=list)
+    splats: List[SplatGenerationOutput] = field(default_factory=list)
 
 @dataclass
 class CostGenerationOutput(GenerationOutput):

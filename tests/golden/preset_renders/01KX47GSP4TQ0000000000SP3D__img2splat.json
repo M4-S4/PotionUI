@@ -1,0 +1,97 @@
+{
+  "mode": "img2splat",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 52428800
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_image.png",
+              "type": "image"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "geometry_estimator.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/geometry_estimator.safetensors"
+        },
+        "geometry_estimator.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/geometry_estimator.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_loader",
+      "name": "model_loader/image_to_splat"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/geometry_estimator.safetensors"
+            ],
+            [
+              "detail",
+              "standard"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "detail": {
+          "type": "str",
+          "value": "standard"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/image_to_splat"
+    }
+  ],
+  "preset_id": "01KX47GSP4TQ0000000000SP3D",
+  "preset_name": "Image to Splat"
+}

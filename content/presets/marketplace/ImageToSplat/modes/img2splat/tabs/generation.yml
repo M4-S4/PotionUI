@@ -1,0 +1,28 @@
+fields:
+  - name: "detail"
+    type: "select"
+    formula: "size"
+    label: "Detail"
+    default: "standard"
+    ai_hint: "The resolution MoGe-2 and the lift run at, on the image's long side. The scene has about one Gaussian per pixel plus a background layer behind the foreground, so High makes roughly twice as many Gaussians and a .ply about twice as large (about 50 MB at Standard, 110 MB at High for a 4:3 image). The image is never enlarged: a small image gives the same scene at both settings. Suggest Standard for previews and High for the final captures."
+    configuration:
+      options:
+        - { label: "Standard (1024)", value: "standard", sub_label: "About 1 million Gaussians · default" }
+        - { label: "High (1536)", value: "high", sub_label: "About 2 million Gaussians" }
+
+  - type: "section"
+    label: "Models"
+    formula: "models"
+    children:
+      - name: "geometry_estimator"
+        type: "model"
+        label: "Geometry Estimator (MoGe-2)"
+        required: true
+        configuration:
+          model_type: "geometry_estimation"
+          placeholder: "Select moge_2_vitl_normal_fp16.safetensors..."
+          recommendations:
+            - name: "moge_2_vitl_normal_fp16.safetensors"
+              provider: "huggingface"
+              ref: '{"repo": "Comfy-Org/MoGe", "file": "geometry_estimation/moge_2_vitl_normal_fp16.safetensors", "revision": "main"}'
+              size: "662 MB"

@@ -879,6 +879,43 @@ class TestMeshPass(IndexerTestBase):
         assert row["attempts"] == 0
 
 
+class TestSplatPass(IndexerTestBase):
+
+    def _make_splat_file(self, file_id, thumbnail=None):
+        self._make_file(file_id, file_type="SPLAT", thumbnail=thumbnail)
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE files SET file_path = ? WHERE id = ?", (f"generations/g/{file_id}.ply", file_id)
+            )
+
+    def test_splat_is_tagged_through_its_generator_thumbnail(self):
+        self._make_splat_file("s1", thumbnail="thumbnails/1_medium.webp")
+        self.repo.enqueue_files(["s1"], PASS_TAGS)
+        manager = self._indexer()
+
+        with patch("src.platform.runtime.native.mesh_preview.render_mesh_preview") as mesh_render:
+            result = manager.process_pending(PASS_TAGS, batch_size=10)
+
+        mesh_render.assert_not_called()
+        assert result == {"processed": 1, "failed": 0}
+        assert self.tagger.calls == ["/storage/generations/g/thumbnails/1_medium.webp"]
+
+    def test_splat_without_thumbnail_is_skipped_and_never_mesh_rendered(self):
+        self._make_splat_file("s1")
+        self.repo.enqueue_files(["s1"], PASS_TAGS)
+        manager = self._indexer()
+
+        with patch("src.platform.runtime.native.mesh_preview.render_mesh_preview") as mesh_render:
+            result = manager.process_pending(PASS_TAGS, batch_size=10)
+
+        mesh_render.assert_not_called()
+        assert result == {"processed": 1, "failed": 0}
+        assert self.tagger.calls == []
+        row = self._queue_row("s1")
+        assert row["status"] == "done"
+        assert row["attempts"] == 0
+
+
 class TestAudioPass(IndexerTestBase):
     """Audio has no renderable source and never will - unlike video (whose
     thumbnail is merely delayed) it must skip once rather than retry to
