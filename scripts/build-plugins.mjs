@@ -64,12 +64,6 @@ const PLUGIN_ROOTS = [
 	join(REPO_ROOT, 'content', 'plugins', 'local')
 ];
 
-// Per-plugin compiler-option overrides for the "page" build shape, keyed by
-// plugin id, for a plugin whose frontend needs to opt out of runes mode
-// (none currently do - form-builder was the one outlier, and it left the
-// tree; see its own repo if it ever comes back).
-const PAGE_RUNES_OVERRIDES = {};
-
 const DEBUG_BUILD = process.argv.includes('--debug') || process.env.PLUGIN_BUILD === 'debug';
 
 const BUILD_OPTIONS = {
@@ -118,30 +112,30 @@ function discoverPlugins(pluginIdFilter) {
 	return plugins;
 }
 
-/** Every `component:` reference in a manifest, across all sections that carry one. */
 function referencedComponents(manifest) {
 	const names = new Set();
-	const sections = [
-		manifest.pages,
-		manifest.sidebar_widgets,
-		manifest.field_types,
-		manifest.renderers,
-		manifest.contributions,
-		manifest.prompt_importers,
-		manifest.admin_tabs,
-		manifest.history_tools,
-		manifest.phrasebook_ops,
-		manifest.hooks?.frontend
-	];
-	for (const section of sections) {
-		if (!Array.isArray(section)) continue;
-		for (const entry of section) {
-			if (entry?.component) {
-				names.add(basename(entry.component, '.js').replace(/\.svelte$/, ''));
+	const walk = (node) => {
+		if (Array.isArray(node)) {
+			node.forEach(walk);
+		} else if (node && typeof node === 'object') {
+			for (const [key, value] of Object.entries(node)) {
+				if (key === 'component' && typeof value === 'string' && value) {
+					names.add(basename(value, '.js').replace(/\.svelte$/, ''));
+				} else {
+					walk(value);
+				}
 			}
 		}
-	}
+	};
+	walk(manifest);
 	return names;
+}
+
+function removeStaleChunks(distDir) {
+	if (!existsSync(distDir)) return;
+	for (const file of readdirSync(distDir)) {
+		if (/^chunk-[\w-]+\.js(\.map)?$/.test(file)) unlinkSync(join(distDir, file));
+	}
 }
 
 async function buildPagePlugin(plugin, srcDir, distDir) {
@@ -156,7 +150,6 @@ async function buildPagePlugin(plugin, srcDir, distDir) {
 	}
 	const componentName = match[1];
 	const outfile = join(distDir, `${componentName}.js`);
-	const runes = PAGE_RUNES_OVERRIDES[plugin.id] ?? true;
 
 	await esbuild.build({
 		entryPoints: [indexJs],
@@ -165,7 +158,7 @@ async function buildPagePlugin(plugin, srcDir, distDir) {
 		format: 'esm',
 		plugins: [
 			sveltePlugin({
-				compilerOptions: { css: 'injected', generate: 'client', runes }
+				compilerOptions: { css: 'injected', generate: 'client', runes: true }
 			})
 		],
 		external: [],
@@ -199,6 +192,8 @@ async function buildComponentPlugin(plugin, srcDir, distDir, skip = new Set()) {
 		bundle: true,
 		outdir: distDir,
 		format: 'esm',
+		splitting: true,
+		chunkNames: 'chunk-[hash]',
 		plugins: [
 			sveltePlugin({
 				// componentApi 4 makes the compiled component self-mounting via
@@ -225,6 +220,7 @@ async function buildPlugin(plugin) {
 	const srcDir = join(plugin.dir, 'frontend', 'src');
 	const distDir = join(plugin.dir, 'frontend', 'dist');
 	const hasIndexJs = existsSync(join(srcDir, 'index.js'));
+	removeStaleChunks(distDir);
 
 	const built = hasIndexJs ? await buildPagePlugin(plugin, srcDir, distDir) : [];
 	built.push(...(await buildComponentPlugin(plugin, srcDir, distDir, new Set(built))));

@@ -3243,7 +3243,6 @@
 		border-color: rgb(var(--signal, 91 157 255));
 	}
 
-	/* ---- Form designer: two panes ---- */
 	.designer {
 		display: flex;
 		gap: 14px;
@@ -3589,8 +3588,6 @@
 		color: rgb(var(--fg, 232 234 237));
 	}
 	.di-add-menu {
-		/* Positioned by the `floating` action (position: fixed, inline top/left) -
-		   these are just its pre-mount fallback. */
 		position: absolute;
 		top: calc(100% + 4px);
 		left: 0;
@@ -3884,8 +3881,6 @@
 	}
 
 	.tab-popover {
-		/* Positioned by the `floating` action (position: fixed, inline top/left) -
-		   these are just its pre-mount fallback. */
 		position: absolute;
 		top: calc(100% + 4px);
 		left: 0;
@@ -3948,7 +3943,6 @@
 		opacity: 0.5;
 	}
 
-	/* ---- History step ---- */
 	.hist-designer {
 		display: flex;
 		gap: 14px;

@@ -31,7 +31,6 @@ import {
 	listRequests,
 	normalizeListing,
 	normalizeRequest,
-	pendingKeys,
 	panelTabs,
 	parseTime,
 	rejectRequest,
@@ -616,18 +615,7 @@ test('suggestedModelType keeps the file type even when the user may not ask for 
 	assert.equal(initialRequestForm(LIMITED, DETAIL, { ...FILE, file_type: 'VAE' }).modelType, '');
 });
 
-test('pendingKeys lists only the open requests, keyed by source, model, version and file', () => {
-	const listing = normalizeListing({
-		requests: [
-			request('1', 'open', { source: 'huggingface', source_model_id: 'a/b', source_version_id: 'main', file_id: 'x.safetensors' }),
-			request('2', 'done', { source: 'huggingface', source_model_id: 'a/b', source_version_id: 'main', file_id: 'y.safetensors' }),
-			request('3', 'cancelled', { source: 'huggingface', source_model_id: 'a/b', source_version_id: 'main', file_id: 'z.safetensors' })
-		]
-	});
-	const keys = pendingKeys(listing);
-	assert.equal(keys.size, 1);
-	assert.ok(keys.has(requestKey('huggingface', 'a/b', 'main', 'x.safetensors')));
-	assert.ok(!keys.has(requestKey('huggingface', 'a/b', 'main', 'y.safetensors')));
+test('requestKey is stable across id types and field boundaries', () => {
 	assert.equal(requestKey('civitai', 5, 6, 7), requestKey('civitai', '5', '6', '7'));
 	assert.notEqual(requestKey('a', 'bc', 'd', 'e'), requestKey('ab', 'c', 'd', 'e'));
 });

@@ -61,12 +61,6 @@ REFERENCE_FORMATS = ("png", "jpeg", "webp")
 DEFAULT_MEDIA_TYPES = {"png": "image/png", "jpeg": "image/jpeg", "jpg": "image/jpeg", "webp": "image/webp", "svg": "image/svg+xml"}
 
 
-def _items(payload: Any) -> List[Any]:
-    if isinstance(payload, dict):
-        payload = payload.get("data", payload.get("models", []))
-    return payload if isinstance(payload, list) else []
-
-
 def _number(value: Any) -> Optional[float]:
     if isinstance(value, bool):
         return None

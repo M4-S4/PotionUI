@@ -1,6 +1,6 @@
-export const AUTH_TOKEN_KEY = 'auth_token';
+const AUTH_TOKEN_KEY = 'auth_token';
 
-export const ASSIGN_TO = ['user', 'group'];
+const ASSIGN_TO = ['user', 'group'];
 
 const FALLBACK_CAPABILITIES = ['browse', 'request', 'download', 'approve'];
 const FALLBACK_SOURCES = ['civitai', 'huggingface', 'openmodeldb'];

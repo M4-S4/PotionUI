@@ -1,6 +1,6 @@
 export const DEFAULT_LIMIT = 24;
 
-export const URL_KEYS = {
+const URL_KEYS = {
 	source: 'source',
 	q: 'q',
 	type: 'type',
@@ -102,7 +102,7 @@ export function switchSource(state, sourceId) {
 	return { ...emptyState(sourceId), q: state.q };
 }
 
-export const REQUESTS_LINK = { key: 'tab', value: 'requests' };
+const REQUESTS_LINK = { key: 'tab', value: 'requests' };
 
 export function wantsRequestsTab(search) {
 	const params = search instanceof URLSearchParams ? search : new URLSearchParams(String(search ?? ''));

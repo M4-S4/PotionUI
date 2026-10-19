@@ -62,8 +62,6 @@ _OBVIOUS_ROLES = frozenset(
     }
 )
 
-_PROMPT_LINK_KINDS = frozenset({"prompt_positive", "prompt_negative"})
-
 # A `min`/`max` this large in an INT/FLOAT `/object_info` spec is ComfyUI's
 # own "effectively unbounded" sentinel (e.g. PrimitiveInt's ±2^63), not a
 # real slider bound - it survives the JSON round trip through the browser

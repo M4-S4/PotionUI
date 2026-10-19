@@ -136,3 +136,41 @@ def test_a_dangling_plugin_link_is_skipped_with_a_warning_and_the_rest_still_bui
     assert "dead-plugin" in result.stderr
     ids = {Path(json.loads(line)["entryPoints"][0]).parts[-4] for line in (repo / "esbuild-calls.jsonl").read_text(encoding="utf-8").splitlines()}
     assert ids == {"plain-plugin", "linked-plugin"}
+
+
+def test_component_entries_are_built_from_any_manifest_section_and_split_into_shared_chunks(repo):
+    plugin = repo / "content" / "plugins" / "local" / "plain-plugin"
+    manifest = json.loads((plugin / "manifest.yml").read_text())
+    manifest["organize"] = {"facts": [{"component": "Fact.js"}], "actions": [{"component": "Action.svelte"}]}
+    (plugin / "manifest.yml").write_text(json.dumps(manifest))
+    for name in ("Fact", "Action"):
+        (plugin / "frontend" / "src" / f"{name}.svelte").write_text("<div></div>\n")
+
+    page_call, component_call = _esbuild_calls(repo, "plain-plugin")["plain-plugin"]
+
+    assert "splitting" not in page_call
+    assert component_call["splitting"] is True
+    assert {Path(entry).name for entry in component_call["entryPoints"]} == {"Widget.svelte", "Fact.svelte", "Action.svelte"}
+
+
+def _component_only_plugin(folder: Path, plugin_id: str) -> None:
+    src = folder / "frontend" / "src"
+    src.mkdir(parents=True)
+    (folder / "manifest.yml").write_text(json.dumps({"id": plugin_id, "sidebar_widgets": [{"component": "Widget.js"}]}))
+    (src / "Widget.svelte").write_text("<div></div>\n")
+
+
+@pytest.mark.parametrize("plugin_id", ["plain-plugin", "component-only"])
+def test_stale_chunks_are_removed_from_dist_and_other_files_are_kept(repo, plugin_id):
+    local = repo / "content" / "plugins" / "local"
+    if plugin_id == "component-only":
+        _component_only_plugin(local / plugin_id, plugin_id)
+    dist = local / plugin_id / "frontend" / "dist"
+    dist.mkdir(parents=True)
+    for name in ("chunk-ABC123.js", "chunk-ABC123.js.map", "Widget.js", "chunky.js", "notchunk-X.js"):
+        (dist / name).write_text("x")
+
+    result = _run(repo, plugin_id)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sorted(p.name for p in dist.iterdir()) == ["Widget.js", "chunky.js", "notchunk-X.js"]
