@@ -285,6 +285,15 @@ test.describe('Formulas drawer', () => {
 		await loginAsOwner(page);
 		const first = await installAndSelectImagePreset(page);
 		expect(first).toBeTruthy();
+		await waitForFormPublished(page);
+		await expect
+			.poll(() =>
+				page.evaluate(
+					(id) => Object.entries(localStorage).some(([k, v]) => k.startsWith('potionui_tabs_state::') && v.includes(`"selectedPreset":"${id}"`)),
+					first!.id
+				)
+			)
+			.toBe(true);
 		const token = await ownerToken(page);
 		const headers = { Authorization: `Bearer ${token}` };
 		const list = await (await page.request.get('/api/presets?include_uninstalled=true', { headers })).json();

@@ -76,6 +76,21 @@ test('live generation progress — bar advances, preview refines, gallery strip 
 		});
 	});
 
+	const relaxModelFields = (node: unknown) => {
+		if (Array.isArray(node)) node.forEach(relaxModelFields);
+		else if (node && typeof node === 'object') {
+			const record = node as Record<string, unknown>;
+			if (record.type === 'model' && 'required' in record) record.required = false;
+			Object.values(record).forEach(relaxModelFields);
+		}
+	};
+	await page.route(/\/api\/presets\/[^/]+\/form(\?.*)?$/, async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		relaxModelFields(body);
+		await route.fulfill({ response, json: body });
+	});
+
 	await loginAsOwner(page);
 	const preset = await installAndSelectImagePreset(page);
 	if (!preset) {
