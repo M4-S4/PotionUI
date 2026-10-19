@@ -1,6 +1,7 @@
 import json
+import math
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import best_match
@@ -13,6 +14,18 @@ MAX_DOC_BYTES = 4 * 1024 * 1024
 _REASON_LIMIT = 300
 
 RETIRED_KEYS = ("results",)
+
+RETIRED_SCENES = ("sample", "file")
+
+CAPTURE_ROLE = "Capture 3D"
+
+GUIDE_SOURCE = "scene3d"
+
+SET_SPACE = "decors3d"
+
+RETIRED_SET_TYPES = ("Scène d’essai", "Scène d'essai", "Gaussian Splat")
+
+OLD_KEYFRAME = ("az", "el", "dist", "focal", "height")
 
 PROJECTS = "video_producer_projects"
 VERSIONS = "video_producer_versions"
@@ -104,7 +117,9 @@ TITLE = _object({"id": ID, "text": TEXT, "sub": TEXT, "start": NUMBER, "dur": NU
 
 PROMPT = _object({"id": ID, "shotId": REF, "start": NUMBER, "dur": NUMBER, "strength": NUMBER, "text": TEXT})
 
-FRAME = _object({"id": ID, "shotId": REF, "time": NUMBER, "assetId": REF, "role": TEXT, "strength": NUMBER})
+FRAME = _object(
+    {"id": ID, "shotId": REF, "time": NUMBER, "assetId": REF, "role": TEXT, "strength": NUMBER}, optional={"sceneId": REF}
+)
 
 CONTROL = _object(
     {
@@ -116,12 +131,13 @@ CONTROL = _object(
         "guidance": NUMBER,
         "source": _enum("import", "scene3d"),
         "stale": FLAG,
-    }
+    },
+    optional={"planId": REF, "assetId": REF},
 )
 
-KEYFRAME = _object(
-    {"id": ID, "t": NUMBER, "az": NUMBER, "el": NUMBER, "dist": NUMBER, "focal": NUMBER, "height": NUMBER}
-)
+POINT = {"type": "array", "items": NUMBER, "minItems": 3, "maxItems": 3}
+
+KEYFRAME = _object({"id": ID, "t": NUMBER, "pos": POINT, "target": POINT, "focal": NUMBER, "roll": NUMBER})
 
 PLAN3D = _object(
     {
@@ -132,7 +148,13 @@ PLAN3D = _object(
         "start": NUMBER,
         "dur": NUMBER,
         "keyframes": _array(KEYFRAME),
-    }
+    },
+    optional={
+        "source": _enum("trajectory", "manual", "blender"),
+        "preset": _enum("orbit", "dolly", "crane", None),
+        "amount": NULLABLE_NUMBER,
+        "camera": NULLABLE_TEXT,
+    },
 )
 
 MARKER = _object({"id": ID, "time": NUMBER, "label": TEXT, "kind": TEXT})
@@ -149,7 +171,32 @@ REFERENCE = _object(
     }
 )
 
-SCENE = _tagged("kind", {"sample": {"id": ID, "name": TEXT}, "file": {"id": ID, "name": TEXT, "file": TEXT}})
+VIEW = _object({"fov": NUMBER, "aspect": NUMBER, "depth": NUMBER})
+
+NULLABLE_VIEW = {**VIEW, "type": ["object", "null"]}
+
+GLB_CAMERA = _object({"name": TEXT, "animated": FLAG, "duration": NULLABLE_NUMBER})
+
+SCENE = _tagged(
+    "kind",
+    {
+        "splat": {
+            "id": ID,
+            "name": TEXT,
+            "sourceAssetId": REF,
+            "sourceTime": NULLABLE_NUMBER,
+            "status": _enum("queued", "running", "done", "failed"),
+            "progress": NUMBER,
+            "jobId": REF,
+            "fileId": REF,
+            "count": NULLABLE_INTEGER,
+            "view": NULLABLE_VIEW,
+            "error": NULLABLE_TEXT,
+        },
+        "splatfile": {"id": ID, "name": TEXT, "fileId": ID, "format": _enum("ply", "spz", "splat"), "view": NULLABLE_VIEW},
+        "glb": {"id": ID, "name": TEXT, "fileId": ID, "cameras": _array(GLB_CAMERA)},
+    },
+)
 
 INSERT = _tagged(
     "type",
@@ -300,11 +347,85 @@ class VersionConflict(Exception):
         self.current_version = current_version
 
 
+def _number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _rounded(value: float) -> float:
+    return round(value, 6) + 0.0
+
+
+def _keyframe(key: Any) -> Any:
+    if not isinstance(key, dict) or not all(_number(key.get(name)) for name in OLD_KEYFRAME):
+        return key
+    az, el = math.radians(key["az"]), math.radians(key["el"])
+    dist, height = key["dist"], key["height"]
+    pos = [math.sin(az) * math.cos(el) * dist, height + math.sin(el) * dist, math.cos(az) * math.cos(el) * dist]
+    kept = {name: value for name, value in key.items() if name not in OLD_KEYFRAME}
+    return {**kept, "pos": [_rounded(value) for value in pos], "target": [0, height, 0], "focal": key["focal"], "roll": 0}
+
+
+def _plan(plan: Any, dropped: Set[Any]) -> Any:
+    if not isinstance(plan, dict):
+        return plan
+    changes: Dict[str, Any] = {}
+    if plan.get("sceneId") is not None and plan["sceneId"] in dropped:
+        changes["sceneId"] = None
+    keys = plan.get("keyframes")
+    if isinstance(keys, list):
+        converted = [_keyframe(key) for key in keys]
+        if any(new is not old for new, old in zip(converted, keys)):
+            changes["keyframes"] = converted
+    return {**plan, **changes} if changes else plan
+
+
+def _retired_scene(scene: Any) -> bool:
+    return isinstance(scene, dict) and scene.get("kind") in RETIRED_SCENES
+
+
+def _empty_capture(frame: Any) -> bool:
+    return isinstance(frame, dict) and frame.get("role") == CAPTURE_ROLE and not frame.get("assetId")
+
+
+def _simulated_guide(control: Any) -> bool:
+    return isinstance(control, dict) and control.get("source") == GUIDE_SOURCE and not control.get("assetId") and not control.get("planId")
+
+
+def _retired_set(reference: Any) -> bool:
+    return isinstance(reference, dict) and reference.get("space") == SET_SPACE and reference.get("type") in RETIRED_SET_TYPES
+
+
 def migrate(doc: Any) -> Any:
-    """A document without the keys earlier versions of the page wrote and the schema no longer has."""
-    if not isinstance(doc, dict) or not any(key in doc for key in RETIRED_KEYS):
+    """A document in the current schema: without the keys, simulated scenes and simulated 3D guides earlier versions of the page wrote, the plans 3D that cited those scenes unlinked, the empty 3D captures dropped, the retired 3D set references turned into 3D captures when they have an image and dropped otherwise, and the old orbit keyframes turned into positions; the same object when nothing changes."""
+    if not isinstance(doc, dict):
         return doc
-    return {key: value for key, value in doc.items() if key not in RETIRED_KEYS}
+    changes: Dict[str, Any] = {}
+    dropped: Set[Any] = set()
+    scenes = doc.get("scenes")
+    if isinstance(scenes, list) and any(_retired_scene(scene) for scene in scenes):
+        dropped = {scene.get("id") for scene in scenes if _retired_scene(scene)}
+        changes["scenes"] = [scene for scene in scenes if not _retired_scene(scene)]
+    frames = doc.get("frames")
+    if isinstance(frames, list) and any(_empty_capture(frame) for frame in frames):
+        changes["frames"] = [frame for frame in frames if not _empty_capture(frame)]
+    controls = doc.get("controls")
+    if isinstance(controls, list) and any(_simulated_guide(control) for control in controls):
+        changes["controls"] = [control for control in controls if not _simulated_guide(control)]
+    references = doc.get("references")
+    if isinstance(references, list) and any(_retired_set(reference) for reference in references):
+        changes["references"] = [
+            {**reference, "type": CAPTURE_ROLE} if _retired_set(reference) else reference
+            for reference in references
+            if not _retired_set(reference) or reference.get("assetId")
+        ]
+    plans = doc.get("plans3d")
+    if isinstance(plans, list):
+        migrated = [_plan(plan, dropped) for plan in plans]
+        if any(new is not old for new, old in zip(migrated, plans)):
+            changes["plans3d"] = migrated
+    if not changes and not any(key in doc for key in RETIRED_KEYS):
+        return doc
+    return {**{key: value for key, value in doc.items() if key not in RETIRED_KEYS}, **changes}
 
 
 def canonical(doc: Any) -> str:

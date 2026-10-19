@@ -15,8 +15,10 @@
  *
  *   1. "Page" plugins (`frontend/src/index.js` present): the index module
  *      imports one `./<Component>.svelte` and re-exports
- *      `mountPlugin`/`unmountPlugin`. Bundled as a single ESM entry to
- *      `frontend/dist/<Component>.js` (the manifest's `pages[].component`).
+ *      `mountPlugin`/`unmountPlugin`. Bundled as an ESM entry to
+ *      `frontend/dist/<Component>.js` (the manifest's `pages[].component`),
+ *      with code splitting: each dynamic `import()` becomes a chunk under
+ *      `frontend/dist/chunks/`, loaded on demand from the same asset route.
  *
  *   2. "Component" plugins (no `index.js`): every top-level `.svelte` file
  *      under `frontend/src` referenced by the plugin's manifest (field
@@ -38,9 +40,10 @@
  * from bundled deps land at the end of the output file, not stripped) so the
  * policy doesn't depend on esbuild's bundling-dependent default. Output is
  * otherwise deterministic: no timestamps, dates or random ids are emitted,
- * and entry/outfile names are derived from the component name, not a hash.
+ * entry/outfile names are derived from the component name, and chunk names
+ * carry a hash of their content only.
  */
-import { readFileSync, existsSync, readdirSync, statSync, lstatSync, unlinkSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, statSync, lstatSync, unlinkSync, rmSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, basename } from 'path';
 import { createRequire } from 'module';
@@ -70,9 +73,12 @@ const PLUGIN_ROOTS = [
 // tree; see its own repo if it ever comes back).
 const PAGE_RUNES_OVERRIDES = {};
 
+const PAGE_CHUNKS = 'chunks';
+
 const DEBUG_BUILD = process.argv.includes('--debug') || process.env.PLUGIN_BUILD === 'debug';
 
 const BUILD_OPTIONS = {
+	absWorkingDir: REPO_ROOT,
 	legalComments: 'eof',
 	...(DEBUG_BUILD ? { minify: false, sourcemap: true } : { minify: true, sourcemap: false })
 };
@@ -159,11 +165,15 @@ async function buildPagePlugin(plugin, srcDir, distDir) {
 	const componentName = match[1];
 	const outfile = join(distDir, `${componentName}.js`);
 	const runes = PAGE_RUNES_OVERRIDES[plugin.id] ?? true;
+	rmSync(join(distDir, PAGE_CHUNKS), { recursive: true, force: true });
 
 	await esbuild.build({
-		entryPoints: [indexJs],
+		entryPoints: { [componentName]: indexJs },
 		bundle: true,
-		outfile,
+		outdir: distDir,
+		splitting: true,
+		entryNames: '[name]',
+		chunkNames: `${PAGE_CHUNKS}/[name]-[hash]`,
 		format: 'esm',
 		plugins: [
 			sveltePlugin({

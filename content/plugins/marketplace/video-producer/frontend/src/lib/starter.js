@@ -1,4 +1,5 @@
 import { ulid } from './ulid.js';
+import { migrateKeyframe } from './scene3d/camera.js';
 
 const SHOT_DURATION = 5;
 export const PROMPT_LANGUAGES = ['en', 'fr'];
@@ -145,4 +146,32 @@ export function starterDoc(t, promptT = t, promptLanguage = DEFAULT_PROMPT_LANGU
 	doc.titles.push({ id: ulid(), text: t('starter.title.text'), sub: t('starter.title.sub'), start: 0, dur: 4 });
 	doc.markers.push({ id: ulid(), time: doc.clips[2].start, label: t('starter.marker.castOff'), kind: 'marker' });
 	return doc;
+}
+
+const RETIRED_SCENES = ['sample', 'file'];
+const CAPTURE = 'Capture 3D';
+const RETIRED_SET_TYPES = ['Scène d’essai', "Scène d'essai", 'Gaussian Splat'];
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const retiredSet = (r) => isObject(r) && r.space === 'decors3d' && RETIRED_SET_TYPES.includes(r.type);
+const simulatedGuide = (c) => isObject(c) && c.source === 'scene3d' && !c.assetId && !c.planId;
+
+function migratePlan(plan, retired) {
+	if (!isObject(plan)) return plan;
+	const keyframes = Array.isArray(plan.keyframes) ? plan.keyframes.map(migrateKeyframe) : [];
+	const next = { source: 'manual', preset: null, amount: null, camera: null, ...plan, keyframes };
+	if (retired.has(next.sceneId)) next.sceneId = null;
+	return next;
+}
+
+export function migrate(doc) {
+	if (!isObject(doc)) return doc;
+	const scenes = Array.isArray(doc.scenes) ? doc.scenes : [];
+	const retired = new Set(scenes.filter((s) => isObject(s) && RETIRED_SCENES.includes(s.kind)).map((s) => s.id));
+	const next = { ...doc };
+	if (Array.isArray(doc.scenes)) next.scenes = scenes.filter((s) => isObject(s) && !RETIRED_SCENES.includes(s.kind));
+	if (Array.isArray(doc.plans3d)) next.plans3d = doc.plans3d.map((p) => migratePlan(p, retired));
+	if (Array.isArray(doc.frames)) next.frames = doc.frames.filter((f) => !(isObject(f) && f.role === CAPTURE && !f.assetId));
+	if (Array.isArray(doc.references)) next.references = doc.references.filter((r) => !retiredSet(r) || r.assetId).map((r) => (retiredSet(r) ? { ...r, type: CAPTURE } : r));
+	if (Array.isArray(doc.controls)) next.controls = doc.controls.filter((c) => !simulatedGuide(c));
+	return next;
 }
