@@ -36,7 +36,6 @@
 	import { countChoiceGroups } from '$lib/utils/choiceGroups';
 	import {
 		detectVariableTrigger,
-		filterVariableNames,
 		variableUsageSyntax,
 		countVariableUsages
 	} from '$lib/utils/promptVariables';
@@ -80,6 +79,7 @@
 		atomicDeletionTarget
 	} from './chipEditorDom';
 	import { getCaretCharOffset, placeCaretAtCharOffset } from './chipEditorCaret';
+	import { variablePickerRows } from '$lib/utils/variablePicker';
 	import { variablePreview, getChipValueMap, getChipsHash, hashVariableRolls } from './chipEditorHelpers';
 
 	// Track mounted chip components for cleanup
@@ -182,14 +182,16 @@
 	// phrasebook dropdown below has the same mismatch). Only `id`/`label`/
 	// `value` are read by the selection handler below.
 	$: variableSuggestions = isVariablePickerOpen
-		? filterVariableNames(Object.keys(variables), variableQuery).map((name) => ({
-				id: name,
+		? variablePickerRows(variables, variableQuery).map((row) => ({
+				id: row.name,
 				category_id: '',
-				label: name,
-				value: variablePreview(name, variables),
+				label: row.name,
+				value: variablePreview(row.name, variables),
 				sort_order: 0,
 				created_at: '',
-				updated_at: ''
+				updated_at: '',
+				badge: row.typeLabel,
+				description: [row.mode, row.preview].filter(Boolean).join(' \u00b7 ')
 			}))
 		: [];
 

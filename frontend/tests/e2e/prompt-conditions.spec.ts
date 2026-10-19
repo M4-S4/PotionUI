@@ -92,7 +92,7 @@ async function generateAndCapture(page: Page) {
 }
 
 
-const popover = (page: Page) => page.getByRole('dialog', { name: 'Edit condition' });
+const popover = (page: Page) => page.getByRole('dialog', { name: 'Condition', exact: true });
 
 async function insertConditionFromMenu(page: Page) {
 	await page.getByRole('button', { name: /^More actions for/ }).first().click();
@@ -131,7 +131,7 @@ test.describe('prompt conditions', () => {
 		await expect(dialog.getByTestId('condition-last-run')).toContainText('Decided when you generate');
 		await settleAnimations(page);
 		await screenshot(page, JOURNEY, '02-popover-otherwise-1440');
-		await dialog.getByRole('button', { name: 'Done' }).click();
+		await dialog.getByRole('button', { name: /^Save/ }).click();
 		await expect(dialog).toBeHidden();
 		await expect(editor.getByTestId('condition-chip-summary')).toContainText('grey hair');
 		await expect(editor.locator('.condition-chip .chip-context')).toHaveText('age > 0');
@@ -177,8 +177,9 @@ test.describe('prompt conditions', () => {
 		expect(request.prompts[0].positive).toContain('<<if $ghost > 1>>grey<<end>>');
 	});
 
-	test('the popover fits a phone', async ({ page }) => {
+	test('the condition modal fits a phone', async ({ page }) => {
 		await page.setViewportSize({ width: 390, height: 844 });
+		await expect(page.getByRole('button', { name: 'Prompt', exact: true }).first()).toBeVisible();
 		const modal = await openVariableManager(page);
 		await defineNumber(modal, 'age');
 		await closeManager(modal);
@@ -194,10 +195,11 @@ test.describe('prompt conditions', () => {
 		await editor.locator('.condition-chip .chip-main').first().dispatchEvent('mousedown');
 		const dialog = popover(page);
 		await expect(dialog).toBeVisible();
-		await expect(dialog.getByRole('button', { name: 'Done' })).toBeInViewport();
+		await expect(dialog.getByRole('button', { name: /^Save/ })).toBeInViewport();
 		await expect(dialog.getByRole('button', { name: 'Remove condition' })).toBeInViewport();
 		const box = await dialog.boundingBox();
 		expect(box && box.x >= 0 && box.x + box.width <= 390 + 1).toBeTruthy();
+		expect(Math.round(box!.height)).toBeGreaterThan(700);
 		const scroll = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 		expect(scroll).toBe(true);
 		await settleAnimations(page);

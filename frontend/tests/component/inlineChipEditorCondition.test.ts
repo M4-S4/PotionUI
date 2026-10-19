@@ -61,30 +61,31 @@ describe('InlineChipEditor conditions', () => {
 		expect(target.querySelector('.inline-chip-editor')!.textContent).toContain('<<if $age > 65>>');
 	});
 
-	it('insertCondition writes a block for the first variable, chip-ifies it and opens its popover', async () => {
+	it('insertCondition writes a block for the first variable, chip-ifies it and opens its modal', async () => {
 		const { editor, values } = mountEditor('');
 		editor.insertCondition();
 		flushSync();
 		await tick();
 		expect(values.at(-1)).toBe('<<if $age >= 18>>text<<end>>');
 		expect(target.querySelectorAll('.condition-chip').length).toBe(1);
-		expect(document.querySelector('[role="dialog"][aria-label="Edit condition"]')).not.toBeNull();
+		expect(document.querySelector('[role="dialog"][aria-labelledby="condition-modal-title"]')).not.toBeNull();
 	});
 
-	it('editing in the popover updates the text without remounting the chip', async () => {
+	it('saving in the modal updates the text without remounting the chip', async () => {
 		const { editor, values } = mountEditor('');
 		editor.insertCondition();
 		flushSync();
 		await tick();
 		const chip = target.querySelector('.condition-chip')!;
-		const pop = document.querySelector('[role="dialog"][aria-label="Edit condition"]')!;
+		const pop = document.querySelector('[role="dialog"][aria-labelledby="condition-modal-title"]')!;
 		const area = pop.querySelector<HTMLTextAreaElement>('textarea[aria-label="If text"]')!;
 		area.value = 'grey hair';
 		area.dispatchEvent(new Event('input', { bubbles: true }));
 		await tick();
+		Array.from(pop.querySelectorAll('button')).find((b) => b.textContent?.trim().startsWith('Save'))!.click();
+		await tick();
 		expect(values.at(-1)).toBe('<<if $age >= 18>>grey hair<<end>>');
 		expect(target.querySelector('.condition-chip')).toBe(chip);
-		expect(document.querySelector('[role="dialog"][aria-label="Edit condition"]')).not.toBeNull();
 	});
 
 	it('removing the chip removes the block from the text', async () => {
@@ -93,7 +94,7 @@ describe('InlineChipEditor conditions', () => {
 		await tick();
 		target.querySelector('.chip-main')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 		await tick();
-		const pop = document.querySelector('[role="dialog"][aria-label="Edit condition"]')!;
+		const pop = document.querySelector('[role="dialog"][aria-labelledby="condition-modal-title"]')!;
 		Array.from(pop.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Remove condition')!.click();
 		await tick();
 		expect(values.at(-1)).toBe('a  b');

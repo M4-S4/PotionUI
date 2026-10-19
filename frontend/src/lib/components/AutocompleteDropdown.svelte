@@ -49,6 +49,7 @@
 	import MediaThumb from './media/MediaThumb.svelte';
 	import HighlightedText from './HighlightedText.svelte';
 	import { compileTextMatcher } from '$lib/utils/textMatch';
+	import { variablePickerMatcher } from '$lib/utils/variablePicker';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
@@ -94,6 +95,7 @@
 
 	$: highlightMatcher =
 		triggerChar === '#' ? compileTextMatcher(currentPath.split('.').pop() ?? '').matcher : null;
+	$: variableMatcher = triggerChar === '$' ? variablePickerMatcher(currentPath) : null;
 	let pickerRef: HTMLElement | undefined;
 	let selectedItemRef: HTMLElement | null = null;
 	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openAbove: false, maxHeight: 100000 };
@@ -333,12 +335,15 @@
 									{#if triggerChar === '#'}
 										<strong class="row-copy-value"><HighlightedText text={suggestion.value} matcher={highlightMatcher} /></strong>
 										{#if suggestion.label && suggestion.label !== suggestion.value}<span class="row-copy-label"><span class="row-copy-label-prefix">Title:</span> <HighlightedText text={suggestion.label} matcher={highlightMatcher} /></span>{/if}
+									{:else if triggerChar === '$'}
+										<strong class="row-copy-variable">$<HighlightedText text={suggestion.label} matcher={variableMatcher} /></strong>
+										{#if suggestion.description}<span><HighlightedText text={suggestion.description} matcher={variableMatcher} /></span>{/if}
 									{:else}
 										<strong>{triggerChar === '@' ? `<${suggestion.label}>` : suggestion.label}</strong>
 										{#if suggestion.label !== suggestion.value}<span>{suggestion.value}</span>{/if}
 									{/if}
 								</span>
-								<span class="row-meta">{isSelected ? 'Enter' : 'Value'}</span>
+								<span class="row-meta" style={triggerChar === '$' ? 'display: inline-flex; align-items: center; gap: 6px;' : undefined}>{#if triggerChar === '$' && suggestion.badge}<Badge size="md" class="flex-shrink-0">{suggestion.badge}</Badge>{/if}{#if isSelected}Enter{:else if triggerChar !== '$'}Value{/if}</span>
 							</button>
 						{/each}
 					{/if}

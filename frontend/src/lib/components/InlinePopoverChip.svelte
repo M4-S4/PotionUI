@@ -4,6 +4,7 @@
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { CHIP_POPOVER_VIEWPORT_GUTTER, CHIP_POPOVER_WIDTH, isChipPopoverSheet } from '$lib/utils/chipPopover';
 
 	// The chrome and behavior shared by every inline chip that opens a popover
 	// in place inside a contenteditable host (InlineChipEditor). What lives here
@@ -21,6 +22,7 @@
 		disabled = false,
 		readonly = false,
 		canOpen = true,
+		detached = false,
 		removeTitle = 'Remove',
 		popoverLabel,
 		class: className = '',
@@ -50,6 +52,7 @@
 		/** False when the wrapper has nothing to show — the chip then stays inert
 		 *  instead of opening an empty popover. */
 		canOpen?: boolean;
+		detached?: boolean;
 		removeTitle?: string;
 		popoverLabel: string;
 		/** The host editor finds and re-mounts chips by class name, so each
@@ -58,7 +61,7 @@
 		open?: boolean;
 		onremove?: () => void;
 		label: Snippet;
-		popover: Snippet;
+		popover?: Snippet;
 		variant?: 'default' | 'segment-composer';
 		/** Which of the mock's two popover chips this is — picks `.choice-chip`/
 		 *  `.variable-chip` and `.choice-popover`/`.variable-popover`. */
@@ -76,15 +79,12 @@
 		footer?: Snippet;
 	} = $props();
 
-	// Matches the `w-72` popover width; the height is a rough pre-portal
-	// estimate refined once the popover has actually mounted and can be
-	// measured (its content — a few inputs or a short list — varies by chip).
-	const POPOVER_WIDTH = 288;
 	const POPOVER_HEIGHT_ESTIMATE = 220;
 	const POPOVER_GAP = 6;
 
 	let chipRef = $state<HTMLSpanElement>();
 	let popoverRef = $state<HTMLDivElement>();
+	let sheet = $state(false);
 	let popoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: POPOVER_HEIGHT_ESTIMATE });
 
 	// Written as full literal strings so Tailwind's class scanner can see them.
@@ -118,22 +118,63 @@
 	}
 
 	function handleWindowPointerDown(e: PointerEvent) {
-		if (!open) return;
+		if (!open || detached) return;
 		const target = e.target as Node;
 		if (chipRef?.contains(target)) return;
 		// The popover itself lives at body level once open (see `use:portal`
 		// below), so it's outside `chipRef` even for a click the user sees as
 		// "inside the chip".
 		if (popoverRef?.contains(target)) return;
+		if (target instanceof Element && target.closest('[data-chip-layer]')) return;
+		skipFocusRestore = true;
 		open = false;
 	}
 
 	function handleWindowKeydown(e: KeyboardEvent) {
-		if (open && e.key === 'Escape') open = false;
+		if (!open || detached || e.key !== 'Escape' || e.defaultPrevented) return;
+		if (e.target instanceof Element && e.target.closest('[data-chip-layer]')) return;
+		e.preventDefault();
+		e.stopPropagation();
+		open = false;
 	}
 
+	let wasOpen = false;
+	let skipFocusRestore = false;
+	let hostRef: HTMLElement | null = null;
+
+	function restoreCaret() {
+		const host = hostRef;
+		hostRef = null;
+		if (!host || !host.isConnected) return;
+		host.focus({ preventScroll: true });
+		const selection = window.getSelection();
+		if (!selection || !chipRef?.isConnected) return;
+		const range = document.createRange();
+		range.setStartAfter(chipRef);
+		range.collapse(true);
+		selection.removeAllRanges();
+		selection.addRange(range);
+	}
+
+	$effect(() => {
+		const isOpen = open;
+		if (isOpen && !wasOpen) {
+			hostRef = chipRef?.closest<HTMLElement>('[contenteditable]:not([contenteditable="false"])') ?? null;
+		}
+		if (!isOpen && wasOpen) {
+			if (skipFocusRestore) {
+				skipFocusRestore = false;
+				hostRef = null;
+			} else {
+				restoreCaret();
+			}
+		}
+		wasOpen = isOpen;
+	});
+
 	function updatePosition() {
-		if (!chipRef) return;
+		sheet = isChipPopoverSheet(window.innerWidth);
+		if (!chipRef || sheet) return;
 		// `scrollHeight`, not `getBoundingClientRect().height` — once a tall
 		// popover is clamped by the `maxHeight` below, its rendered height is
 		// the clamp itself, which would make it "fit" on the next reposition
@@ -141,7 +182,7 @@
 		// full (unclamped) content height regardless of overflow.
 		const heightEstimate = popoverRef?.scrollHeight || POPOVER_HEIGHT_ESTIMATE;
 		popoverPos = computeFlippedMenuPosition(chipRef, {
-			width: popoverWidth ?? POPOVER_WIDTH,
+			width: popoverWidth ?? CHIP_POPOVER_WIDTH,
 			heightEstimate,
 			gap: POPOVER_GAP
 		});
@@ -154,11 +195,13 @@
 	// (with no explicit height) resolution. `position: fixed` likewise
 	// overrides `.floating`'s own `position: absolute`.
 	let popoverStyle = $derived(
-		`position: fixed; left: ${popoverPos.left}px; right: auto; ${popoverWidth ? `width: ${popoverWidth}px; max-width: calc(100vw - 16px);` : ''} max-height: ${popoverPos.maxHeight}px; overflow-y: auto; ${
-			popoverPos.top !== undefined
-				? `top: ${popoverPos.top}px; bottom: auto;`
-				: `bottom: ${popoverPos.bottom}px; top: auto;`
-		}`
+		sheet
+			? `position: fixed; left: ${CHIP_POPOVER_VIEWPORT_GUTTER}px; right: ${CHIP_POPOVER_VIEWPORT_GUTTER}px; width: auto; bottom: ${CHIP_POPOVER_VIEWPORT_GUTTER}px; top: auto; max-height: min(85dvh, 40rem); overflow-y: auto;`
+			: `position: fixed; left: ${popoverPos.left}px; right: auto; width: ${popoverWidth ?? CHIP_POPOVER_WIDTH}px; max-width: calc(100vw - ${CHIP_POPOVER_VIEWPORT_GUTTER * 2}px); max-height: ${popoverPos.maxHeight}px; overflow-y: auto; ${
+					popoverPos.top !== undefined
+						? `top: ${popoverPos.top}px; bottom: auto;`
+						: `bottom: ${popoverPos.bottom}px; top: auto;`
+				}`
 	);
 
 	// The chip sits inside a prompt segment card with `overflow: hidden`
@@ -166,7 +209,7 @@
 	// popover — `use:portal` escapes it and this keeps the fixed-position
 	// popover anchored to the trigger while it's open.
 	$effect(() => {
-		if (!open) return;
+		if (!open || detached) return;
 		updatePosition();
 		const raf = requestAnimationFrame(updatePosition);
 		window.addEventListener('resize', updatePosition);
@@ -179,7 +222,7 @@
 	});
 </script>
 
-<svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
+<svelte:window onpointerdown={handleWindowPointerDown} onkeydowncapture={handleWindowKeydown} />
 
 {#if variant === 'segment-composer'}
 	<span
@@ -206,7 +249,7 @@
 			</button>
 		{/if}
 
-		{#if open}
+		{#if open && !detached}
 			<div class="segment-composer" use:portal style="display: contents;">
 				<div
 					bind:this={popoverRef}
@@ -227,7 +270,7 @@
 						</button>
 					</header>
 					<div class="popover-body">
-						{@render popover()}
+						{@render popover?.()}
 					</div>
 					{#if footer}
 						<footer class="popover-actions">
@@ -269,17 +312,17 @@
 			</button>
 		{/if}
 
-		{#if open}
+		{#if open && !detached}
 			<div
 				bind:this={popoverRef}
 				use:portal
 				use:overlayLayer
-				class="fixed z-overlay w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
+				class="fixed z-overlay rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
 				style={popoverStyle}
 				role="dialog"
 				aria-label={popoverLabel}
 			>
-				{@render popover()}
+				{@render popover?.()}
 			</div>
 		{/if}
 	</span>

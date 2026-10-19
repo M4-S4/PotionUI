@@ -374,7 +374,7 @@ button { cursor: pointer; }
 
 .kbd { display: inline-flex; min-width: 16px; height: 16px; align-items: center; justify-content: center; padding: 0 4px; color: rgb(var(--fg-muted)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 3px; font-size: 5.5px; }
 
-.popover { width: 350px; right: 18px; top: 194px; }
+.popover { right: 18px; top: 194px; }
 
 .popover-head { min-height: 51px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgb(var(--surface-2)); border-bottom: 1px solid rgb(var(--line)); }
 
@@ -1035,6 +1035,4 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .condition-chip .chip-context + .chip-label { margin-left: 6px; }
 .condition-chip.broken { color: rgb(var(--warning)); background: color-mix(in srgb, rgb(var(--warning)) 10%, rgb(var(--surface-2))); border-color: color-mix(in srgb, rgb(var(--warning)) 40%, rgb(var(--line))); }
 .condition-chip.broken .chip-mark, .condition-chip.broken .chip-context { color: rgb(var(--warning)); }
-.condition-popover .popover-mark { color: rgb(var(--ai-3)); }
-.condition-popover { width: min(520px, calc(100vw - 16px)); }
-.condition-popover .popover-body { max-height: min(70vh, 640px); overflow-y: auto; }
+.row-copy .row-copy-variable { font-family: "IBM Plex Mono", ui-monospace, monospace; }

@@ -1,9 +1,11 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
 	import Tooltip from './Tooltip.svelte';
+	import VariablePicker from './VariablePicker.svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { CHIP_POPOVER_WIDTH } from '$lib/utils/chipPopover';
 	import {
 		dependents,
 		normalizeVariableDef,
@@ -28,7 +30,7 @@
 		onChange: (when: VariableOptionWhen | undefined) => void;
 	} = $props();
 
-	const POPOVER_WIDTH = 260;
+	const POPOVER_WIDTH = CHIP_POPOVER_WIDTH;
 	const POPOVER_HEIGHT_ESTIMATE = 260;
 	const POPOVER_GAP = 4;
 
@@ -50,6 +52,10 @@
 			else if (dependents(ownerName, variables, true).includes(name)) reason = `depends on $${ownerName}`;
 			return { name, reason };
 		})
+	);
+
+	let disabledReasons = $derived(
+		Object.fromEntries(pickableEntries.filter((entry) => entry.reason).map((entry) => [entry.name, entry.reason as string]))
 	);
 
 	let referencedDef = $derived(when ? normalizeVariableDef(variables[when.var]) : null);
@@ -93,7 +99,7 @@
 	}
 
 	function handleWindowKeydown(e: KeyboardEvent) {
-		if (open && e.key === 'Escape') {
+		if (open && e.key === 'Escape' && !e.defaultPrevented) {
 			open = false;
 			pickingVar = false;
 		}
@@ -200,21 +206,19 @@
 			</div>
 
 			{#if pickingVar}
-				<div class="mt-2 space-y-0.5">
-					{#each pickableEntries as entry (entry.name)}
-						<button
-							type="button"
-							disabled={!!entry.reason}
-							class="flex w-full items-center justify-between rounded px-1.5 py-1 text-left text-xs {entry.reason
-								? 'cursor-not-allowed text-fg-disabled'
-								: 'text-fg hover:bg-surface-2'}"
-							aria-label={`Condition on $${entry.name}`}
-							onclick={() => pickVariable(entry.name)}
-						>
-							<span class="font-mono">${entry.name}</span>
-							{#if entry.reason}<span class="text-xs text-fg-subtle">{entry.reason}</span>{/if}
-						</button>
-					{/each}
+				<div class="-mx-2.5 mt-2 border-t border-line">
+					<VariablePicker
+						variables={variables}
+						selected={when?.var ?? null}
+						disabledReasons={disabledReasons}
+						label="Condition variable"
+						maxListHeight="14rem"
+						onselect={pickVariable}
+						onclose={() => {
+							if (when) pickingVar = false;
+							else open = false;
+						}}
+					/>
 				</div>
 			{:else if when}
 				<div class="mt-2 flex flex-wrap gap-1.5">

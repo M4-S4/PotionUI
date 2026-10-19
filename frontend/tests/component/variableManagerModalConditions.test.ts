@@ -63,7 +63,7 @@ describe('VariableManagerModal condition editing', () => {
 
 		buttonByLabel('Set condition for this option of dance').click();
 		await tick();
-		buttonByLabel('Condition on $music').click();
+		document.querySelector<HTMLElement>('[role="option"][data-variable="music"]')!.click();
 		await tick();
 		buttonByLabel('Toggle hip hop').click();
 		await tick();
