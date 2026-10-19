@@ -422,18 +422,46 @@ def build_minimax_h3_lora_key_map(module: nn.Module) -> dict[str, tuple[str, tup
     return key_map
 
 
+_MOSS_IMAGE_QKV_PARTS = (("q", 0), ("k", 1), ("v", 2))
+
+
+def build_moss_image_lora_key_map(module: nn.Module) -> dict[str, tuple[str, tuple | None]]:
+    key_map: dict[str, tuple[str, tuple | None]] = {}
+    dim = module.cfg.dim
+
+    def register(stem: str, param: str, target_slice: tuple | None) -> None:
+        key_map[f"lora_unet_{stem.replace('.', '_')}"] = (param, target_slice)
+        key_map[stem] = (param, target_slice)
+        for prefix in ("diffusion_model.", "base_model.model.", "transformer."):
+            key_map[f"{prefix}{stem}"] = (param, target_slice)
+
+    for stem in _linear_param_stems(module):
+        param = f"{stem}.weight"
+        register(stem, param, None)
+        if stem.startswith("layers.") and stem.endswith(".proj.qkv"):
+            base = stem[: -len("qkv")]
+            for part, index in _MOSS_IMAGE_QKV_PARTS:
+                register(f"{base}{part}", param, (0, index * dim, dim))
+    return key_map
+
+
 def _select_key_map(module: nn.Module) -> dict[str, tuple[str, tuple | None]]:
     """Pick the per-family LoRA key map from the module's arch shape.
 
     Flux modules carry ``.params`` (FluxParams, with fused qkv needing a diffusers
     slice table); MiniMax-H3 carries ``.config`` with ``.video_patch_dim`` and
     ``.pruned`` (also fused qkv, own naming + refiner-block split); Krea-2
-    carries ``.config`` with ``.features`` (split attention, name-1:1).
+    carries ``.config`` with ``.features`` (split attention, name-1:1);
+    MOSS-Image carries ``.cfg`` with ``.head_dim``/``.text_dim`` (fused qkv, the
+    upstream split ``proj.{q,k,v}`` spellings map onto row slices).
     Anything else falls back to Krea-2's plain comfy/kohya scheme.
     """
     params = getattr(module, "params", None)
     if params is not None and hasattr(params, "hidden_size"):
         return build_flux_lora_key_map(module)
+    cfg = getattr(module, "cfg", None)
+    if cfg is not None and hasattr(cfg, "head_dim") and hasattr(cfg, "text_dim") and hasattr(cfg, "ffn_dim"):
+        return build_moss_image_lora_key_map(module)
     config = getattr(module, "config", None)
     if config is not None and hasattr(config, "video_patch_dim") and hasattr(config, "pruned"):
         return build_minimax_h3_lora_key_map(module)

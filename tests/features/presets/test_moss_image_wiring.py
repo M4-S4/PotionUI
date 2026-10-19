@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
 from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
@@ -110,6 +112,35 @@ def test_generator_has_no_step_cache_or_edit_wiring(moss_template):
     assert "mode" not in cfg
 
 
-def test_loader_takes_exactly_the_three_models(moss_template):
+def test_loader_takes_the_three_models_and_the_lora_stack(moss_template):
     cfg = _pipe(_process(moss_template), "model_loader/moss_image")["config"]
-    assert set(cfg) == {"diffusion_model", "text_encoder", "vae"}
+    assert set(cfg) == {"diffusion_model", "text_encoder", "vae", "loras"}
+    assert cfg["loras"] == []
+
+
+def test_form_loras_reach_the_loader_and_the_run_record(moss_template):
+    picked = [
+        {"model": "/models/loras/style.safetensors", "strength": 0.7},
+        {"model": "/models/loras/off.safetensors", "strength": 0},
+    ]
+    pipes = _process(moss_template, {"loras": picked})
+    loras = _pipe(pipes, "model_loader/moss_image")["config"]["loras"]
+    assert [(l["file_path"], float(l["weight"])) for l in loras] == [
+        ("/models/loras/style.safetensors", 0.7),
+        ("/models/loras/off.safetensors", 0.0),
+    ]
+    rows = _pipe(pipes, "param_emitter")["config"]["parameters"]
+    flat = [pair for row in rows for pair in (row if isinstance(row[0], list) else [row])]
+    recorded = [value for key, value in flat if key == "model"]
+    assert "/models/loras/style.safetensors" in recorded
+    assert "/models/loras/off.safetensors" not in recorded
+
+
+def test_lora_tab_is_a_plain_picker_without_step_windows():
+    tab = yaml.safe_load(
+        Path("content/presets/marketplace/MOSS-Image/modes/txt2img/tabs/lora.yml").read_text(encoding="utf-8")
+    )
+    picker = tab["fields"][0]
+    assert picker["type"] == "lora_picker"
+    assert picker["configuration"]["filter_tags"] == "@config:lora_tags"
+    assert "row_fields" not in picker["configuration"]

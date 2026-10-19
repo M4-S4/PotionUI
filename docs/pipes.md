@@ -2173,6 +2173,7 @@ Load a native MOSS-Image checkpoint set (DiT + Qwen3.5-9B TE + FLUX 2 AE)
 | `diffusion_model` | `dict` | — | yes | — | — | — | MOSS-Image DiT (SFT or Base, bf16 or int8 ConvRot) |
 | `text_encoder` | `dict` | — | yes | — | — | — | Qwen3.5-9B text encoder (int8 ConvRot, one prompt per pass) |
 | `vae` | `dict` | — | yes | — | — | — | FLUX 2 autoencoder (flux2-vae.safetensors) |
+| `loras` | `list` | `[]` | no | — | — | — | LoRA adapters (patched in place on an already-cached DiT) |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `dtype` | `str` | `"bfloat16"` | no | `bfloat16`, `float16`, `float32` | — | — | Compute dtype |
 | `vram_limit_gb` | `float` | — | no | — | — | — | VRAM budget hint (backend-injected) |

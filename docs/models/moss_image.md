@@ -39,6 +39,8 @@ The text encoder is `qwen3.5_9b_int8_convrot.safetensors` (about 9 GB, int8 Conv
 
 The shipped **MOSS-Image** preset has `txt2img` only, with a Base speed profile (50 steps, CFG 3.0, the default) and a Custom one. The pipes are `model_loader/moss_image` and `generator/moss_image`.
 
+The LoRA tab takes MOSS-Image LoRAs in the ComfyUI, diffusers/PEFT, ai-toolkit and kohya layouts, on both the SFT and Base checkpoints. LoRAs trained with split `q`/`k`/`v` projections are mapped onto the DiT's fused qkv. The run log lists any LoRA keys that didn't match.
+
 The negative prompt is empty by default and only used when CFG is above 1. The Advanced tab has a Negative-branch layer skip toggle: on skips transformer block 22 on the negative pass, off runs plain CFG. The generator forces CFG-Zero\* off and never uses the step cache, because the negative pass is always degraded.
 
 ## Sampling
@@ -47,7 +49,7 @@ Resolutions are multiples of 16. The sigma shift is 5.0 unless the Advanced tab 
 
 ## Limitations
 
-- No Turbo checkpoint, no LoRA tab, no img2img.
+- No Turbo checkpoint, no img2img. Few-step distillation LoRAs load but need a sampler the preset doesn't have yet.
 - The schedule follows the reference's snapped grid, so the same seed renders a different image than ComfyUI.
 - The int8 checkpoints carry an int8-attention hint that is ignored; attention runs on SDPA.
 

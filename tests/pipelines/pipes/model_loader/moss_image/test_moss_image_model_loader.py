@@ -3,24 +3,47 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 import torch
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.model_loader.moss_image.bundle import MossImageModelBundle
 from src.pipelines.pipes.model_loader.moss_image.main import ModelLoaderMossImagePipe
 from src.pipelines.pipes.model_loader.moss_image.moss_image_clip import MossImageClipTextEncoder
+from src.pipelines.pipes._shared.generation.loader_helpers import lora_stack_fingerprint
+from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.text_encoders import prompt_embed_key
+
+
+class _FakeModule:
+    def named_modules(self):
+        return iter(())
 
 
 class _FakeModels:
     def __init__(self):
         self.calls = []
         self.loaders = {}
+        self.entries = {}
 
     def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
         self.calls.append((key, fingerprint))
         self.loaders[key] = loader
-        return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
+        entry = self.entries.get(key)
+        if entry is not None and entry[0] == fingerprint:
+            return entry[1]
+        value = NativeModel("fake", _FakeModule(), spec=None, estimated_vram_gb=1.0)
+        self.entries[key] = (fingerprint, value)
+        return value
+
+
+@pytest.fixture(autouse=True)
+def _apply_spy(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        ModelLoaderMossImagePipe, "_apply_loras", staticmethod(lambda dit_model, loras: calls.append(list(loras))),
+    )
+    return calls
 
 
 def _config(**over):
@@ -34,8 +57,8 @@ def _config(**over):
     return cfg
 
 
-def _run(pipe):
-    models = _FakeModels()
+def _run(pipe, models=None):
+    models = models if models is not None else _FakeModels()
     out = pipe.process(PipeInput(input={"MODELS": models}), lambda o: None)
     return models, out
 
@@ -47,10 +70,58 @@ def test_name_and_outputs():
     assert out_names["text_encoder"] == IOType.TEXT_ENCODER
 
 
-def test_config_has_no_lora_or_vision_knobs():
+def test_config_takes_loras_but_no_vision_knobs():
     names = {s.name for s in ModelLoaderMossImagePipe.configuration()}
-    assert {"diffusion_model", "text_encoder", "vae", "dtype", "device"} <= names
-    assert not {"loras", "vision", "control_model"} & names
+    assert {"diffusion_model", "text_encoder", "vae", "loras", "dtype", "device"} <= names
+    assert not {"vision", "control_model"} & names
+
+
+def test_step_windowed_lora_is_refused():
+    pipe = ModelLoaderMossImagePipe(config=_config(loras=[
+        {"file_path": "/m/style.safetensors", "weight": 0.8, "step_start": 1, "step_end": 4},
+    ]))
+    with pytest.raises(ValueError, match="step window"):
+        _run(pipe)
+
+
+def test_lora_is_applied_and_stamped_when_the_dit_loads(_apply_spy):
+    loras = [{"file_path": "/m/style.safetensors", "weight": 0.8}]
+    loaded = SimpleNamespace(module=_FakeModule())
+
+    class _Loader:
+        def __init__(self, **_):
+            pass
+
+        def load(self, path, kind, **kw):
+            return loaded
+
+    with patch("src.pipelines.pipes.model_loader.moss_image.main.NativeEngineLoader", _Loader):
+        models, _out = _run(ModelLoaderMossImagePipe(config=_config(loras=loras)))
+        applied_before = len(_apply_spy)
+        models.loaders["native/dit//m/dit.safetensors"]()
+    expanded = [{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]
+    assert _apply_spy[applied_before:] == [expanded]
+    assert loaded._active_lora_fp == lora_stack_fingerprint(expanded)
+
+
+def test_lora_change_on_a_warm_dit_does_not_bust_the_dit_fingerprint(_apply_spy):
+    models = _FakeModels()
+    _run(ModelLoaderMossImagePipe(config=_config()), models)
+    _run(ModelLoaderMossImagePipe(config=_config(loras=[{"model": "/m/style.safetensors", "strength": 0.8}])), models)
+    dit_fps = {fp for key, fp in models.calls if key == "native/dit//m/dit.safetensors"}
+    assert len(dit_fps) == 1
+    assert [c for c in _apply_spy if c] == [[{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]]
+
+
+def test_zero_weight_lora_is_ignored(_apply_spy):
+    _run(ModelLoaderMossImagePipe(config=_config(loras=[{"model": "/m/off.safetensors", "strength": 0.0}])))
+    assert [c for c in _apply_spy if c] == []
+
+
+def test_lora_models_are_reported_for_history():
+    pipe = ModelLoaderMossImagePipe(config=_config(loras=[{"model": "/m/style.safetensors", "strength": 0.8}]))
+    lora = [m for m in pipe.describe_models() if m.type == "lora"]
+    assert [(m.name, m.weight) for m in lora] == [("style", 0.8)]
 
 
 def test_text_encoder_is_acquired_lazily_under_the_moss_key():
