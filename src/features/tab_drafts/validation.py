@@ -105,6 +105,13 @@ def normalize_doc(doc: Any) -> Dict[str, Any]:
 
 
 def flat_definition(op: Dict[str, Any]) -> Dict[str, Any]:
+    definition = _flat_definition(op)
+    if definition["type"] != "text" and op.get("linked") is True:
+        definition["linked"] = True
+    return definition
+
+
+def _flat_definition(op: Dict[str, Any]) -> Dict[str, Any]:
     if op.get("type") == "choice":
         mode = op.get("mode") or "shuffle"
         return {

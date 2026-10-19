@@ -8,6 +8,7 @@ import { tabClaimedGenerationIds } from '$lib/generation/messages/ownership';
 import { retireOrphanedGenerationIds } from '$lib/generation/messages/generationOutputs';
 import { formulaApplied } from './formulaApplied';
 import { mirrorActivePrompt } from '$lib/generation/promptBatch';
+import { adoptLegacyVariables } from './tabDraftOutbox';
 
 function createInitialGenerationState(): GenerationState {
 	return {
@@ -120,6 +121,7 @@ function tabsRelevantToPersistenceChanged(prev: TabsState, next: TabsState): boo
 function createTabsStore() {
 	// Try to load from localStorage, fallback to default tab
 	const persisted = loadTabsFromLocalStorage();
+	const legacyVariables = persisted ? adoptLegacyVariables(persisted.tabs) : {};
 	// Older builds could persist duplicate ids (same-millisecond Date.now());
 	// regenerate any colliding id so keyed each blocks never see duplicates.
 	const seenIds = new Set<string>();
@@ -168,7 +170,7 @@ function createTabsStore() {
 					directorRunLinks: p.directorRunLinks,
 					musicDirector: p.musicDirector,
 					formData: p.formData ?? {},
-					variables: p.variables ?? {},
+					variables: legacyVariables[p.id] ?? {},
 					modeStateByMode: p.modeStateByMode ?? {},
 					seed: p.seed
 				};

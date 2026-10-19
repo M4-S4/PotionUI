@@ -1,6 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
-import { isDifferentIdentity, keysToPurge } from './identityScopedStorage';
+import {
+	isDifferentIdentity,
+	keysToPurge,
+	namespacedKeys,
+	identityKey,
+	hasIdentityState,
+	removeIdentityKeys,
+	scopedStorage,
+	LAST_USER_ID_KEY
+} from './identityScopedStorage';
+import { TAB_DRAFT_OUTBOX_KEY, TAB_DRAFT_MIGRATED_KEY } from './tabDraftKeys';
+import { createTabDraftOutbox } from './tabDraftOutbox';
+import { setOp } from './tabDraftOps';
 
 describe('isDifferentIdentity', () => {
 	it('is false when no prior identity is recorded (first login)', () => {
@@ -58,5 +70,46 @@ describe('keysToPurge', () => {
 	it('purges only the matching subset out of a mixed key set', () => {
 		const mixed = [TABS_STORAGE_KEY, 'theme', 'unified-ai-chat-config-id', 'audio_player_volume'];
 		expect(keysToPurge(mixed)).toEqual([TABS_STORAGE_KEY, 'unified-ai-chat-config-id']);
+	});
+});
+
+describe('tab draft keys are identity scoped', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	function stubLocalStorage(initial: Record<string, string>) {
+		const data = new Map(Object.entries(initial));
+		vi.stubGlobal('localStorage', {
+			get length() {
+				return data.size;
+			},
+			key: (index: number) => [...data.keys()][index] ?? null,
+			getItem: (key: string) => data.get(key) ?? null,
+			setItem: (key: string, value: string) => void data.set(key, value),
+			removeItem: (key: string) => void data.delete(key)
+		});
+		return data;
+	}
+
+	it('purges and namespaces the outbox and migration flag', () => {
+		expect(keysToPurge([TAB_DRAFT_OUTBOX_KEY, TAB_DRAFT_MIGRATED_KEY])).toEqual([
+			TAB_DRAFT_OUTBOX_KEY,
+			TAB_DRAFT_MIGRATED_KEY
+		]);
+		const scoped = [identityKey(TAB_DRAFT_OUTBOX_KEY, 'a'), identityKey(TAB_DRAFT_MIGRATED_KEY, 'b')];
+		expect(namespacedKeys(scoped)).toEqual(scoped);
+		expect(namespacedKeys(scoped, 'a')).toEqual([scoped[0]]);
+	});
+
+	it('keeps one user outbox out of another user scope and removes it with the account', () => {
+		const data = stubLocalStorage({ [LAST_USER_ID_KEY]: 'user-a' });
+		createTabDraftOutbox(scopedStorage).putOps('t1', [setOp('style', { type: 'text', value: 'x' })]);
+		expect(data.has(identityKey(TAB_DRAFT_OUTBOX_KEY, 'user-a'))).toBe(true);
+
+		data.set(LAST_USER_ID_KEY, 'user-b');
+		expect(createTabDraftOutbox(scopedStorage).pendingOps('t1')).toEqual([]);
+
+		expect(hasIdentityState('user-a')).toBe(true);
+		removeIdentityKeys('user-a');
+		expect(data.has(identityKey(TAB_DRAFT_OUTBOX_KEY, 'user-a'))).toBe(false);
 	});
 });

@@ -324,6 +324,57 @@ class TestValidationLimits(ManagerTestBase):
         self.assertLessEqual(validation.doc_size(self.manager.get("u1", "t1").doc), validation.MAX_DOC_BYTES)
 
 
+class TestFrontendRoundTrip(ManagerTestBase):
+
+    def roundtrip(self, name, definition):
+        self.manager.apply_operations("u1", "t1", [set_op(name, definition)])
+        return self.manager.get("u1", "t1").doc["variables"][name]
+
+    def test_a_text_variable_round_trips(self):
+        definition = {"type": "text", "value": "a {red|blue} coat"}
+
+        self.assertEqual(self.roundtrip("coat", definition), definition)
+
+    def test_a_choice_variable_round_trips_with_every_frontend_field(self):
+        definition = {
+            "type": "choice",
+            "options": [
+                "red",
+                {"text": "crimson", "when": {"var": "mood", "values": ["angry"]}},
+                {"text": "blue"},
+            ],
+            "mode": "pin",
+            "pinnedIndex": 2,
+            "linked": True,
+        }
+        self.manager.apply_operations("u1", "t1", [set_op("mood", choice("angry", "calm"))])
+
+        self.assertEqual(self.roundtrip("hair", definition), definition)
+
+    def test_a_per_image_choice_without_linked_stays_without_it(self):
+        definition = {"type": "choice", "options": ["a", "b"], "mode": "per-image", "pinnedIndex": None}
+
+        self.assertEqual(self.roundtrip("c", definition), definition)
+
+    def test_a_number_variable_round_trips_with_every_frontend_field(self):
+        definition = {
+            "type": "number",
+            "mode": "per-image",
+            "min": 0.5,
+            "max": 2.5,
+            "step": 0.25,
+            "value": 1.25,
+            "linked": True,
+        }
+
+        self.assertEqual(self.roundtrip("weight", definition), definition)
+
+    def test_linked_false_is_not_stored(self):
+        stored = self.roundtrip("n", number(linked=False))
+
+        self.assertNotIn("linked", stored)
+
+
 class TestDraftCap(ManagerTestBase):
 
     def test_the_cap_is_two_hundred_drafts_per_user(self):

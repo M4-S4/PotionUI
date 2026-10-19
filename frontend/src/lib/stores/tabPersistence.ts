@@ -4,6 +4,7 @@ import type { PersistedTab, PersistedTabsState } from '$lib/types/tabs';
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
 import { scopedStorage } from '$lib/stores/identityScopedStorage';
 import { randomUUID } from '$lib/utils/uuid';
+import { tabDraftOutbox } from '$lib/stores/tabDraftOutbox';
 
 // A field value that slipped a `data:` URI into `formData`/`variables` (an
 // inline image/audio blob, e.g. a mask preview) would otherwise get written
@@ -74,7 +75,6 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		directorRuns: t.directorRuns,
 		directorRunLinks: t.directorRunLinks,
 		formData: sanitizeForPersistence(t.formData) as Record<string, unknown>,
-		variables: sanitizeForPersistence(t.variables) as Tab['variables'],
 		modeStateByMode: sanitizeForPersistence(t.modeStateByMode) as Tab['modeStateByMode'],
 		seed: t.seed
 	};
@@ -84,7 +84,12 @@ export function saveTabsToLocalStorage(tabs: Tab[], activeTabId: string): void {
 	if (!browser) return;
 	try {
 		const persisted: PersistedTabsState = {
-			tabs: tabs.map(toPersistedTab),
+			tabs: tabs.map((tab) => {
+				const persistedTab = toPersistedTab(tab);
+				return tabDraftOutbox.retainedLegacyIds().has(tab.id)
+					? { ...persistedTab, variables: tab.variables }
+					: persistedTab;
+			}),
 			activeTabId
 		};
 		scopedStorage.set(TABS_STORAGE_KEY, JSON.stringify(persisted));

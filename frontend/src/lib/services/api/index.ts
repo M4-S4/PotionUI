@@ -76,6 +76,7 @@ import { createPluginsApi } from './plugins';
 import { createFormulasApi } from './formulas';
 import { createFiltersApi } from './filters';
 import { createOrganizeApi } from './organize';
+import { createTabDraftsApi } from './tabDrafts';
 
 const apiClient = new APIClient();
 
@@ -129,7 +130,8 @@ export const api = {
 	...createPluginsApi(apiClient.getClient()),
 	...createFormulasApi(apiClient.getClient()),
 	...createFiltersApi(apiClient.getClient()),
-	...createOrganizeApi(apiClient.getClient())
+	...createOrganizeApi(apiClient.getClient()),
+	...createTabDraftsApi(apiClient.getClient())
 };
 
 export type { APIClient };

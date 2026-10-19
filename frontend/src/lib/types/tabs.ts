@@ -78,7 +78,6 @@ export interface PersistedTab {
 	videoDirector?: VideoDirectorValue;
 	musicDirector?: MusicDirectorValue;
 	formData?: Record<string, unknown>;
-	variables?: VariablesMap;
 	modeStateByMode?: Record<string, ModeState>;
 	seed?: number;
 	/** See the matching fields on `Tab` below. */

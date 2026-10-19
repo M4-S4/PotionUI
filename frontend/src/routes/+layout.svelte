@@ -19,6 +19,7 @@
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
 	import { initCrossTab } from '$lib/stores/accounts';
 	import { notifications } from '$lib/stores/notifications';
+	import { tabDraftSync } from '$lib/stores/tabDraftSync';
 	import { notificationsWebSocket } from '$lib/services/notificationsWebsocket';
 	import { themeStore } from '$lib/stores/theme';
 	import { printStartupBanner } from '$lib/utils/startupBanner';
@@ -156,6 +157,16 @@
 		notificationsWebSocket.disconnect();
 		notifications.reset();
 		resetLimitsState();
+	}
+
+	let tabDraftSyncStarted = false;
+	$: if (mounted && $authStore.isAuthenticated && !tabDraftSyncStarted) {
+		tabDraftSyncStarted = true;
+		tabDraftSync.start();
+	}
+	$: if (mounted && !$authStore.isAuthenticated && tabDraftSyncStarted) {
+		tabDraftSyncStarted = false;
+		tabDraftSync.stop();
 	}
 
 	function registerCoreHandlers() {
