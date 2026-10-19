@@ -28,7 +28,6 @@ export interface OllamaOptions {
 	num_thread?: number;           // Number of CPU threads to use
 
 	// Context
-	num_ctx?: number;              // Context window size (default: 2048)
 	num_batch?: number;            // Batch size for prompt processing
 	num_keep?: number;             // Tokens to keep from initial prompt
 
@@ -115,6 +114,15 @@ export interface DiscoveredLLMModel {
 export interface LLMModelDiscovery {
 	supported: boolean;
 	models: DiscoveredLLMModel[];
+	error: string | null;
+}
+
+export interface LLMContextWindowDiscovery {
+	supported: boolean;
+	detected: number | null;
+	detected_kind: 'runtime' | 'trained' | null;
+	effective: number | null;
+	discovered_at: string | null;
 	error: string | null;
 }
 

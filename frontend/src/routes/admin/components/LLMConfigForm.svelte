@@ -25,6 +25,7 @@
 	import { DetailSection, DetailField, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
 	import LLMModelCombobox from './llm/LLMModelCombobox.svelte';
+	import LLMContextWindow from './llm/LLMContextWindow.svelte';
 
 	/**
 	 * Shared Model / Prompting / Sampling / Capabilities / Ollama Options /
@@ -70,7 +71,6 @@
 		keep_alive: { default: '0', type: 'text', label: 'Keep Alive', description: 'How long to keep model in memory (e.g., "5m", "1h", -1 for indefinite, 0 to unload)' },
 		num_gpu: { default: null, type: 'number', label: 'GPU Layers', description: 'Number of GPU layers to use (leave empty for auto)' },
 		num_thread: { default: null, type: 'number', label: 'CPU Threads', description: 'Number of CPU threads (leave empty for auto)' },
-		num_ctx: { default: 2048, type: 'number', label: 'Context Size', description: 'Context window size in tokens' },
 		num_batch: { default: 512, type: 'number', label: 'Batch Size', description: 'Batch size for prompt processing' },
 		seed: { default: null, type: 'number', label: 'Seed', description: 'Random seed for reproducibility (leave empty for random)' },
 		top_k: { default: 40, type: 'number', label: 'Top-K', description: 'Limits token selection to top K options' },
@@ -113,7 +113,6 @@
 			{ value: true, label: 'Enabled' },
 			{ value: false, label: 'Disabled' }
 		]},
-		context_window: { default: null, type: 'number', label: 'Context window (tokens)', description: 'The capacity the context budget preflight uses for this config — not a promise the model actually fits that many tokens. Leave blank for a conservative unknown-capacity default.' },
 		// Explicit tuning controls, not an automatically selected preset or a
 		// guaranteed repetition fix — see LLM-E01 for effectiveness comparisons.
 		// Left blank, none is passed to generate() and the model's own
@@ -397,6 +396,31 @@
 	</div>
 {/snippet}
 
+{#snippet contextWindowInput()}
+	<LLMContextWindow
+		id="{idPrefix}-context-window"
+		type={draft.type}
+		model={draft.model}
+		baseUrl={draft.base_url}
+		apiKey={draft.api_key}
+		configId={apiKeySet ? configId : null}
+		value={draft.provider_options.context_window ?? undefined}
+		onchange={(next) => {
+			delete draft.provider_options.num_ctx;
+			setProviderOption('context_window', next, next === undefined);
+		}}
+	/>
+	{#if draft.type === 'ollama'}
+		<p class="text-xs text-fg-subtle mt-1">A bigger window uses more GPU memory, shared with image generation.</p>
+	{/if}
+{/snippet}
+
+{#snippet contextWindowFields()}
+	{@render field('Context window (tokens)', `${idPrefix}-context-window`, contextWindowInput, {
+		help: 'How many tokens a conversation can hold before it is trimmed. Leave blank to detect.'
+	})}
+{/snippet}
+
 {#snippet capabilityFields()}
 	<div class="flex flex-wrap items-center gap-x-6 gap-y-3">
 		{#if mode === 'create'}
@@ -578,6 +602,7 @@
 	{@render section('Model', true, modelFields)}
 	{@render section('Prompting', false, promptingFields, promptingHeaderExtra)}
 	{@render section('Sampling', false, samplingFields)}
+	{@render section('Context', false, contextWindowFields)}
 	{@render section('Capabilities', false, capabilityFields)}
 	{#if draft.type === 'openai'}
 		{@render section('OpenAI Options', false, openaiFields)}

@@ -26,6 +26,7 @@
 	import { llmConfigDetailTabHasFooter, type LLMConfigDetailTab } from './llmConfigDetailTabs';
 	import { assignmentCountLabel } from './llm/llmConfigColumns';
 	import { summarizeBulkOutcome, bulkOutcomeMessage } from './llm/bulkResult';
+	import { migrateLegacyContextWindow } from './llmProviderOptions';
 
 	let {
 		filters = DEFAULT_LLM_CONFIG_FILTERS,
@@ -82,7 +83,7 @@ Always be creative and helpful while staying focused on the image generation con
 			temperature: config?.temperature ?? 0.7,
 			max_tokens: config?.max_tokens || 1000,
 			timeout: config?.timeout || 30,
-			provider_options: config?.provider_options ? { ...config.provider_options } : {},
+			provider_options: migrateLegacyContextWindow(config?.provider_options ? { ...config.provider_options } : {}),
 			...overrides
 		};
 	}
