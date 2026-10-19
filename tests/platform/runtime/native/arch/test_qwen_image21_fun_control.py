@@ -257,8 +257,9 @@ def test_controlled_steps_bypass_the_prefix_cache():
     with torch.no_grad():
         expected = [controlled(x, t, context, control_context=control) for t in steps]
         with _run_cache(controlled) as cache:
-            plain_first = [controlled(x, t, context) for t in steps]
+            controlled(x, steps[0], context)
             assert len(cache) == 1
+            plain_first = [controlled(x, t, context) for t in steps]
             got = [controlled(x, t, context, control_context=control) for t in steps]
             assert len(cache) == 1
             plain_again = [controlled(x, t, context) for t in steps]
