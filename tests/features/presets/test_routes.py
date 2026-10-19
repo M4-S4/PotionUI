@@ -1,5 +1,7 @@
 """Tests for PresetController - dispatches onto src.features.presets.operations."""
 
+import threading
+
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from fastapi import HTTPException
@@ -104,6 +106,17 @@ class TestPresetController:
 
         assert exc_info.value.status_code == 500
         assert "preset_list_failed" in str(exc_info.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_list_presets_runs_off_the_event_loop_thread(
+        self, controller, mock_preset_collaborators, mock_current_user
+    ):
+        threads = []
+        mock_preset_collaborators.list_presets.side_effect = lambda *args: threads.append(threading.get_ident()) or []
+
+        await controller.list_presets(mock_current_user)
+
+        assert threads and threads[0] != threading.get_ident()
 
     # ===== get_preset tests =====
 

@@ -202,3 +202,36 @@ def test_same_size_content_change_with_mismatching_mtime_is_rehashed(tmp_path, m
     assert models[0].id == model_before.id
     assert models[0].sha256 == _sha(same_size_new_content)
     assert models[0].sha256 != location_before["sha256"]
+
+
+def test_a_changed_file_left_unindexed_is_not_marked_missing(tmp_path, mock_db):
+    home = tmp_path / "home"
+    changed = home / "checkpoints" / "changed.safetensors"
+    kept = home / "checkpoints" / "kept.safetensors"
+    gone = home / "checkpoints" / "gone.safetensors"
+    for path in (changed, kept, gone):
+        _write(path, path.name.encode())
+
+    root = _root("r_home", home)
+    binding = _binding("r_home", "checkpoint", home / "checkpoints", 0)
+    scanner = ModelScanner(_resolver([root], [binding]))
+    scanner.index_models(max_workers=1)
+    before = {
+        rel_key: ModelLocationsRepository().get(binding.binding_id, rel_key)
+        for rel_key in ("changed.safetensors", "kept.safetensors")
+    }
+
+    changed.write_bytes(b"a much longer replacement payload")
+    gone.unlink()
+    with patch.object(ModelScanner, "index_file", side_effect=RuntimeError("left for the next scan")):
+        result = scanner.index_models(max_workers=1)
+
+    assert (result["new_files"], result["failed"], result["skipped"]) == (1, 1, 1)
+    changed_row = ModelLocationsRepository().get(binding.binding_id, "changed.safetensors")
+    kept_row = ModelLocationsRepository().get(binding.binding_id, "kept.safetensors")
+    gone_row = ModelLocationsRepository().get(binding.binding_id, "gone.safetensors")
+    assert changed_row["status"] == "present"
+    assert changed_row["seen_at"] == before["changed.safetensors"]["seen_at"]
+    assert kept_row["status"] == "present"
+    assert kept_row["seen_at"] != before["kept.safetensors"]["seen_at"]
+    assert gone_row["status"] == "missing"

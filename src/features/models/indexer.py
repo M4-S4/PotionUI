@@ -766,21 +766,24 @@ class ModelScanner:
             if root is None:
                 continue
             existing = {row['rel_key']: row for row in self.locations.list_for_binding(binding_id)}
-            present_rel_keys: List[str] = []
+            present_rel_keys: Set[str] = set()
+            touched: List[str] = []
+            adopted: List[Tuple[str, int]] = []
             for f in files:
                 rel_key = self._rel_key(root, f.rel_path)
-                present_rel_keys.append(rel_key)
+                present_rel_keys.add(rel_key)
                 row = existing.get(rel_key)
                 if not self._row_matches(row, f):
                     new_or_changed.append(f)
                 elif row['mtime_ns'] != f.mtime_ns:
-                    self.locations.adopt_mtime(binding_id, rel_key, f.mtime_ns, seen_at)
+                    adopted.append((rel_key, f.mtime_ns))
                     touched_by_diff.add(row['model_id'])
                     skipped_count += 1
                 else:
-                    self.locations.touch_present(binding_id, rel_key, seen_at)
+                    touched.append(rel_key)
                     touched_by_diff.add(row['model_id'])
                     skipped_count += 1
+            self.locations.confirm_present(binding_id, touched, adopted, seen_at)
             for rel_key, row in existing.items():
                 if rel_key not in present_rel_keys and row['status'] != 'missing':
                     touched_by_diff.add(row['model_id'])

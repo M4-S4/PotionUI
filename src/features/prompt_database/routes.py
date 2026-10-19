@@ -1,5 +1,6 @@
 """HTTP boundary for the normalized prompt aggregate API."""
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Literal, TYPE_CHECKING, Optional, Tuple
 
@@ -230,7 +231,9 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         if content_safety.is_restricted(current_user.id):
             nsfw = "exclude"
-        counts = controller.collaborators.repository.tag_counts(_user_id(current_user), nsfw=nsfw)
+        counts = await asyncio.to_thread(
+            controller.collaborators.repository.tag_counts, _user_id(current_user), nsfw=nsfw,
+        )
         return APIResponse(success=True, data={
             "tags": [{"tag": tag, "count": count} for tag, count in counts],
         })

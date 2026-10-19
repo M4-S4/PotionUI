@@ -1,8 +1,8 @@
 import asyncio
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.features.cloud.backend import CloudBackend
-from src.features.cloud.contracts import CLOUD_ENGINE, MODALITIES, TASK_KINDS, CloudProvider, spec_problems
+from src.features.cloud.contracts import CLOUD_ENGINE, MODALITIES, TASK_KINDS, CloudModelSpec, CloudProvider, spec_problems
 from src.features.cloud.dto import admin_entry_dict, admin_state_dict
 from src.features.cloud.errors import (
     CloudBackendInactive,
@@ -114,27 +114,9 @@ class CloudCatalog:
                     "skipped": [],
                     "index": None,
                 }
-            now = now_iso()
-            known = self.repository.provider_ids(backend_id)
-            skipped: list[dict[str, Any]] = []
-            claimed: Dict[str, str] = {}
-            created = 0
-            for spec in sorted(specs, key=lambda item: item.provider_model_id):
-                problems = spec_problems(spec)
-                slug = cloud_model_slug(backend.provider_class.key, spec.provider_model_id) if spec.provider_model_id else ""
-                if not problems and slug in claimed:
-                    problems.append(f"slug {slug!r} is already used by {claimed[slug]!r}")
-                elif not problems and known.get(slug, spec.provider_model_id) != spec.provider_model_id:
-                    problems.append(f"slug {slug!r} already belongs to {known[slug]!r}")
-                if problems:
-                    skipped.append({"provider_model_id": spec.provider_model_id, "problems": problems})
-                    continue
-                claimed[slug] = spec.provider_model_id
-                if self.repository.upsert_discovered(backend_id, slug, spec, now):
-                    created += 1
-            vanished = self.repository.mark_missing(backend_id, claimed, now)
-            self.repository.mark_suggested(backend_id, backend.provider.suggested_model_ids())
-            self.repository.write_state(backend_id, now, len(specs), skipped)
+            now, claimed, created, vanished, skipped = await asyncio.to_thread(
+                self._record_discovery, backend_id, backend, specs
+            )
             index = await self._sync(backend)
         logger.info(
             f"[CLOUD_CATALOG] {backend.name}: {len(specs)} listed, {created} new, "
@@ -152,6 +134,32 @@ class CloudCatalog:
             "skipped": skipped,
             "index": index,
         }
+
+    def _record_discovery(
+        self, backend_id: str, backend: CloudBackend, specs: Sequence[CloudModelSpec]
+    ) -> Tuple[str, Dict[str, str], int, List[str], List[Dict[str, Any]]]:
+        now = now_iso()
+        known = self.repository.provider_ids(backend_id)
+        skipped: list[dict[str, Any]] = []
+        claimed: Dict[str, str] = {}
+        created = 0
+        for spec in sorted(specs, key=lambda item: item.provider_model_id):
+            problems = spec_problems(spec)
+            slug = cloud_model_slug(backend.provider_class.key, spec.provider_model_id) if spec.provider_model_id else ""
+            if not problems and slug in claimed:
+                problems.append(f"slug {slug!r} is already used by {claimed[slug]!r}")
+            elif not problems and known.get(slug, spec.provider_model_id) != spec.provider_model_id:
+                problems.append(f"slug {slug!r} already belongs to {known[slug]!r}")
+            if problems:
+                skipped.append({"provider_model_id": spec.provider_model_id, "problems": problems})
+                continue
+            claimed[slug] = spec.provider_model_id
+            if self.repository.upsert_discovered(backend_id, slug, spec, now):
+                created += 1
+        vanished = self.repository.mark_missing(backend_id, claimed, now)
+        self.repository.mark_suggested(backend_id, backend.provider.suggested_model_ids())
+        self.repository.write_state(backend_id, now, len(specs), skipped)
+        return now, claimed, created, vanished, skipped
 
     async def set_enabled(self, backend_id: str, slugs: Sequence[str], enabled: bool) -> Dict[str, Any]:
         backend = self._active(backend_id)

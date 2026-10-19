@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import json
 
 from src.features.presets.records import Preset, UserPreset
@@ -29,6 +29,24 @@ class DatabasePresetRepository:
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM presets ORDER BY installed_at DESC")
             return [Preset.from_row(row) for row in cursor.fetchall()]
+
+    def get_installed_preset_summaries(self) -> Dict[str, Tuple[str, int, int]]:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT p.preset_id, p.id, "
+                "COALESCE(u.assignment_count, 0) AS assignment_count, "
+                "COALESCE(g.group_count, 0) AS group_count "
+                "FROM presets p "
+                "LEFT JOIN (SELECT preset_id, COUNT(*) AS assignment_count FROM user_presets GROUP BY preset_id) u "
+                "ON u.preset_id = p.id "
+                "LEFT JOIN (SELECT preset_id, COUNT(*) AS group_count FROM user_group_presets GROUP BY preset_id) g "
+                "ON g.preset_id = p.id"
+            )
+            return {
+                row['preset_id']: (row['id'], row['assignment_count'], row['group_count'])
+                for row in cursor.fetchall()
+            }
     
     def is_preset_installed(self, preset_id: str) -> bool:
         """Check if preset is installed (exists in presets table)"""

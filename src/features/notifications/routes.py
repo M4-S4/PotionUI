@@ -5,6 +5,7 @@ Handles per-user notification REST endpoints and the `/ws/notifications`
 real-time channel. Thin route handlers delegate to NotificationController;
 business logic lives in `src.features.notifications.operations`.
 """
+import asyncio
 import logging
 import uuid
 from typing import Optional, TYPE_CHECKING
@@ -258,7 +259,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         await notification_connection_hub.connect(websocket, user.id, client_id)
 
         try:
-            unread_count = controller.repository.unread_count(user.id)
+            unread_count = await asyncio.to_thread(controller.repository.unread_count, user.id)
             await websocket.send_json({
                 "type": "connection_established",
                 "client_id": client_id,

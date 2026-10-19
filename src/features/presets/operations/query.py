@@ -51,19 +51,17 @@ def list_presets(
 
     if include_uninstalled and user.account_type == AccountType.ADMIN:
         # For admin users, show all presets with installation status
-        installed_preset_ids = set([
-            p.preset_id for p in collaborators.db_repo.get_all_installed_presets()
-        ])
+        summaries = collaborators.db_repo.get_installed_preset_summaries()
 
         # Add installation status to each preset
         for preset in all_presets:
-            preset['installed'] = preset['id'] in installed_preset_ids
+            preset['installed'] = preset['id'] in summaries
             if preset['installed']:
                 # Add assignment summary for installed presets
-                summary = collaborators.db_repo.get_preset_assignment_summary(preset['id'])
-                preset['assignment_count'] = summary['total_assignments']
-                preset['preset_db_id'] = summary.get('preset_db_id')
-                preset['group_count'] = collaborators.group_repo.get_group_count_for_preset(preset['id'])
+                preset_db_id, assignment_count, group_count = summaries[preset['id']]
+                preset['assignment_count'] = assignment_count
+                preset['preset_db_id'] = preset_db_id
+                preset['group_count'] = group_count
             preset['requirements_summary'] = _peek_requirements_summary(collaborators, preset['id'])
 
         return all_presets

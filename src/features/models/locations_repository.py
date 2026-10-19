@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.platform.util.ids import generate_ulid
@@ -118,42 +119,38 @@ class ModelLocationsRepository:
             row = cursor.fetchone()
             return row["id"] if row else location_id
 
-    def touch_present(self, binding_id: str, rel_key: str, seen_at: str) -> None:
+    def confirm_present(
+        self,
+        binding_id: str,
+        touched: Sequence[str],
+        adopted: Sequence[Tuple[str, int]],
+        seen_at: str,
+    ) -> None:
+        if not touched and not adopted:
+            return
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            cursor.execute(
-                "UPDATE model_locations SET status = 'present', seen_at = ? WHERE binding_id = ? AND rel_key = ?",
-                (seen_at, binding_id, rel_key),
-            )
-
-    def adopt_mtime(self, binding_id: str, rel_key: str, mtime_ns: int, seen_at: str) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
+            cursor.executemany(
                 "UPDATE model_locations SET status = 'present', mtime_ns = ?, seen_at = ? "
                 "WHERE binding_id = ? AND rel_key = ?",
-                (mtime_ns, seen_at, binding_id, rel_key),
+                [(mtime_ns, seen_at, binding_id, rel_key) for rel_key, mtime_ns in adopted],
+            )
+            cursor.executemany(
+                "UPDATE model_locations SET status = 'present', seen_at = ? WHERE binding_id = ? AND rel_key = ?",
+                [(seen_at, binding_id, rel_key) for rel_key in touched],
             )
 
     def mark_missing_for_binding(
-        self, binding_id: str, present_rel_keys: Sequence[str], seen_at: str
+        self, binding_id: str, present_rel_keys: Iterable[str], seen_at: str
     ) -> int:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
-            if present_rel_keys:
-                placeholders = ",".join("?" for _ in present_rel_keys)
-                cursor.execute(
-                    f"UPDATE model_locations SET status = 'missing', seen_at = ? "
-                    f"WHERE binding_id = ? AND status != 'missing' "
-                    f"AND rel_key NOT IN ({placeholders})",
-                    (seen_at, binding_id, *present_rel_keys),
-                )
-            else:
-                cursor.execute(
-                    "UPDATE model_locations SET status = 'missing', seen_at = ? "
-                    "WHERE binding_id = ? AND status != 'missing'",
-                    (seen_at, binding_id),
-                )
+            cursor.execute(
+                "UPDATE model_locations SET status = 'missing', seen_at = ? "
+                "WHERE binding_id = ? AND status != 'missing' "
+                "AND rel_key NOT IN (SELECT value FROM json_each(?))",
+                (seen_at, binding_id, json.dumps(list(present_rel_keys))),
+            )
             return cursor.rowcount
 
     def delete_missing_for_roots(self, root_ids: Sequence[str]) -> int:

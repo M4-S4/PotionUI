@@ -10,7 +10,8 @@ This controller is responsible for:
 All business logic is delegated to `src.features.presets.operations`.
 """
 
-from typing import Dict, Any, Optional, TYPE_CHECKING
+import asyncio
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
@@ -142,6 +143,16 @@ class PresetController(BaseController):
     def _supports_prompt_batch(self, engine: Optional[str]) -> bool:
         return self.backend_registry.engine_supports_prompt_batch(engine)
 
+    def _list_presets(self, current_user: User, include_uninstalled: bool) -> List[Dict[str, Any]]:
+        data = operations.list_presets(self.collaborators, current_user, include_uninstalled)
+        by_preset = (
+            self.recipe_links.recipes_by_preset(current_user) if self.recipe_links is not None else {}
+        )
+        for preset in data:
+            preset['recipes'] = by_preset.get(preset['id'], [])
+            preset['supports_prompt_batch'] = self._supports_prompt_batch(preset.get('engine'))
+        return data
+
     async def list_presets(
         self,
         current_user: User,
@@ -149,13 +160,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Get list of available presets."""
         try:
-            data = operations.list_presets(self.collaborators, current_user, include_uninstalled)
-            by_preset = (
-                self.recipe_links.recipes_by_preset(current_user) if self.recipe_links is not None else {}
-            )
-            for preset in data:
-                preset['recipes'] = by_preset.get(preset['id'], [])
-                preset['supports_prompt_batch'] = self._supports_prompt_batch(preset.get('engine'))
+            data = await asyncio.to_thread(self._list_presets, current_user, include_uninstalled)
             return self.success_response(data=data)
         except Exception as e:
             raise self.handle_exception(e, "preset_list_failed", "Failed to list presets")
