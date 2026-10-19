@@ -42,7 +42,7 @@
 	const CREATE_KEY = '\u0000create';
 	const uid = Math.random().toString(36).slice(2, 8);
 	const listId = `variable-picker-list-${uid}`;
-	const optionId = (key: string) => `variable-picker-${uid}-${key}`;
+	const optionId = (key: string) => `variable-picker-${uid}-${key === CREATE_KEY ? 'create' : `v-${key}`}`;
 
 	let query = $state('');
 	let activeKey = $state<string | null>(null);
@@ -63,7 +63,7 @@
 	const activeId = $derived(
 		activeKey === null || !navigable.includes(activeKey)
 			? undefined
-			: optionId(activeKey === CREATE_KEY ? 'create' : activeKey)
+			: optionId(activeKey)
 	);
 
 	$effect(() => {
@@ -217,7 +217,7 @@
 
 		{#if createName}
 			<div
-				id={optionId('create')}
+				id={optionId(CREATE_KEY)}
 				role="option"
 				tabindex="-1"
 				aria-selected={activeKey === CREATE_KEY}

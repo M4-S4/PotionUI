@@ -173,7 +173,7 @@
 
 	function optionsOf(name: string): string[] {
 		const def = normalizeVariableDef(variables[name]);
-		return def.type === 'choice' ? def.options.map((o) => optionText(o).trim()).filter((o) => o) : [];
+		return def.type === 'choice' ? [...new Set(def.options.map((o) => optionText(o).trim()).filter((o) => o))] : [];
 	}
 
 	function numberStep(name: string): number {

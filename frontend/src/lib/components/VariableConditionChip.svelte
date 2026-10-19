@@ -61,7 +61,7 @@
 	let referencedDef = $derived(when ? normalizeVariableDef(variables[when.var]) : null);
 	let referencedOptions = $derived(
 		referencedDef && referencedDef.type === 'choice'
-			? referencedDef.options.map((o) => optionText(o).trim()).filter((t) => t.length > 0)
+			? [...new Set(referencedDef.options.map((o) => optionText(o).trim()).filter((t) => t.length > 0))]
 			: []
 	);
 
