@@ -16,6 +16,7 @@
 	import { api } from '$lib/services/api/index';
 	import { formatVramBadge, formatRamBadge, vramShortfall, fetchDetectedVramGb } from '$lib/utils/presetHardware';
 	import { fallbackIconForCategory } from '$lib/utils/presetMedia';
+	import { PRESET_CATEGORIES, presetCategoryLabel, presetCategoryOrder } from '$lib/utils/presetCategories';
 	import PresetExampleCard from './PresetExampleCard.svelte';
 	import { processMarkdown } from '$lib/utils/markdown';
 	import { logger } from '$lib/utils/logger';
@@ -41,12 +42,7 @@
 	let previewPresetId = '';
 	let detectedVramGb: number | null = null;
 	let vramFetchAttempted = false;
-	const categoryFilters = [
-		{ id: 'image', label: 'Image', icon: 'photo' },
-		{ id: 'video', label: 'Video', icon: 'film' },
-		{ id: 'audio', label: 'Audio', icon: 'audio' },
-		{ id: '3d', label: '3D', icon: 'cube' }
-	];
+	const categoryFilters = PRESET_CATEGORIES;
 
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
 	$: safePresets = Array.isArray(presets) ? presets : [];
@@ -79,8 +75,6 @@
 	$: previewVramShortfall = vramShortfall(previewPreset?.requires, detectedVramGb);
 
 	function groupByCategory(items: PresetInfo[]) {
-		const categoryOrder = ['image', 'video', 'audio', '3d'];
-		const labels: Record<string, string> = { image: 'Image', video: 'Video', audio: 'Audio', '3d': '3D' };
 		const groups = new Map<string, PresetInfo[]>();
 
 		for (const preset of items) {
@@ -89,14 +83,10 @@
 		}
 
 		return [...groups.entries()]
-			.sort(([a], [b]) => {
-				const aIndex = categoryOrder.indexOf(a);
-				const bIndex = categoryOrder.indexOf(b);
-				return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex) || a.localeCompare(b);
-			})
+			.sort(([a], [b]) => presetCategoryOrder(a) - presetCategoryOrder(b) || a.localeCompare(b))
 			.map(([category, categoryPresets]) => ({
 				category,
-				label: labels[category] || category.charAt(0).toUpperCase() + category.slice(1),
+				label: presetCategoryLabel(category),
 				presets: categoryPresets
 			}));
 	}
