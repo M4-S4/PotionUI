@@ -5,6 +5,7 @@ const IMAGE = { id: 'i1', file_type: 'IMAGE' };
 const VIDEO = { id: 'v1', file_type: 'video' };
 const AUDIO = { id: 'a1', file_type: 'AUDIO' };
 const MESH = { id: 'm1', file_type: 'MESH' };
+const SPLAT = { id: 's1', file_type: 'SPLAT' };
 
 describe('filterFilesByMediaType', () => {
 	it('passes everything through when mediaType is unset', () => {
@@ -25,6 +26,11 @@ describe('filterFilesByMediaType', () => {
 
 	it('keeps only mesh files for mesh', () => {
 		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO, MESH], 'mesh')).toEqual([MESH]);
+	});
+
+	it('keeps only splat files for splat, and none of them for mesh', () => {
+		expect(filterFilesByMediaType([IMAGE, MESH, SPLAT], 'splat')).toEqual([SPLAT]);
+		expect(filterFilesByMediaType([IMAGE, MESH, SPLAT], 'mesh')).toEqual([MESH]);
 	});
 
 	it('drops every file for an unrecognized media type instead of bucketing it as video', () => {

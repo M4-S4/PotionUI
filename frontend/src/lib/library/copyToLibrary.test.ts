@@ -29,6 +29,13 @@ describe('collectCopyableFileIds', () => {
 		expect(ids).toEqual(['2']);
 	});
 
+	it('skips a splat as it does a mesh', () => {
+		const ids = collectCopyableFileIds([
+			{ files: [{ id: 1, file_type: 'SPLAT', is_final: true }, { id: 2, file_type: 'image', is_final: true }] }
+		]);
+		expect(ids).toEqual(['2']);
+	});
+
 	it('matches the file type case-insensitively', () => {
 		expect(collectCopyableFileIds([{ files: [{ id: 1, file_type: 'IMAGE' }] }])).toEqual(['1']);
 	});

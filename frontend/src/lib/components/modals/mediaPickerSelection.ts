@@ -2,7 +2,7 @@ import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 import type { LibraryItem } from '$lib/services/api/library';
 import { get, writable, type Readable } from 'svelte/store';
 
-export type PickerMediaType = 'image' | 'video' | 'audio' | 'mesh';
+export type PickerMediaType = 'image' | 'video' | 'audio' | 'mesh' | 'splat';
 
 export type PickedMediaOrigin =
 	| { kind: 'history'; generationId: string; fileId: string }
@@ -28,7 +28,7 @@ export function libraryMediaKey(itemId: string): string {
 
 export function mediaTypeOfFile(file: { file_type?: string | null }): string {
 	const type = (file.file_type ?? '').toLowerCase();
-	for (const known of ['image', 'video', 'audio', 'mesh']) {
+	for (const known of ['image', 'video', 'audio', 'mesh', 'splat']) {
 		if (type.startsWith(known)) return known;
 	}
 	return type;

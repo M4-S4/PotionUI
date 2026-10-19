@@ -61,7 +61,7 @@ export interface GlbContainer {
  * Returns null for anything that isn't a valid binary-glTF container
  * (wrong magic, truncated header, or a non-JSON first chunk) - callers treat
  * that as "no inspector data available" rather than an error, since a mesh
- * can legitimately be .obj/.ply/.gltf instead of .glb.
+ * can legitimately be .obj/.gltf instead of .glb.
  */
 export function parseGlbContainer(buffer: ArrayBuffer): GlbContainer | null {
 	if (buffer.byteLength < 12) return null;

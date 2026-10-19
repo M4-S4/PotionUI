@@ -24,7 +24,7 @@ const COPYABLE_FILE_TYPES = new Set(['image', 'video', 'audio']);
 /**
  * The files of the given generations that the library will accept, in the order
  * they appear. Intermediate (`is_final === false`) files and kinds the library
- * has no place for - a mesh, say - are dropped here rather than sent and
+ * has no place for - a mesh or a splat, say - are dropped here rather than sent and
  * refused one 400 at a time.
  */
 export function collectCopyableFileIds(generations: CopyableGeneration[]): string[] {

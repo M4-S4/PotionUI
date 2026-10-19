@@ -31,7 +31,7 @@
 	export let isOpen: boolean = false;
 	export let onClose: () => void;
 	export let onSelect: (generation: GenerationHistoryItem, file: GenerationFile) => void = () => {};
-	export let mediaType: 'image' | 'video' | 'audio' | 'mesh' | undefined = undefined;
+	export let mediaType: 'image' | 'video' | 'audio' | 'mesh' | 'splat' | undefined = undefined;
 	export let title: string = 'Select Media from Generation History';
 	export let multiple: boolean = false;
 	export let selectedKeys: string[] | undefined = undefined;
@@ -284,7 +284,9 @@
 					? 'Audio'
 					: mediaType === 'mesh'
 						? '3D'
-						: 'Media';
+						: mediaType === 'splat'
+							? '3D scene'
+							: 'Media';
 </script>
 
 <MediaPickerFrame

@@ -88,14 +88,14 @@ describe('GenerationDetailsModal mesh support', () => {
 					id: 1,
 					file_type: 'MESH',
 					is_final: true,
-					mesh_format: 'ply',
-					file_path: 'a.ply',
+					mesh_format: 'glb',
+					file_path: 'a.glb',
 					created_at: '2026-01-01T00:00:00Z'
 				}
 			])
 		);
 
-		expect(mounted.formatBadge()).toBe('PLY');
+		expect(mounted.formatBadge()).toBe('GLB');
 		expect(mounted.hasImg()).toBe(false);
 		expect(mounted.hasVideo()).toBe(false);
 	});

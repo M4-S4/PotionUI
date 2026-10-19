@@ -76,14 +76,15 @@ describe('retireConfirmedCancellations', () => {
 			images: [],
 			videos: [{ url: '/gen-1.mp4', originalUrl: '/gen-1.mp4' } as any],
 			audios: [],
-			meshes: []
+			meshes: [],
+			splats: []
 		});
 		ensureSubscribed(ws, 'gen-1', () => ws.subscribe('gen-1', () => {}));
 		expect(listenerCount(ws, 'gen-1')).toBe(1);
 
 		retireConfirmedCancellations(['gen-1'], { tabsStore, unsubscribe });
 
-		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
 		expect(isGenerationOutputsRetired('gen-1')).toBe(true);
 		expect(isSubscriptionRequested(ws, 'gen-1')).toBe(false);
 		expect(listenerCount(ws, 'gen-1')).toBe(0);
@@ -96,7 +97,7 @@ describe('retireConfirmedCancellations', () => {
 			{ type: 'generation_cancelled', data: { id: 'gen-1' } } as any,
 			{ unsubscribe }
 		);
-		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(peekGenerationOutputs('gen-1')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
 		expect(isGenerationOutputsRetired('gen-1')).toBe(true);
 		expect(listenerCount(ws, 'gen-1')).toBe(0);
 	});
@@ -113,7 +114,8 @@ describe('retireConfirmedCancellations', () => {
 				images: [],
 				videos: [{ url: `/${id}.mp4`, originalUrl: `/${id}.mp4` } as any],
 				audios: [],
-				meshes: []
+				meshes: [],
+				splats: []
 			});
 			ensureSubscribed(ws, id, () => ws.subscribe(id, () => {}));
 		}
@@ -124,7 +126,7 @@ describe('retireConfirmedCancellations', () => {
 
 		for (const id of ['gen-a', 'gen-b']) {
 			expect(isGenerationOutputsRetired(id)).toBe(true);
-			expect(peekGenerationOutputs(id)).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+			expect(peekGenerationOutputs(id)).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
 			expect(listenerCount(ws, id)).toBe(0);
 		}
 		expect(isGenerationOutputsRetired('gen-c')).toBe(false);
@@ -140,7 +142,8 @@ describe('retireConfirmedCancellations', () => {
 			images: [],
 			videos: [{ url: '/gen-1.mp4', originalUrl: '/gen-1.mp4' } as any],
 			audios: [],
-			meshes: []
+			meshes: [],
+			splats: []
 		});
 		ensureSubscribed(ws, 'gen-1', () => ws.subscribe('gen-1', () => {}));
 
@@ -194,7 +197,7 @@ describe('retireConfirmedCancellations', () => {
 		const tabId = defaultTabId();
 		const { unsubscribe } = makeOwner();
 		tabsStore.addTabWithData('Second tab', { activeGenerationId: 'gen-shared' });
-		setGenerationOutputs('gen-shared', { images: [], videos: [], audios: [], meshes: [] });
+		setGenerationOutputs('gen-shared', { images: [], videos: [], audios: [], meshes: [], splats: [] });
 
 		retireConfirmedCancellations(['gen-shared'], { tabsStore, unsubscribe });
 

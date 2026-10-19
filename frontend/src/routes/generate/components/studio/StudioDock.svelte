@@ -50,7 +50,8 @@
 		images: generation.batchImages,
 		videos: generation.batchVideos,
 		audios: generation.batchAudios,
-		meshes: generation.batchMeshes
+		meshes: generation.batchMeshes,
+		splats: generation.batchSplats
 	} as WorkbenchBatches;
 	$: total = galleryTotal(batches);
 	$: isResult = !isGenerating && total > 0 && currentGeneration?.status === 'completed';

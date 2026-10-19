@@ -27,6 +27,7 @@
 	import VideoPreview from '$lib/components/workbench/renderers/VideoPreview.svelte';
 	import AudioPreview from '$lib/components/workbench/renderers/AudioPreview.svelte';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
+	import SplatPreview from '$lib/components/workbench/renderers/SplatPreview.svelte';
 	import '$lib/components/workbench/renderers/builtin'; // registers the image/video/audio core defaults
 	import { Button, CopyButton, Badge } from '$lib/components/ui';
 	import FailureTechnicalDetails from '$lib/components/FailureTechnicalDetails.svelte';
@@ -36,6 +37,7 @@
 	import {
 		isAudioFileType,
 		isMeshFileType,
+		isSplatFileType,
 		isVideoFileType,
 		normalizeFileType
 	} from '$lib/utils/fileType';
@@ -69,6 +71,7 @@
 	export let batchVideos: VideoData[] = [];
 	export let batchAudios: AudioData[] = [];
 	export let batchMeshes: any[] = [];
+	export let batchSplats: any[] = [];
 	export let workbenchMaxHeight: string = '600';
 	export let className: string = '';
 
@@ -152,9 +155,9 @@
 	$: hasMedia = hasImage || hasVideo || hasAudio;
 	$: isVideo = isVideoFileType(currentGeneration?.file_type) || hasVideo;
 	$: isAudio = isAudioFileType(currentGeneration?.file_type) || hasAudio;
-	// The one ordered chain (images, videos, audios, meshes) every index below
+	// The one ordered chain (images, videos, audios, meshes, splats) every index below
 	// addresses - see workbenchGallery.ts.
-	$: batches = { images: batchImages, videos: batchVideos, audios: batchAudios, meshes: batchMeshes };
+	$: batches = { images: batchImages, videos: batchVideos, audios: batchAudios, meshes: batchMeshes, splats: batchSplats };
 	$: currentGenerationTotal = galleryTotal(batches);
 	$: effectiveTotal = currentGenerationTotal > 0 ? currentGenerationTotal : workbenchTotal;
 	$: hasGalleryItems = currentGenerationTotal > 0;
@@ -195,7 +198,8 @@
 	// through the generic `resolvedFallbackRenderer` branch below, which passes
 	// the raw file object rather than a resolved URL.
 	$: displayMesh = isGalleryMode && isMeshFileType(displayFileType) ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_mesh;
-	$: hasDisplayMedia = !!displayImage || !!displayVideo || !!displayAudio || !!displayMesh;
+	$: displaySplat = isGalleryMode && isSplatFileType(displayFileType) ? galleryItemUrl(currentGalleryItem) : currentGeneration?.current_splat;
+	$: hasDisplayMedia = !!displayImage || !!displayVideo || !!displayAudio || !!displayMesh || !!displaySplat;
 
 	$: previewSuppressed = !!currentGeneration?.preview_suppressed;
 	$: contentBlocked = currentGeneration?.content_blocked ?? null;
@@ -894,7 +898,7 @@
 			{/if}
 
 			<!-- Media Display -->
-			{#key displayImage || displayVideo || displayAudio || displayMesh}
+			{#key displayImage || displayVideo || displayAudio || displayMesh || displaySplat}
 				<div in:fade={{ duration: 200 }} class="contents">
 					{#if displayFileType === 'audio' && audioTracks.length > 0}
 						<!-- Audio Player -->
@@ -1325,6 +1329,7 @@
 				{batchVideos}
 				{batchAudios}
 				{batchMeshes}
+				{batchSplats}
 				selectedIndex={workbenchIndex}
 				on:select={handleGallerySelect}
 			/>
@@ -1494,7 +1499,7 @@
 		     actual file type - it isn't image-gated the way `displayVideo` is -
 		     so a mesh entry must be excluded explicitly here or it would try to
 		     render its GLB URL as a broken <img>). -->
-		{#if displayFileType !== 'audio' && displayFileType !== 'mesh' && (displayImage || displayVideo)}
+		{#if displayFileType !== 'audio' && displayFileType !== 'mesh' && displayFileType !== 'splat' && (displayImage || displayVideo)}
 			<div class="ambient-bg ambient-bg--modal" aria-hidden="true">
 				{#if displayFileType === 'video' && displayVideo}
 					<!-- svelte-ignore a11y-media-has-caption -->
@@ -1541,6 +1546,12 @@
 					muted={isVideoMuted}
 					loop
 				></video>
+			{:else if displayFileType === 'splat' && displaySplat}
+				<div class="w-[80vw] h-[80vh] max-h-[90vh]">
+					<SplatPreview
+						file={{ url: getDisplayUrl(displaySplat), originalUrl: getDisplayUrl(displaySplat) }}
+					/>
+				</div>
 			{:else if displayFileType === 'mesh' && displayMesh}
 				<!-- MeshPreview is its own interactive viewer (wireframe, camera
 				     presets, material inspector, ...), not a flat <img>/<video> -

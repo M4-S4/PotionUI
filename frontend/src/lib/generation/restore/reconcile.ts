@@ -224,16 +224,17 @@ export function isConfirmedMissing(err: unknown, response?: APIResponse<unknown>
 
 function leadOutputInfo(outputs: RestoredGenerationData | null): {
 	url: string | null;
-	fileType: 'image' | 'video' | 'audio' | 'mesh' | null;
+	fileType: 'image' | 'video' | 'audio' | 'mesh' | 'splat' | null;
 } {
 	if (!outputs) return { url: null, fileType: null };
-	const { images, videos, audios, meshes } = outputs;
-	const all = [...images, ...videos, ...audios, ...meshes];
+	const { images, videos, audios, meshes, splats } = outputs;
+	const all = [...images, ...videos, ...audios, ...meshes, ...splats];
 	if (all.length === 0) return { url: null, fileType: null };
 	const idx = leadIndex(all);
 	const item = all[idx] as { url?: string; originalUrl?: string } | undefined;
-	let fileType: 'image' | 'video' | 'audio' | 'mesh' = 'image';
-	if (idx >= images.length + videos.length + audios.length) fileType = 'mesh';
+	let fileType: 'image' | 'video' | 'audio' | 'mesh' | 'splat' = 'image';
+	if (idx >= images.length + videos.length + audios.length + meshes.length) fileType = 'splat';
+	else if (idx >= images.length + videos.length + audios.length) fileType = 'mesh';
 	else if (idx >= images.length + videos.length) fileType = 'audio';
 	else if (idx >= images.length) fileType = 'video';
 	return { url: item?.originalUrl ?? item?.url ?? null, fileType };
@@ -304,8 +305,8 @@ function buildActiveCompletionPatch(
 			currentGeneration: { status: 'completed', id: generationId, generation_id: generationId }
 		};
 	}
-	const { images, videos, audios, meshes } = outputs;
-	const all = [...images, ...videos, ...audios, ...meshes];
+	const { images, videos, audios, meshes, splats } = outputs;
+	const all = [...images, ...videos, ...audios, ...meshes, ...splats];
 	const workbenchIndex = leadIndex(all);
 	const { url: leadUrl, fileType } = leadOutputInfo(outputs);
 	const leadAudio = fileType === 'audio' ? audios[workbenchIndex - images.length - videos.length] : null;
@@ -321,6 +322,7 @@ function buildActiveCompletionPatch(
 						current_video: fileType === 'video' ? leadUrl : null,
 						current_audio: fileType === 'audio' ? leadAudio : null,
 						current_mesh: fileType === 'mesh' ? leadUrl : null,
+						current_splat: fileType === 'splat' ? leadUrl : null,
 						file_type: fileType
 					}
 				: { status: 'completed', id: generationId, generation_id: generationId },
@@ -328,6 +330,7 @@ function buildActiveCompletionPatch(
 		batchVideos: videos,
 		batchAudios: audios,
 		batchMeshes: meshes,
+		batchSplats: splats,
 		workbenchIndex,
 		workbenchTotal: all.length
 	};

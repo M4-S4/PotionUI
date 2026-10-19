@@ -3,13 +3,13 @@
  *
  * The same media file arrives with two different casings depending on where it
  * came from: the `files` DB row is serialized verbatim by the history/detail
- * API ('IMAGE'/'VIDEO'/'AUDIO'/'MESH'), while the generation WebSocket envelope
+ * API ('IMAGE'/'VIDEO'/'AUDIO'/'MESH'/'SPLAT'), while the generation WebSocket envelope
  * types everything lowercase. Every comparison against a literal therefore has
  * to normalize first - doing it at each call site is exactly how history video
  * and audio stopped rendering in the workbench.
  */
 
-export type MediaFileType = 'image' | 'video' | 'audio' | 'mesh';
+export type MediaFileType = 'image' | 'video' | 'audio' | 'mesh' | 'splat';
 
 /** Lowercased, trimmed `file_type`, or '' when there isn't one. */
 export function normalizeFileType(value: unknown): string {
@@ -35,4 +35,8 @@ export function isAudioFileType(value: unknown): boolean {
 
 export function isMeshFileType(value: unknown): boolean {
 	return isFileType(value, 'mesh');
+}
+
+export function isSplatFileType(value: unknown): boolean {
+	return isFileType(value, 'splat');
 }
