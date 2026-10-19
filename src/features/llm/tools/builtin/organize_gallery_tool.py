@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from src.features.generation.failure import scope_generation
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
-from src.features.llm.tools.errors import teach, unexpected
+from src.features.llm.tools.errors import teach
 from src.features.tags import operations as tag_operations
 from src.features.tags.dto import CreateTagRequest, TagType
 
@@ -46,17 +46,10 @@ class OrganizeGalleryTool(BaseTool):
     icon = "tags"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "organize_gallery"
-
-    @property
-    def group(self) -> str:
-        return "Generation"
-
-    @property
-    def user_description(self) -> str:
-        return "Tags, rates, and lists your recent generations."
+    name = "organize_gallery"
+    group = "Generation"
+    user_description = "Tags, rates, and lists your recent generations."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -75,10 +68,6 @@ class OrganizeGalleryTool(BaseTool):
             "creating a near-duplicate. Example: "
             '{"operation": "tag", "generation_id": "01ARZ...", "tags": ["favorite", "portrait"]}'
         )
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -323,6 +312,3 @@ class OrganizeGalleryTool(BaseTool):
             }))
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"organize_gallery failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("organize_gallery", operation, e, context.is_admin))

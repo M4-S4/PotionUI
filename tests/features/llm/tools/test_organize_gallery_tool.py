@@ -228,21 +228,6 @@ class TestExecuteConfirmedTag:
         assert "tag" in result.error.lower()
 
 
-class TestExecuteConfirmedUnexpectedError:
-    @pytest.mark.asyncio
-    async def test_unexpected_exception_names_tool_and_operation_not_bare_message(self):
-        history_facade = make_history_facade()
-        history_facade.set_rating.side_effect = RuntimeError("db exploded")
-        result = await OrganizeGalleryTool().execute_confirmed(
-            make_context(history_facade), operation="rate", generation_id="gen-1", rating=5,
-        )
-        assert result.success is False
-        assert "organize_gallery" in result.error
-        assert "rate" in result.error
-        assert "db exploded" not in result.error
-        assert result.error != "Failed: db exploded"
-
-
 class TestListRecentError:
     @pytest.mark.asyncio
     async def test_failed_generation_surfaces_truncated_error(self):

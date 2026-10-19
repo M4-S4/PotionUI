@@ -36,17 +36,9 @@ class GetActiveModelsTool(BaseTool):
     modes = ["generation"]
     icon = "boxes"
 
-    @property
-    def name(self) -> str:
-        return "get_active_models"
-
-    @property
-    def group(self) -> str:
-        return "Models & presets"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads details of the models currently selected in your form."
+    name = "get_active_models"
+    group = "Models & presets"
+    user_description = "Reads details of the models currently selected in your form."
 
     @property
     def description(self) -> str:

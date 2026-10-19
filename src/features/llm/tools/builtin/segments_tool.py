@@ -1,16 +1,12 @@
 """Segment tools for accessing user's prompt segments."""
 
 import json
-import logging
 from typing import Any, Dict, Optional
 
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.manage_prompts_tool import RICH_SEGMENT_SCHEMA
-from src.features.llm.tools.errors import unexpected
 from src.features.segments import operations
 from src.features.segments.dto import SavedSegmentRequest, SegmentCategoryRequest, SegmentTemplateRequest
-
-logger = logging.getLogger(__name__)
 
 
 class ListSegmentCategoriesTool(BaseTool):
@@ -20,17 +16,9 @@ class ListSegmentCategoriesTool(BaseTool):
     icon = "layers"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "list_segment_categories"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Lists the categories of your saved segment library."
+    name = "list_segment_categories"
+    group = "Form & segments"
+    user_description = "Lists the categories of your saved segment library."
 
     @property
     def description(self) -> str:
@@ -53,23 +41,19 @@ class ListSegmentCategoriesTool(BaseTool):
         if not context.segment_category_repository:
             return ToolResult(success=False, data="", error="Segment manager not available")
 
-        try:
-            categories = context.segment_category_repository.get_all(context.user_id)
-            result = []
-            for cat in categories:
-                result.append({
-                    "id": cat.id,
-                    "name": cat.name,
-                    "description": getattr(cat, 'description', ''),
-                    "color": getattr(cat, 'color', ''),
-                })
-            return ToolResult(
-                success=True,
-                data=json.dumps({"categories": result, "count": len(result)}),
-            )
-        except Exception as e:
-            logger.error(f"Error listing segment categories: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        categories = context.segment_category_repository.get_all(context.user_id)
+        result = []
+        for cat in categories:
+            result.append({
+                "id": cat.id,
+                "name": cat.name,
+                "description": getattr(cat, 'description', ''),
+                "color": getattr(cat, 'color', ''),
+            })
+        return ToolResult(
+            success=True,
+            data=json.dumps({"categories": result, "count": len(result)}),
+        )
 
 
 class GetSavedSegmentsTool(BaseTool):
@@ -79,17 +63,9 @@ class GetSavedSegmentsTool(BaseTool):
     icon = "layers"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "get_saved_segments"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Fetches reusable prompt segments from your library."
+    name = "get_saved_segments"
+    group = "Form & segments"
+    user_description = "Fetches reusable prompt segments from your library."
 
     @property
     def description(self) -> str:
@@ -114,18 +90,14 @@ class GetSavedSegmentsTool(BaseTool):
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.saved_segment_repository:
             return ToolResult(success=False, data="", error="Segment manager not available")
-        try:
-            category_id = kwargs.get("category_id")
-            if category_id:
-                operations.get_category(context.segment_category_repository, category_id, context.user_id)
-            segments = context.saved_segment_repository.get_all(context.user_id, category_id)
-            return ToolResult(success=True, data=json.dumps({
-                "segments": [item.model_dump(mode="json") for item in segments],
-                "count": len(segments),
-            }))
-        except Exception as e:
-            logger.error("Error getting saved Segments: %s", e)
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        category_id = kwargs.get("category_id")
+        if category_id:
+            operations.get_category(context.segment_category_repository, category_id, context.user_id)
+        segments = context.saved_segment_repository.get_all(context.user_id, category_id)
+        return ToolResult(success=True, data=json.dumps({
+            "segments": [item.model_dump(mode="json") for item in segments],
+            "count": len(segments),
+        }))
 
 
 class GetSegmentTemplatesTool(BaseTool):
@@ -135,17 +107,9 @@ class GetSegmentTemplatesTool(BaseTool):
     icon = "layout-template"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "get_segment_templates"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Fetches your reusable multi-segment prompt templates."
+    name = "get_segment_templates"
+    group = "Form & segments"
+    user_description = "Fetches your reusable multi-segment prompt templates."
 
     @property
     def description(self) -> str:
@@ -162,16 +126,12 @@ class GetSegmentTemplatesTool(BaseTool):
         if not context.segment_template_repository:
             return ToolResult(success=False, data="", error="Segment manager not available")
 
-        try:
-            templates = context.segment_template_repository.get_all(context.user_id)
-            result = [tmpl.model_dump(mode="json") for tmpl in templates]
-            return ToolResult(
-                success=True,
-                data=json.dumps({"templates": result, "count": len(result)}),
-            )
-        except Exception as e:
-            logger.error(f"Error getting segment templates: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        templates = context.segment_template_repository.get_all(context.user_id)
+        result = [tmpl.model_dump(mode="json") for tmpl in templates]
+        return ToolResult(
+            success=True,
+            data=json.dumps({"templates": result, "count": len(result)}),
+        )
 
 
 def _truncate(text: str, limit: int = 90) -> str:
@@ -275,11 +235,8 @@ class _SegmentWriteTool(BaseTool):
     context_group = "library"
     repositories: tuple = ()
 
-    @property
-    def group(self): return "Form & segments"
-
-    @property
-    def requires_approval(self): return True
+    group = "Form & segments"
+    requires_approval = True
 
     def _available(self, context: ToolContext) -> Optional[ToolResult]:
         if context.plugin_registry is None or any(
@@ -301,9 +258,6 @@ class _SegmentWriteTool(BaseTool):
             return self._preview(context, kwargs)
         except ValueError as exc:
             return _fail(str(exc))
-        except Exception as exc:
-            logger.error("%s preview failed: %s", self.name, exc)
-            return _fail(unexpected(self.name, "preview", exc, context.is_admin))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         unavailable = self._available(context)
@@ -313,9 +267,6 @@ class _SegmentWriteTool(BaseTool):
             return self._apply(context, kwargs)
         except ValueError as exc:
             return _fail(str(exc))
-        except Exception as exc:
-            logger.error("%s failed: %s", self.name, exc)
-            return _fail(unexpected(self.name, "save", exc, context.is_admin))
 
     def _proposal(self, preview: ToolApprovalPreview, payload: Dict[str, Any], message: str) -> ToolResult:
         return ToolResult(
@@ -336,11 +287,8 @@ class _SavedSegmentTool(_SegmentWriteTool):
 
 
 class CreateSavedSegmentTool(_SavedSegmentTool):
-    @property
-    def name(self): return "create_saved_segment"
-
-    @property
-    def user_description(self): return "Saves a new reusable segment to your library."
+    name = "create_saved_segment"
+    user_description = "Saves a new reusable segment to your library."
 
     @property
     def description(self):
@@ -380,11 +328,8 @@ class CreateSavedSegmentTool(_SavedSegmentTool):
 
 
 class UpdateSavedSegmentTool(_SavedSegmentTool):
-    @property
-    def name(self): return "update_saved_segment"
-
-    @property
-    def user_description(self): return "Edits a saved segment in your library."
+    name = "update_saved_segment"
+    user_description = "Edits a saved segment in your library."
 
     @property
     def description(self):
@@ -442,11 +387,8 @@ class UpdateSavedSegmentTool(_SavedSegmentTool):
 class DeleteSavedSegmentTool(_SavedSegmentTool):
     icon = "trash-2"
 
-    @property
-    def name(self): return "delete_saved_segment"
-
-    @property
-    def user_description(self): return "Removes a saved segment from your library."
+    name = "delete_saved_segment"
+    user_description = "Removes a saved segment from your library."
 
     @property
     def description(self):
@@ -486,11 +428,8 @@ class _TemplateTool(_SegmentWriteTool):
 
 
 class CreateSegmentTemplateTool(_TemplateTool):
-    @property
-    def name(self): return "create_segment_template"
-
-    @property
-    def user_description(self): return "Saves a new multi-segment template to your library."
+    name = "create_segment_template"
+    user_description = "Saves a new multi-segment template to your library."
 
     @property
     def description(self):
@@ -527,11 +466,8 @@ class CreateSegmentTemplateTool(_TemplateTool):
 
 
 class UpdateSegmentTemplateTool(_TemplateTool):
-    @property
-    def name(self): return "update_segment_template"
-
-    @property
-    def user_description(self): return "Edits a segment template in your library."
+    name = "update_segment_template"
+    user_description = "Edits a segment template in your library."
 
     @property
     def description(self):
@@ -590,11 +526,8 @@ class UpdateSegmentTemplateTool(_TemplateTool):
 class DeleteSegmentTemplateTool(_TemplateTool):
     icon = "trash-2"
 
-    @property
-    def name(self): return "delete_segment_template"
-
-    @property
-    def user_description(self): return "Removes a segment template from your library."
+    name = "delete_segment_template"
+    user_description = "Removes a segment template from your library."
 
     @property
     def description(self):
@@ -634,11 +567,8 @@ class _CategoryTool(_SegmentWriteTool):
 
 
 class CreateSegmentCategoryTool(_CategoryTool):
-    @property
-    def name(self): return "create_segment_category"
-
-    @property
-    def user_description(self): return "Creates a new category in your segment library."
+    name = "create_segment_category"
+    user_description = "Creates a new category in your segment library."
 
     @property
     def description(self):
@@ -667,11 +597,8 @@ class CreateSegmentCategoryTool(_CategoryTool):
 
 
 class UpdateSegmentCategoryTool(_CategoryTool):
-    @property
-    def name(self): return "update_segment_category"
-
-    @property
-    def user_description(self): return "Edits a category in your segment library."
+    name = "update_segment_category"
+    user_description = "Edits a category in your segment library."
 
     @property
     def description(self):
@@ -723,11 +650,8 @@ class UpdateSegmentCategoryTool(_CategoryTool):
 class DeleteSegmentCategoryTool(_CategoryTool):
     icon = "trash-2"
 
-    @property
-    def name(self): return "delete_segment_category"
-
-    @property
-    def user_description(self): return "Removes an empty category from your segment library."
+    name = "delete_segment_category"
+    user_description = "Removes an empty category from your segment library."
 
     @property
     def description(self):

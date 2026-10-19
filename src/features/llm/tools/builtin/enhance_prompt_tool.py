@@ -1,15 +1,11 @@
 """Prompt enhancement tool: routes conversational enhancement requests into the pipeline."""
 
 import json
-import logging
 from typing import Any, Dict, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.model_info_tool import model_visible
 from src.features.llm.tools.builtin.utils import allowed_model_ids, video_director_active
-from src.features.llm.tools.errors import unexpected
-
-logger = logging.getLogger(__name__)
 
 
 class EnhancePromptTool(BaseTool):
@@ -23,17 +19,9 @@ class EnhancePromptTool(BaseTool):
         # has no meaning once the Video Director owns "segment #N" (a shot).
         return not video_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "enhance_prompt"
-
-    @property
-    def group(self) -> str:
-        return "Prompt writing"
-
-    @property
-    def user_description(self) -> str:
-        return "Rewrites your prompt into a stronger version tuned to your model."
+    name = "enhance_prompt"
+    group = "Prompt writing"
+    user_description = "Rewrites your prompt into a stronger version tuned to your model."
 
     @property
     def description(self) -> str:
@@ -107,18 +95,14 @@ class EnhancePromptTool(BaseTool):
 
         from src.features.prompt_enhancement import operations as prompt_enhancement_operations
 
-        try:
-            result = await prompt_enhancement_operations.enhance(
-                context.prompt_enhancement_manager,
-                user_id=context.user_id,
-                llm_id=context.llm_id,
-                brief=brief,
-                form_state=form_state,
-                n_candidates=n_candidates,
-            )
-        except Exception as e:
-            logger.error(f"enhance_prompt failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("enhance_prompt", "enhancement", e, context.is_admin))
+        result = await prompt_enhancement_operations.enhance(
+            context.prompt_enhancement_manager,
+            user_id=context.user_id,
+            llm_id=context.llm_id,
+            brief=brief,
+            form_state=form_state,
+            n_candidates=n_candidates,
+        )
 
         candidates = [c["text"] for c in result.get("candidates", []) if c.get("text")]
         if not candidates:

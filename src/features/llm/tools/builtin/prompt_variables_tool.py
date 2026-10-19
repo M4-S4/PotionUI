@@ -1,7 +1,6 @@
 """Tool for creating, updating, and removing the generate tab's prompt variables."""
 
 import json
-import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
@@ -16,8 +15,6 @@ from src.platform.resources.prompt_variables import (
     validate_condition,
     variable_dependencies,
 )
-
-logger = logging.getLogger(__name__)
 
 
 def _describe(var: Optional[Dict[str, Any]]) -> str:
@@ -215,21 +212,10 @@ class ManagePromptVariablesTool(BaseTool):
     modes = ["generation"]
     icon = "braces"
 
-    @property
-    def name(self) -> str:
-        return "manage_prompt_variables"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Creates or changes the ${name} prompt variables on your generation form."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "manage_prompt_variables"
+    group = "Form & segments"
+    user_description = "Creates or changes the ${name} prompt variables on your generation form."
+    requires_approval = True
 
     @property
     def description(self) -> str:

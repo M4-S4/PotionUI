@@ -11,15 +11,11 @@ operations act on `context.collection_repository` via
 """
 
 import json
-import logging
 from typing import Any, Dict, Tuple, Union
 
 from src.features.collections import operations
 from src.features.collections.dto import ALLOWED_SCOPES
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
-from src.features.llm.tools.errors import unexpected
-
-logger = logging.getLogger(__name__)
 
 _OPERATIONS = ("list", "create", "rename", "delete", "add_items", "remove_items")
 
@@ -43,17 +39,10 @@ class ManageCollectionsTool(BaseTool):
     icon = "folder"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "manage_collections"
-
-    @property
-    def group(self) -> str:
-        return "Collections"
-
-    @property
-    def user_description(self) -> str:
-        return "Creates, renames, deletes collections and adds/removes generations, library items, or prompts from them."
+    name = "manage_collections"
+    group = "Collections"
+    user_description = "Creates, renames, deletes collections and adds/removes generations, library items, or prompts from them."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -74,10 +63,6 @@ class ManageCollectionsTool(BaseTool):
             '{"operation": "add_items", "scope": "history", "collection_id": "col_123", '
             '"generation_ids": ["gen_abc"]}'
         )
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -253,9 +238,6 @@ class ManageCollectionsTool(BaseTool):
             }), preview=preview)
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"manage_collections preview failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("manage_collections", f"preview {operation}", e, context.is_admin))
 
     @staticmethod
     def _list(repository, user_id: str, scope: str) -> ToolResult:
@@ -328,6 +310,3 @@ class ManageCollectionsTool(BaseTool):
             }))
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"manage_collections failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("manage_collections", operation, e, context.is_admin))

@@ -1,12 +1,9 @@
 """Tool for composing and applying a Prompt Relay video timeline."""
 
 import json
-import logging
 from typing import Any, Dict, List
 
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
-
-logger = logging.getLogger(__name__)
 
 _DEFAULT_DURATION = 5
 _DEFAULT_FPS = 24
@@ -125,21 +122,10 @@ class SetPromptRelayTimelineTool(BaseTool):
     icon = "film"
     context_group = "director"
 
-    @property
-    def name(self) -> str:
-        return "set_prompt_relay_timeline"
-
-    @property
-    def group(self) -> str:
-        return "Prompt writing"
-
-    @property
-    def user_description(self) -> str:
-        return "Puts a timed scene-by-scene video prompt timeline into your editor."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "set_prompt_relay_timeline"
+    group = "Prompt writing"
+    user_description = "Puts a timed scene-by-scene video prompt timeline into your editor."
+    requires_approval = True
 
     @property
     def description(self) -> str:

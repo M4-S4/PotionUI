@@ -59,17 +59,9 @@ class GetCurrentSegmentsTool(BaseTool):
         # of a shot.
         return not video_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "get_current_segments"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the prompt segments currently in your editor."
+    name = "get_current_segments"
+    group = "Form & segments"
+    user_description = "Reads the prompt segments currently in your editor."
 
     @property
     def description(self) -> str:
@@ -111,33 +103,29 @@ class GetCurrentSegmentsTool(BaseTool):
                 ),
             )
 
-        try:
-            result_segments = []
-            for idx, seg in enumerate(segments_raw):
-                entry = {
-                    "index": idx,
-                    "id": seg.get("id", ""),
-                    "content": seg.get("content", ""),
-                    "name": seg.get("name", ""),
-                    "type": seg.get("type", ""),
-                    "enabled": seg.get("enabled", not seg.get("isDisabled", False)),
-                }
-                template = seg.get("template")
-                if template:
-                    entry["template"] = template
-                result_segments.append(entry)
+        result_segments = []
+        for idx, seg in enumerate(segments_raw):
+            entry = {
+                "index": idx,
+                "id": seg.get("id", ""),
+                "content": seg.get("content", ""),
+                "name": seg.get("name", ""),
+                "type": seg.get("type", ""),
+                "enabled": seg.get("enabled", not seg.get("isDisabled", False)),
+            }
+            template = seg.get("template")
+            if template:
+                entry["template"] = template
+            result_segments.append(entry)
 
-            return ToolResult(
-                success=True,
-                data=json.dumps({
-                    "segments": result_segments,
-                    "count": len(result_segments),
-                    "instruction": _SEGMENT_UPDATE_INSTRUCTION,
-                }),
-            )
-        except Exception as e:
-            logger.error(f"Error reading current segments from session metadata: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        return ToolResult(
+            success=True,
+            data=json.dumps({
+                "segments": result_segments,
+                "count": len(result_segments),
+                "instruction": _SEGMENT_UPDATE_INSTRUCTION,
+            }),
+        )
 
 
 class GetFormStateTool(BaseTool):
@@ -146,17 +134,9 @@ class GetFormStateTool(BaseTool):
     modes = ["generation"]
     icon = "clipboard-list"
 
-    @property
-    def name(self) -> str:
-        return "get_form_state"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the current values of your generation form."
+    name = "get_form_state"
+    group = "Form & segments"
+    user_description = "Reads the current values of your generation form."
 
     @property
     def description(self) -> str:

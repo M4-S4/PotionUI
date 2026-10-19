@@ -22,17 +22,13 @@ and the frontend applies them to its own editor state.
 """
 
 import json
-import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import music_director_active
 from src.features.llm.tools.tool_call_rescue import decode_payload, demangle_quote_tokens
 from src.features.music_director import apply_preset_mode_overlay
-
-logger = logging.getLogger(__name__)
 
 # Mirrors MUSIC_MODE_ORDER in frontend/src/lib/types/musicDirector.ts exactly
 # -- deriveMusicDirectorMode's precedence checks this order.
@@ -702,17 +698,9 @@ class GetMusicDirectorTool(BaseTool):
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
         return music_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "get_music_director"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the Music Director document on your generation form."
+    name = "get_music_director"
+    group = "Form & segments"
+    user_description = "Reads the Music Director document on your generation form."
 
     @property
     def description(self) -> str:
@@ -751,27 +739,23 @@ class GetMusicDirectorTool(BaseTool):
                 ),
             )
 
-        try:
-            doc = md.get("doc") or {}
-            capabilities = apply_preset_mode_overlay(md.get("capabilities") or {}, form_state.get("mode"))
-            read = _read_doc(doc, capabilities)
+        doc = md.get("doc") or {}
+        capabilities = apply_preset_mode_overlay(md.get("capabilities") or {}, form_state.get("mode"))
+        read = _read_doc(doc, capabilities)
 
-            result = {
-                "mode": read["mode"],
-                "description": read["description"],
-                "instrumental": read["instrumental"],
-                "sections": read["sections"],
-                "references": read["references"],
-                "extend_source": read["extend_source"],
-                "repaint": read["repaint"],
-                "settings": read["settings"],
-                "capabilities": _capability_summary(capabilities, read["mode"]),
-                "how_to_edit": _how_to_edit(read["mode"], capabilities),
-            }
-            return ToolResult(success=True, data=json.dumps(result))
-        except Exception as e:
-            logger.error(f"Error reading music director from session metadata: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        result = {
+            "mode": read["mode"],
+            "description": read["description"],
+            "instrumental": read["instrumental"],
+            "sections": read["sections"],
+            "references": read["references"],
+            "extend_source": read["extend_source"],
+            "repaint": read["repaint"],
+            "settings": read["settings"],
+            "capabilities": _capability_summary(capabilities, read["mode"]),
+            "how_to_edit": _how_to_edit(read["mode"], capabilities),
+        }
+        return ToolResult(success=True, data=json.dumps(result))
 
 
 class UpdateMusicDirectorTool(BaseTool):
@@ -783,21 +767,10 @@ class UpdateMusicDirectorTool(BaseTool):
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
         return music_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "update_music_director"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Changes the Music Director document on your generation form for you."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "update_music_director"
+    group = "Form & segments"
+    user_description = "Changes the Music Director document on your generation form for you."
+    requires_approval = True
 
     @property
     def description(self) -> str:

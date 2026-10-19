@@ -33,17 +33,9 @@ class GetModelInfoTool(BaseTool):
     modes = ["generation", "models"]
     icon = "box"
 
-    @property
-    def name(self) -> str:
-        return "get_model_info"
-
-    @property
-    def group(self) -> str:
-        return "Models & presets"
-
-    @property
-    def user_description(self) -> str:
-        return "Looks up details about a specific model you have installed."
+    name = "get_model_info"
+    group = "Models & presets"
+    user_description = "Looks up details about a specific model you have installed."
 
     @property
     def description(self) -> str:

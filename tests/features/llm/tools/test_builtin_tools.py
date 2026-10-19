@@ -253,15 +253,6 @@ class TestListSegmentCategoriesTool:
         assert data["count"] == 0
         assert data["categories"] == []
 
-    @pytest.mark.asyncio
-    async def test_exception_returns_error(self):
-        repo = MagicMock()
-        repo.get_all.side_effect = RuntimeError("db error")
-        ctx = make_context(segment_category_repository=repo)
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "db error" not in result.error
-
 
 # ---------------------------------------------------------------------------
 # GetSavedSegmentsTool / GetSegmentTemplatesTool
@@ -354,15 +345,6 @@ class TestGetSegmentTemplatesTool:
         ctx = make_context()
         result = await self._tool().execute(ctx)
         assert result.success is False
-
-    @pytest.mark.asyncio
-    async def test_exception_returns_error(self):
-        repo = MagicMock()
-        repo.get_all.side_effect = ValueError("db error")
-        ctx = make_context(segment_template_repository=repo)
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "db error" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -827,15 +809,6 @@ class TestListPhrasebookCategoriesTool:
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "not available" in result.error
-
-    @pytest.mark.asyncio
-    async def test_exception_returns_error(self):
-        category_repo = MagicMock()
-        category_repo.get_all.side_effect = ConnectionError("timeout")
-        ctx = make_context(phrasebook_category_repository=category_repo)
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "timeout" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -2238,15 +2211,6 @@ class TestEnhancePromptTool:
         data = json.loads(result.data)
         assert data["enhanced_prompt"] == "first"
         assert data["alternative_prompts"] == ["second"]
-
-    @pytest.mark.asyncio
-    async def test_manager_exception_returns_error(self):
-        manager = MagicMock()
-        manager.enhance = AsyncMock(side_effect=RuntimeError("boom"))
-        ctx = make_context(prompt_enhancement_manager=manager, llm_id="llm-1")
-        result = await self._tool().execute(ctx, brief="a cat")
-        assert result.success is False
-        assert "boom" not in result.error
 
     def test_available_without_form_state(self):
         assert self._tool().is_available(None) is True

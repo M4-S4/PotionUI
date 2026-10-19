@@ -18,17 +18,9 @@ class SearchModelPromptsTool(BaseTool):
     # Upper bound on how many concepts a single call will search, to bound work.
     MAX_QUERIES = 6
 
-    @property
-    def name(self) -> str:
-        return "search_model_prompts"
-
-    @property
-    def group(self) -> str:
-        return "Prompt writing"
-
-    @property
-    def user_description(self) -> str:
-        return "Finds example prompts in your prompt library, including ones you imported."
+    name = "search_model_prompts"
+    group = "Prompt writing"
+    user_description = "Finds example prompts in your prompt library, including ones you imported."
 
     @property
     def description(self) -> str:

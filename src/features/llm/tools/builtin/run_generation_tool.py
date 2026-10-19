@@ -26,17 +26,10 @@ class RunGenerationTool(BaseTool):
     modes = ["generation"]
     icon = "play"
 
-    @property
-    def name(self) -> str:
-        return "run_generation"
-
-    @property
-    def group(self) -> str:
-        return "Generation"
-
-    @property
-    def user_description(self) -> str:
-        return "Starts a generation with your current form settings."
+    name = "run_generation"
+    group = "Generation"
+    user_description = "Starts a generation with your current form settings."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -64,10 +57,6 @@ class RunGenerationTool(BaseTool):
             },
             "required": [],
         }
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @staticmethod
     def _validate_media_overrides(context, preset_id, mode, override_values) -> list:

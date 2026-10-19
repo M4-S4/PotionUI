@@ -70,17 +70,9 @@ class ListPhrasebookCategoriesTool(BaseTool):
     modes = ["generation", "phrasebook"]
     icon = "list-tree"
 
-    @property
-    def name(self) -> str:
-        return "list_phrasebook_categories"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Lists your phrasebook vocabulary categories."
+    name = "list_phrasebook_categories"
+    group = "Phrasebook vocabulary"
+    user_description = "Lists your phrasebook vocabulary categories."
 
     @property
     def description(self) -> str:
@@ -104,28 +96,24 @@ class ListPhrasebookCategoriesTool(BaseTool):
         if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
-        try:
-            categories = context.phrasebook_category_repository.get_all(user_id=context.user_id)
-            result = []
-            for cat in categories:
-                path = getattr(cat, 'path', '')
-                entry = {
-                    "id": cat.id,
-                    "name": cat.name,
-                    "path": path,
-                    "description": getattr(cat, 'description', ''),
-                    "is_active": getattr(cat, 'is_active', True),
-                }
-                if path:
-                    entry["marker"] = _format_marker(path)
-                result.append(entry)
-            return ToolResult(
-                success=True,
-                data=json.dumps({"categories": result, "count": len(result)}),
-            )
-        except Exception as e:
-            logger.error(f"Error listing phrasebook categories: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        categories = context.phrasebook_category_repository.get_all(user_id=context.user_id)
+        result = []
+        for cat in categories:
+            path = getattr(cat, 'path', '')
+            entry = {
+                "id": cat.id,
+                "name": cat.name,
+                "path": path,
+                "description": getattr(cat, 'description', ''),
+                "is_active": getattr(cat, 'is_active', True),
+            }
+            if path:
+                entry["marker"] = _format_marker(path)
+            result.append(entry)
+        return ToolResult(
+            success=True,
+            data=json.dumps({"categories": result, "count": len(result)}),
+        )
 
 
 class GetPhrasebookValuesTool(BaseTool):
@@ -134,17 +122,9 @@ class GetPhrasebookValuesTool(BaseTool):
     modes = ["generation", "phrasebook"]
     icon = "list"
 
-    @property
-    def name(self) -> str:
-        return "get_phrasebook_values"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Looks up the saved values in one phrasebook category."
+    name = "get_phrasebook_values"
+    group = "Phrasebook vocabulary"
+    user_description = "Looks up the saved values in one phrasebook category."
 
     @property
     def description(self) -> str:
@@ -277,17 +257,9 @@ class ListPhrasebookValuesTool(BaseTool):
     icon = "search"
     context_group = "phrasebook_write"
 
-    @property
-    def name(self) -> str:
-        return "list_phrasebook_values"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Browses or searches the values in an phrasebook category."
+    name = "list_phrasebook_values"
+    group = "Phrasebook vocabulary"
+    user_description = "Browses or searches the values in an phrasebook category."
 
     @property
     def description(self) -> str:
@@ -346,42 +318,38 @@ class ListPhrasebookValuesTool(BaseTool):
             return ToolResult(success=False, data="", error="'limit' must be an integer.")
         limit = min(max(1, limit), MAX_LIST_LIMIT)
 
-        try:
-            category, error = _resolve_category_by_id_or_path(context, category_arg)
-            if error:
-                return ToolResult(success=False, data="", error=error)
+        category, error = _resolve_category_by_id_or_path(context, category_arg)
+        if error:
+            return ToolResult(success=False, data="", error=error)
 
-            all_values = context.phrasebook_value_repository.get_by_category(category.id, context.user_id)
-            if search:
-                all_values = [
-                    v for v in all_values
-                    if search in (v.label or "").lower() or search in (v.value or "").lower()
-                ]
+        all_values = context.phrasebook_value_repository.get_by_category(category.id, context.user_id)
+        if search:
+            all_values = [
+                v for v in all_values
+                if search in (v.label or "").lower() or search in (v.value or "").lower()
+            ]
 
-            total = len(all_values)
-            page = all_values[offset:offset + limit]
+        total = len(all_values)
+        page = all_values[offset:offset + limit]
 
-            payload: Dict[str, Any] = {
-                "category_path": getattr(category, "path", ""),
-                "category_id": category.id,
-                "total": total,
-                "offset": offset,
-                "limit": limit,
-                "returned": len(page),
-                "has_more": offset + len(page) < total,
-                "values": [
-                    {
-                        "id": v.id,
-                        "text": f"{v.label}: {v.value}",
-                        "active": bool(getattr(v, "is_active", True)),
-                    }
-                    for v in page
-                ],
-            }
-            return ToolResult(success=True, data=json.dumps(payload))
-        except Exception as e:
-            logger.error(f"Error listing phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        payload: Dict[str, Any] = {
+            "category_path": getattr(category, "path", ""),
+            "category_id": category.id,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "returned": len(page),
+            "has_more": offset + len(page) < total,
+            "values": [
+                {
+                    "id": v.id,
+                    "text": f"{v.label}: {v.value}",
+                    "active": bool(getattr(v, "is_active", True)),
+                }
+                for v in page
+            ],
+        }
+        return ToolResult(success=True, data=json.dumps(payload))
 
 
 class CreatePhrasebookCategoryTool(BaseTool):
@@ -391,21 +359,10 @@ class CreatePhrasebookCategoryTool(BaseTool):
     icon = "folder-plus"
     context_group = "phrasebook_write"
 
-    @property
-    def name(self) -> str:
-        return "create_phrasebook_category"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Creates a new phrasebook category."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "create_phrasebook_category"
+    group = "Phrasebook vocabulary"
+    user_description = "Creates a new phrasebook category."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -465,36 +422,32 @@ class CreatePhrasebookCategoryTool(BaseTool):
         name = (kwargs.get("name") or "").strip() or path.rsplit(".", 1)[-1]
         description = kwargs.get("description") or ""
 
-        try:
-            existing = context.phrasebook_category_repository.get_by_path(path, context.user_id)
-            if existing:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"A category with path '{path}' already exists (id: {existing.id}).",
-                )
-
-            _, parent_error = self._resolve_parent(context, path)
-            if parent_error:
-                return ToolResult(success=False, data="", error=parent_error)
-
-            result = {
-                "status": "pending_approval",
-                "path": path,
-                "name": name,
-                "description": description,
-                "parent_path": _parent_path(path),
-                "marker": _format_marker(path),
-            }
-            preview = ToolApprovalPreview(
-                action="Create category",
-                target=f"under {_parent_path(path)}" if _parent_path(path) else None,
-                items=[path],
-                note=description or None,
+        existing = context.phrasebook_category_repository.get_by_path(path, context.user_id)
+        if existing:
+            return ToolResult(
+                success=False, data="",
+                error=f"A category with path '{path}' already exists (id: {existing.id}).",
             )
-            return ToolResult(success=True, data=json.dumps(result), preview=preview)
-        except Exception as e:
-            logger.error(f"Error validating phrasebook category creation: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+
+        _, parent_error = self._resolve_parent(context, path)
+        if parent_error:
+            return ToolResult(success=False, data="", error=parent_error)
+
+        result = {
+            "status": "pending_approval",
+            "path": path,
+            "name": name,
+            "description": description,
+            "parent_path": _parent_path(path),
+            "marker": _format_marker(path),
+        }
+        preview = ToolApprovalPreview(
+            action="Create category",
+            target=f"under {_parent_path(path)}" if _parent_path(path) else None,
+            items=[path],
+            note=description or None,
+        )
+        return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -525,9 +478,6 @@ class CreatePhrasebookCategoryTool(BaseTool):
             )
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"Error creating phrasebook category: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
 
 
 def _count_label(count: int, singular: str, plural: str) -> str:
@@ -539,21 +489,10 @@ class UpdatePhrasebookCategoryTool(BaseTool):
     icon = "folder-pen"
     context_group = "phrasebook_write"
 
-    @property
-    def name(self) -> str:
-        return "update_phrasebook_category"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Renames, re-describes or switches on/off an existing phrasebook category."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "update_phrasebook_category"
+    group = "Phrasebook vocabulary"
+    user_description = "Renames, re-describes or switches on/off an existing phrasebook category."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -624,33 +563,29 @@ class UpdatePhrasebookCategoryTool(BaseTool):
         if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
-        try:
-            category, changes, error = self._plan(context, kwargs)
-            if error:
-                return ToolResult(success=False, data="", error=error)
+        category, changes, error = self._plan(context, kwargs)
+        if error:
+            return ToolResult(success=False, data="", error=error)
 
-            result = {
-                "status": "pending_approval",
-                "category_id": category.id,
-                "category_path": category.path,
-                "changes": changes,
-            }
-            lines = []
-            if "name" in changes:
-                lines.append(f"Name: '{category.name}' → '{changes['name']}'")
-            if "description" in changes:
-                lines.append(f"Description: '{changes['description']}'")
-            if "is_active" in changes:
-                lines.append("Switch on" if changes["is_active"] else "Switch off")
-            preview = ToolApprovalPreview(
-                action="Edit category",
-                target=category.path,
-                items=lines,
-            )
-            return ToolResult(success=True, data=json.dumps(result), preview=preview)
-        except Exception as e:
-            logger.error(f"Error validating phrasebook category update: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "validation", e, context.is_admin))
+        result = {
+            "status": "pending_approval",
+            "category_id": category.id,
+            "category_path": category.path,
+            "changes": changes,
+        }
+        lines = []
+        if "name" in changes:
+            lines.append(f"Name: '{category.name}' → '{changes['name']}'")
+        if "description" in changes:
+            lines.append(f"Description: '{changes['description']}'")
+        if "is_active" in changes:
+            lines.append("Switch on" if changes["is_active"] else "Switch off")
+        preview = ToolApprovalPreview(
+            action="Edit category",
+            target=category.path,
+            items=lines,
+        )
+        return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -694,9 +629,6 @@ class UpdatePhrasebookCategoryTool(BaseTool):
             )
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"Error updating phrasebook category: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "update", e, context.is_admin))
 
 
 class DeletePhrasebookCategoryTool(BaseTool):
@@ -704,21 +636,10 @@ class DeletePhrasebookCategoryTool(BaseTool):
     icon = "folder-minus"
     context_group = "phrasebook_write"
 
-    @property
-    def name(self) -> str:
-        return "delete_phrasebook_category"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Deletes a phrasebook category and every value in it."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "delete_phrasebook_category"
+    group = "Phrasebook vocabulary"
+    user_description = "Deletes a phrasebook category and every value in it."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -764,27 +685,23 @@ class DeletePhrasebookCategoryTool(BaseTool):
         if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
-        try:
-            category, value_count, error = self._plan(context, kwargs)
-            if error:
-                return ToolResult(success=False, data="", error=error)
+        category, value_count, error = self._plan(context, kwargs)
+        if error:
+            return ToolResult(success=False, data="", error=error)
 
-            result = {
-                "status": "pending_approval",
-                "category_id": category.id,
-                "category_path": category.path,
-                "value_count": value_count,
-            }
-            preview = ToolApprovalPreview(
-                action="Delete category",
-                target=category.path,
-                items=[category.path],
-                note=f"Also deletes {_count_label(value_count, 'value', 'values')}." if value_count else None,
-            )
-            return ToolResult(success=True, data=json.dumps(result), preview=preview)
-        except Exception as e:
-            logger.error(f"Error validating phrasebook category deletion: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "validation", e, context.is_admin))
+        result = {
+            "status": "pending_approval",
+            "category_id": category.id,
+            "category_path": category.path,
+            "value_count": value_count,
+        }
+        preview = ToolApprovalPreview(
+            action="Delete category",
+            target=category.path,
+            items=[category.path],
+            note=f"Also deletes {_count_label(value_count, 'value', 'values')}." if value_count else None,
+        )
+        return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -809,9 +726,6 @@ class DeletePhrasebookCategoryTool(BaseTool):
             )
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"Error deleting phrasebook category: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "deletion", e, context.is_admin))
 
 
 class RemovePhrasebookValuesTool(BaseTool):
@@ -821,21 +735,10 @@ class RemovePhrasebookValuesTool(BaseTool):
     icon = "list-minus"
     context_group = "phrasebook_write"
 
-    @property
-    def name(self) -> str:
-        return "remove_phrasebook_values"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Removes values from your phrasebook vocabulary."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "remove_phrasebook_values"
+    group = "Phrasebook vocabulary"
+    user_description = "Removes values from your phrasebook vocabulary."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -916,40 +819,36 @@ class RemovePhrasebookValuesTool(BaseTool):
         if not value_ids:
             return ToolResult(success=False, data="", error="'value_ids' is required and must be a non-empty array.")
 
-        try:
-            scope_category_id, scope_error = self._resolve_category_scope(context, kwargs)
-            if scope_error:
-                return ToolResult(success=False, data="", error=scope_error)
+        scope_category_id, scope_error = self._resolve_category_scope(context, kwargs)
+        if scope_error:
+            return ToolResult(success=False, data="", error=scope_error)
 
-            found, problems = self._collect_targets(context, value_ids, scope_category_id)
-            if not found:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"None of the given value_ids could be deleted: {problems}",
-                )
-
-            result: Dict[str, Any] = {
-                "status": "pending_approval",
-                "count": len(found),
-                "values": found,
-            }
-            if problems:
-                result["skipped"] = problems
-
-            target_path = self._scope_path(context, kwargs)
-            preview = ToolApprovalPreview(
-                action="Remove",
-                target=f"from category {target_path}" if target_path else None,
-                items=[entry["label"] for entry in found],
-                note=(
-                    f"{len(problems)} id(s) skipped (not found or out of scope)"
-                    if problems else None
-                ),
+        found, problems = self._collect_targets(context, value_ids, scope_category_id)
+        if not found:
+            return ToolResult(
+                success=False, data="",
+                error=f"None of the given value_ids could be deleted: {problems}",
             )
-            return ToolResult(success=True, data=json.dumps(result), preview=preview)
-        except Exception as e:
-            logger.error(f"Error validating phrasebook value removal: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+
+        result: Dict[str, Any] = {
+            "status": "pending_approval",
+            "count": len(found),
+            "values": found,
+        }
+        if problems:
+            result["skipped"] = problems
+
+        target_path = self._scope_path(context, kwargs)
+        preview = ToolApprovalPreview(
+            action="Remove",
+            target=f"from category {target_path}" if target_path else None,
+            items=[entry["label"] for entry in found],
+            note=(
+                f"{len(problems)} id(s) skipped (not found or out of scope)"
+                if problems else None
+            ),
+        )
+        return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     def _scope_path(self, context: ToolContext, kwargs: Dict[str, Any]) -> Optional[str]:
         """Best-effort dot-path of the scope category for the approval preview."""
@@ -973,35 +872,31 @@ class RemovePhrasebookValuesTool(BaseTool):
 
         value_ids = kwargs.get("value_ids") or []
 
-        try:
-            scope_category_id, scope_error = self._resolve_category_scope(context, kwargs)
-            if scope_error:
-                return ToolResult(success=False, data="", error=scope_error)
+        scope_category_id, scope_error = self._resolve_category_scope(context, kwargs)
+        if scope_error:
+            return ToolResult(success=False, data="", error=scope_error)
 
-            found, problems = self._collect_targets(context, value_ids, scope_category_id)
+        found, problems = self._collect_targets(context, value_ids, scope_category_id)
 
-            deleted = []
-            failed = list(problems)
-            for entry in found:
-                try:
-                    operations.delete_value(context.phrasebook_value_repository, context.plugin_registry, entry["id"], context.user_id)
-                    deleted.append(entry)
-                except ValueError as e:
-                    failed.append({"id": entry["id"], "error": str(e)})
+        deleted = []
+        failed = list(problems)
+        for entry in found:
+            try:
+                operations.delete_value(context.phrasebook_value_repository, context.plugin_registry, entry["id"], context.user_id)
+                deleted.append(entry)
+            except ValueError as e:
+                failed.append({"id": entry["id"], "error": str(e)})
 
-            if not deleted and failed:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"Failed to delete any values: {failed[0]['error']}",
-                )
+        if not deleted and failed:
+            return ToolResult(
+                success=False, data="",
+                error=f"Failed to delete any values: {failed[0]['error']}",
+            )
 
-            payload: Dict[str, Any] = {"deleted_count": len(deleted), "values": deleted}
-            if failed:
-                payload["failed"] = failed
-            return ToolResult(success=True, data=json.dumps(payload))
-        except Exception as e:
-            logger.error(f"Error removing phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        payload: Dict[str, Any] = {"deleted_count": len(deleted), "values": deleted}
+        if failed:
+            payload["failed"] = failed
+        return ToolResult(success=True, data=json.dumps(payload))
 
 
 def _describe_edit(edit: Dict[str, str]) -> str:
@@ -1026,21 +921,10 @@ class UpdatePhrasebookValuesTool(BaseTool):
     icon = "list-pen"
     context_group = "phrasebook_write"
 
-    @property
-    def name(self) -> str:
-        return "update_phrasebook_values"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Edits existing values in your phrasebook vocabulary."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "update_phrasebook_values"
+    group = "Phrasebook vocabulary"
+    user_description = "Edits existing values in your phrasebook vocabulary."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -1156,42 +1040,38 @@ class UpdatePhrasebookValuesTool(BaseTool):
         if validation_error:
             return ToolResult(success=False, data="", error=validation_error)
 
-        try:
-            category, error = _resolve_category_by_id_or_path(context, category_arg)
-            if error:
-                return ToolResult(success=False, data="", error=error)
+        category, error = _resolve_category_by_id_or_path(context, category_arg)
+        if error:
+            return ToolResult(success=False, data="", error=error)
 
-            resolved, problems = self._resolve_edits(context, category, edits_in)
-            if not resolved:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"None of the given edits could be applied: {problems}",
-                )
-
-            category_path = getattr(category, 'path', '')
-            result: Dict[str, Any] = {
-                "status": "pending_approval",
-                "category_path": category_path,
-                "category_id": category.id,
-                "count": len(resolved),
-                "edits": resolved,
-            }
-            if problems:
-                result["skipped"] = problems
-
-            preview = ToolApprovalPreview(
-                action="Edit values",
-                target=f"in category {category_path}" if category_path else None,
-                items=[_describe_edit(e) for e in resolved],
-                note=(
-                    f"{len(problems)} id(s) skipped (not found, out of scope, or label conflict)"
-                    if problems else None
-                ),
+        resolved, problems = self._resolve_edits(context, category, edits_in)
+        if not resolved:
+            return ToolResult(
+                success=False, data="",
+                error=f"None of the given edits could be applied: {problems}",
             )
-            return ToolResult(success=True, data=json.dumps(result), preview=preview)
-        except Exception as e:
-            logger.error(f"Error validating phrasebook value update: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+
+        category_path = getattr(category, 'path', '')
+        result: Dict[str, Any] = {
+            "status": "pending_approval",
+            "category_path": category_path,
+            "category_id": category.id,
+            "count": len(resolved),
+            "edits": resolved,
+        }
+        if problems:
+            result["skipped"] = problems
+
+        preview = ToolApprovalPreview(
+            action="Edit values",
+            target=f"in category {category_path}" if category_path else None,
+            items=[_describe_edit(e) for e in resolved],
+            note=(
+                f"{len(problems)} id(s) skipped (not found, out of scope, or label conflict)"
+                if problems else None
+            ),
+        )
+        return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -1200,48 +1080,44 @@ class UpdatePhrasebookValuesTool(BaseTool):
         category_arg = (kwargs.get("category") or "").strip()
         edits_in = kwargs.get("edits") or []
 
-        try:
-            category, error = _resolve_category_by_id_or_path(context, category_arg)
-            if error:
-                return ToolResult(success=False, data="", error=error)
+        category, error = _resolve_category_by_id_or_path(context, category_arg)
+        if error:
+            return ToolResult(success=False, data="", error=error)
 
-            resolved, problems = self._resolve_edits(context, category, edits_in)
-            category_path = getattr(category, 'path', '')
+        resolved, problems = self._resolve_edits(context, category, edits_in)
+        category_path = getattr(category, 'path', '')
 
-            updated = []
-            failed = list(problems)
-            for edit in resolved:
-                try:
-                    request = PhrasebookValueRequest(
-                        category_id=category.id, label=edit["new_label"], value=edit["new_value"],
-                        sort_order=edit["sort_order"],
-                    )
-                    updated_value = operations.update_value(
-                        context.phrasebook_value_repository, context.phrasebook_category_repository,
-                        context.plugin_registry, edit["id"], request, context.user_id,
-                    )
-                    updated.append({
-                        "id": updated_value.id,
-                        "label": updated_value.label,
-                        "value": updated_value.value,
-                        "marker": _format_marker(f"{category_path}.{updated_value.label}"),
-                    })
-                except ValueError as e:
-                    failed.append({"id": edit["id"], "error": str(e)})
-
-            if not updated and failed:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"Failed to update any values: {failed[0]['error']}",
+        updated = []
+        failed = list(problems)
+        for edit in resolved:
+            try:
+                request = PhrasebookValueRequest(
+                    category_id=category.id, label=edit["new_label"], value=edit["new_value"],
+                    sort_order=edit["sort_order"],
                 )
+                updated_value = operations.update_value(
+                    context.phrasebook_value_repository, context.phrasebook_category_repository,
+                    context.plugin_registry, edit["id"], request, context.user_id,
+                )
+                updated.append({
+                    "id": updated_value.id,
+                    "label": updated_value.label,
+                    "value": updated_value.value,
+                    "marker": _format_marker(f"{category_path}.{updated_value.label}"),
+                })
+            except ValueError as e:
+                failed.append({"id": edit["id"], "error": str(e)})
 
-            payload: Dict[str, Any] = {"updated_count": len(updated), "values": updated}
-            if failed:
-                payload["failed"] = failed
-            return ToolResult(success=True, data=json.dumps(payload))
-        except Exception as e:
-            logger.error(f"Error updating phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        if not updated and failed:
+            return ToolResult(
+                success=False, data="",
+                error=f"Failed to update any values: {failed[0]['error']}",
+            )
+
+        payload: Dict[str, Any] = {"updated_count": len(updated), "values": updated}
+        if failed:
+            payload["failed"] = failed
+        return ToolResult(success=True, data=json.dumps(payload))
 
 
 class CreatePhrasebookValuesTool(BaseTool):
@@ -1251,21 +1127,10 @@ class CreatePhrasebookValuesTool(BaseTool):
     icon = "list-plus"
     context_group = "phrasebook_write"
 
-    @property
-    def name(self) -> str:
-        return "create_phrasebook_values"
-
-    @property
-    def group(self) -> str:
-        return "Phrasebook vocabulary"
-
-    @property
-    def user_description(self) -> str:
-        return "Adds new values to your phrasebook vocabulary."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "create_phrasebook_values"
+    group = "Phrasebook vocabulary"
+    user_description = "Adds new values to your phrasebook vocabulary."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -1369,33 +1234,29 @@ class CreatePhrasebookValuesTool(BaseTool):
             if not (v.get("label") or "").strip():
                 return ToolResult(success=False, data="", error=f"values[{i}] is missing a non-empty 'label'.")
 
-        try:
-            category, error = self._resolve_category(context, kwargs)
-            if error:
-                return ToolResult(success=False, data="", error=error)
+        category, error = self._resolve_category(context, kwargs)
+        if error:
+            return ToolResult(success=False, data="", error=error)
 
-            to_create, warnings = self._filter_new_values(context, category, values_in)
+        to_create, warnings = self._filter_new_values(context, category, values_in)
 
-            category_path = getattr(category, 'path', '')
-            result: Dict[str, Any] = {
-                "status": "pending_approval",
-                "category_path": category_path,
-                "category_id": category.id,
-                "count": len(to_create),
-                "values": to_create,
-            }
-            if warnings:
-                result["warnings"] = warnings
-            preview = ToolApprovalPreview(
-                action="Add values",
-                target=f"to category {category_path}" if category_path else None,
-                items=[v["label"] for v in to_create],
-                note="; ".join(warnings) if warnings else None,
-            )
-            return ToolResult(success=True, data=json.dumps(result), preview=preview)
-        except Exception as e:
-            logger.error(f"Error validating phrasebook value creation: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        category_path = getattr(category, 'path', '')
+        result: Dict[str, Any] = {
+            "status": "pending_approval",
+            "category_path": category_path,
+            "category_id": category.id,
+            "count": len(to_create),
+            "values": to_create,
+        }
+        if warnings:
+            result["warnings"] = warnings
+        preview = ToolApprovalPreview(
+            action="Add values",
+            target=f"to category {category_path}" if category_path else None,
+            items=[v["label"] for v in to_create],
+            note="; ".join(warnings) if warnings else None,
+        )
+        return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.phrasebook_category_repository:
@@ -1403,51 +1264,47 @@ class CreatePhrasebookValuesTool(BaseTool):
 
         values_in = kwargs.get("values") or []
 
-        try:
-            category, error = self._resolve_category(context, kwargs)
-            if error:
-                return ToolResult(success=False, data="", error=error)
+        category, error = self._resolve_category(context, kwargs)
+        if error:
+            return ToolResult(success=False, data="", error=error)
 
-            category_path = getattr(category, 'path', '')
-            to_create, _ = self._filter_new_values(context, category, values_in)
+        category_path = getattr(category, 'path', '')
+        to_create, _ = self._filter_new_values(context, category, values_in)
 
-            created = []
-            failed = []
-            for v in to_create:
-                label = v["label"]
-                value_text = v["value"]
-                try:
-                    request = PhrasebookValueRequest(
-                        category_id=category.id, label=label, value=value_text,
-                    )
-                    created_value = operations.create_value(
-                        context.phrasebook_value_repository, context.phrasebook_category_repository,
-                        context.plugin_registry, request, context.user_id,
-                    )
-                    created.append({
-                        "id": created_value.id,
-                        "label": created_value.label,
-                        "value": created_value.value,
-                        "marker": _format_marker(f"{category_path}.{created_value.label}"),
-                    })
-                except ValueError as e:
-                    failed.append({"label": label, "error": str(e)})
-
-            if not created and failed:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"Failed to create any values: {failed[0]['error']}",
+        created = []
+        failed = []
+        for v in to_create:
+            label = v["label"]
+            value_text = v["value"]
+            try:
+                request = PhrasebookValueRequest(
+                    category_id=category.id, label=label, value=value_text,
                 )
+                created_value = operations.create_value(
+                    context.phrasebook_value_repository, context.phrasebook_category_repository,
+                    context.plugin_registry, request, context.user_id,
+                )
+                created.append({
+                    "id": created_value.id,
+                    "label": created_value.label,
+                    "value": created_value.value,
+                    "marker": _format_marker(f"{category_path}.{created_value.label}"),
+                })
+            except ValueError as e:
+                failed.append({"label": label, "error": str(e)})
 
-            payload: Dict[str, Any] = {
-                "created_count": len(created),
-                "values": created,
-                "instruction": "These markers can now be embedded directly in a prompt segment's content.",
-            }
-            if failed:
-                payload["failed"] = failed
+        if not created and failed:
+            return ToolResult(
+                success=False, data="",
+                error=f"Failed to create any values: {failed[0]['error']}",
+            )
 
-            return ToolResult(success=True, data=json.dumps(payload))
-        except Exception as e:
-            logger.error(f"Error creating phrasebook values: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        payload: Dict[str, Any] = {
+            "created_count": len(created),
+            "values": created,
+            "instruction": "These markers can now be embedded directly in a prompt segment's content.",
+        }
+        if failed:
+            payload["failed"] = failed
+
+        return ToolResult(success=True, data=json.dumps(payload))

@@ -166,26 +166,15 @@ class BaseTool(ABC):
 
     context_group: str = "core"
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Unique tool name used in API calls."""
-        ...
+    name: str
+    group: str = "Other"
+    user_description: str = ""
+    requires_approval: bool = False
 
     @property
     def label(self) -> str:
         """Human-readable display name for the UI. Defaults to the title-cased name."""
         return self.name.replace('_', ' ').title()
-
-    @property
-    def group(self) -> str:
-        """Human category the tool is listed under in the UI tool picker."""
-        return "Other"
-
-    @property
-    def user_description(self) -> str:
-        """One-sentence, user-facing summary shown in the UI tool picker."""
-        return ""
 
     @property
     @abstractmethod
@@ -208,16 +197,6 @@ class BaseTool(ABC):
         Override in subclasses. Returns empty string by default (tool won't appear in system prompt hints).
         """
         return ""
-
-    @property
-    def requires_approval(self) -> bool:
-        """Whether this tool requires user approval before its action is applied.
-
-        When True, `execute` returns a preview of the proposed action and the
-        tool loop is paused until the user approves or rejects.  After approval
-        `execute_confirmed` is called to apply the action.  Defaults to False.
-        """
-        return False
 
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
         """Whether this tool should be advertised for the turn's form state.

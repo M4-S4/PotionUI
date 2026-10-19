@@ -1,7 +1,6 @@
 """Memory tools: write, read, and delete persistent LLM memory notes."""
 
 import json
-import logging
 from typing import Any, Dict, Optional
 
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
@@ -9,8 +8,6 @@ from src.features.llm.tools.builtin.utils import resolve_active_model_id, resolv
 from src.features.llm.tools.errors import unexpected
 from src.features.llm_memory import operations as memory_operations
 from src.features.presets import operations as preset_operations
-
-logger = logging.getLogger(__name__)
 
 
 def _truncate(text: str, limit: int = 200) -> str:
@@ -166,17 +163,10 @@ class WriteMemoryTool(BaseTool):
 
     icon = "brain"
 
-    @property
-    def name(self) -> str:
-        return "write_memory"
-
-    @property
-    def group(self) -> str:
-        return "Memory"
-
-    @property
-    def user_description(self) -> str:
-        return "Saves a note about you the assistant can recall in later chats."
+    name = "write_memory"
+    group = "Memory"
+    user_description = "Saves a note about you the assistant can recall in later chats."
+    requires_approval = False
 
     @property
     def description(self) -> str:
@@ -188,10 +178,6 @@ class WriteMemoryTool(BaseTool):
             "Bad: {\"scope\": \"global\", \"content\": \"user asked for a dragon\"}. "
             "Writing an existing key updates that note. Saves immediately, no approval."
         )
-
-    @property
-    def requires_approval(self) -> bool:
-        return False
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -289,9 +275,6 @@ class WriteMemoryTool(BaseTool):
             return ToolResult(success=True, data=json.dumps(payload))
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"write_memory failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("write_memory", "save", e, context.is_admin))
 
 
 class ReadMemoryTool(BaseTool):
@@ -300,17 +283,9 @@ class ReadMemoryTool(BaseTool):
     icon = "brain"
     context_group = "memory_maintenance"
 
-    @property
-    def name(self) -> str:
-        return "read_memory"
-
-    @property
-    def group(self) -> str:
-        return "Memory"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads notes the assistant saved in earlier chats."
+    name = "read_memory"
+    group = "Memory"
+    user_description = "Reads notes the assistant saved in earlier chats."
 
     @property
     def description(self) -> str:
@@ -366,72 +341,68 @@ class ReadMemoryTool(BaseTool):
         if scope == "session" and not session_ref:
             return ToolResult(success=False, data="", error=_no_session_error(context))
 
-        try:
-            if scope == "all" and not has_tab and not scope_ref:
-                all_notes = memory_operations.read_notes(context.llm_memory_repository, user_id=context.user_id)
-            elif scope == "all":
-                all_notes = memory_operations.read_notes(
+        if scope == "all" and not has_tab and not scope_ref:
+            all_notes = memory_operations.read_notes(context.llm_memory_repository, user_id=context.user_id)
+        elif scope == "all":
+            all_notes = memory_operations.read_notes(
+                context.llm_memory_repository,
+                user_id=context.user_id,
+                scope="global",
+            )
+            if preset_ref:
+                all_notes += memory_operations.read_notes(
                     context.llm_memory_repository,
                     user_id=context.user_id,
-                    scope="global",
+                    scope="preset",
+                    scope_ref=preset_ref,
                 )
-                if preset_ref:
-                    all_notes += memory_operations.read_notes(
-                        context.llm_memory_repository,
-                        user_id=context.user_id,
-                        scope="preset",
-                        scope_ref=preset_ref,
-                    )
-                if model_ref:
-                    all_notes += memory_operations.read_notes(
-                        context.llm_memory_repository,
-                        user_id=context.user_id,
-                        scope="model",
-                        scope_ref=model_ref,
-                    )
-                if mode_ref:
-                    all_notes += memory_operations.read_notes(
-                        context.llm_memory_repository,
-                        user_id=context.user_id,
-                        scope="mode",
-                        scope_ref=mode_ref,
-                    )
-                if session_ref:
-                    all_notes += memory_operations.read_notes(
-                        context.llm_memory_repository,
-                        user_id=context.user_id,
-                        scope="session",
-                        scope_ref=session_ref,
-                    )
-            else:
-                resolved_ref = (
-                    preset_ref if scope == "preset"
-                    else model_ref if scope == "model"
-                    else mode_ref if scope == "mode"
-                    else session_ref if scope == "session"
-                    else None
+            if model_ref:
+                all_notes += memory_operations.read_notes(
+                    context.llm_memory_repository,
+                    user_id=context.user_id,
+                    scope="model",
+                    scope_ref=model_ref,
                 )
-                filter_kwargs = {"user_id": context.user_id, "scope": scope}
-                if resolved_ref:
-                    filter_kwargs["scope_ref"] = resolved_ref
-                all_notes = memory_operations.read_notes(context.llm_memory_repository, **filter_kwargs)
+            if mode_ref:
+                all_notes += memory_operations.read_notes(
+                    context.llm_memory_repository,
+                    user_id=context.user_id,
+                    scope="mode",
+                    scope_ref=mode_ref,
+                )
+            if session_ref:
+                all_notes += memory_operations.read_notes(
+                    context.llm_memory_repository,
+                    user_id=context.user_id,
+                    scope="session",
+                    scope_ref=session_ref,
+                )
+        else:
+            resolved_ref = (
+                preset_ref if scope == "preset"
+                else model_ref if scope == "model"
+                else mode_ref if scope == "mode"
+                else session_ref if scope == "session"
+                else None
+            )
+            filter_kwargs = {"user_id": context.user_id, "scope": scope}
+            if resolved_ref:
+                filter_kwargs["scope_ref"] = resolved_ref
+            all_notes = memory_operations.read_notes(context.llm_memory_repository, **filter_kwargs)
 
-            notes_data = [note.to_dict() for note in all_notes]
-            payload: Dict[str, Any] = {
-                "notes": notes_data,
-                "count": len(notes_data),
-                "scope_filter": scope,
-            }
-            if not has_tab:
-                payload["context"] = (
-                    "No open Generate tab: every note you have was returned, each with its scope and scope_ref."
-                    if scope == "all" and not scope_ref else
-                    "No open Generate tab: only the scope_ref you passed was used to filter."
-                )
-            return ToolResult(success=True, data=json.dumps(payload))
-        except Exception as e:
-            logger.error(f"read_memory failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("read_memory", "read", e, context.is_admin))
+        notes_data = [note.to_dict() for note in all_notes]
+        payload: Dict[str, Any] = {
+            "notes": notes_data,
+            "count": len(notes_data),
+            "scope_filter": scope,
+        }
+        if not has_tab:
+            payload["context"] = (
+                "No open Generate tab: every note you have was returned, each with its scope and scope_ref."
+                if scope == "all" and not scope_ref else
+                "No open Generate tab: only the scope_ref you passed was used to filter."
+            )
+        return ToolResult(success=True, data=json.dumps(payload))
 
 
 class DeleteMemoryTool(BaseTool):
@@ -440,17 +411,10 @@ class DeleteMemoryTool(BaseTool):
     icon = "brain"
     context_group = "memory_maintenance"
 
-    @property
-    def name(self) -> str:
-        return "delete_memory"
-
-    @property
-    def group(self) -> str:
-        return "Memory"
-
-    @property
-    def user_description(self) -> str:
-        return "Deletes one of the assistant's saved memory notes."
+    name = "delete_memory"
+    group = "Memory"
+    user_description = "Deletes one of the assistant's saved memory notes."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -458,10 +422,6 @@ class DeleteMemoryTool(BaseTool):
             "Delete a persistent memory note by its ID. "
             "Returns a preview of the note that will be deleted for user approval."
         )
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -485,15 +445,11 @@ class DeleteMemoryTool(BaseTool):
         if not note_id:
             return ToolResult(success=False, data="", error="note_id is required")
 
-        try:
-            note = memory_operations.get_note(
-                context.llm_memory_repository,
-                user_id=context.user_id,
-                note_id=note_id,
-            )
-        except Exception as e:
-            logger.error(f"delete_memory fetch failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("delete_memory", "fetch note", e, context.is_admin))
+        note = memory_operations.get_note(
+            context.llm_memory_repository,
+            user_id=context.user_id,
+            note_id=note_id,
+        )
 
         if note is None:
             return ToolResult(
@@ -535,29 +491,25 @@ class DeleteMemoryTool(BaseTool):
         if not note_id:
             return ToolResult(success=False, data="", error="note_id is required")
 
-        try:
-            success = memory_operations.delete_note(
-                context.llm_memory_repository,
-                user_id=context.user_id,
-                note_id=note_id,
-            )
-            if not success:
-                return ToolResult(
-                    success=False, data="",
-                    error=f"Memory note with id '{note_id}' could not be deleted (not found)",
-                )
+        success = memory_operations.delete_note(
+            context.llm_memory_repository,
+            user_id=context.user_id,
+            note_id=note_id,
+        )
+        if not success:
             return ToolResult(
-                success=True,
-                data=json.dumps({
-                    "action": "delete_memory",
-                    "success": True,
-                    "note_id": note_id,
-                    "message": f"Memory note {note_id} deleted successfully.",
-                }),
+                success=False, data="",
+                error=f"Memory note with id '{note_id}' could not be deleted (not found)",
             )
-        except Exception as e:
-            logger.error(f"delete_memory delete failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("delete_memory", "delete", e, context.is_admin))
+        return ToolResult(
+            success=True,
+            data=json.dumps({
+                "action": "delete_memory",
+                "success": True,
+                "note_id": note_id,
+                "message": f"Memory note {note_id} deleted successfully.",
+            }),
+        )
 
 
 class UpdateMemoryTool(BaseTool):
@@ -566,17 +518,10 @@ class UpdateMemoryTool(BaseTool):
     icon = "brain"
     context_group = "memory_maintenance"
 
-    @property
-    def name(self) -> str:
-        return "update_memory"
-
-    @property
-    def group(self) -> str:
-        return "Memory"
-
-    @property
-    def user_description(self) -> str:
-        return "Edits one of the assistant's saved memory notes."
+    name = "update_memory"
+    group = "Memory"
+    user_description = "Edits one of the assistant's saved memory notes."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -588,10 +533,6 @@ class UpdateMemoryTool(BaseTool):
             "showing the note's current values alongside the proposed change."
             "{{#if delete_memory}} Prefer it over delete_memory plus write_memory.{{/if}}"
         )
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -723,6 +664,3 @@ class UpdateMemoryTool(BaseTool):
             )
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error(f"update_memory update failed: {e}")
-            return ToolResult(success=False, data="", error=unexpected("update_memory", "update", e, context.is_admin))

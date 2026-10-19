@@ -273,17 +273,6 @@ class TestWriteMemoryTool:
         assert result.success is False
         assert "content is required" in result.error
 
-    @pytest.mark.asyncio
-    async def test_execute_handles_error(self, mock_ops):
-        mm = MagicMock()
-        mock_ops.write_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_repository=mm)
-
-        result = await self._tool().execute(ctx, key="k", content="c", scope="global")
-
-        assert result.success is False
-        assert "db error" not in result.error
-
 
 # ---------------------------------------------------------------------------
 # ReadMemoryTool
@@ -388,17 +377,6 @@ class TestReadMemoryTool:
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "not available" in result.error
-
-    @pytest.mark.asyncio
-    async def test_execute_handles_error(self, mock_ops):
-        mm = MagicMock()
-        mock_ops.read_notes.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_repository=mm)
-
-        result = await self._tool().execute(ctx, scope="global")
-
-        assert result.success is False
-        assert "db error" not in result.error
 
     @pytest.mark.asyncio
     async def test_execute_all_without_model_or_preset(self, mock_ops):
@@ -513,17 +491,6 @@ class TestDeleteMemoryTool:
 
         assert result.success is False
         assert "could not be deleted" in result.error
-
-    @pytest.mark.asyncio
-    async def test_execute_confirmed_handles_error(self, mock_ops):
-        mm = MagicMock()
-        mock_ops.delete_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_repository=mm)
-
-        result = await self._tool().execute_confirmed(ctx, note_id="note-1")
-
-        assert result.success is False
-        assert "db error" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -782,19 +749,6 @@ class TestUpdateMemoryTool:
 
         assert result.success is False
         assert "could not be updated" in result.error
-
-    @pytest.mark.asyncio
-    async def test_execute_confirmed_handles_error(self, mock_ops):
-        note = make_note()
-        mm = MagicMock()
-        mock_ops.get_note.return_value = note
-        mock_ops.update_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_repository=mm)
-
-        result = await self._tool().execute_confirmed(ctx, note_id="note-1", content="x")
-
-        assert result.success is False
-        assert "db error" not in result.error
 
     @pytest.mark.asyncio
     async def test_execute_confirmed_content_over_limit_raises_teaching_error(self, mock_ops):

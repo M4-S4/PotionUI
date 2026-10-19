@@ -29,17 +29,10 @@ class StartGenerationTool(BaseTool):
     icon = "play"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "start_generation"
-
-    @property
-    def group(self) -> str:
-        return "Generation"
-
-    @property
-    def user_description(self) -> str:
-        return "Starts a generation from a chosen preset, without needing an open form."
+    name = "start_generation"
+    group = "Generation"
+    user_description = "Starts a generation from a chosen preset, without needing an open form."
+    requires_approval = True
 
     @property
     def description(self) -> str:
@@ -94,10 +87,6 @@ class StartGenerationTool(BaseTool):
             },
             "required": ["preset_id"],
         }
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
 
     @staticmethod
     def _build_preview(kwargs: Dict[str, Any]) -> Dict[str, Any]:

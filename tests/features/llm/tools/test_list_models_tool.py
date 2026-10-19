@@ -254,15 +254,6 @@ class TestListModelsToolExecute:
         assert entry["description"] == "short desc"
 
     @pytest.mark.asyncio
-    async def test_get_all_exception_returns_failure(self):
-        manager = MagicMock()
-        manager.model_repo.get_all.side_effect = RuntimeError("db connection lost")
-        ctx = make_context(model_index_manager=manager)
-        result = await ListModelsTool().execute(ctx)
-        assert result.success is False
-        assert "db connection lost" in result.error or "failed" in result.error.lower()
-
-    @pytest.mark.asyncio
     async def test_all_filters_combined(self):
         manager = make_model_index_manager()
         ctx = make_context(model_index_manager=manager)

@@ -36,17 +36,9 @@ class ListPresetsTool(BaseTool):
     icon = "layout-grid"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "list_presets"
-
-    @property
-    def group(self) -> str:
-        return "Models & presets"
-
-    @property
-    def user_description(self) -> str:
-        return "Lists the presets you can generate with."
+    name = "list_presets"
+    group = "Models & presets"
+    user_description = "Lists the presets you can generate with."
 
     @property
     def description(self) -> str:
@@ -104,11 +96,7 @@ class ListPresetsTool(BaseTool):
         except (TypeError, ValueError):
             return ToolResult(success=False, data="", error="'offset' and 'limit' must be integers.")
         limit = min(max(1, limit), MAX_PRESET_LIMIT)
-        try:
-            presets = preset_operations.list_presets(context.preset_collaborators, _stand_in_user(context))
-        except Exception as e:
-            logger.error("list_presets failed: %s", e)
-            return ToolResult(success=False, data="", error=unexpected("list_presets", "list", e, context.is_admin))
+        presets = preset_operations.list_presets(context.preset_collaborators, _stand_in_user(context))
         matching = sorted(
             (p for p in presets if self._matches(p, query, engine)),
             key=lambda p: (str(p.get("name") or "").lower(), str(p.get("id"))),
@@ -148,17 +136,9 @@ class GetPresetInfoTool(BaseTool):
     icon = "settings-2"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "get_preset_info"
-
-    @property
-    def group(self) -> str:
-        return "Models & presets"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the settings and options of the preset you are using."
+    name = "get_preset_info"
+    group = "Models & presets"
+    user_description = "Reads the settings and options of the preset you are using."
 
     @property
     def description(self) -> str:

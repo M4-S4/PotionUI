@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 from src.features.library import operations as library_operations
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import viewer_is_restricted
-from src.features.llm.tools.errors import unexpected
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +33,9 @@ class ListLibraryItemsTool(BaseTool):
     icon = "folder-open"
     context_group = "library"
 
-    @property
-    def name(self) -> str:
-        return "list_library_items"
-
-    @property
-    def group(self) -> str:
-        return "Generation"
-
-    @property
-    def user_description(self) -> str:
-        return "Lists the files in your library, such as uploads."
+    name = "list_library_items"
+    group = "Generation"
+    user_description = "Lists the files in your library, such as uploads."
 
     @property
     def description(self) -> str:
@@ -100,9 +91,6 @@ class ListLibraryItemsTool(BaseTool):
             )
         except ValueError as e:
             return ToolResult(success=False, data="", error=str(e))
-        except Exception as e:
-            logger.error("list_library_items failed: %s", e)
-            return ToolResult(success=False, data="", error=unexpected("list_library_items", "list", e, context.is_admin))
 
         items = page.items
         collections = {}

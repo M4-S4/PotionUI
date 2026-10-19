@@ -511,17 +511,9 @@ class GetWorkflowInputsTool(BaseTool):
     modes = ["comfyui-import"]
     icon = "search"
 
-    @property
-    def name(self) -> str:
-        return "get_workflow_inputs"
-
-    @property
-    def group(self) -> str:
-        return "ComfyUI import"
-
-    @property
-    def user_description(self) -> str:
-        return "Looks up workflow inputs from the ComfyUI import wizard."
+    name = "get_workflow_inputs"
+    group = "ComfyUI import"
+    user_description = "Looks up workflow inputs from the ComfyUI import wizard."
 
     @property
     def hint(self) -> str:
@@ -605,21 +597,10 @@ class ProposeFormChangesTool(BaseTool):
     modes = ["comfyui-import"]
     icon = "wand-sparkles"
 
-    @property
-    def name(self) -> str:
-        return "propose_form_changes"
-
-    @property
-    def group(self) -> str:
-        return "ComfyUI import"
-
-    @property
-    def user_description(self) -> str:
-        return "Proposes form field mappings and tabs for the imported preset."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "propose_form_changes"
+    group = "ComfyUI import"
+    user_description = "Proposes form field mappings and tabs for the imported preset."
+    requires_approval = True
 
     @property
     def hint(self) -> str:

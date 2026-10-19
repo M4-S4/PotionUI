@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 
 from src.features.generation.prompt_text import prompt_texts
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
-from src.features.llm.tools.errors import unexpected
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +29,9 @@ class SearchGalleryTool(BaseTool):
     MAX_QUERIES = 6
     MAX_LIMIT = 25
 
-    @property
-    def name(self) -> str:
-        return "search_gallery"
-
-    @property
-    def group(self) -> str:
-        return "Generation"
-
-    @property
-    def user_description(self) -> str:
-        return "Finds images in your gallery by describing what they show."
+    name = "search_gallery"
+    group = "Generation"
+    user_description = "Finds images in your gallery by describing what they show."
 
     @property
     def description(self) -> str:
@@ -213,11 +204,7 @@ class SearchGalleryTool(BaseTool):
         if results is None:
             if history is None:
                 return ToolResult(success=False, data="", error=f"{note} Text search is not available either.")
-            try:
-                results = await self._text_results(context, queries, limit)
-            except Exception as e:
-                logger.error("search_gallery text search failed: %s", e)
-                return ToolResult(success=False, data="", error=unexpected("search_gallery", "text search", e, context.is_admin))
+            results = await self._text_results(context, queries, limit)
 
         payload: Dict[str, Any] = {"search_mode": "text" if note else "visual", "results": results}
         if note:

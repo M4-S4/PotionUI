@@ -1,7 +1,6 @@
 """Approval-gated tools for detached rich Prompt aggregates."""
 
 import json
-import logging
 from typing import Any, Dict, Optional
 
 from src.features.prompt_database import operations
@@ -9,9 +8,6 @@ from src.features.prompt_database.dto import PromptRequest
 from src.features.prompt_database.repository import flatten_segments
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import viewer_is_restricted
-from src.features.llm.tools.errors import unexpected
-
-logger = logging.getLogger(__name__)
 
 
 def _truncate(text: str, limit: int = 90) -> str:
@@ -108,14 +104,10 @@ class GetPromptTool(BaseTool):
     icon = "book-open"
     context_group = "library"
 
-    @property
-    def name(self): return "get_prompt"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Reads one prompt from your library in full."
+    name = "get_prompt"
+    group = "Saved prompts"
+    user_description = "Reads one prompt from your library in full."
+    requires_approval = False
 
     @property
     def description(self):
@@ -124,9 +116,6 @@ class GetPromptTool(BaseTool):
             "and its ${name} variables. The result has the same shape edit_prompt accepts, "
             "so read it first, change what is needed, and send it back."
         )
-
-    @property
-    def requires_approval(self): return False
 
     @property
     def parameters(self):
@@ -153,14 +142,10 @@ class ListPromptsTool(BaseTool):
     icon = "book-open"
     context_group = "library"
 
-    @property
-    def name(self): return "list_prompts"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Lists the prompts in your library."
+    name = "list_prompts"
+    group = "Saved prompts"
+    user_description = "Lists the prompts in your library."
+    requires_approval = False
 
     @property
     def description(self):
@@ -168,9 +153,6 @@ class ListPromptsTool(BaseTool):
             "List the user's saved Prompts, newest first, with id, name, usage_hint, a short "
             "text preview and updated_at. Use get_prompt for the full content."
         )
-
-    @property
-    def requires_approval(self): return False
 
     @property
     def parameters(self):
@@ -216,14 +198,10 @@ class AddPromptTool(BaseTool):
     icon = "book-plus"
     context_group = "library"
 
-    @property
-    def name(self): return "add_prompt"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Saves a new prompt composition to your library."
+    name = "add_prompt"
+    group = "Saved prompts"
+    user_description = "Saves a new prompt composition to your library."
+    requires_approval = True
 
     @property
     def description(self):
@@ -235,9 +213,6 @@ class AddPromptTool(BaseTool):
             "reorder, translate or enrich terms, and do not borrow vocabulary from memory or search "
             "results. Compose or improve text only when the user asks you to. Use the name the user gave."
         )
-
-    @property
-    def requires_approval(self): return True
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -287,19 +262,15 @@ class AddPromptTool(BaseTool):
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.prompt_database:
             return ToolResult(success=False, data="", error="Prompt library not available")
-        try:
-            saved = await operations.create_prompt(
-                context.prompt_database, context.user_id, _prompt_request(**kwargs),
-            )
-            saved_name = saved.display_name
-            return ToolResult(success=True, data=json.dumps({
-                "action": "add_prompt", "success": True, "prompt_id": saved.id,
-                "name": saved_name,
-                "message": f'Saved the prompt "{saved_name}" to the library (id {saved.id}).',
-            }))
-        except Exception as exc:
-            logger.error("add_prompt failed: %s", exc)
-            return ToolResult(success=False, data="", error=unexpected("add_prompt", "save", exc, context.is_admin))
+        saved = await operations.create_prompt(
+            context.prompt_database, context.user_id, _prompt_request(**kwargs),
+        )
+        saved_name = saved.display_name
+        return ToolResult(success=True, data=json.dumps({
+            "action": "add_prompt", "success": True, "prompt_id": saved.id,
+            "name": saved_name,
+            "message": f'Saved the prompt "{saved_name}" to the library (id {saved.id}).',
+        }))
 
 
 class EditPromptTool(BaseTool):
@@ -307,14 +278,10 @@ class EditPromptTool(BaseTool):
     icon = "book-open"
     context_group = "library"
 
-    @property
-    def name(self): return "edit_prompt"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Updates a prompt already saved in your library."
+    name = "edit_prompt"
+    group = "Saved prompts"
+    user_description = "Updates a prompt already saved in your library."
+    requires_approval = True
 
     @property
     def description(self):
@@ -324,9 +291,6 @@ class EditPromptTool(BaseTool):
             "When the user supplies the new text, save it VERBATIM: do not add, reorder or enrich "
             "terms. Rewrite or improve text only when the user asks you to."
         )
-
-    @property
-    def requires_approval(self): return True
 
     @property
     def parameters(self):
@@ -400,20 +364,16 @@ class EditPromptTool(BaseTool):
         existing = self._existing(context, prompt_id) if context.prompt_database and prompt_id else None
         if existing is None:
             return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
-        try:
-            saved = await operations.replace_prompt(
-                context.prompt_database, context.user_id, prompt_id, _prompt_request(existing, **kwargs),
-            )
-            payload = {"action": "edit_prompt", "success": bool(saved), "prompt_id": prompt_id}
-            if saved:
-                payload["name"] = saved.display_name
-                payload["message"] = f'Updated the prompt "{saved.display_name}" in the library.'
-            return ToolResult(
-                success=bool(saved), data=json.dumps(payload), error=None if saved else "Prompt could not be updated"
-            )
-        except Exception as exc:
-            logger.error("edit_prompt failed: %s", exc)
-            return ToolResult(success=False, data="", error=unexpected("edit_prompt", "update", exc, context.is_admin))
+        saved = await operations.replace_prompt(
+            context.prompt_database, context.user_id, prompt_id, _prompt_request(existing, **kwargs),
+        )
+        payload = {"action": "edit_prompt", "success": bool(saved), "prompt_id": prompt_id}
+        if saved:
+            payload["name"] = saved.display_name
+            payload["message"] = f'Updated the prompt "{saved.display_name}" in the library.'
+        return ToolResult(
+            success=bool(saved), data=json.dumps(payload), error=None if saved else "Prompt could not be updated"
+        )
 
 
 class DeletePromptTool(BaseTool):
@@ -421,20 +381,13 @@ class DeletePromptTool(BaseTool):
     icon = "trash-2"
     context_group = "library"
 
-    @property
-    def name(self): return "delete_prompt"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Removes a saved prompt from your library."
+    name = "delete_prompt"
+    group = "Saved prompts"
+    user_description = "Removes a saved prompt from your library."
+    requires_approval = True
 
     @property
     def description(self): return "Delete one detached Prompt aggregate from the user's library."
-
-    @property
-    def requires_approval(self): return True
 
     @property
     def parameters(self):
