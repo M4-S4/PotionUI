@@ -130,7 +130,21 @@ for (const viewport of VIEWPORTS) {
 
 		await screenshot(page, JOURNEY, `single-${viewport.name}`);
 
-		await dialog.getByRole('button', { name: 'Select salt-02.png (salt flats at noon)' }).click();
+		const tileButton = dialog.getByRole('button', { name: 'Select salt-02.png (salt flats at noon)' });
+		const tileImage = tileButton.locator('.media-zoom img').first();
+		await expect(tileImage).toHaveCSS('transform', 'none');
+		await tileButton.hover();
+		await expect(tileImage).not.toHaveCSS('transform', 'none');
+		await expect(tileButton.locator('.tile-frame')).toHaveCSS('border-top-color', await page.evaluate(() => {
+			const probe = document.createElement('div');
+			probe.className = 'border-line-hover border';
+			document.body.appendChild(probe);
+			const color = getComputedStyle(probe).borderTopColor;
+			probe.remove();
+			return color;
+		}));
+
+		await tileButton.click();
 		const selected = await page.evaluate(() => (window as any).__pickerEvents.selected);
 		expect(selected).toEqual({ generationId: 'gen-landscape', fileId: 4 });
 	});

@@ -336,7 +336,7 @@
 			? 'bg-black'
 			: 'bg-surface-1'} {selected
 			? 'tile-selected border-line-hover'
-			: 'border-line-strong hover:border-line-hover'}"
+			: 'border-line-strong group-hover:border-line-hover'}"
 	>
 		<!-- Selection wash when selected -->
 		{#if selected}

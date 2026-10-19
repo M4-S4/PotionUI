@@ -662,7 +662,7 @@
 								{:else}
 									<button
 										type="button"
-										class="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+										class="group block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
 										aria-label={`Select ${pick.accessibleName}`}
 										on:click={() => handleSelectFromGeneration(pick.generation, pick.file)}
 									>
