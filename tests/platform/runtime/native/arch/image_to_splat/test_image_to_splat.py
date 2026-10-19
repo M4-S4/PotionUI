@@ -95,3 +95,36 @@ def test_the_estimator_returns_to_cpu_even_when_estimation_fails():
     with pytest.raises(RuntimeError):
         run_image_to_splat(estimator, _image(32, 32), device="meta")
     assert estimator.devices == ["meta", "cpu"]
+
+
+def test_a_cancellation_between_estimation_and_lift_stops_before_lifting(monkeypatch):
+    from src.platform.runtime.native.arch.image_to_splat import image_to_splat as module
+    from src.platform.runtime.native.errors import SamplingCancelled
+
+    def _never(*args, **kwargs):
+        raise AssertionError("the lift ran after a cancellation")
+
+    monkeypatch.setattr(module, "lift_to_splat", _never)
+    estimator = FakeEstimator()
+    with pytest.raises(SamplingCancelled):
+        run_image_to_splat(estimator, _image(32, 32), device="cpu", is_cancelled=lambda: bool(estimator.calls))
+    assert len(estimator.calls) == 1
+
+
+def test_cuda_memory_is_released_after_moge_before_the_lift(monkeypatch):
+    from src.platform.runtime.native.arch.image_to_splat import image_to_splat as module
+
+    events = []
+    monkeypatch.setattr(module.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(module.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
+    original = module.lift_to_splat
+
+    def _lift(*args, **kwargs):
+        events.append("lift")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(module, "lift_to_splat", _lift)
+    run_image_to_splat(FakeEstimator(), _image(32, 32), device="cpu")
+    assert events.index("lift") > 0
+    assert events[events.index("lift") - 1] == "empty_cache"
+    assert events.count("empty_cache") >= 2

@@ -27,15 +27,27 @@ Licences: MoGe-2's code and weights are MIT (Microsoft, `Ruicheng/moge-2-vitl-no
 2. **Geometry.** MoGe-2 runs at resolution level 9 (3600 tokens) and predicts an affine-invariant point map and a mask. `MoGe2Model.estimate_geometry` recovers the focal length and the z-shift together (`recover_focal_shift`, Levenberg-Marquardt on a 64×64 downsample, as upstream), adds the shift back to z and unprojects the depth through the recovered pinhole, so every point lies on its pixel's ray. Pixels with a mask under 0.5, a non-finite or a non-positive depth are invalid.
 3. **Scale.** The depth is scaled so the median valid depth is 4.0. This version has no metric scale.
 4. **Sky.** Invalid pixels (mostly sky) are pushed to a fixed far depth: at least 40, and at least 1.25 times the 99.5th percentile of the valid depth, so the sky always sits behind the scene.
-5. **Cuts.** A pixel is on a depth cut when its 3×3 neighbourhood spans more than 0.04 in log depth. Its near side faces the camera.
-6. **Foreground.** The map minus its cuts splits into connected regions. A region is foreground when at least 60 % of the cut pixels bordering it are near sides; near-side cut pixels are foreground too. The sky never is.
-7. **Hidden background.** The foreground mask is dilated by 6 px and the image and the log depth are inpainted over it with OpenCV Telea (radius 5 px, at half resolution). OpenCV's Telea gives noise on float input, so the log depth goes through a 16-bit quantisation of its range. The filled depth is kept at least 3 % behind the foreground it hides.
-8. **Gaussians.** Every valid or sky pixel becomes a front Gaussian, and every foreground pixel also becomes a background Gaussian from the inpainted layer. Each sits at its pixel's unprojected position with a SH0 colour from the pixel, an isotropic scale of `z / f_px × 0.6` flattened to 0.4 along its ray (the quaternion turns the local z axis onto the ray), and an opacity of 0.95, lowered to 0.35 on the cuts.
+5. **Cuts and flying pixels.** A pixel is on a depth cut when its 5×5 neighbourhood spans more than 0.35 in log depth (a jump of about 40 %). MoGe-2 blurs such jumps over a few pixels, and those in-between pixels would float between the two surfaces. Each cut pixel is snapped to the depth of the side it is closest to (the minimum or the maximum of its neighbourhood, in log depth). A steep but continuous surface, such as a floor or a sea seen at a grazing angle, stays below the threshold and is never cut. Dropping the cut pixels instead (`EDGE_PIXELS = EDGE_DROP`, which puts the background layer under them) leaves slightly fewer holes, but costs about 4 dB of PSNR in the source view, so snapping is the default.
+6. **Hidden region.** The background layer is laid behind two kinds of pixels:
+   - foreground segments: the map minus its cuts splits into connected regions, and a region is foreground when at least 60 % of the cut pixels bordering it are near sides;
+   - disocclusion bands: from every near-side cut pixel, a band reaches into the occluder as far as the parallax a camera move of 0.3 × the median depth would reveal there, `f_px × 0.3 × 4 × (1/z_near − 1/z_far)` pixels, at least 4 px and at most 15 % of the long side. This covers an object that touches the ground and so never forms a segment of its own, such as a boat on the water.
+
+   The sky is never hidden.
+7. **Hidden background.** The image and the log depth are inpainted with OpenCV Telea (radius 5 px, at half resolution) over the hidden region, extended to twice each band's reach and dilated by 6 px, so the band is filled from the background across the cut rather than from the occluder's own interior. OpenCV's Telea gives noise on float input, so the log depth goes through a 16-bit quantisation of its range. The filled depth is kept at least 3 % behind the foreground it hides.
+8. **Gaussians.** Every valid or sky pixel becomes a front Gaussian, and every hidden pixel also becomes a background Gaussian from the inpainted layer. Each sits at its pixel's unprojected position, with a SH0 colour from the pixel and an opacity of 0.95, lowered to 0.35 on the cuts. Its covariance lies on the surface:
+   - the tangents `t_u` and `t_v` are central differences of the unprojected point map along the image axes;
+   - next to a cut (a step over 0.35 in log depth) only the continuous side is used, forward or backward, so a Gaussian never stretches across a jump; a pixel cut off on both sides falls back to its pixel footprint `z / f_px` along the image axes;
+   - each tangent is clamped to 128 footprints;
+   - the covariance is `0.6² (t_u t_uᵀ + t_v t_vᵀ)` in the surface plane, plus a thickness of 0.1 footprint along the normal `t_u × t_v`. Its eigenvectors give the quaternion, and the square roots of its eigenvalues give the log-scales.
+
+   On a wall facing the camera, this is a pixel-sized disc. On an oblique surface (an arm, a raincoat, the deck) it is stretched along the slope, so neighbouring Gaussians still overlap when the camera turns.
 9. **Write.** The `.ply` below, then a preview: a point render from the source view (nearest Gaussian per pixel, holes filled from neighbours) that becomes the file's thumbnails.
 
-Expect about 1.1 to 1.4 Gaussians per pixel: roughly 1 million and 50 MB at Standard for a 4:3 image, 2 million and 110 MB at High.
+Expect about 1.1 to 1.7 Gaussians per pixel: roughly 1 to 1.3 million and 55 to 75 MB at Standard for a 4:3 image, twice that at High.
 
-Every threshold above is a named constant in `arch/image_to_splat/config.py` (`DEPTH_EDGE_LOG_RATIO`, `FOREGROUND_VOTE_RATIO`, `INPAINT_DILATE_PX`, `INPAINT_RADIUS_PX`, `INPAINT_SCALE`, `BACKGROUND_DEPTH_MARGIN`, `SCALE_PER_PIXEL`, `RADIAL_FLATTEN`, `OPACITY`, `EDGE_OPACITY`, `SKY_DEPTH_MIN`, `SKY_BEYOND_FARTHEST`, `KEEP_SKY`...). The values are first guesses, to be tuned on real images (landscape, interior, character) on a GPU.
+Every threshold above is a named constant in `arch/image_to_splat/config.py`: `EDGE_JUMP_LOG_RATIO`, `EDGE_SNAP_WINDOW_PX`, `EDGE_PIXELS`, `EDGE_OPACITY`, `FOREGROUND_VOTE_RATIO`, `DISOCCLUSION_BASELINE`, `HIDDEN_MIN_PX`, `HIDDEN_MAX_FRACTION`, `INPAINT_DILATE_PX`, `INPAINT_RADIUS_PX`, `INPAINT_SCALE`, `BACKGROUND_DEPTH_MARGIN`, `TANGENT_SCALE`, `TANGENT_MAX_FOOTPRINTS`, `NORMAL_THICKNESS`, `OPACITY`, `SKY_DEPTH_MIN`, `SKY_BEYOND_FARTHEST` and `KEEP_SKY`.
+
+The current values were tuned on four real photographs (a fisherman with a coiled rope on a bow, a trawler in a harbour, boats in a misty bay, a boat at sunset). Each splat was rendered with an EWA Gaussian rasteriser at 640 px wide from seven cameras: the source view, an orbit of −10, +10 and +20°, a dolly of 15 and 30 % of the depth, and a crane of 10°. Against the first version (camera-facing discs flattened along the ray, 3×3 cuts, foreground segments only), small holes inside the scene (pixels left more than half transparent that a 9×9 closing would fill) fell on average from 1.6, 1.3 and 2.0 % to 0.35, 0.27 and 0.16 % for the three orbits, and from 3.9 % to 0.27 % for the crane. The source view kept its fidelity: its PSNR against the input went from 31.8 to 32.5 dB.
 
 ## Output
 
@@ -60,6 +72,7 @@ It uses `model_loader/image_to_splat` and `generator/image_to_splat`. There is n
 
 - No generative completion. Behind the foreground there is only the inpainted background, and outside the frame there is nothing. Past an orbit of about 15° or a dolly of about 20 % of the depth, stretched edges, holes and empty borders show.
 - Two layers only: a middle ground hidden behind a foreground that is itself in front of a far background is filled with the far background.
+- Wide disocclusions (behind a boat or a person) are filled by inpainting, which smears texture there.
 - Thin structures (hair, branches, fences) cut poorly and tend to leave halos.
 - Without metric scale, the scene is in arbitrary units with a median depth of 4.
 
