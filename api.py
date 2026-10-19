@@ -16,6 +16,9 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+from src.platform.runtime.cuda_env import apply_cuda_env_defaults
+apply_cuda_env_defaults()
+
 import uvicorn
 
 from src.bootstrap.app import create_app
