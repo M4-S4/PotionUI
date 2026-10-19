@@ -78,6 +78,7 @@ const PAGE_CHUNKS = 'chunks';
 const DEBUG_BUILD = process.argv.includes('--debug') || process.env.PLUGIN_BUILD === 'debug';
 
 const BUILD_OPTIONS = {
+	absWorkingDir: REPO_ROOT,
 	legalComments: 'eof',
 	...(DEBUG_BUILD ? { minify: false, sourcemap: true } : { minify: true, sourcemap: false })
 };

@@ -85,13 +85,18 @@ def _run(repo: Path, *args: str) -> subprocess.CompletedProcess:
     )
 
 
+def _entries(options: dict) -> list:
+    entry_points = options["entryPoints"]
+    return list(entry_points.values()) if isinstance(entry_points, dict) else entry_points
+
+
 def _esbuild_calls(repo: Path, *args: str) -> dict:
     result = _run(repo, *args)
     assert result.returncode == 0, result.stdout + result.stderr
     calls = {}
     for line in (repo / "esbuild-calls.jsonl").read_text(encoding="utf-8").splitlines():
         options = json.loads(line)
-        plugin_id = Path(options["entryPoints"][0]).parts[-4]
+        plugin_id = Path(_entries(options)[0]).parts[-4]
         calls.setdefault(plugin_id, []).append(options)
     return calls
 
@@ -106,7 +111,7 @@ def test_only_a_linked_plugin_folder_resolves_from_the_path_as_given(repo):
 
 def test_a_linked_plugin_is_handed_to_esbuild_by_its_linked_path(repo):
     for options in _esbuild_calls(repo)["linked-plugin"]:
-        for entry in options["entryPoints"]:
+        for entry in _entries(options):
             assert Path(entry).parent.parent.parent == repo / "content" / "plugins" / "local" / "linked-plugin"
 
 
@@ -134,5 +139,10 @@ def test_a_dangling_plugin_link_is_skipped_with_a_warning_and_the_rest_still_bui
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "dead-plugin" in result.stderr
-    ids = {Path(json.loads(line)["entryPoints"][0]).parts[-4] for line in (repo / "esbuild-calls.jsonl").read_text(encoding="utf-8").splitlines()}
+    ids = {Path(_entries(json.loads(line))[0]).parts[-4] for line in (repo / "esbuild-calls.jsonl").read_text(encoding="utf-8").splitlines()}
     assert ids == {"plain-plugin", "linked-plugin"}
+
+
+def test_every_build_runs_from_the_repository_root_whatever_the_working_directory(repo):
+    for options in [o for calls in _esbuild_calls(repo).values() for o in calls]:
+        assert Path(options["absWorkingDir"]).resolve() == repo.resolve()
