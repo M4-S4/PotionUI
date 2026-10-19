@@ -175,6 +175,7 @@ def build_history_mode() -> ChatMode:
         default_route_prefixes=["/history"],
         resource_namespaces=["generations"],
         llm_options={},
+        core_groups=("core", "library"),
         source="builtin",
     )
 
@@ -191,6 +192,7 @@ def build_models_mode() -> ChatMode:
         default_route_prefixes=["/models"],
         resource_namespaces=["models"],
         llm_options={},
+        core_groups=("core", "library"),
         source="builtin",
     )
 
@@ -207,6 +209,7 @@ def build_phrasebook_mode() -> ChatMode:
         default_route_prefixes=["/phrasebook"],
         resource_namespaces=["phrasebook"],
         llm_options={},
+        core_groups=("core", "phrasebook_write"),
         source="builtin",
     )
 
@@ -223,5 +226,6 @@ def build_prompts_mode() -> ChatMode:
         default_route_prefixes=["/prompts"],
         resource_namespaces=[],
         llm_options={},
+        core_groups=("core", "library"),
         source="builtin",
     )

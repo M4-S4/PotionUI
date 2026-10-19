@@ -321,6 +321,26 @@ class TestSendMessageStreamNormalPath(BaseStreamingTest):
         assert budget["capacity_tokens"] == 65536
 
     @pytest.mark.asyncio
+    async def test_tool_tier_reads_the_window_probed_before_tools_resolve(self):
+        from src.features.llm import context_budget
+
+        self._setup_basic_stream(["hi"])
+        primed = []
+        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.repository = Mock()
+        self.mock_llm.context_capacity_for = Mock(side_effect=lambda config: (
+            context_budget.CapacityInfo(8192, "discovered") if primed
+            else context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+        ))
+
+        await collect_stream(
+            self.manager.send_message_stream(session_id="session-123", user_id="user-123", content="hello")
+        )
+
+        trace = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]
+        assert trace["tool_tier"] == context_budget.TOOL_TIER_COMPACT
+
+    @pytest.mark.asyncio
     async def test_message_created_contains_user_message_id(self):
         """message_created event should carry the user_message_id."""
         user_msg, _ = self._setup_basic_stream(["hi"])

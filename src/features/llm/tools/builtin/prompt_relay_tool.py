@@ -123,6 +123,7 @@ class SetPromptRelayTimelineTool(BaseTool):
 
     modes = ["generation"]
     icon = "film"
+    context_group = "director"
 
     @property
     def name(self) -> str:

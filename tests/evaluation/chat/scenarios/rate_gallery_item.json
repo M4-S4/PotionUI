@@ -2,7 +2,7 @@
   "version": 2,
   "id": "rate_gallery_item",
   "title": "Rating a generation via organize_gallery, exercising a real numeric-bound schema",
-  "mode": "generation",
+  "mode": "history",
   "tool_names": [
     "organize_gallery"
   ],

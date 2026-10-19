@@ -275,6 +275,7 @@ class ListPhrasebookValuesTool(BaseTool):
 
     modes = ["generation", "phrasebook"]
     icon = "search"
+    context_group = "phrasebook_write"
 
     @property
     def name(self) -> str:
@@ -388,6 +389,7 @@ class CreatePhrasebookCategoryTool(BaseTool):
 
     modes = ["generation", "phrasebook"]
     icon = "folder-plus"
+    context_group = "phrasebook_write"
 
     @property
     def name(self) -> str:
@@ -535,6 +537,7 @@ def _count_label(count: int, singular: str, plural: str) -> str:
 class UpdatePhrasebookCategoryTool(BaseTool):
     modes = ["generation", "phrasebook"]
     icon = "folder-pen"
+    context_group = "phrasebook_write"
 
     @property
     def name(self) -> str:
@@ -699,6 +702,7 @@ class UpdatePhrasebookCategoryTool(BaseTool):
 class DeletePhrasebookCategoryTool(BaseTool):
     modes = ["generation", "phrasebook"]
     icon = "folder-minus"
+    context_group = "phrasebook_write"
 
     @property
     def name(self) -> str:
@@ -815,6 +819,7 @@ class RemovePhrasebookValuesTool(BaseTool):
 
     modes = ["generation", "phrasebook"]
     icon = "list-minus"
+    context_group = "phrasebook_write"
 
     @property
     def name(self) -> str:
@@ -1019,6 +1024,7 @@ class UpdatePhrasebookValuesTool(BaseTool):
 
     modes = ["generation", "phrasebook"]
     icon = "list-pen"
+    context_group = "phrasebook_write"
 
     @property
     def name(self) -> str:
@@ -1243,6 +1249,7 @@ class CreatePhrasebookValuesTool(BaseTool):
 
     modes = ["generation", "phrasebook"]
     icon = "list-plus"
+    context_group = "phrasebook_write"
 
     @property
     def name(self) -> str:

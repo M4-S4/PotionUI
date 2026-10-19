@@ -39,8 +39,9 @@ _ID_KIND_LABEL = {"generation_ids": "generation", "upload_ids": "upload", "promp
 class ManageCollectionsTool(BaseTool):
     """Create, rename, delete collections and move generations/library items/prompts in/out of them."""
 
-    modes = ["generation", "history"]
+    modes = ["history"]
     icon = "folder"
+    context_group = "library"
 
     @property
     def name(self) -> str:

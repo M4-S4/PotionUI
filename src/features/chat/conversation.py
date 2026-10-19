@@ -37,6 +37,7 @@ from src.features.chat.tool_transcript import tool_metadata
 from src.features.llm import context_budget, trace_collector
 from src.features.llm.trace_repository import chat_call_trace_repository
 from src.features.llm.tools.base import ToolExecution
+from src.features.llm.tools.use_tools import use_tools_schema
 from src.features.llm.tools.builtin.utils import resolve_active_preset_id
 from src.platform.plugins.hooks import await_hook_blocking_waits
 from src.platform.util.imaging import convert_image_to_base64
@@ -171,10 +172,12 @@ class ConversationRunner:
         if not user_message:
             raise MessageCreationFailedException("Failed to save user message")
 
-        system_prompt, allowed_tools, mode = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=(context_metadata or {}).get("form_state"),
+        await self._prime_context_window(session)
+        tool_tier = self._tool_tier(session)
+        system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
+            session, form_state=(context_metadata or {}).get("form_state"), tool_tier=tool_tier,
         )
-        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
+        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
 
         conversation_history = self._m.chat_repository.get_conversation_history(
             session_id, include_tool_transcript=tools_enabled,
@@ -225,11 +228,10 @@ class ConversationRunner:
 
         workspace_result = self._m._context.inject_workspace_block(conversation_history, context_metadata)
         self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
-        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
+        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
-        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
-        await self._prime_context_window(session)
+        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
         budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
         try:
             context_ledger = self._build_context_ledger(
@@ -273,6 +275,7 @@ class ConversationRunner:
                     allowed_tools=allowed_tools,
                     llm_options=mode.llm_options or None,
                     iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
+                    deferred_tools=deferred_tools,
                 )
             transcript = self._list_or_empty(getattr(llm_response, "tool_transcript", None))
             rounds_used = self._int_or_zero(getattr(llm_response, "rounds_used", 0))
@@ -324,6 +327,8 @@ class ConversationRunner:
                 tool_failures=getattr(llm_response, "tool_failures", None),
                 thinking_mode=getattr(llm_response, "thinking_mode", None),
                 completion=getattr(llm_response, "completion", None),
+                tool_tier=tool_tier,
+                tools_deferred=deferred_tools,
             ),
         }
 
@@ -505,10 +510,13 @@ class ConversationRunner:
             if not user_message:
                 raise MessageCreationFailedException("Failed to save user message")
 
-        system_prompt, allowed_tools, mode = self._m._context.resolve_session_prompt_and_tools(
-            session, form_state=(context_metadata or {}).get("form_state"),
+        await self._prime_context_window(session)
+        tool_tier = self._tool_tier(session)
+        system_prompt, allowed_tools, mode, deferred_tools = self._m._context.resolve_session_prompt_and_tools(
+            session, form_state=(context_metadata or {}).get("form_state"), tool_tier=tool_tier,
+            loaded_groups=continuation.loaded_groups if continuation else (),
         )
-        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools)
+        tools_enabled = self._m.tool_executor is not None and bool(allowed_tools or deferred_tools)
 
         conversation_history = self._m.chat_repository.get_conversation_history(
             session_id, include_tool_transcript=tools_enabled,
@@ -583,13 +591,12 @@ class ConversationRunner:
 
         workspace_result = self._m._context.inject_workspace_block(conversation_history, context_metadata)
         self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
-        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode)
+        self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
         if continuation is not None:
             conversation_history.append(approval_continuation_message())
 
-        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools)
-        await self._prime_context_window(session)
+        tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
         budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
         try:
             context_ledger = self._build_context_ledger(
@@ -666,6 +673,7 @@ class ConversationRunner:
                         llm_options=mode.llm_options or None,
                         iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
                         applied_calls=continuation.applied_calls if continuation else None,
+                        deferred_tools=deferred_tools,
                     )) as agen:
                         async for event in agen:
                             if event["type"] in ("tool_start", "tool_end"):
@@ -780,6 +788,8 @@ class ConversationRunner:
                     tool_failures=tool_failures,
                     thinking_mode=thinking_mode,
                     completion=turn_completion,
+                    tool_tier=tool_tier,
+                    tools_deferred=deferred_tools,
                 ),
             }
 
@@ -925,6 +935,20 @@ class ConversationRunner:
         except Exception:
             logger.debug("Could not prime LLM context window", exc_info=True)
 
+    def _tool_tier(self, session: SessionResponse) -> str:
+        llm_config_id = getattr(session, "llm_config_id", None)
+        if not llm_config_id:
+            return context_budget.TOOL_TIER_STANDARD
+        try:
+            config = self._m.llm_service.repository.get_configuration(llm_config_id)
+            if config is None:
+                return context_budget.TOOL_TIER_STANDARD
+            capacity = self._m.llm_service.context_capacity_for(config)
+            return context_budget.tool_tier(capacity)
+        except Exception:
+            logger.debug("Could not resolve the tool tier for the context window", exc_info=True)
+            return context_budget.TOOL_TIER_STANDARD
+
     def _resolve_budget_inputs(
         self,
         session: SessionResponse,
@@ -1009,14 +1033,16 @@ class ConversationRunner:
                 chars += len(json.dumps(msg["tool_calls"], default=str))
         return chars
 
-    def _resolve_tool_schemas_for_ledger(self, allowed_tools: Optional[List[str]]) -> List[Dict[str, Any]]:
+    def _resolve_tool_schemas_for_ledger(
+        self, allowed_tools: Optional[List[str]], deferred_tools: Optional[Dict[str, List[str]]] = None,
+    ) -> List[Dict[str, Any]]:
         """Fetch the resolved tool schemas the executor would actually send this turn.
 
         Best-effort like the rest of the trace plumbing — a registry lookup
         failure (or a test double that doesn't model ``get_schemas``) yields
         an empty list rather than breaking the send.
         """
-        if not allowed_tools:
+        if not allowed_tools and not deferred_tools:
             return []
         try:
             registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
@@ -1028,7 +1054,9 @@ class ConversationRunner:
             schemas = registry.get_schemas(allowed_tools)
         except Exception:
             return []
-        return schemas if isinstance(schemas, list) else []
+        if not isinstance(schemas, list):
+            return []
+        return [*schemas, use_tools_schema(deferred_tools)] if deferred_tools else schemas
 
     @staticmethod
     def _build_context_ledger(
@@ -1141,6 +1169,8 @@ class ConversationRunner:
         tool_failures: Optional[Any] = None,
         thinking_mode: Optional[Dict[str, Any]] = None,
         completion: Optional[Dict[str, Any]] = None,
+        tool_tier: Optional[str] = None,
+        tools_deferred: Optional[Dict[str, List[str]]] = None,
     ) -> Dict[str, Any]:
         """Assemble the persisted per-message behavior-trace manifest.
 
@@ -1189,6 +1219,8 @@ class ConversationRunner:
             "tools_used": [te.tool_name for te in tool_executions],
             "tools_offered": list(tools_offered or []),
             "tools_withheld": tools_withheld or {},
+            "tool_tier": tool_tier,
+            "tools_deferred": {group: list(names) for group, names in (tools_deferred or {}).items()},
             "rescues": rescues,
             "tool_failures": tool_failures,
             "thinking_mode": thinking_mode,

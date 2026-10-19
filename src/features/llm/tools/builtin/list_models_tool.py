@@ -60,6 +60,7 @@ class ListModelsTool(BaseTool):
 
     modes = ["generation", "models"]
     icon = "library"
+    context_group = "library"
 
     @property
     def name(self) -> str:

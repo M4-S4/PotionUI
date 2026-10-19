@@ -42,8 +42,9 @@ def _resolve_or_create_tag_id(tag_repository: Any, plugin_registry: Any, user_id
 class OrganizeGalleryTool(BaseTool):
     """Tag, rate, and browse the user's generation history."""
 
-    modes = ["generation", "history"]
+    modes = ["history"]
     icon = "tags"
+    context_group = "library"
 
     @property
     def name(self) -> str:

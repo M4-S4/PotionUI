@@ -384,6 +384,33 @@ class TestContinuation:
         assert len(repo.get_messages(session_id)) == 3
 
     @pytest.mark.asyncio
+    async def test_continuation_keeps_a_group_loaded_earlier_in_the_turn(self, chat_db):
+        from src.features.llm import context_budget
+
+        class _CompactLLM(_ScriptedLLM):
+            def context_capacity_for(self, config):
+                return context_budget.CapacityInfo(8192, "config")
+
+        tool = _SetValueTool()
+        tool.context_group = "extra"
+        llm = _CompactLLM([
+            {"tool_calls": [_call("c0", "use_tools", group="extra")]},
+            {"tool_calls": [_call("c1", "set_value", value=2)]},
+            {"content": "Set to 2."},
+        ])
+        manager, _repo, session_id = _manager([tool, _EchoTool()], llm)
+        events = await _stream(manager, session_id, "set it to 2")
+        message_id = _done(events)["assistant_message"]["id"]
+        await _resolve(manager, session_id, message_id, tool_index=1)
+
+        await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 1})
+
+        names = [[schema["function"]["name"] for schema in call["tools"]] for call in llm.calls]
+        assert names[0] == ["echo", "use_tools"]
+        assert names[1] == ["set_value", "echo"]
+        assert names[2] == ["set_value", "echo"]
+
+    @pytest.mark.asyncio
     async def test_continuation_while_pending_is_refused(self, chat_db):
         manager, _repo, session_id, _llm, message_id, _events = await _paused(_SetValueTool())
 

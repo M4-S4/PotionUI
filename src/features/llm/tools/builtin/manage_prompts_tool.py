@@ -106,6 +106,7 @@ def _prompt_request(existing=None, **kwargs) -> PromptRequest:
 class GetPromptTool(BaseTool):
     modes = ["generation", "prompts"]
     icon = "book-open"
+    context_group = "library"
 
     @property
     def name(self): return "get_prompt"
@@ -150,6 +151,7 @@ class GetPromptTool(BaseTool):
 class ListPromptsTool(BaseTool):
     modes = ["generation", "prompts"]
     icon = "book-open"
+    context_group = "library"
 
     @property
     def name(self): return "list_prompts"
@@ -210,8 +212,9 @@ class ListPromptsTool(BaseTool):
 
 
 class AddPromptTool(BaseTool):
-    modes = ["generation", "prompts"]
+    modes = ["prompts"]
     icon = "book-plus"
+    context_group = "library"
 
     @property
     def name(self): return "add_prompt"
@@ -300,8 +303,9 @@ class AddPromptTool(BaseTool):
 
 
 class EditPromptTool(BaseTool):
-    modes = ["generation", "prompts"]
+    modes = ["prompts"]
     icon = "book-open"
+    context_group = "library"
 
     @property
     def name(self): return "edit_prompt"
@@ -413,8 +417,9 @@ class EditPromptTool(BaseTool):
 
 
 class DeletePromptTool(BaseTool):
-    modes = ["generation", "prompts"]
+    modes = ["prompts"]
     icon = "trash-2"
+    context_group = "library"
 
     @property
     def name(self): return "delete_prompt"

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, FrozenSet, List, Optional, Set
 from weakref import WeakValueDictionary
 
 from src.features.chat import tool_transcript
@@ -13,6 +13,7 @@ from src.features.chat.exceptions import (
 )
 from src.features.llm.tools.base import ToolContext, ToolResult, serialize_approval_preview
 from src.features.llm.tools.errors import unexpected
+from src.features.llm.tools.use_tools import USE_TOOLS_NAME
 from src.platform.resources.prompt_variables import apply_variable_operations
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ class Continuation:
     rounds_used: int
     applied_calls: Set[str]
     context_metadata: Optional[Dict[str, Any]]
+    loaded_groups: FrozenSet[str] = frozenset()
 
 
 class ToolCallDispatcher:
@@ -251,7 +253,25 @@ class ToolCallDispatcher:
             rounds_used=int(metadata.get("turn_rounds") or 0),
             applied_calls=tool_transcript.applied_call_keys(chain),
             context_metadata=metadata.get("context_metadata"),
+            loaded_groups=self._loaded_tool_groups(chain),
         )
+
+    def _loaded_tool_groups(self, chain: List[Any]) -> FrozenSet[str]:
+        registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
+        groups: Set[str] = set()
+        for row in chain:
+            for record in (row.metadata or {}).get("tool_executions") or []:
+                name = record.get("tool_name", "")
+                if name == USE_TOOLS_NAME:
+                    group = (record.get("arguments") or {}).get("group")
+                    if (record.get("result") or {}).get("success") and isinstance(group, str):
+                        groups.add(group)
+                    continue
+                tool = registry.get(name) if registry else None
+                group = getattr(tool, "context_group", None)
+                if isinstance(group, str):
+                    groups.add(group)
+        return frozenset(groups)
 
     @staticmethod
     def _apply_action_to_context_metadata(

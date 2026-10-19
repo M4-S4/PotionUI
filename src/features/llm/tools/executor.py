@@ -24,6 +24,7 @@ from src.features.llm.tools.base import (
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools import tool_call_rescue
 from src.features.llm.tools.errors import unexpected
+from src.features.llm.tools.use_tools import USE_TOOLS_NAME, deferred_group_of, load_tool_group, use_tools_schema
 from src.features.llm.tools.workflow import (
     AssistantDelta,
     Completed,
@@ -233,11 +234,10 @@ class _BufferedTurnSource:
     an answer, and differ only in how they render it.
     """
 
-    def __init__(self, executor, llm_id, system_message, tool_schemas, mode, llm_options):
+    def __init__(self, executor, llm_id, system_message, mode, llm_options):
         self._executor = executor
         self._llm_id = llm_id
         self._system_message = system_message
-        self._tool_schemas = tool_schemas
         self._mode = mode
         self._llm_options = llm_options
 
@@ -245,7 +245,7 @@ class _BufferedTurnSource:
         kwargs: Dict[str, Any] = {
             "messages": request.messages,
             "llm_id": self._llm_id,
-            "tools": [] if request.final else self._tool_schemas,
+            "tools": [] if request.final else request.tools,
             "custom_system_message": self._system_message,
             "mode": self._mode,
             "options_override": self._llm_options,
@@ -280,14 +280,11 @@ class _LiveTurnSource:
     never shown either way, so the workflow's bounded retry applies.
     """
 
-    def __init__(self, executor, workflow, llm_id, system_message, tool_schemas,
-                 registered, mode, llm_options):
+    def __init__(self, executor, workflow, llm_id, system_message, mode, llm_options):
         self._executor = executor
         self._workflow = workflow
         self._llm_id = llm_id
         self._system_message = system_message
-        self._tool_schemas = tool_schemas
-        self._registered = registered
         self._mode = mode
         self._llm_options = llm_options
 
@@ -324,14 +321,16 @@ class _LiveTurnSource:
             # A pending approval fired inline; keep consuming the generator,
             # forward nothing more.
             draining = False
-            stream_filter = _StreamToolCallFilter(self._registered)
+            stream_filter = _StreamToolCallFilter(
+                self._executor._registered_allowed(workflow.allowed_tools, workflow.deferred_tools)
+            )
 
             # Owns the provider stream for this attempt: a retry, an
             # approval mid-turn, or the caller closing this whole generator
             # while suspended at one of the `yield`s below must close THIS
             # stream rather than abandon it still parked on the provider.
             async with aclosing(
-                self._stream(request.messages, self._tool_schemas, request.image_data)
+                self._stream(request.messages, request.tools, request.image_data)
             ) as agen:
                 async for event in agen:
                     event_type = event.get("type")
@@ -424,12 +423,24 @@ class ToolExecutor:
         self.tool_registry = tool_registry
         self.llm_service = llm_service
 
-    def _registered_allowed(self, allowed_tools: Optional[List[str]]) -> set:
+    def _registered_allowed(
+        self, allowed_tools: Optional[List[str]], deferred_tools: Optional[Dict[str, List[str]]] = None,
+    ) -> set:
         """Registered tool names, narrowed to the session's allowed set."""
         names = {tool.name for tool in self.tool_registry.get_all()}
         if allowed_tools is not None:
             names &= set(allowed_tools)
+        if deferred_tools:
+            names |= {USE_TOOLS_NAME, *(name for group in deferred_tools.values() for name in group)}
         return names
+
+    def turn_tool_schemas(
+        self, allowed_tools: Optional[List[str]], deferred_tools: Optional[Dict[str, List[str]]] = None,
+    ) -> List[Dict]:
+        schemas = self.tool_registry.get_schemas(allowed_tools)
+        if deferred_tools:
+            return [*schemas, use_tools_schema(deferred_tools)]
+        return schemas
 
     async def _gate_tool_image(self, tool_context: ToolContext, result: ToolResult) -> Optional[str]:
         """Strip a tool result's image when the session's LLM config can't see
@@ -458,7 +469,8 @@ class ToolExecutor:
         return _VISION_UNSUPPORTED_NOTE
 
     def _rescue_final_content(
-        self, content: str, allowed_tools: Optional[List[str]]
+        self, content: str, allowed_tools: Optional[List[str]],
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> Tuple[List[Dict[str, Any]], List[str], List[str], List[Dict[str, Any]], str]:
         """Scan a would-be-final assistant message for near-miss tool invocations.
 
@@ -469,7 +481,7 @@ class ToolExecutor:
         Every detected span is stripped from ``cleaned_content`` so no markup
         ever surfaces.
         """
-        registered = self._registered_allowed(allowed_tools)
+        registered = self._registered_allowed(allowed_tools, deferred_tools)
         near = tool_call_rescue.find_near_miss_invocations(content or "", registered)
         if not near:
             return [], [], [], [], content
@@ -531,6 +543,7 @@ class ToolExecutor:
         working_messages: List[Dict[str, Any]],
         tool_executions: List[ToolExecution],
         allowed_tools: Optional[List[str]],
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> ToolExecution:
         """Run a caller-forced tool call as the turn's first action.
 
@@ -552,7 +565,9 @@ class ToolExecutor:
         working_messages.append(self._forced_assistant_message(name, arguments, call_id))
 
         start_time = time.monotonic()
-        result, _is_pending = await self._execute_tool(name, tool_context, arguments, allowed_tools=allowed_tools)
+        result, _is_pending = await self._execute_tool(
+            name, tool_context, arguments, allowed_tools=allowed_tools, deferred_tools=deferred_tools,
+        )
         duration_ms = int((time.monotonic() - start_time) * 1000)
         vision_note = await self._gate_tool_image(tool_context, result)
 
@@ -614,6 +629,7 @@ class ToolExecutor:
         forced_tool_call: Optional[Dict[str, Any]] = None,
         iteration_nudge: Optional[str] = None,
         applied_calls: Optional[set] = None,
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> Tuple[Any, List[ToolExecution]]:
         """Run the tool loop buffered. Returns final LLM response + execution records.
 
@@ -649,12 +665,9 @@ class ToolExecutor:
             self, messages, tool_context, allowed_tools, max_iterations,
             image_data=image_data, forced_tool_call=forced_tool_call,
             iteration_nudge=iteration_nudge, wrap_up_on_limit=False,
-            applied_calls=applied_calls,
+            applied_calls=applied_calls, deferred_tools=deferred_tools,
         )
-        source = _BufferedTurnSource(
-            self, llm_id, system_message, self.tool_registry.get_schemas(allowed_tools),
-            mode, llm_options,
-        )
+        source = _BufferedTurnSource(self, llm_id, system_message, mode, llm_options)
 
         terminal: Any = None
         # Not itself an async-generator seam a caller can `aclose()` — this
@@ -772,6 +785,7 @@ class ToolExecutor:
         tool_executions: List[ToolExecution],
         allowed_tools: Optional[List[str]],
         guard: _ToolCallGuard,
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute one iteration's tool calls, yielding tool_start/tool_end events.
 
@@ -792,7 +806,7 @@ class ToolExecutor:
 
             start_time = time.monotonic()
             result, is_pending = await self._execute_tool_guarded(
-                tool_name, tool_context, arguments, allowed_tools, guard
+                tool_name, tool_context, arguments, allowed_tools, guard, deferred_tools
             )
             duration_ms = int((time.monotonic() - start_time) * 1000)
 
@@ -869,6 +883,7 @@ class ToolExecutor:
         forced_tool_call: Optional[Dict[str, Any]] = None,
         iteration_nudge: Optional[str] = None,
         applied_calls: Optional[set] = None,
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Run the tool loop, streaming tokens live as the LLM produces them.
 
@@ -903,6 +918,7 @@ class ToolExecutor:
                 forced_tool_call=forced_tool_call,
                 iteration_nudge=iteration_nudge,
                 applied_calls=applied_calls,
+                deferred_tools=deferred_tools,
             )) as agen:
                 async for event in agen:
                     yield event
@@ -912,12 +928,9 @@ class ToolExecutor:
             self, messages, tool_context, allowed_tools, max_iterations,
             image_data=image_data, forced_tool_call=forced_tool_call,
             iteration_nudge=iteration_nudge, applied_calls=applied_calls,
+            deferred_tools=deferred_tools,
         )
-        source = _LiveTurnSource(
-            self, workflow, llm_id, system_message,
-            self.tool_registry.get_schemas(allowed_tools),
-            self._registered_allowed(allowed_tools), mode, llm_options,
-        )
+        source = _LiveTurnSource(self, workflow, llm_id, system_message, mode, llm_options)
 
         # Owns the workflow's generator for this whole turn: closing THIS
         # generator (a caller's aclose(), or an exception unwinding through
@@ -962,6 +975,7 @@ class ToolExecutor:
         forced_tool_call: Optional[Dict[str, Any]] = None,
         iteration_nudge: Optional[str] = None,
         applied_calls: Optional[set] = None,
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Run the tool loop with a non-streaming decision call per iteration.
 
@@ -977,11 +991,9 @@ class ToolExecutor:
             self, messages, tool_context, allowed_tools, max_iterations,
             image_data=image_data, forced_tool_call=forced_tool_call,
             iteration_nudge=iteration_nudge, applied_calls=applied_calls,
+            deferred_tools=deferred_tools,
         )
-        source = _BufferedTurnSource(
-            self, llm_id, system_message, self.tool_registry.get_schemas(allowed_tools),
-            mode, llm_options,
-        )
+        source = _BufferedTurnSource(self, llm_id, system_message, mode, llm_options)
 
         async with aclosing(workflow.run(source)) as agen:
             async for event in agen:
@@ -1024,6 +1036,7 @@ class ToolExecutor:
     async def _execute_tool(
         self, tool_name: str, context: ToolContext, arguments: Dict[str, Any],
         allowed_tools: Optional[List[str]] = None,
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> Tuple[ToolResult, bool]:
         """Execute a single tool by name.
 
@@ -1032,6 +1045,13 @@ class ToolExecutor:
             The flag is True only when the tool has requires_approval=True
             AND the execution succeeded (i.e. produced a valid preview).
         """
+        if deferred_tools and allowed_tools is not None:
+            if tool_name == USE_TOOLS_NAME:
+                return load_tool_group(arguments.get("group"), allowed_tools, deferred_tools), False
+            group = deferred_group_of(tool_name, deferred_tools)
+            if group is not None:
+                load_tool_group(group, allowed_tools, deferred_tools)
+
         # Defense in depth: reject tools not in the allowed set. Name the tools
         # that ARE available so a small model can recover in one step instead of
         # retrying the same disabled tool.
@@ -1077,6 +1097,7 @@ class ToolExecutor:
         arguments: Dict[str, Any],
         allowed_tools: Optional[List[str]],
         guard: _ToolCallGuard,
+        deferred_tools: Optional[Dict[str, List[str]]] = None,
     ) -> Tuple[ToolResult, bool]:
         """`_execute_tool`, short-circuiting an exact repeat of a call that
         already failed this turn (see `_ToolCallGuard`) instead of re-running it."""
@@ -1087,7 +1108,9 @@ class ToolExecutor:
             result = ToolResult(success=False, data="", error=blocked)
             guard.record(tool_name, arguments, result)
             return result, False
-        result, is_pending = await self._execute_tool(tool_name, context, arguments, allowed_tools=allowed_tools)
+        result, is_pending = await self._execute_tool(
+            tool_name, context, arguments, allowed_tools=allowed_tools, deferred_tools=deferred_tools,
+        )
         guard.record(tool_name, arguments, result)
         return result, is_pending
 

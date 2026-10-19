@@ -43,8 +43,8 @@ class TestSchema:
         assert tool.requires_approval is True
         assert tool.parameters["required"] == ["operation"]
 
-    def test_modes_include_generation_and_history(self):
-        assert OrganizeGalleryTool().modes == ["generation", "history"]
+    def test_belongs_to_the_history_mode_only(self):
+        assert OrganizeGalleryTool().modes == ["history"]
 
 
 class TestListRecentFilters:

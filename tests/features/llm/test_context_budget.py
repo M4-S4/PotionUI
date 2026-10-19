@@ -655,6 +655,22 @@ class TestEnforceBudget:
 # resolve_image_token_override
 # ---------------------------------------------------------------------------
 
+class TestToolTier:
+    @pytest.mark.parametrize("tokens,source,expected", [
+        (8192, "unknown", context_budget.TOOL_TIER_STANDARD),
+        (200000, "unknown", context_budget.TOOL_TIER_STANDARD),
+        (8192, "config", context_budget.TOOL_TIER_COMPACT),
+        (24575, "discovered", context_budget.TOOL_TIER_COMPACT),
+        (24576, "discovered", context_budget.TOOL_TIER_STANDARD),
+        (32768, "discovered", context_budget.TOOL_TIER_STANDARD),
+        (65536, "config", context_budget.TOOL_TIER_STANDARD),
+        (65537, "config", context_budget.TOOL_TIER_LARGE),
+        (131072, "discovered", context_budget.TOOL_TIER_LARGE),
+    ])
+    def test_tier_follows_the_known_window(self, tokens, source, expected):
+        assert context_budget.tool_tier(CapacityInfo(tokens, source)) == expected
+
+
 class TestResolveImageTokenOverride:
     def test_unset_is_none(self):
         assert context_budget.resolve_image_token_override(_config()) is None

@@ -17,12 +17,13 @@ import asyncio
 import inspect
 import logging
 import traceback
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
 from src.features.llm import context_budget
 from src.features.llm.tools.governance import ToolGovernanceRepository, compute_allowed_tool_names
+from src.features.llm.tools.use_tools import deferred_tool_groups
 from src.features.llm.ttl_cache import TTLCache
 from src.features.llm_memory import operations as memory_operations
 from src.features.presets import operations
@@ -185,7 +186,7 @@ class ChatContextBuilder:
 
     def __init__(self, manager):
         self._m = manager
-        self._prompt_tools_cache: TTLCache[Tuple[Any, ...], Tuple[str, List[str]]] = TTLCache(
+        self._prompt_tools_cache: TTLCache[Tuple[Any, ...], Tuple[str, List[str], Dict[str, List[str]]]] = TTLCache(
             _PROMPT_TOOLS_CACHE_TTL_SECONDS
         )
 
@@ -193,7 +194,9 @@ class ChatContextBuilder:
         self,
         session,
         form_state: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[str, List[str], ChatMode]:
+        tool_tier: str = context_budget.TOOL_TIER_LARGE,
+        loaded_groups: Iterable[str] = (),
+    ) -> Tuple[str, List[str], ChatMode, Dict[str, List[str]]]:
         """Resolve the session's mode into a system prompt and allowed tool names.
 
         The mode determines the tool set (mode tools + global tools); each tool
@@ -270,20 +273,31 @@ class ChatContextBuilder:
             llm_config_id,
             tuple(sorted(governance_snapshot.items())),
             tuple(sorted(user_disabled & set(mode_tool_names))),
+            tool_tier,
+            tuple(sorted(set(loaded_groups))),
         )
         cached = self._prompt_tools_cache.get(cache_key)
         if cached is not None:
-            prompt, allowed_names = cached
-            return prompt, allowed_names, mode
+            prompt, allowed_names, deferred = cached
+            return prompt, allowed_names, mode, deferred
 
         allowed_names = [
             t.name for t in mode_tools
             if t.name in governed and t.name not in unavailable and tools_enabled and t.name not in disabled_tools
         ]
+        deferred = deferred_tool_groups(
+            [t for t in mode_tools if t.name in allowed_names],
+            tool_tier,
+            mode.core_groups,
+            always_core=mode.tool_names or (),
+            loaded_groups=loaded_groups,
+        )
+        deferred_names = {name for names in deferred.values() for name in names}
+        allowed_names = [name for name in allowed_names if name not in deferred_names]
 
         if custom_system_message:
             prompt = custom_system_message
-        elif mode_tools and not allowed_names:
+        elif mode_tools and not allowed_names and not deferred:
             # The mode has tools but the session disabled all of them — a
             # tool-centric mode prompt would mislead the model, so fall back to
             # the config default/style resolution downstream.
@@ -292,8 +306,8 @@ class ChatContextBuilder:
             hints = registry.get_tool_hints_text(allowed_names) if (registry and allowed_names) else ""
             prompt = self._m.chat_mode_registry.resolve_system_prompt(mode, hints, allowed_names)
 
-        self._prompt_tools_cache.set(cache_key, (prompt, allowed_names))
-        return prompt, allowed_names, mode
+        self._prompt_tools_cache.set(cache_key, (prompt, allowed_names, deferred))
+        return prompt, allowed_names, mode, deferred
 
     def withheld_tools_for_session(
         self,
@@ -456,6 +470,7 @@ class ChatContextBuilder:
     def inject_reply_contract_reminder_block(
         conversation_history: List[Dict[str, Any]],
         mode: Optional[ChatMode],
+        tool_tier: str = context_budget.TOOL_TIER_STANDARD,
     ) -> None:
         """Fold a short reply-contract reminder into the current user turn.
 
@@ -467,7 +482,7 @@ class ChatContextBuilder:
         end of the user's content. No-op for modes with ``structured_reply``
         off.
         """
-        if not mode or not mode.structured_reply:
+        if not mode or not mode.structured_reply or tool_tier == context_budget.TOOL_TIER_COMPACT:
             return
         context_budget.attach_context_block(conversation_history, REPLY_CONTRACT_REMINDER)
 

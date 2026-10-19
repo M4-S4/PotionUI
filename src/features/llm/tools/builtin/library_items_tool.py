@@ -32,6 +32,7 @@ def _content_states(context: ToolContext, paths: List[str]) -> Optional[Dict[str
 class ListLibraryItemsTool(BaseTool):
     modes = ["generation", "history"]
     icon = "folder-open"
+    context_group = "library"
 
     @property
     def name(self) -> str:

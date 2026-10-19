@@ -130,6 +130,12 @@ sees with native tool calling and with prompt-injected tools alike, and what MCP
 see. `hint` is optional and only fills your own mode's `{{TOOL_HINTS}}` placeholder; keep
 it to what the description cannot say. The builtin tools set no hint.
 
+A tool is sent to the model up front unless the context window is small. Set the class
+attribute `context_group` to something other than `"core"` for a tool the model only
+needs now and then; on small windows it is then held back until the model asks for it
+(see "Tools by context window" in `docs/chat-modes.md`). Tools your mode lists under
+`tools:` are always sent.
+
 A pipe that finishes a mesh pipeline:
 
 ```python

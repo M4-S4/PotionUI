@@ -58,10 +58,10 @@ class TestResolveSessionPromptAndToolsCache:
         with patch.object(
             builder._prompt_tools_cache, "set", wraps=builder._prompt_tools_cache.set,
         ) as set_spy:
-            prompt1, tools1, mode1 = builder.resolve_session_prompt_and_tools(session)
+            prompt1, tools1, mode1, _ = builder.resolve_session_prompt_and_tools(session)
             assert set_spy.call_count == 1
 
-            prompt2, tools2, mode2 = builder.resolve_session_prompt_and_tools(session)
+            prompt2, tools2, mode2, _ = builder.resolve_session_prompt_and_tools(session)
             # Not recomputed: the cache hit never calls .set() again.
             assert set_spy.call_count == 1
 
@@ -86,8 +86,8 @@ class TestResolveSessionPromptAndToolsCache:
         with patch.object(
             builder._prompt_tools_cache, "set", wraps=builder._prompt_tools_cache.set,
         ) as set_spy:
-            prompt1, _, _ = builder.resolve_session_prompt_and_tools(session)
-            prompt2, _, _ = builder.resolve_session_prompt_and_tools(session)
+            prompt1, _, _, _ = builder.resolve_session_prompt_and_tools(session)
+            prompt2, _, _, _ = builder.resolve_session_prompt_and_tools(session)
             assert set_spy.call_count == 1
 
         assert prompt1 == "Be terse." == prompt2
@@ -131,7 +131,7 @@ class TestResolvedPromptIsSessionAccurate:
 
     def test_full_set_names_every_tool(self):
         builder = self._make_builder()
-        prompt, allowed, _ = builder.resolve_session_prompt_and_tools(_session())
+        prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(_session())
         assert set(allowed) == {"get_form_state", "get_active_models"}
         assert "get_form_state" in prompt
         assert "get_active_models" in prompt
@@ -139,15 +139,15 @@ class TestResolvedPromptIsSessionAccurate:
     def test_disabling_a_tool_drops_it_from_the_prompt(self):
         builder = self._make_builder()
         session = _session(metadata={"disabled_tools": ["get_form_state"]})
-        prompt, allowed, _ = builder.resolve_session_prompt_and_tools(session)
+        prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(session)
         assert allowed == ["get_active_models"]
         assert "get_form_state" not in prompt
         assert "get_active_models" in prompt
 
     def test_two_sessions_do_not_share_a_prompt(self):
         builder = self._make_builder()
-        full, _, _ = builder.resolve_session_prompt_and_tools(_session())
-        reduced, _, _ = builder.resolve_session_prompt_and_tools(
+        full, _, _, _ = builder.resolve_session_prompt_and_tools(_session())
+        reduced, _, _, _ = builder.resolve_session_prompt_and_tools(
             _session(metadata={"disabled_tools": ["get_form_state"]})
         )
         assert full != reduced
@@ -180,20 +180,20 @@ class TestFormStateAwareToolAvailability:
 
     def test_director_tools_excluded_when_form_state_absent(self):
         builder = self._make_builder()
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(_session())
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(_session())
         assert allowed == []
 
     def test_director_tools_excluded_when_inactive(self):
         builder = self._make_builder()
         form_state = {"video_director": {"active": False}}
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=form_state,
         )
         assert allowed == []
 
     def test_director_tools_included_when_active(self):
         builder = self._make_builder()
-        _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(
+        _prompt, allowed, _, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=self._active_form_state(),
         )
         assert set(allowed) == {"get_video_director"}
@@ -202,11 +202,11 @@ class TestFormStateAwareToolAvailability:
         builder = self._make_builder()
         registry = builder._m.tool_executor.tool_registry
 
-        prompt_inactive, allowed_inactive, _ = builder.resolve_session_prompt_and_tools(_session())
+        prompt_inactive, allowed_inactive, _, _ = builder.resolve_session_prompt_and_tools(_session())
         assert "get_video_director" not in prompt_inactive
         assert registry.get_schemas(allowed_inactive) == []
 
-        prompt_active, allowed_active, _ = builder.resolve_session_prompt_and_tools(
+        prompt_active, allowed_active, _, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=self._active_form_state(),
         )
         assert "get_video_director" in prompt_active
@@ -217,10 +217,10 @@ class TestFormStateAwareToolAvailability:
         builder = self._make_builder()
         session = _session()
 
-        active_prompt, active_allowed, _ = builder.resolve_session_prompt_and_tools(
+        active_prompt, active_allowed, _, _ = builder.resolve_session_prompt_and_tools(
             session, form_state=self._active_form_state(),
         )
-        inactive_prompt, inactive_allowed, _ = builder.resolve_session_prompt_and_tools(
+        inactive_prompt, inactive_allowed, _, _ = builder.resolve_session_prompt_and_tools(
             session, form_state=None,
         )
 
@@ -235,10 +235,10 @@ class TestFormStateAwareToolAvailability:
         builder = self._make_builder()
         session = _session()
 
-        inactive_prompt, inactive_allowed, _ = builder.resolve_session_prompt_and_tools(
+        inactive_prompt, inactive_allowed, _, _ = builder.resolve_session_prompt_and_tools(
             session, form_state=None,
         )
-        active_prompt, active_allowed, _ = builder.resolve_session_prompt_and_tools(
+        active_prompt, active_allowed, _, _ = builder.resolve_session_prompt_and_tools(
             session, form_state=self._active_form_state(),
         )
 

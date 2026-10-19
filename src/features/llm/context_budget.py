@@ -129,6 +129,12 @@ THINKING_ALLOWANCE_CAP_TOKENS = 4096
 
 _OLLAMA_THINK_LEVELS = ("low", "medium", "high")
 
+TOOL_TIER_COMPACT = "compact"
+TOOL_TIER_STANDARD = "standard"
+TOOL_TIER_LARGE = "large"
+COMPACT_TOOL_TIER_BELOW_TOKENS = 24576
+LARGE_TOOL_TIER_ABOVE_TOKENS = 65536
+
 TokenCounter = Callable[[str], int]
 # A whole-request counter: (system_message, kept_messages, tool_schemas) ->
 # exact token count of the ACTUALLY PREPARED request via a real chat template
@@ -270,6 +276,16 @@ def resolve_capacity(config: "LLMConfig", discovered: Optional["DiscoveredWindow
         return CapacityInfo(effective_discovered_tokens(getattr(config, "type", None), discovered), "discovered")
 
     return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
+
+
+def tool_tier(capacity: CapacityInfo) -> str:
+    if capacity.source == "unknown":
+        return TOOL_TIER_STANDARD
+    if capacity.capacity_tokens < COMPACT_TOOL_TIER_BELOW_TOKENS:
+        return TOOL_TIER_COMPACT
+    if capacity.capacity_tokens > LARGE_TOOL_TIER_ABOVE_TOKENS:
+        return TOOL_TIER_LARGE
+    return TOOL_TIER_STANDARD
 
 
 def resolve_image_token_override(config: "LLMConfig") -> Optional[int]:

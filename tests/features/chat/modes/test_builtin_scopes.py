@@ -145,18 +145,19 @@ class TestScopeModeToolMembership:
         names = {t.name for t in registry.get_for_mode(build_prompts_mode())}
         assert names >= {"search_model_prompts", "add_prompt", "edit_prompt", "delete_prompt"}
 
-    def test_generation_mode_still_sees_every_widened_tool(self):
-        """Widening a tool's `modes` list to a new scope must not drop it from
-        the generation mode it originally belonged to."""
+    def test_generation_mode_keeps_the_widened_tools_it_still_owns(self):
         registry = self._registry()
         names = {t.name for t in registry.get_for_mode(build_generation_mode())}
-        assert "organize_gallery" in names
-        assert "manage_collections" in names
-        assert "list_models" in names
-        assert "get_model_info" in names
-        assert "search_model_prompts" in names
-        assert "add_prompt" in names
-        assert "list_phrasebook_categories" in names
+        assert {"list_models", "get_model_info", "search_model_prompts", "list_phrasebook_categories"} <= names
+
+    def test_page_owned_tools_left_the_generation_mode(self):
+        registry = self._registry()
+        generation = {t.name for t in registry.get_for_mode(build_generation_mode())}
+        history = {t.name for t in registry.get_for_mode(build_history_mode())}
+        prompts = {t.name for t in registry.get_for_mode(build_prompts_mode())}
+        assert not generation & {"add_prompt", "edit_prompt", "delete_prompt", "manage_collections", "organize_gallery"}
+        assert {"manage_collections", "organize_gallery"} <= history
+        assert {"add_prompt", "edit_prompt", "delete_prompt"} <= prompts
 
     def test_global_tools_appear_in_every_scope_mode(self):
         """Memory tools (modes=None) are global and must appear everywhere,

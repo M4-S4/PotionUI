@@ -26,7 +26,7 @@ root and passed in explicitly; nothing here is stored across calls.
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.features.llm.tools.base import ToolContext, ToolResult
@@ -74,7 +74,9 @@ class _McpToolScope:
     `generation`-mode chat session sees (every global tool plus every tool
     declaring `generation`), before the exclusion list above narrows it."""
     id: str = "generation"
-    tool_names: Optional[List[str]] = None
+    tool_names: Optional[List[str]] = field(default_factory=lambda: [
+        "add_prompt", "edit_prompt", "delete_prompt", "manage_collections", "organize_gallery",
+    ])
 
 
 _MCP_SCOPE = _McpToolScope()

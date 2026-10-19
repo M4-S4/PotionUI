@@ -298,6 +298,7 @@ class ReadMemoryTool(BaseTool):
     """Reads persistent memory notes to recall information from previous sessions."""
 
     icon = "brain"
+    context_group = "memory_maintenance"
 
     @property
     def name(self) -> str:
@@ -437,6 +438,7 @@ class DeleteMemoryTool(BaseTool):
     """Removes a persistent memory note."""
 
     icon = "brain"
+    context_group = "memory_maintenance"
 
     @property
     def name(self) -> str:
@@ -562,6 +564,7 @@ class UpdateMemoryTool(BaseTool):
     """Edits an existing persistent memory note's key/content in place."""
 
     icon = "brain"
+    context_group = "memory_maintenance"
 
     @property
     def name(self) -> str:

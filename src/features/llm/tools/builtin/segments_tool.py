@@ -18,6 +18,7 @@ class ListSegmentCategoriesTool(BaseTool):
 
     modes = ["generation"]
     icon = "layers"
+    context_group = "library"
 
     @property
     def name(self) -> str:
@@ -76,6 +77,7 @@ class GetSavedSegmentsTool(BaseTool):
 
     modes = ["generation"]
     icon = "layers"
+    context_group = "library"
 
     @property
     def name(self) -> str:
@@ -131,6 +133,7 @@ class GetSegmentTemplatesTool(BaseTool):
 
     modes = ["generation"]
     icon = "layout-template"
+    context_group = "library"
 
     @property
     def name(self) -> str:
@@ -269,6 +272,7 @@ def _preview_fields(request, existing, labels) -> list:
 class _SegmentWriteTool(BaseTool):
     modes = ["generation"]
     icon = "layers"
+    context_group = "library"
     repositories: tuple = ()
 
     @property

@@ -34,6 +34,7 @@ def _stand_in_user(context: ToolContext) -> User:
 class ListPresetsTool(BaseTool):
     modes = ["generation"]
     icon = "layout-grid"
+    context_group = "library"
 
     @property
     def name(self) -> str:
@@ -145,6 +146,7 @@ class GetPresetInfoTool(BaseTool):
 
     modes = ["generation"]
     icon = "settings-2"
+    context_group = "library"
 
     @property
     def name(self) -> str:

@@ -164,6 +164,8 @@ class BaseTool(ABC):
     # Optional lucide icon name for UI display of tool activity.
     icon: Optional[str] = None
 
+    context_group: str = "core"
+
     @property
     @abstractmethod
     def name(self) -> str:

@@ -27,6 +27,7 @@ class StartGenerationTool(BaseTool):
 
     modes = ["generation"]
     icon = "play"
+    context_group = "library"
 
     @property
     def name(self) -> str:

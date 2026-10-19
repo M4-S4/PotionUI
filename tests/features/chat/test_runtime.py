@@ -843,6 +843,24 @@ class TestSendMessageBehaviorTrace:
         assert budget["capacity_tokens"] == 65536
 
     @pytest.mark.asyncio
+    async def test_tool_tier_reads_the_window_probed_before_tools_resolve(self):
+        from src.features.llm import context_budget
+
+        self._setup_session_and_messages()
+        primed = []
+        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.repository = Mock()
+        self.mock_llm.context_capacity_for = Mock(side_effect=lambda config: (
+            context_budget.CapacityInfo(131072, "discovered") if primed
+            else context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+        ))
+
+        await self.manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
+
+        trace = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]
+        assert trace["tool_tier"] == context_budget.TOOL_TIER_LARGE
+
+    @pytest.mark.asyncio
     async def test_thinking_mode_persisted_from_the_llm_response(self):
         """`LLMResponse.thinking_mode` (the native provider's explicit
         thinking-mode outcome — see `NativeLLMClient._chat_template_kwargs`)

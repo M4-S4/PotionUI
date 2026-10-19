@@ -145,6 +145,9 @@ class LLMGateway:
             logging.debug("[LLMGateway] %s failed for '%s'", label, config.id, exc_info=True)
             return None
 
+    def context_capacity_for(self, config: LLMConfig) -> context_budget.CapacityInfo:
+        return context_budget.resolve_capacity(config, self._discovered_window(config))
+
     def token_counter_for(self, config: LLMConfig) -> Optional[context_budget.TokenCounter]:
         return self.context_profile_for(config).counter
 
