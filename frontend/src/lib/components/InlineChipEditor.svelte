@@ -12,6 +12,9 @@
 	import { buildPromptPickerContext } from '$lib/utils/promptPickerContext';
 	import InlineChip from './InlineChip.svelte';
 	import ChoiceGroupChip from './ChoiceGroupChip.svelte';
+	import ConditionChip from './ConditionChip.svelte';
+	import { writable } from 'svelte/store';
+	import { conditionTagWarnings, countConditionBlocks, defaultConditionRaw, isConditionRaw } from '$lib/utils/conditionTags';
 	import VariableUsageChip from './VariableUsageChip.svelte';
 	import PromptResourceChip from './PromptResourceChip.svelte';
 	import {
@@ -62,6 +65,7 @@
 		type VariablesMap,
 		type VariableDef,
 		type VariableRoll,
+		type ConditionReaders,
 		type ChoiceVariableMode
 	} from '$lib/utils/variableDefs';
 	import { EMPTY_RESOURCE_NUMBERING, RESOURCE_NUMBERING_CONTEXT_KEY, type ResourceNumbering } from '$lib/utils/resourceNumbering';
@@ -104,6 +108,7 @@
 	// Tab.variableRolls), deliberately separate from `variables` itself.
 	// Usage chips read it to show "$name · value".
 	export let variableRolls: Record<string, VariableRoll> = {};
+	export let conditionReaders: ConditionReaders = {};
 	export let variableUsageNumbers: { name: string; ordinal: number; total: number }[] = [];
 	// A `${name}` usage renders as a chip whose popover edits the variable's
 	// DEFINITION (mode/pin, or create when undefined) — that edit has to bubble
@@ -209,6 +214,17 @@
 	// Count of balanced groups in `value` as of the last input, used to notice
 	// "the user just typed a `}` that closed a new group" without diffing text.
 	let lastGroupCount = 0;
+	let pendingOpenConditionRaw: string | null = null;
+	let openConditionSlotId: string | null = null;
+	const conditionContext = writable<{ variables: VariablesMap; rolls: Record<string, VariableRoll> }>({
+		variables: {},
+		rolls: {}
+	});
+	$: conditionContext.set({ variables, rolls: variableRolls });
+
+	function countGroupLikes(text: string): number {
+		return countChoiceGroups(text) + countConditionBlocks(text);
+	}
 
 	// Variable-usage chip state — mirrors the group state above exactly.
 	// `${name}` has no persistent id/map of its own either: the container's
@@ -462,7 +478,7 @@
 
 	function refreshSyntaxHighlights(text: string) {
 		if (!editorRef) return;
-		const matches = findSyntaxMatches(text, promptSyntax);
+		const matches = [...findSyntaxMatches(text, promptSyntax), ...conditionTagWarnings(text)];
 		if (matches.length === 0) {
 			clearOwnerSyntaxHighlightRanges(syntaxHighlightOwner);
 			return;
@@ -497,7 +513,7 @@
 		// a `}` was just typed that closed a brand-new `{a|b|c}` or `${name}`.
 		// Rebuild to chip-ify it — close the brace, create a chip, for both
 		// token kinds.
-		const groupsNow = countChoiceGroups(newValue);
+		const groupsNow = countGroupLikes(newValue);
 		const variablesNow = countVariableUsages(newValue);
 		const justClosedGroup = groupsNow > lastGroupCount;
 		const justClosedVariable = variablesNow > lastVariableUsageCount;
@@ -1661,6 +1677,19 @@
 	/** Insert a two-option `{a|b}` choice group at the caret and chip-ify it
 	 *  immediately — the same rebuild `handleInput` already does the instant a
 	 *  user's own typing closes a `}`. */
+	export function insertCondition(): void {
+		if (isDisabled) return;
+		const selection = window.getSelection();
+		const selected =
+			selection && !selection.isCollapsed && editorRef && editorRef.contains(selection.anchorNode)
+				? selection.toString()
+				: '';
+		const raw = defaultConditionRaw(variables, selected.replace(/<<|>>/g, ''));
+		pendingOpenConditionRaw = raw;
+		insertTextAtCaret(raw);
+		handleInput();
+	}
+
 	export function insertChoiceGroup(): void {
 		if (isDisabled) return;
 		insertTextAtCaret('{option one|option two}');
@@ -1762,7 +1791,7 @@
 		mountResourceChips();
 		isInternalUpdate = false;
 		lastSyncedValue = newValue;
-		lastGroupCount = countChoiceGroups(newValue);
+		lastGroupCount = countGroupLikes(newValue);
 		lastVariableUsageCount = countVariableUsages(newValue);
 		refreshAllHighlights(newValue);
 
@@ -1901,6 +1930,14 @@
 	// =====================
 
 	/** Re-serialize + remount a group container's chip after an edit in its popover. */
+	function handleConditionChange(container: HTMLElement, newRaw: string) {
+		if (!editorRef) return;
+		container.dataset.groupRaw = newRaw;
+		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
+		lastGroupCount = countGroupLikes(newValue);
+		dispatchChange(newValue, newChips);
+	}
+
 	function handleGroupChange(container: HTMLElement, newRaw: string) {
 		if (!editorRef) return;
 		container.dataset.groupRaw = newRaw;
@@ -1917,7 +1954,7 @@
 		mountGroups();
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
-		lastGroupCount = countChoiceGroups(newValue);
+		lastGroupCount = countGroupLikes(newValue);
 		dispatchChange(newValue, newChips);
 	}
 
@@ -1934,7 +1971,7 @@
 		container.remove();
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
-		lastGroupCount = countChoiceGroups(newValue);
+		lastGroupCount = countGroupLikes(newValue);
 		dispatchChange(newValue, newChips);
 	}
 
@@ -1950,9 +1987,36 @@
 			const slotId = el.dataset.slotId;
 			currentSlotIds.add(slotId);
 
-			if (container.querySelector('.choice-group-chip')) return; // already mounted
-
 			const raw = el.dataset.groupRaw || '';
+
+			if (isConditionRaw(raw)) {
+				if (container.querySelector('.condition-chip')) return;
+				if (pendingOpenConditionRaw !== null && pendingOpenConditionRaw === raw) {
+					pendingOpenConditionRaw = null;
+					openConditionSlotId = slotId;
+				}
+				const conditionComponent = mount(ConditionChip, {
+					target: container,
+					props: {
+						raw,
+						context: conditionContext,
+						disabled: isDisabled,
+						variant,
+						startOpen: openConditionSlotId === slotId,
+						onchange: (newRaw: string) => handleConditionChange(el, newRaw),
+						onremove: () => handleGroupRemove(el),
+						onOpenChange: (isOpen: boolean) => {
+							if (isOpen) openConditionSlotId = slotId;
+							else if (openConditionSlotId === slotId) openConditionSlotId = null;
+						},
+						onCreateVariable: (name: string) => handleVariableCreate(name)
+					}
+				});
+				mountedGroupComponents.set(slotId, conditionComponent);
+				return;
+			}
+
+			if (container.querySelector('.choice-group-chip')) return;
 			const component = mount(ChoiceGroupChip, {
 				target: container,
 				props: {
@@ -2044,6 +2108,7 @@
 					definition: name in variables ? variables[name] : undefined,
 					rolls: variableRolls,
 					variables,
+					readers: conditionReaders,
 					usage: variableUsageNumbers[position]?.name === name
 						? variableUsageNumbers[position]
 						: { ordinal: 1, total: 1 },
@@ -2239,7 +2304,7 @@
 			editorRef.appendChild(buildSegmentNode(segment));
 		});
 
-		lastGroupCount = countChoiceGroups(value);
+		lastGroupCount = countGroupLikes(value);
 		lastVariableUsageCount = countVariableUsages(value);
 
 		// Mount Svelte chips + groups + variable usages
@@ -2315,7 +2380,7 @@
 				editorRef.appendChild(buildSegmentNode(segment));
 			});
 
-			lastGroupCount = countChoiceGroups(value);
+			lastGroupCount = countGroupLikes(value);
 			lastVariableUsageCount = countVariableUsages(value);
 
 			mountChips();
@@ -2441,7 +2506,7 @@
 	// every chip needs to refresh, not just the one that was clicked.
 	let lastVariablesHash: string | null = null;
 	$: {
-		const currentVariablesHash = hashVariablesMap(variables);
+		const currentVariablesHash = hashVariablesMap(variables) + '#' + JSON.stringify(conditionReaders);
 		if (editorRef && !isInternalUpdate) {
 			const step = stepVariablesHash(currentVariablesHash, lastVariablesHash);
 			lastVariablesHash = step.nextHash;

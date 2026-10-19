@@ -12,6 +12,7 @@
 		SegmentTemplate
 	} from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import { segmentUsageNumbers } from '$lib/utils/variableUsageNumbering';
 	import { mergeVariables } from '$lib/utils/variablesTransfer';
 	import { toolbarFit } from '$lib/utils/toolbarFit';
@@ -76,6 +77,7 @@
 	export let placeholder = 'Enter prompt content... (# for phrasebook)';
 	export let variables: VariablesMap = {};
 	export let variableRolls: Record<string, VariableRoll> = {};
+	$: conditionReaders = conditionReadersFor([...segments, ...(negativeSegments ?? [])].map((segment) => segment.content));
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	/** Applying a library Prompt that carries variables merges them into the
 	 *  tab's map (`mergeVariables(..., 'replace')`) and hands the result up here --
@@ -505,6 +507,7 @@
 					{placeholder}
 					{variables}
 					{variableRolls}
+					{conditionReaders}
 					variableUsageNumbers={usageNumbering[index] || []}
 					{onVariableDefChange}
 					{onOpenVariableManager}
@@ -759,6 +762,7 @@
 						placeholder="What should never appear… (# for phrasebook)"
 						{variables}
 						{variableRolls}
+						{conditionReaders}
 						variableUsageNumbers={usageNumbering[segments.length + index] || []}
 						{onVariableDefChange}
 						{onOpenVariableManager}

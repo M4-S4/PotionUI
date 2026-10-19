@@ -53,6 +53,7 @@
 
 	const decimals = $derived(numberDecimals(def));
 	const isDecimal = $derived(decimals > 0);
+	const trackRanges = $derived(ranges.length > 0 ? ranges : readers.flatMap((reader) => reader.splits ?? []));
 	const issue = $derived(numberGridIssue(def));
 	const valid = $derived(issue === null);
 	const size = $derived(numberGridSize(def));
@@ -280,7 +281,7 @@
 		<div class="space-y-1.5" data-testid="number-preview">
 			<div class="flex items-center gap-1.5">
 				<span class="{sectionLabel} min-w-0 flex-1">
-					{#if ranges.length > 0}Where conditions split it &middot; {/if}{def.mode === 'pin' ? 'Pinned value' : 'Dots are the roll preview'}
+					{#if trackRanges.length > 0}Where conditions split it &middot; {/if}{def.mode === 'pin' ? 'Pinned value' : 'Dots are the roll preview'}
 				</span>
 				{#if def.mode !== 'pin'}
 					<Tooltip text="Roll the preview again">
@@ -293,7 +294,7 @@
 				{#each ticks as tick (tick)}
 					<div class="absolute top-1/2 h-2 w-px -translate-y-1/2 bg-line-strong" style:left="{(tick / (ticks.length - 1)) * 100}%"></div>
 				{/each}
-				{#each ranges as range (range.label)}
+				{#each trackRanges as range, ri (ri)}
 					<div
 						class="absolute top-1/2 h-1 -translate-y-1/2 rounded bg-signal/30"
 						style:left="{position(range.from)}%"
@@ -318,9 +319,9 @@
 				<span>{numberGridValue(def, 0)}</span>
 				<span>{numberGridValue(def, size - 1)}</span>
 			</div>
-			{#if ranges.length > 0}
+			{#if trackRanges.length > 0}
 				<div class="mx-3 flex justify-between font-mono text-xs uppercase tracking-[0.04em] text-signal">
-					{#each ranges as range (range.label)}
+					{#each trackRanges as range, ri (ri)}
 						<span>{range.label}</span>
 					{/each}
 				</div>

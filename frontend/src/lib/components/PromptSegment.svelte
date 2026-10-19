@@ -3,7 +3,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import type { Segment, ChipData } from '$lib/types/segments';
-	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import type { VariablesMap, VariableDef, VariableRoll, ConditionReaders } from '$lib/utils/variableDefs';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import InlineChipEditor from './InlineChipEditor.svelte';
@@ -34,6 +34,7 @@
 	export let placeholder = 'Enter prompt content... (# for phrasebook)';
 	export let variables: VariablesMap = {};
 	export let variableRolls: Record<string, VariableRoll> = {};
+	export let conditionReaders: ConditionReaders = {};
 	export let variableUsageNumbers: { name: string; ordinal: number; total: number }[] = [];
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
@@ -279,6 +280,9 @@
 			case 'insertChoice':
 				inlineEditor?.insertChoiceGroup();
 				break;
+			case 'insertCondition':
+				inlineEditor?.insertCondition();
+				break;
 			case 'insertResource':
 				inlineEditor?.insertResourceTrigger();
 				break;
@@ -487,6 +491,7 @@
 					density={compact ? 'compact' : 'default'}
 					{variables}
 					{variableRolls}
+					{conditionReaders}
 					{variableUsageNumbers}
 					{onVariableDefChange}
 					{onOpenVariableManager}

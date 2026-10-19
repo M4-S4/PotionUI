@@ -44,3 +44,34 @@ describe('VariableUsageChip number states', () => {
 		expect(label(mount({ type: 'number', mode: 'shuffle', min: 0.8, max: 1.4, step: 0.1, value: 1 }))).toBe('0.8–1.4');
 	});
 });
+
+
+describe('VariableUsageChip number linking from condition readers', () => {
+	const def = { type: 'number', mode: 'shuffle', min: 18, max: 80, step: 1, value: 47 };
+
+	function mountComposer(readers: Record<string, unknown[]>) {
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		component = createClassComponent({
+			component: VariableUsageChip as never,
+			target,
+			props: {
+				name: 'age',
+				definition: def,
+				variables: { age: def },
+				readers,
+				variant: 'segment-composer',
+				usage: { ordinal: 1, total: 2 }
+			}
+		}) as never;
+		return target;
+	}
+
+	it('shows Linked when a condition reads the variable', () => {
+		expect(mountComposer({ age: [{ label: 'age > 65' }] }).querySelector('.chip-state')!.textContent).toBe('Linked 2');
+	});
+
+	it('shows the usage position when nothing reads it', () => {
+		expect(mountComposer({}).querySelector('.chip-state')!.textContent).toBe('1/2');
+	});
+});

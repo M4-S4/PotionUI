@@ -7,7 +7,8 @@
 	import { toasts } from '$lib/stores/toast';
 	import { resolveResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
 	import { EMPTY_RESOURCE_NUMBERING, RESOURCE_NUMBERING_CONTEXT_KEY, type ResourceNumbering } from '$lib/utils/resourceNumbering';
-	import { resolvePreviewVariables, substituteVariables } from '$lib/utils/resolvedVariables';
+	import { resolvePreviewVariables, substituteVariables, type VariableNote } from '$lib/utils/resolvedVariables';
+	import { previewConditions } from '$lib/utils/conditionPreview';
 	import type { VariablesMap } from '$lib/utils/variableDefs';
 	import { buildSyntaxSegments, syntaxColorStyle, syntaxToneClasses, type PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 
@@ -26,18 +27,36 @@
 	let copied = false;
 
 	$: previewVariables = resolvePreviewVariables(variables);
+	$: promptConditions = previewConditions(prompt, variables);
+	$: negativeConditions = previewConditions(negativePrompt, variables);
 	$: resolvedPrompt = substituteVariables(
-		resolveResourceMarkers(prompt, promptResources, resourceFieldValues, $resourceNumbering),
+		resolveResourceMarkers(promptConditions.text, promptResources, resourceFieldValues, $resourceNumbering),
 		previewVariables.replacements
 	);
 	$: resolvedNegativePrompt = substituteVariables(
-		resolveResourceMarkers(negativePrompt, promptResources, resourceFieldValues, $resourceNumbering),
+		resolveResourceMarkers(negativeConditions.text, promptResources, resourceFieldValues, $resourceNumbering),
 		previewVariables.replacements
 	);
-	$: varyingNotes = previewVariables.notes.filter((note) =>
-		(active === 'prompt' ? prompt : negativePrompt).includes('${' + note.name + '}')
+
+	function mergeNotes(base: VariableNote[], extra: VariableNote[]): VariableNote[] {
+		const merged = base.map((note) => {
+			const follow = extra.find((e) => e.name === note.name);
+			return follow ? { ...note, phrase: `${note.phrase} \u2014 the condition follows it` } : note;
+		});
+		return [...merged, ...extra.filter((e) => !base.some((n) => n.name === e.name))];
+	}
+
+	$: activeConditions = active === 'prompt' ? promptConditions : negativeConditions;
+	$: varyingNotes = mergeNotes(
+		previewVariables.notes.filter((note) =>
+			(active === 'prompt' ? prompt : negativePrompt).includes('${' + note.name + '}')
+		),
+		activeConditions.notes
 	);
-	$: rowNotes = previewVariables.notes.filter((note) => prompt.includes('${' + note.name + '}'));
+	$: rowNotes = mergeNotes(
+		previewVariables.notes.filter((note) => prompt.includes('${' + note.name + '}')),
+		promptConditions.notes
+	);
 	$: rowNoteText =
 		rowNotes.length === 0
 			? ''
@@ -120,6 +139,38 @@
 					No {active === 'negative' ? 'negative ' : ''}prompt content
 				{/if}
 			</div>
+			{#if activeConditions.rows.length > 0}
+				<div class="mt-2 overflow-x-auto rounded border border-line" data-testid="condition-preview-table">
+					<table class="w-full text-left text-xs">
+						<thead class="bg-surface-2 font-mono uppercase tracking-[0.04em] text-fg-subtle">
+							<tr>
+								<th class="px-2 py-1.5 font-normal">Image</th>
+								<th class="px-2 py-1.5 font-normal">Rolled</th>
+								<th class="px-2 py-1.5 font-normal">Branch</th>
+								<th class="px-2 py-1.5 font-normal">Resolved text</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each activeConditions.rows as row (row.label)}
+								<tr class="border-t border-line align-top" data-testid="condition-preview-row">
+									<td class="whitespace-nowrap px-2 py-1.5 font-medium text-fg">{row.label}</td>
+									<td class="px-2 py-1.5 font-mono tabular-nums text-fg-muted">
+										{#each row.rolled as rolled (rolled.name)}
+											<span class="mr-1 inline-block rounded border border-line bg-surface-2 px-1.5">${rolled.name} {rolled.value}</span>
+										{/each}
+									</td>
+									<td class="whitespace-nowrap px-2 py-1.5">
+										<span class="rounded border px-1.5 py-0.5 font-mono {row.branch === 'OTHERWISE' || row.branch === 'NONE' ? 'border-line bg-surface-2 text-fg-muted' : 'border-signal/40 bg-signal/15 text-signal'}">{row.branch === 'NONE' ? 'NOTHING' : row.branch}</span>
+									</td>
+									<td class="px-2 py-1.5 text-fg-muted">
+										{#each row.pieces as piece}{#if piece.hit}<span class="rounded bg-signal/15 px-0.5 text-fg">{piece.text}</span>{:else}{piece.text}{/if}{/each}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/if}
 			{#if varyingNotes.length > 0}
 				<ul class="mt-2 space-y-0.5 text-xs text-fg-subtle" aria-label="Variables that vary">
 					{#each varyingNotes as note (note.name)}

@@ -19,7 +19,7 @@ describe('segmentMenuActions', () => {
 			(a) => a.id
 		);
 		expect(ids).toEqual(
-			expect.arrayContaining(['insertPhrasebook', 'insertVariable', 'insertChoice'])
+			expect.arrayContaining(['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertCondition'])
 		);
 	});
 

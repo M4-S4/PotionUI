@@ -185,7 +185,7 @@ button { cursor: pointer; }
 
 .chip .icon { width: 10px; height: 10px; margin-left: 4px; color: rgb(var(--fg-subtle)); }
 
-.phrase-chip, .variable-chip, .choice-chip, .resource-chip { padding: 0; overflow: hidden; }
+.phrase-chip, .variable-chip, .choice-chip, .resource-chip, .condition-chip { padding: 0; overflow: hidden; }
 
 .resource-chip { vertical-align: middle; }
 
@@ -498,6 +498,7 @@ button { cursor: pointer; }
 .menu-glyph.variable { color: rgb(var(--ai-1)); }
 
 .menu-glyph.choice { color: rgb(var(--warning)); }
+.menu-glyph.condition { color: rgb(var(--ai-3)); }
 
 .menu-glyph.resource { color: rgb(var(--success)); }
 
@@ -1027,3 +1028,13 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .segment-content .inline-chip-editor .chip-context {
 	font-size: 12px;
 }
+
+.condition-chip .chip-mark { color: rgb(var(--ai-3)); line-height: 1; padding-bottom: 2px; }
+.condition-chip { max-width: min(100%, 560px); }
+.condition-chip .chip-context { color: rgb(var(--fg)); font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 500; }
+.condition-chip .chip-context + .chip-label { margin-left: 6px; }
+.condition-chip.broken { color: rgb(var(--warning)); background: color-mix(in srgb, rgb(var(--warning)) 10%, rgb(var(--surface-2))); border-color: color-mix(in srgb, rgb(var(--warning)) 40%, rgb(var(--line))); }
+.condition-chip.broken .chip-mark, .condition-chip.broken .chip-context { color: rgb(var(--warning)); }
+.condition-popover .popover-mark { color: rgb(var(--ai-3)); }
+.condition-popover { width: min(520px, calc(100vw - 16px)); }
+.condition-popover .popover-body { max-height: min(70vh, 640px); overflow-y: auto; }

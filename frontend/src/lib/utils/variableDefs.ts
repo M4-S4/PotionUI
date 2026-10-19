@@ -306,6 +306,7 @@ export interface NumberTrackRange {
 export interface ConditionReader {
 	label: string;
 	segment?: string;
+	splits?: NumberTrackRange[];
 }
 
 export type ConditionReaders = Record<string, ConditionReader[]>;

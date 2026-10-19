@@ -2,6 +2,7 @@
 // unchanged — see InlineChipEditor.svelte for the DOM-facing half.
 import type { ChipData } from '$lib/types/segments';
 import { parsePromptTokens } from '$lib/utils/promptTokens';
+import { parseTemplate } from '$lib/utils/promptConditions';
 import type { ResourceRef } from '$lib/utils/promptResources';
 
 export interface ContentSegment {
@@ -32,6 +33,22 @@ export function decodePathFromMatch(match: RegExpExecArray): string {
 
 /** Split a #chip-free text run further into text/{a|b|c}-group/${name}-variable segments. */
 export function splitPromptTokensInText(text: string): ContentSegment[] {
+	if (!text.includes('<<')) return splitPlainTokens(text);
+	const parsed = parseTemplate(text);
+	if (!parsed || parsed.blocks.length === 0) return splitPlainTokens(text);
+	const out: ContentSegment[] = [];
+	let cursor = 0;
+	for (const block of parsed.blocks) {
+		if (block.start > cursor) out.push(...splitPlainTokens(text.slice(cursor, block.start)));
+		const raw = text.slice(block.start, block.end);
+		out.push({ type: 'group', content: raw, groupRaw: raw });
+		cursor = block.end;
+	}
+	if (cursor < text.length) out.push(...splitPlainTokens(text.slice(cursor)));
+	return out;
+}
+
+function splitPlainTokens(text: string): ContentSegment[] {
 	const tokens = parsePromptTokens(text);
 	if (tokens.length === 1 && tokens[0].type === 'text') {
 		return [{ type: 'text', content: text }];

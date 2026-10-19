@@ -34,6 +34,7 @@
 	import VideoDirectorEditor from '$lib/components/video-director/VideoDirectorEditor.svelte';
 	import MusicDirectorEditor from '$lib/components/music-director/MusicDirectorEditor.svelte';
 	import VariableManagerModal from '$lib/components/VariableManagerModal.svelte';
+	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import StylesPicker from '$lib/components/StylesPicker.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import ResolvedPromptPreview from '$lib/components/ResolvedPromptPreview.svelte';
@@ -127,6 +128,9 @@
 	const variableCount = $derived(Object.keys(variables).length);
 	const usageCounts = $derived(
 		countUsagesInSegments(promptSegments, negativePromptSegments)
+	);
+	const conditionReaders = $derived(
+		conditionReadersFor([...promptSegments, ...negativePromptSegments].map((segment) => segment.content))
 	);
 	const appliedStyleTagValue = $derived(appliedStyleTag(promptSegments));
 	const appliedStyleId = $derived(
@@ -344,6 +348,7 @@
 	isOpen={variablesModalOpen}
 	variables={variables}
 	{usageCounts}
+	readers={conditionReaders}
 	on:close={() => (variablesModalOpen = false)}
 	on:change={(e) => handleVariablesChange(e.detail)}
 />

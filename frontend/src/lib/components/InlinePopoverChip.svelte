@@ -35,6 +35,7 @@
 		// trigger+remove-button island untouched.
 		variant = 'default',
 		kind = 'choice',
+		popoverWidth = undefined,
 		composerLabel,
 		headerMark = '',
 		headerTitle = '',
@@ -59,7 +60,8 @@
 		variant?: 'default' | 'segment-composer';
 		/** Which of the mock's two popover chips this is — picks `.choice-chip`/
 		 *  `.variable-chip` and `.choice-popover`/`.variable-popover`. */
-		kind?: 'choice' | 'variable';
+		kind?: 'choice' | 'variable' | 'condition';
+		popoverWidth?: number;
 		/** segment-composer only: the mock's plainer chip-main content (no
 		 *  colour dot, no chevron) — `label` above stays the default variant's
 		 *  own look, since the two anatomies aren't interchangeable. */
@@ -137,7 +139,7 @@
 		// full (unclamped) content height regardless of overflow.
 		const heightEstimate = popoverRef?.scrollHeight || POPOVER_HEIGHT_ESTIMATE;
 		popoverPos = computeFlippedMenuPosition(chipRef, {
-			width: POPOVER_WIDTH,
+			width: popoverWidth ?? POPOVER_WIDTH,
 			heightEstimate,
 			gap: POPOVER_GAP
 		});
@@ -150,7 +152,7 @@
 	// (with no explicit height) resolution. `position: fixed` likewise
 	// overrides `.floating`'s own `position: absolute`.
 	let popoverStyle = $derived(
-		`position: fixed; left: ${popoverPos.left}px; right: auto; max-height: ${popoverPos.maxHeight}px; overflow-y: auto; ${
+		`position: fixed; left: ${popoverPos.left}px; right: auto; ${popoverWidth ? `width: ${popoverWidth}px; max-width: calc(100vw - 16px);` : ''} max-height: ${popoverPos.maxHeight}px; overflow-y: auto; ${
 			popoverPos.top !== undefined
 				? `top: ${popoverPos.top}px; bottom: auto;`
 				: `bottom: ${popoverPos.bottom}px; top: auto;`

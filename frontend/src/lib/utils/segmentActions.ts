@@ -9,6 +9,7 @@ export type SegmentActionId =
 	| 'insertPhrasebook'
 	| 'insertVariable'
 	| 'insertChoice'
+	| 'insertCondition'
 	| 'insertResource'
 	| 'insertSyntax';
 
@@ -48,7 +49,8 @@ export function segmentMenuActions(segment: Segment, context: SegmentActionConte
 		byId('toggleDisabled'),
 		{ id: 'insertPhrasebook', label: 'Insert a phrasebook value', glyph: '#', glyphClass: 'phrasebook', disabled: segmentDisabled },
 		{ id: 'insertVariable', label: 'Insert a variable', glyph: '$', glyphClass: 'variable', disabled: segmentDisabled },
-		{ id: 'insertChoice', label: 'Insert a choice group', glyph: '{}', glyphClass: 'choice', disabled: segmentDisabled }
+		{ id: 'insertChoice', label: 'Insert a choice group', glyph: '{}', glyphClass: 'choice', disabled: segmentDisabled },
+		{ id: 'insertCondition', label: 'Insert a condition', glyph: 'if', glyphClass: 'condition', disabled: segmentDisabled }
 	];
 
 	if (hasPromptResources) {
@@ -66,5 +68,5 @@ export const SEGMENT_ACTION_GROUPS: SegmentActionId[][] = [
 	['moveUp', 'moveDown'],
 	['editDetails', 'saveAsSegment', 'replaceFromSaved'],
 	['duplicate', 'toggleDisabled'],
-	['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertResource', 'insertSyntax']
+	['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertCondition', 'insertResource', 'insertSyntax']
 ];
