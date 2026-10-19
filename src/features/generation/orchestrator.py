@@ -1384,11 +1384,21 @@ class GenerationOrchestrator:
         generation_id: str,
         request,  # GenerationRequest type
         prompts: Optional[List[Dict[str, str]]],
+        user_id: Optional[str] = None,
     ) -> Optional[List[Dict[str, str]]]:
         """Expand the authored prompt template into one realization per image.
 
         Delegates to PromptExpander; see prompt_expansion.py."""
-        return self._prompt_expander.expand_per_image(generation_id, request, prompts)
+        warned = []
+
+        def on_warning(message: str) -> None:
+            if not warned:
+                warned.append(True)
+                self._notifier.notify_warning(generation_id, user_id, message)
+
+        return self._prompt_expander.expand_per_image(
+            generation_id, request, prompts, on_warning=on_warning
+        )
 
     async def _start_generation(
         self,
@@ -1424,7 +1434,9 @@ class GenerationOrchestrator:
             prompts = [{'positive': p.positive, 'negative': p.negative} if hasattr(p, 'positive') else p for p in prompts]
 
         batch = PromptBatch.plan(request)
-        prompts = self._expand_prompts_per_image(generation_id, request, prompts)
+        prompts = self._expand_prompts_per_image(
+            generation_id, request, prompts, db_generation.user_id
+        )
         if batch is not None:
             batch.settle(request, prompts)
             self._prompt_batches[generation_id] = batch

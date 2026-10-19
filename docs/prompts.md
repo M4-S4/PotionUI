@@ -28,8 +28,11 @@ Expansion is done by the [`dynamicprompts`](https://github.com/adieyal/dynamicpr
 - **`__wildcard__`** — the `#phrasebook` chip system supersedes it, and is better: DB-backed,
   searchable, with per-generation shuffle. A bare `WildcardManager()` resolves nothing, so a stray
   `__foo__` survives as literal text (with a warning) rather than failing the generation.
-- **`#` comments** — `#` is the phrasebook trigger in the editor. The collision is not worth it.
+- **`#` comments** — `#` is the phrasebook trigger in the editor, so a literal `#` is plain text.
 - **`%{wrap}`**, parameterized wildcards, and the `~` / `@` sampler sigils.
+
+A literal `$`, `%` or `#` (`$100`, `100% cotton`, `#5`) is plain text; only `${`, `$$` inside braces and `%{...$$...}` are grammar.
+A template that still fails to parse is used verbatim and the user gets a "Check your prompt" warning toast.
 
 An undefined `${var}` expands to the empty string rather than raising, so a typo degrades the prompt
 instead of failing the generation.
