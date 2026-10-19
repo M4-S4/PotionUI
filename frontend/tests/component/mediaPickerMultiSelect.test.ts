@@ -19,10 +19,13 @@ const { default: GenerationHistoryModal } = await import('$lib/components/modals
 const { default: UploadLibraryModal } = await import('$lib/components/modals/UploadLibraryModal.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
+const { stubClientWidth } = await import('./helpers/stubClientWidth');
 
-function file(id: number, type: string, name: string) {
+function file(id: number, type: string, name: string, width?: number, height?: number) {
 	return {
 		id,
+		width,
+		height,
 		file_path: `out/${name}`,
 		file_type: type,
 		is_final: true,
@@ -46,8 +49,8 @@ function generation(id: string, files: ReturnType<typeof file>[]) {
 }
 
 const GENERATIONS = [
-	generation('g1', [file(1, 'image', 'a.png'), file(2, 'image', 'b.png')]),
-	generation('g2', [file(3, 'video', 'c.mp4')])
+	generation('g1', [file(1, 'image', 'a.png', 1024, 576), file(2, 'image', 'b.png', 576, 1024)]),
+	generation('g2', [file(3, 'video', 'c.mp4', 1024, 576)])
 ];
 
 function libraryItem(id: string, mediaType: string, name: string) {
@@ -64,6 +67,7 @@ function libraryItem(id: string, mediaType: string, name: string) {
 const LIBRARY = [libraryItem('l1', 'image', 'one.png'), libraryItem('l2', 'image', 'two.png'), libraryItem('l3', 'video', 'three.mp4')];
 
 let components: Array<{ $destroy: () => void }> = [];
+let restoreWidth: () => void = () => {};
 
 function mountPicker(Component: unknown, props: Record<string, unknown>) {
 	const target = document.createElement('div');
@@ -99,13 +103,25 @@ function count(): string {
 	return document.querySelector('[data-testid="picker-selected-count"]')?.textContent?.trim() ?? '';
 }
 
+function historyCheckbox(name: string): HTMLInputElement {
+	const el = document.querySelector<HTMLInputElement>(`input[aria-label^="Select ${name}"]`);
+	if (!el) throw new Error(`no history checkbox for ${name}`);
+	return el;
+}
+
+function isChecked(el: HTMLInputElement): boolean {
+	return el.checked;
+}
+
 beforeEach(() => {
+	restoreWidth = stubClientWidth(1000);
 	apiMocks.getGenerationHistory.mockResolvedValue({ success: true, data: { generations: GENERATIONS, total: 2 } });
 	apiMocks.listLibraryItems.mockResolvedValue({ success: true, data: { items: LIBRARY, total: 3 } });
 	apiMocks.getTags.mockResolvedValue({ success: true, data: { tags: [] } });
 });
 
 afterEach(() => {
+	restoreWidth();
 	components.forEach((c) => c.$destroy());
 	components = [];
 	document.body.innerHTML = '';
@@ -118,8 +134,8 @@ describe('GenerationHistoryModal multi-select', () => {
 		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
 		await settle();
 
-		checkbox('a.png').click();
-		checkbox('b.png').click();
+		historyCheckbox('a.png').click();
+		historyCheckbox('b.png').click();
 		await tick();
 
 		expect(onSelectionChange).toHaveBeenLastCalledWith(['g1:1', 'g1:2'], expect.any(Array));
@@ -131,21 +147,21 @@ describe('GenerationHistoryModal multi-select', () => {
 			origin: { kind: 'history', generationId: 'g1', fileId: 1 }
 		});
 		expect(count()).toBe('2 selected');
-		expect(checkbox('c.mp4').checked).toBe(false);
+		expect(isChecked(historyCheckbox('c.mp4'))).toBe(false);
 	});
 
 	it('keeps the selection when filters reload the list', async () => {
 		const component = mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn() });
 		await settle();
-		checkbox('a.png').click();
+		historyCheckbox('a.png').click();
 		await tick();
 		const calls = apiMocks.getGenerationHistory.mock.calls.length;
 
 		buttonByText('7 Days')!.click();
 		await vi.waitFor(() => expect(apiMocks.getGenerationHistory.mock.calls.length).toBeGreaterThan(calls));
-		await vi.waitFor(() => expect(document.querySelector('input[data-file="a.png"]')).not.toBeNull());
+		await vi.waitFor(() => expect(document.querySelector('input[aria-label^="Select a.png"]')).not.toBeNull());
 
-		expect(checkbox('a.png').checked).toBe(true);
+		expect(isChecked(historyCheckbox('a.png'))).toBe(true);
 		expect(count()).toBe('1 selected');
 		component.$destroy();
 	});
@@ -153,14 +169,14 @@ describe('GenerationHistoryModal multi-select', () => {
 	it('shows a controlled selection after the picker is reopened', async () => {
 		const first = mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), selectedKeys: ['g1:2'] });
 		await settle();
-		expect(checkbox('b.png').checked).toBe(true);
+		expect(isChecked(historyCheckbox('b.png'))).toBe(true);
 		first.$destroy();
 		document.body.innerHTML = '';
 
 		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), selectedKeys: ['g1:2', 'g2:3'] });
 		await settle();
-		expect(checkbox('b.png').checked).toBe(true);
-		expect(checkbox('c.mp4').checked).toBe(true);
+		expect(isChecked(historyCheckbox('b.png'))).toBe(true);
+		expect(isChecked(historyCheckbox('c.mp4'))).toBe(true);
 		expect(count()).toBe('2 selected');
 	});
 
@@ -174,10 +190,10 @@ describe('GenerationHistoryModal multi-select', () => {
 		});
 		await settle();
 
-		expect(checkbox('c.mp4').disabled).toBe(true);
-		expect(checkbox('a.png').disabled).toBe(false);
+		expect(historyCheckbox('c.mp4').disabled).toBe(true);
+		expect(historyCheckbox('a.png').disabled).toBe(false);
 		expect(document.body.textContent).toContain('Only image files can be selected here');
-		checkbox('c.mp4').click();
+		historyCheckbox('c.mp4').click();
 		expect(onSelectionChange).not.toHaveBeenCalled();
 	});
 
@@ -191,7 +207,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		buttonByText('Use selected')!.click();
 		expect(onConfirm).not.toHaveBeenCalled();
 
-		checkbox('a.png').click();
+		historyCheckbox('a.png').click();
 		await tick();
 		expect(buttonByText('Use selected')!.disabled).toBe(false);
 		buttonByText('Use selected')!.click();
@@ -212,7 +228,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		});
 		await settle();
 
-		checkbox('b.png').click();
+		historyCheckbox('b.png').click();
 		await tick();
 		buttonByText('Cancel')!.click();
 
@@ -226,7 +242,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		mountPicker(GenerationHistoryModal, { multiple: true, onClose: vi.fn(), onSelectionChange });
 		await settle();
 
-		document.querySelector<HTMLButtonElement>('button[data-file="a.png"]')!.click();
+		document.querySelector<HTMLElement>('[role="button"][aria-label="Preview a.png (Preset)"]')!.click();
 		await tick();
 
 		expect(document.querySelector('[data-testid="picker-preview"]')).not.toBeNull();
@@ -249,7 +265,7 @@ describe('GenerationHistoryModal multi-select', () => {
 		mountPicker(GenerationHistoryModal, { onClose: vi.fn(), onSelect });
 		await settle();
 
-		const tiles = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="history-file-tile"] button')];
+		const tiles = [...document.querySelectorAll<HTMLElement>('[data-testid="history-file-tile"] button')];
 		expect(tiles.length).toBe(3);
 		tiles[1].click();
 		expect(onSelect).toHaveBeenCalledTimes(1);

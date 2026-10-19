@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
-	import MediaPickFileButton from './MediaPickFileButton.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaPickerFrame from './MediaPickerFrame.svelte';
 	import MediaPickerSelectionBar from './MediaPickerSelectionBar.svelte';
-	import MediaPickTile from './MediaPickTile.svelte';
+	import GenerationCard from '$lib/components/GenerationCard.svelte';
+	import JustifiedGenerationGallery from '$lib/components/JustifiedGenerationGallery.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import MediaPickPreviewPanel from './MediaPickPreviewPanel.svelte';
 	import MediaPreview from '$lib/components/MediaPreview.svelte';
 	import MediaPickConstraintNote from './MediaPickConstraintNote.svelte';
@@ -44,10 +45,42 @@
 	let previewKey: string | null = null;
 	let previewable = new Map<string, PickedMedia>();
 
+	interface HistoryPickTile {
+		generation: GenerationHistoryItem;
+		file: GenerationFile;
+		picked: PickedMedia;
+		view: GenerationHistoryItem;
+		label: string;
+		sublabel: string;
+		accessibleName: string;
+	}
+
 	$: picker.follow(selectedKeys);
 	$: picker.track(isOpen);
 	$: if (!isOpen) previewKey = null;
 	$: constraintMessage = mediaTypeConstraintMessage(selectableMediaTypes);
+	$: pickTiles = generationHistory.flatMap((generation) =>
+		filterFilesByMediaType(generation.files, mediaType).map((file): HistoryPickTile => {
+			const picked = pickedFromHistoryFile(generation, file);
+			const { label, sublabel } = historyTileLabel(generation, file);
+			const fileName = picked.filename ?? '';
+			return {
+				generation,
+				file,
+				picked,
+				view: { ...generation, files: [{ ...file, is_final: true }] },
+				label,
+				sublabel,
+				accessibleName: fileName && fileName !== label ? `${fileName} (${label})` : label
+			};
+		})
+	);
+	$: tileByView = new Map(pickTiles.map((tile) => [tile.view, tile]));
+	$: tileViews = pickTiles.map((tile) => tile.view);
+
+	function tileKey(view: GenerationHistoryItem): string {
+		return tileByView.get(view)?.picked.key ?? view.id;
+	}
 
 	function handleCancel() {
 		if (multiple) picker.cancel(onSelectionChange);
@@ -588,49 +621,71 @@
 						{/if}
 					</MediaPickPreviewPanel>
 				{/if}
-				<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-					{#each generationHistory as generation (generation.id)}
-						{#each filterFilesByMediaType(generation.files, mediaType) as file (file.id)}
-							{@const picked = pickedFromHistoryFile(generation, file)}
-							{@const allowed = isMediaTypeSelectable(picked.mediaType ?? '', selectableMediaTypes)}
-							{@const tile = historyTileLabel(generation, file)}
-							<MediaPickTile
-								label={tile.label}
-								sublabel={tile.sublabel}
-								fileName={picked.filename ?? ''}
-								checked={$selection.includes(picked.key)}
-								disabled={!allowed}
-								disabledReason={constraintMessage}
-								onToggle={() => picker.toggle(picked.key, onSelectionChange)}
-								onPreview={() => (previewKey = picked.key)}
-							>
-								{#if picked.mediaType === 'image' || picked.mediaType === 'video'}
-									<MediaPreview {file} generationId={generation.id} className="w-full h-full" loadFullOnClick={false} />
-								{:else}
-									<Icon name={picked.mediaType === 'audio' ? 'audio' : 'cube'} className="w-8 h-8 text-fg-muted" />
-								{/if}
-							</MediaPickTile>
-						{/each}
-					{/each}
-				</div>
-			{:else}
-			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
-				{#each generationHistory as generation (generation.id)}
-					{#each filterFilesByMediaType(generation.files, mediaType) as file (file.id)}
-						{@const picked = pickedFromHistoryFile(generation, file)}
-						{@const tile = historyTileLabel(generation, file)}
-						<MediaPickFileButton
-							{file}
-							generationId={generation.id}
-							label={tile.label}
-							sublabel={tile.sublabel}
-							mediaType={picked.mediaType ?? undefined}
-							onPick={() => handleSelectFromGeneration(generation, file)}
-						/>
-					{/each}
-				{/each}
-			</div>
 			{/if}
+			<JustifiedGenerationGallery generations={tileViews} itemKey={tileKey} showActions={false}>
+					<svelte:fragment slot="card" let:generation let:tile>
+						{@const pick = tileByView.get(generation)}
+						{#if pick}
+							{@const allowed = !multiple || isMediaTypeSelectable(pick.picked.mediaType ?? '', selectableMediaTypes)}
+							<div
+								class="flex flex-col min-w-0"
+								style="width: {tile.width}px"
+								data-testid="history-file-tile"
+								data-file-id={pick.file.id}
+							>
+								{#if multiple}
+									<div class="relative">
+										<GenerationCard
+											generation={pick.view}
+											{tile}
+											showActions={false}
+											label={pick.accessibleName}
+											selected={$selection.includes(pick.picked.key)}
+											disabled={!allowed}
+											on:imageClick={() => (previewKey = pick.picked.key)}
+										/>
+										<label
+											class="absolute top-2 left-2 z-40 flex h-7 w-7 items-center justify-center rounded border border-line-strong bg-surface-1/90 {allowed
+												? 'cursor-pointer'
+												: 'cursor-not-allowed'}"
+										>
+											<input
+												type="checkbox"
+												class="h-4 w-4 accent-signal"
+												checked={$selection.includes(pick.picked.key)}
+												disabled={!allowed}
+												aria-label={`Select ${pick.accessibleName}`}
+												on:change={() => picker.toggle(pick.picked.key, onSelectionChange)}
+											/>
+										</label>
+									</div>
+								{:else}
+									<button
+										type="button"
+										class="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+										aria-label={`Select ${pick.accessibleName}`}
+										on:click={() => handleSelectFromGeneration(pick.generation, pick.file)}
+									>
+										<span class="pointer-events-none block" inert>
+											<GenerationCard generation={pick.view} {tile} showActions={false} interactive={false} />
+										</span>
+									</button>
+								{/if}
+								<Tooltip text={pick.label} wrapperClass="block min-w-0 max-w-full">
+									<p class="mt-1 text-sm text-fg truncate">{pick.label}</p>
+								</Tooltip>
+								{#if !allowed && constraintMessage}
+									<p class="flex items-center gap-1 text-xs text-fg-subtle min-w-0">
+										<Icon name="info" className="w-3 h-3 flex-shrink-0" />
+										<span class="block truncate">{constraintMessage}</span>
+									</p>
+								{:else if pick.sublabel}
+									<p class="font-mono tabular-nums text-xs text-fg-subtle truncate">{pick.sublabel}</p>
+								{/if}
+							</div>
+						{/if}
+					</svelte:fragment>
+				</JustifiedGenerationGallery>
 		{/if}
 	</div>
 

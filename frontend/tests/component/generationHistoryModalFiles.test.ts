@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 const apiMocks = vi.hoisted(() => ({
 	getGenerationHistory: vi.fn(),
@@ -16,6 +16,7 @@ vi.mock('$lib/services/api/index', () => ({
 const { default: GenerationHistoryModal } = await import('$lib/components/modals/GenerationHistoryModal.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { tick } = await import('svelte');
+const { stubClientWidth } = await import('./helpers/stubClientWidth');
 
 function file(id: number, type: string, name: string, isFinal = true) {
 	return { id, file_path: `out/${name}`, file_type: type, is_final: isFinal, created_at: '2026-01-01T00:00:00Z' };
@@ -45,6 +46,11 @@ const FILM = generation('film', [
 ]);
 
 let components: Array<{ $destroy: () => void }> = [];
+let restoreWidth: () => void = () => {};
+
+beforeEach(() => {
+	restoreWidth = stubClientWidth(1000);
+});
 
 async function mountSingle(props: Record<string, unknown>) {
 	apiMocks.getGenerationHistory.mockResolvedValue({
@@ -68,6 +74,7 @@ async function mountSingle(props: Record<string, unknown>) {
 }
 
 afterEach(() => {
+	restoreWidth();
 	for (const component of components) component.$destroy();
 	components = [];
 	document.body.innerHTML = '';
@@ -80,6 +87,15 @@ describe('single-pick history modal', () => {
 		expect(ids).toEqual(['1', '2', '3', '4']);
 	});
 
+	it('renders media for intermediate files, not an empty card', async () => {
+		await mountSingle({ mediaType: 'video' });
+		for (const id of [1, 2, 3, 4]) {
+			const tile = document.querySelector(`[data-file-id="${id}"]`)!;
+			expect(tile.querySelector('.media-zoom .min-h-\\[8rem\\]')).toBeNull();
+			expect(tile.querySelector('.media-zoom')!.children.length).toBeGreaterThan(0);
+		}
+	});
+
 	it('leaves out files of a kind the field does not accept', async () => {
 		await mountSingle({ mediaType: 'image' });
 		const ids = [...document.querySelectorAll('[data-testid="history-file-tile"]')].map((tile) => tile.getAttribute('data-file-id'));
@@ -89,7 +105,7 @@ describe('single-pick history modal', () => {
 	it('hands the chosen file, not the first one, to onSelect', async () => {
 		const onSelect = vi.fn();
 		await mountSingle({ mediaType: 'video', onSelect });
-		const button = document.querySelector('[data-file-id="4"] button') as HTMLButtonElement;
+		const button = document.querySelector('[data-file-id="4"] button') as HTMLElement;
 		button.click();
 		expect(onSelect).toHaveBeenCalledTimes(1);
 		expect(onSelect.mock.calls[0][0].id).toBe('film');

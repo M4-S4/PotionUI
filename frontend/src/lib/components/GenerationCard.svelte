@@ -42,6 +42,9 @@
 	export let selected: boolean = false;
 	/** Show an always-available selection checkbox (independent of selection mode). */
 	export let showCheckbox: boolean = false;
+	export let disabled: boolean = false;
+	export let interactive: boolean = true;
+	export let label: string | null = null;
 	/**
 	 * The second argument is the selected file ITSELF, never its index: the card's
 	 * carousel walks a filtered (`is_final`, nsfw) and re-ordered
@@ -201,7 +204,7 @@
 		// preview; a plain click there falls through to the preview as usual.
 		const wantsSelection =
 			selectable || !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
-		if (wantsSelection && onSelect) {
+		if (wantsSelection && onSelect && !disabled) {
 			onSelect(generation, currentMediaFile ?? null, event);
 		} else if (mediaFiles.length > 0 || stackEntry) {
 			dispatch('imageClick', { files: generation.files, generationId: generation.id });
@@ -311,6 +314,7 @@
 
 <div
 	class="group relative"
+	class:opacity-50={disabled}
 	style={tile ? `width: ${tile.width}px` : undefined}
 	data-generation-card
 	role="presentation"
@@ -364,6 +368,7 @@
 			style={tile ? `height: ${tile.height}px` : undefined}
 			role="button"
 			tabindex="0"
+			aria-label={label ? `Preview ${label}` : undefined}
 			on:click={handleCardClick}
 			on:pointerdown={handlePointerDown}
 			on:pointermove={handlePointerMove}
@@ -673,14 +678,14 @@
 				{:else}
 				<div class="flex items-center gap-1 min-w-0 overflow-hidden">
 					{#if generation.status === 'completed'}
-						{#if chromeBucket.showStars}
+						{#if chromeBucket.showStars && interactive}
 							<StarRating
 								value={generation.rating}
 								tone="default"
 								readonly={!showActions}
 								onChange={handleRatingChange}
 							/>
-						{:else if chromeBucket.showRatingChip}
+						{:else if chromeBucket.showRatingChip || !interactive}
 							<div class="flex items-center gap-1 {generation.rating ? 'text-signal' : 'text-line-hover'}">
 								<svg
 									class="w-2.5 h-2.5"
