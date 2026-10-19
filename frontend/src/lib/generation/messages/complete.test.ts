@@ -68,7 +68,8 @@ describe('generation_complete message handler — sound gating', () => {
 			images: [],
 			videos: [{ url: '/v.mp4', originalUrl: '/v.mp4' } as any],
 			audios: [],
-			meshes: []
+			meshes: [],
+			splats: []
 		});
 		const unsubscribe = vi.fn();
 
@@ -86,6 +87,6 @@ describe('generation_complete message handler — sound gating', () => {
 			} as any,
 			{ unsubscribe: vi.fn() }
 		);
-		expect(peekGenerationOutputs('gen-3')).toEqual({ images: [], videos: [], audios: [], meshes: [] });
+		expect(peekGenerationOutputs('gen-3')).toEqual({ images: [], videos: [], audios: [], meshes: [], splats: [] });
 	});
 });

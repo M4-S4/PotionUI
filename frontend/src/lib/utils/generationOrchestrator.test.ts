@@ -368,14 +368,14 @@ describe('mapGenerationFiles', () => {
 				{
 					file_type: 'MESH',
 					file_path: `generations/2026-07-27/${genId}/1.glb`,
-					mesh_format: 'ply',
+					mesh_format: 'obj',
 					is_derived: false
 				}
 			],
 			genId
 		);
 
-		expect(meshes[0].mesh_format).toBe('ply');
+		expect(meshes[0].mesh_format).toBe('obj');
 	});
 
 	it('derives mesh_format from a non-glb file_path extension when no field is sent', () => {
@@ -383,14 +383,14 @@ describe('mapGenerationFiles', () => {
 			[
 				{
 					file_type: 'MESH',
-					file_path: `generations/2026-07-27/${genId}/1.ply`,
+					file_path: `generations/2026-07-27/${genId}/1.obj`,
 					is_derived: false
 				}
 			],
 			genId
 		);
 
-		expect(meshes[0].mesh_format).toBe('ply');
+		expect(meshes[0].mesh_format).toBe('obj');
 	});
 
 	it('matches file_type case-insensitively for images and videos too', () => {
@@ -437,6 +437,60 @@ describe('mapGenerationFiles', () => {
 		expect(audios[0].seed).toBe(42);
 	});
 
+	it('maps an UPPERCASE SPLAT row to a splat gallery item, not a mesh', () => {
+		const { meshes, splats, totalItems } = mapGenerationFiles(
+			[
+				{
+					file_type: 'SPLAT',
+					file_path: `generations/2026-10-19/${genId}/0.ply`,
+					is_derived: false,
+					seed: 7
+				}
+			],
+			genId
+		);
+
+		expect(meshes).toEqual([]);
+		expect(totalItems).toBe(1);
+		expect(splats).toHaveLength(1);
+		expect(splats[0].url).toBe(`/api/media/generations/${genId}/0.ply`);
+		expect(splats[0].originalUrl).toBe(splats[0].url);
+		expect(splats[0].file_type).toBe('splat');
+		expect(splats[0].splat_name).toBe('0.ply');
+		expect(splats[0].splat_format).toBe('ply');
+		expect(splats[0].seed).toBe(7);
+	});
+
+	it('prefers a server-sent splat_format over the file_path extension and derives it otherwise', () => {
+		const { splats } = mapGenerationFiles(
+			[
+				{ file_type: 'SPLAT', file_path: `generations/d/${genId}/0.ply`, splat_format: 'spz' },
+				{ file_type: 'SPLAT', file_path: `generations/d/${genId}/1.spz`, is_derived: true }
+			],
+			genId
+		);
+
+		expect(splats[0].splat_format).toBe('spz');
+		expect(splats[1].splat_format).toBe('spz');
+		expect(splats[1].derived).toBe(true);
+	});
+
+	it('counts splats in totalItems after the other four kinds', () => {
+		const mapped = mapGenerationFiles(
+			[
+				{ file_type: 'SPLAT', file_path: `g/${genId}/0.ply` },
+				{ file_type: 'MESH', file_path: `g/${genId}/1.glb` },
+				{ file_type: 'IMAGE', file_path: `g/${genId}/2.png` }
+			],
+			genId
+		);
+
+		expect(mapped.totalItems).toBe(3);
+		expect(mapped.images).toHaveLength(1);
+		expect(mapped.meshes).toHaveLength(1);
+		expect(mapped.splats).toHaveLength(1);
+	});
+
 	it('prefers an explicit url and falls back to an index-based name without file_path', () => {
 		const { images, meshes } = mapGenerationFiles(
 			[
@@ -448,6 +502,9 @@ describe('mapGenerationFiles', () => {
 
 		expect(images[0].url).toBe('/api/custom/0.png');
 		expect(meshes[0].url).toBe(`/api/media/generations/${genId}/0.glb`);
+		expect(mapGenerationFiles([{ file_type: 'splat' }], genId).splats[0].url).toBe(
+			`/api/media/generations/${genId}/0.ply`
+		);
 	});
 
 	it('returns empty batches for empty or typeless input', () => {

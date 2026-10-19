@@ -37,7 +37,8 @@ const KIND_ICONS: Record<string, string> = {
 	image: 'image',
 	video: 'video',
 	audio: 'audio',
-	mesh: 'cube'
+	mesh: 'cube',
+	splat: 'splat'
 };
 
 const FALLBACK_ICON = 'extension';

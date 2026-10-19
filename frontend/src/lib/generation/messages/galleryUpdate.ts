@@ -14,7 +14,7 @@ function mergeSavedImages(previous: any[], incoming: any[]): any[] {
 	return merged;
 }
 
-// Gallery updates can contain any combination of images, videos, and audio.
+// Gallery updates can contain any combination of images, videos, audio, meshes and splats.
 generationMessageRegistry.register('gallery_update', {
 	type: 'gallery_update',
 		handle(message: any, ctx) {
@@ -28,6 +28,7 @@ generationMessageRegistry.register('gallery_update', {
 		let nextVideos = cached.videos;
 		let nextAudios = cached.audios;
 		let nextMeshes = cached.meshes;
+		let nextSplats = cached.splats;
 
 		// The message has 'images' array (base64 data) AND 'image_urls_list' (metadata)
 		const suppressed = message.preview_suppressed === true;
@@ -201,11 +202,31 @@ generationMessageRegistry.register('gallery_update', {
 				.filter(Boolean);
 		}
 
+		if (!suppressed && message.splats && Array.isArray(message.splats)) {
+			nextSplats = message.splats
+				.map((splat: any, index: number) => {
+					const urlData = message.splat_urls_list?.[index] || {};
+					const path = urlData.path || splat.path || '';
+					if (!path) return null;
+					return {
+						url: path,
+						originalUrl: path,
+						file_type: 'splat',
+						splat_format: urlData.splat_format ?? splat.splat_format,
+						derived: (urlData.derived ?? splat.derived) === true,
+						splat_count: urlData.splat_count ?? splat.splat_count,
+						seed: urlData.seed ?? splat.seed
+					};
+				})
+				.filter(Boolean);
+		}
+
 		setGenerationOutputs(ctx.generationId, {
 			images: nextImages,
 			videos: nextVideos,
 			audios: nextAudios,
-			meshes: nextMeshes
+			meshes: nextMeshes,
+			splats: nextSplats
 		});
 
 		// Video Director run tracking (PLAN.md §C W3): the row thumb switches to
@@ -235,7 +256,13 @@ generationMessageRegistry.register('gallery_update', {
 							batchVideos: nextVideos,
 							batchAudios: nextAudios,
 							batchMeshes: nextMeshes,
-							workbenchTotal: nextImages.length + nextVideos.length + nextAudios.length + nextMeshes.length
+							batchSplats: nextSplats,
+							workbenchTotal:
+								nextImages.length +
+								nextVideos.length +
+								nextAudios.length +
+								nextMeshes.length +
+								nextSplats.length
 						}
 					}
 				: {}),

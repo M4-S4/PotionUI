@@ -1,6 +1,6 @@
 import { richTextToPlainText } from '$lib/utils/richTextUtils';
 import type { SegmentInput } from '$lib/services/api/index';
-import type { Tab, ImageData, VideoData, MeshData } from '$lib/types/tabs';
+import type { Tab, ImageData, VideoData, MeshData, SplatData } from '$lib/types/tabs';
 import type { AudioData } from '$lib/types/audio';
 import type { Segment } from '$lib/types/segments';
 import { applySegmentAffixes, flattenRichSegments, type SegmentJoin } from '$lib/utils/richSegments';
@@ -107,11 +107,12 @@ export interface RestoredGenerationData {
 	videos: VideoData[];
 	audios: AudioData[];
 	meshes: MeshData[];
+	splats: SplatData[];
 	totalItems: number;
 }
 
 // The history API serializes `files` rows verbatim: `file_type` is UPPERCASE
-// ('IMAGE'/'VIDEO'/'MESH', matching the DB) and there is no `url` field - the
+// ('IMAGE'/'VIDEO'/'MESH'/'SPLAT', matching the DB) and there is no `url` field - the
 // servable URL must be built from the row's `file_path` basename. The
 // WebSocket path (galleryUpdate.ts) delivers lowercase types and ready-made
 // paths, so anything comparing the two shapes must normalize, not assume.
@@ -192,11 +193,28 @@ export function mapGenerationFiles(files: any[], generationId: string): Restored
 			};
 		});
 
+	const splats: SplatData[] = (files || [])
+		.filter((f: any) => fileTypeOf(f) === 'splat')
+		.map((f: any, index: number) => {
+			const url = fileUrlOf(f, generationId, `${index}.ply`);
+			const basename = typeof f.file_path === 'string' ? f.file_path.split('/').pop() : null;
+			return {
+				url,
+				originalUrl: url,
+				file_type: 'splat' as const,
+				splat_name: basename ?? undefined,
+				splat_format: f.splat_format || (basename?.includes('.') ? basename.split('.').pop() : undefined),
+				derived: f.is_derived === true,
+				seed: f.seed
+			};
+		});
+
 	return {
 		images,
 		videos,
 		audios,
 		meshes,
-		totalItems: images.length + videos.length + audios.length + meshes.length
+		splats,
+		totalItems: images.length + videos.length + audios.length + meshes.length + splats.length
 	};
 }

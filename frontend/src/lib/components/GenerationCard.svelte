@@ -7,6 +7,7 @@
 	import Tooltip from './Tooltip.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
+import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl';
 	import StarRating from './StarRating.svelte';
 	import FavoriteButton from './FavoriteButton.svelte';
 	import { Badge, CopyButton } from '$lib/components/ui';
@@ -45,7 +46,7 @@
 	/**
 	 * The second argument is the selected file ITSELF, never its index: the card's
 	 * carousel walks a filtered (`is_final`, nsfw) and re-ordered
-	 * (images→videos→audio→mesh) list, so a position in it does not address the
+	 * (images→videos→audio→mesh→splat) list, so a position in it does not address the
 	 * same element in the caller's `files` array. A hidden row is enough to make
 	 * an index resolve to the wrong file. The third argument is the originating
 	 * pointer event (omitted for a keyboard activation), so a multi-select grid
@@ -90,7 +91,13 @@
 		),
 		nsfwMode
 	);
-	$: mediaFiles = [...imageFiles, ...videoFiles, ...audioFiles, ...meshFiles];
+	$: splatFiles = visibleMediaFiles(
+		(generation.files ?? []).filter(
+			(file) => file.is_final !== false && file.file_type?.toLowerCase() === 'splat'
+		),
+		nsfwMode
+	);
+	$: mediaFiles = [...imageFiles, ...videoFiles, ...audioFiles, ...meshFiles, ...splatFiles];
 	$: currentMediaFile = mediaFiles[currentImageIndex];
 
 	// Reset index if generation changes
@@ -116,6 +123,8 @@
 	$: isCurrentMediaAudio = currentMediaFile?.file_type?.toLowerCase() === 'audio';
 	$: isCurrentMediaMesh = currentMediaFile?.file_type?.toLowerCase() === 'mesh';
 	$: currentMeshFormat = resolveMeshFormat(currentMediaFile).toUpperCase();
+	$: isCurrentMediaSplat = currentMediaFile?.file_type?.toLowerCase() === 'splat';
+	$: currentSplatFormat = (resolveSplatFormat(currentMediaFile) ?? '').toUpperCase();
 	$: metaParts = [
 		currentMediaFile?.width && currentMediaFile?.height
 			? `${currentMediaFile.width}×${currentMediaFile.height}`
@@ -379,8 +388,8 @@
 			{#if mediaFiles.length > 0 && currentMediaFile}
 				{#if isUnratedFile(currentMediaFile)}
 					<ContentPolicyTile kind="checking" />
-				{:else if isCurrentMediaMesh}
-					<!-- Grid tiles stay lightweight: no <model-viewer> here. A
+				{:else if isCurrentMediaMesh || isCurrentMediaSplat}
+					<!-- Grid tiles stay lightweight: no 3D viewer here. A
 					     server-rendered thumbnail (media-index queue) is preferred
 					     once one exists; otherwise fall back to the format marker. -->
 					{#if currentMediaFile.thumbnail_small || currentMediaFile.thumbnail_medium || currentMediaFile.thumbnail_large}
@@ -398,8 +407,8 @@
 							class="w-full h-full flex flex-col items-center justify-center gap-2"
 							style={placeholderTint(currentMediaFile.file_path)}
 						>
-							<Icon name="cube" className="h-10 w-10 text-fg-subtle" strokeWidth={1.5} />
-							<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{currentMeshFormat}</span>
+							<Icon name={isCurrentMediaSplat ? 'splat' : 'cube'} className="h-10 w-10 text-fg-subtle" strokeWidth={1.5} />
+							<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{isCurrentMediaSplat ? currentSplatFormat : currentMeshFormat}</span>
 						</div>
 					{/if}
 				{:else if isCurrentMediaAudio}
@@ -517,13 +526,15 @@
 
 			<!-- Media type only; the carousel already communicates the file count as 1/N
 			     (fixed-aspect card only - the justified tile shows this as a bottom-left chip). -->
-			{#if !tile && (mediaFiles.length > 1 || videoFiles.length > 0 || audioFiles.length > 0 || meshFiles.length > 0) && density.showMediaType}
+			{#if !tile && (mediaFiles.length > 1 || videoFiles.length > 0 || audioFiles.length > 0 || meshFiles.length > 0 || splatFiles.length > 0) && density.showMediaType}
 				<div
 					class="absolute top-2 z-20 bg-black/70 backdrop-blur-sm text-white rounded px-1.5 py-0.5 flex items-center gap-1 {showCheckbox ? 'left-9' : 'left-2'}"
 				>
 					<Icon
 						name={meshFiles.length > 0
 							? 'cube'
+							: splatFiles.length > 0
+							? 'splat'
 							: videoFiles.length > 0
 							? 'video'
 							: audioFiles.length > 0
@@ -534,7 +545,7 @@
 				</div>
 			{/if}
 
-			{#if currentMediaFile?.label && !isCurrentMediaVideo && !isCurrentMediaAudio && !isCurrentMediaMesh}
+			{#if currentMediaFile?.label && !isCurrentMediaVideo && !isCurrentMediaAudio && !isCurrentMediaMesh && !isCurrentMediaSplat}
 				<div class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[60%] flex" data-output-label>
 					<Tooltip text={currentMediaFile.label} position="bottom" wrapperClass="inline-flex items-center max-w-full min-w-0">
 						<Badge size="lg" class="max-w-full font-mono uppercase tracking-[0.07em] bg-black/70 text-white border-white/20">
@@ -552,6 +563,8 @@
 					<Icon
 						name={meshFiles.length > 0
 							? 'cube'
+							: splatFiles.length > 0
+							? 'splat'
 							: videoFiles.length > 0
 							? 'video'
 							: audioFiles.length > 0

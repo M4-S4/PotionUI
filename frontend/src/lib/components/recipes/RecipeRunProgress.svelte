@@ -24,6 +24,7 @@
 	import { formatBytes, formatDuration } from '$lib/utils/format';
 	import { Alert, Badge, Button, Input } from '$lib/components/ui';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
+	import SplatPreview from '$lib/components/workbench/renderers/SplatPreview.svelte';
 	import ConsentVariantPicker from './ConsentVariantPicker.svelte';
 
 	/**
@@ -455,6 +456,11 @@
 									{@const meshUrl = api.getGenerationImageURL(media.generationId, media.filename)}
 									<div class="h-64 w-full max-w-md rounded border border-line bg-black overflow-hidden">
 										<MeshPreview file={{ url: meshUrl, originalUrl: meshUrl }} />
+									</div>
+								{:else if media.kind === 'splat'}
+									{@const splatUrl = api.getGenerationImageURL(media.generationId, media.filename)}
+									<div class="h-64 w-full max-w-md rounded border border-line bg-black overflow-hidden">
+										<SplatPreview file={{ url: splatUrl, originalUrl: splatUrl }} />
 									</div>
 								{/if}
 								<span class="text-xs font-mono text-fg-subtle truncate">{media.filename}</span>

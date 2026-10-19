@@ -90,7 +90,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 			completedTo?: string;
 			tagIds?: string[];
 			includeTags?: boolean;
-			mediaType?: 'image' | 'video' | 'audio' | 'mesh';
+			mediaType?: 'image' | 'video' | 'audio' | 'mesh' | 'splat';
 			search?: string;
 			semanticQuery?: string;
 			mode?: string;
