@@ -172,6 +172,16 @@ def test_storage_breakdown(client, seed):
     ]
 
 
+def test_storage_breakdown_groups_splats_as_3d_scenes(client, seed):
+    seed.generation("u1", sizes=(11,), file_type="SPLAT")
+
+    data = client.get("/api/me/limits/storage", headers=USER).json()["data"]
+
+    groups = {g["key"]: g for g in data["groups"]}
+    assert (groups["splat"]["files"], groups["splat"]["bytes"]) == (1, 11)
+    assert groups["splat"]["label"] == "3D scenes"
+
+
 def test_plan_crud_and_validation(client):
     created = client.post("/api/admin/plans", json={
         "name": "Tier 1", "description": "First", "limits": [{"kind": "storage_bytes", "value": 20 * GB}],

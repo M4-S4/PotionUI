@@ -163,7 +163,7 @@ EXTENSION_SLOT_HOOKS = hooks_registry.declare(
                 "fileIndex": {"type": "number", "description": "Index of the currently displayed file within the generation"},
                 "filename": {"type": "string", "description": "Basename of the currently displayed file, as served under /api/media/generations/{generationId}/{filename}"},
                 "fileUrl": {"type": "string", "description": "Display URL of the currently displayed file"},
-                "fileType": {"type": "string", "description": "'IMAGE' | 'VIDEO' | 'AUDIO' | 'MESH' - the file record's file_type"},
+                "fileType": {"type": "string", "description": "'IMAGE' | 'VIDEO' | 'AUDIO' | 'MESH' | 'SPLAT' - the file record's file_type"},
             },
             "use_when": ["Adding a header-level action that operates on the whole generation or its currently displayed file, e.g. a developer/admin tool"],
         },

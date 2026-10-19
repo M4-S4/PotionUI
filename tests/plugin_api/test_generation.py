@@ -457,6 +457,21 @@ def test_files_come_in_canonical_order_with_their_unfiltered_index(world):
     assert [(f["id"], f["index"]) for f in everything] == [("f-a", 0), ("f-b", 1), ("f-c", 2), ("f-d", 3)]
 
 
+def test_a_generated_splat_is_listed_with_its_file_type(world):
+    world.generation("g1")
+    path = "generations/g1/1.ply"
+    world.files.create(File(
+        id="s1", file_path=path, file_type="SPLAT", user_id="owner",
+        file_size=1, pipe_name="generator_image_to_splat", is_final=True,
+    ))
+    world.files.associate_with_generation("g1", "s1")
+    world.existing_paths.add(path)
+
+    files = api.list_generation_files(world.owner, "g1")
+
+    assert [(f["id"], f["file_type"].lower(), f["file_path"]) for f in files] == [("s1", "splat", path)]
+
+
 def test_files_of_someone_elses_generation_are_not_found(world):
     world.generation("g1")
     world.file("g1", "f1")

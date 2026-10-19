@@ -50,7 +50,7 @@ Camera FOV has two settings. **Auto (MoGe-2)**, the `img2mesh` default, estimate
 
 ### Auto FOV (MoGe-2)
 
-The estimator is a pure-torch port of MoGe-2 in `src/platform/runtime/native/arch/moge/`, loaded by `model_loader/pixal3d` as its optional `camera_estimator` component (its own `MODELS` key, `native/moge/<file>`, fp32, about 1.3 GB resident). It is acquired only when the preset passes a file, and the preset passes one only while Camera FOV is Auto.
+The estimator is a pure-torch port of MoGe-2 in `src/platform/runtime/native/arch/moge/`, loaded by `model_loader/pixal3d` as its optional `camera_estimator` component (its own `MODELS` key, `native/moge/<file>`, shared with [Image to Splat](image_to_splat.md), fp32, about 1.3 GB resident). It is acquired only when the preset passes a file, and the preset passes one only while Camera FOV is Auto.
 
 - **Input.** The image the conditioner sees: the matted, 1.1-padded square crop when background removal is on, the upload as given when it is off (front view in `views2mesh`), resized to 1024² and fed as RGB in [0, 1]. ComfyUI's template feeds MoGe its 1024² `ImageCropToMask` output, the same image.
 - **Model.** DINOv2 ViT-L/14 (24 blocks, layers 5/11/17/23 projected and summed), a UV-conditioned conv neck, and the points and mask heads. The normal and metric-scale heads are skipped at load, because FOV needs neither. Resolution level 9 = 3600 tokens (a 60×60 grid on a square image). Compute is fp32 from the fp16 file, as in ComfyUI's MoGe-2 path.

@@ -270,6 +270,8 @@ class MediaIndexer:
             relative = item.file_path
         elif item.file_type == "MESH":
             return self._resolve_mesh_source_path(item)
+        elif item.file_type == "SPLAT":
+            return self._sibling_thumbnail_full_path(item) if item.thumbnail_path and item.file_path else None
         else:
             relative = item.thumbnail_path
         if not relative:
@@ -288,7 +290,7 @@ class MediaIndexer:
         (`mesh_thumbnails.render_and_store_mesh_thumbnail`).
         """
         if item.thumbnail_path:
-            return self._mesh_thumbnail_full_path(item)
+            return self._sibling_thumbnail_full_path(item)
         if not item.file_path:
             return None
 
@@ -299,9 +301,9 @@ class MediaIndexer:
             return None
 
         item.thumbnail_path = relative
-        return self._mesh_thumbnail_full_path(item)
+        return self._sibling_thumbnail_full_path(item)
 
-    def _mesh_thumbnail_full_path(self, item: MediaIndexQueueItem) -> str:
+    def _sibling_thumbnail_full_path(self, item: MediaIndexQueueItem) -> str:
         base_key = os.path.dirname(item.file_path)
         relative = f"{base_key}/{item.thumbnail_path}" if base_key else item.thumbnail_path
         return self.file_service.get_full_path(relative)

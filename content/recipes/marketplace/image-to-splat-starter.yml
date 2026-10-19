@@ -1,0 +1,131 @@
+########
+## Setup recipe: Image to Splat on the native engine
+##
+## See src/features/recipes/schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/recipes/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "image-to-splat-starter"
+version: 1
+name: "Image to Splat Starter"
+engine: "native"
+category: "3d"
+summary: "Get a working Image to Splat setup on your local GPU, ready to turn a picture into a 3D Gaussian splat scene."
+description: >
+  Installs the bundled Image to Splat preset on the native (in-process)
+  engine and makes sure the one model file it needs is available before
+  handing you a ready-to-use preset. Image to Splat lifts a single image into
+  a two-layer 3D Gaussian splat (.ply): MoGe-2 estimates the depth, the
+  validity mask and the camera of the picture, the depth map is cut where it
+  jumps, the background hidden behind the foreground is filled in with
+  OpenCV inpainting, and every pixel becomes one Gaussian. Generation takes
+  seconds and a few GB of VRAM.
+
+  The only file is MoGe-2 (moge_2_vitl_normal_fp16.safetensors, ~0.66 GB),
+  the same file Pixal3D's Auto camera FOV uses, so an instance that already
+  ran the Pixal3D Starter downloads nothing. Both presets share one model
+  cache entry for it.
+
+  The scene is seen from the source image's camera. It holds up for small
+  camera moves (an orbit of about 5 to 15 degrees, a dolly of 10 to 20
+  percent of the depth); beyond that, stretched edges and empty space behind
+  the frame show.
+
+  No generation smoke run: the required source image would reach the real
+  loaders as a placeholder path. The pipeline render below is a dry run that
+  loads nothing.
+
+  LICENCE: MoGe-2's code and weights are MIT (Microsoft,
+  Ruicheng/moge-2-vitl-normal, repackaged by Comfy-Org) on a DINOv2 ViT-L/14
+  backbone that Meta releases under Apache-2.0; neither is gated.
+
+plugins:
+  - id: "huggingface-provider"
+    reason: >
+      Resolves the MoGe-2 checkpoint from HuggingFace (Comfy-Org's repackage)
+      by exact repo path. HuggingFace has no hash-lookup API, so the artifact
+      below names its file explicitly; its sha256 still verifies the download.
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "image-to-splat-geometry-estimator"
+    kind: "geometry_estimation"
+    model_type: "geometry_estimation"
+    filename: "moge_2_vitl_normal_fp16.safetensors"
+    display_name: "MoGe-2 ViT-L geometry estimator (depth, mask and camera, fp16)"
+    required: true
+    size_bytes: 661859924
+    checksum:
+      algorithm: "sha256"
+      value: "cb1a692d03235671e959e81360d7b4d9f44aefadb1f852d6ca6aa17799d5e31f"
+    capability: "model-lookup"
+    gated: false
+    license_url: "https://huggingface.co/Ruicheng/moge-2-vitl-normal"
+    provider_hint:
+      source: "huggingface"
+      model_id: "Comfy-Org/MoGe"
+      version_id: "main@geometry_estimation/moge_2_vitl_normal_fp16.safetensors"
+
+presets:
+  - preset_id: "01KX47GSP4TQ0000000000SP3D"
+    path_hint: "marketplace/ImageToSplat"
+    assign_to_owner: true
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      plugin_ids: ["huggingface-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["image-to-splat-geometry-estimator"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the MoGe-2 model file"
+    params:
+      artifact_ids: ["image-to-splat-geometry-estimator"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the Image to Splat preset"
+    params:
+      preset_id: "01KX47GSP4TQ0000000000SP3D"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the Image to 3D scene pipeline"
+    params:
+      preset_id: "01KX47GSP4TQ0000000000SP3D"
+      mode: "img2splat"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    onboarding_only: true
+    params: {}

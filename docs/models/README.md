@@ -27,6 +27,7 @@ Every family below except SDXL runs on the native engine ([Native Engine v2](../
 - [SDXL](sdxl.md) — text-to-image, image-to-image, inpaint (diffusers pipeline)
 - [SeedVR2](seedvr2.md) — image and video upscaling
 - [Pixal3D](pixal3d.md) — image to textured 3D mesh, single view or a four-view orbit (TRELLIS.2 with pixel-aligned conditioning)
+- [Image to Splat](image_to_splat.md) — image to a two-layer 3D Gaussian splat scene (MoGe-2 depth lifting, no training)
 
 One preset directory exists that this section does not cover: **Chroma** has loader/generator pipes on disk but no shipped preset and no native-engine detection entry — it is not a working, documentable family.
 

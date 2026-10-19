@@ -42,6 +42,7 @@ from src.features.remote_execution.worker.device_injection import inject_worker_
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import GenerationOutput, ProgressGenerationOutput
+from src.platform.filesystem.splat_formats import splat_format_registry
 from src.platform.worker_protocol import ArtifactRefV1, ContentDigest, ProcessedPipelineV1
 
 logger = logging.getLogger(__name__)
@@ -374,6 +375,7 @@ _SUFFIX_MEDIA_INFO: Dict[str, Tuple[str, str]] = {
     ".flac": ("audio", "audio/flac"),
     ".glb": ("mesh", "model/gltf-binary"),
     ".gltf": ("mesh", "model/gltf+json"),
+    **{extension: ("splat", mime) for extension, mime in splat_format_registry.mime_types().items()},
 }
 
 

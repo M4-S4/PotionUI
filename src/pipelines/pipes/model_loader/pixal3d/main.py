@@ -6,6 +6,10 @@ from typing import Any, Dict, List
 import torch
 
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeOutputSpec
+from src.pipelines.pipes._shared.generation.geometry_estimator import (
+    geometry_estimator_fingerprint,
+    geometry_estimator_key,
+)
 from src.pipelines.pipes._shared.generation.loader_helpers import path_of as _path_of
 from src.pipelines.pipes.model_loader.pixal3d.bundle import Pixal3DModelBundle
 from src.pipelines.pipes.model_loader.trellis2.main import ModelLoaderTrellis2Pipe
@@ -126,9 +130,10 @@ class ModelLoaderPixal3DPipe(ModelLoaderTrellis2Pipe):
         estimator = _path_of(self.config.get("camera_estimator"))
         if estimator:
             shared.append((
-                "camera estimator", f"native/moge/{estimator}",
+                "camera estimator", geometry_estimator_key(estimator),
                 lambda: NativeModel("text_encoder", _load_camera_estimator(estimator)),
                 2 * file_size_gb(estimator),
+                geometry_estimator_fingerprint(estimator),
             ))
         return [
             *shared,
@@ -164,7 +169,7 @@ class ModelLoaderPixal3DPipe(ModelLoaderTrellis2Pipe):
             tex_flow=loaded[f"native/pixal3d/tex_flow_1024/{dit}"],
             tex_decoder=loaded[f"native/trellis2/tex_decoder/{paths['texture_vae']}"],
             matting=loaded.get(f"native/matting/{matting_path}") if matting_path else None,
-            camera_estimator=loaded.get(f"native/moge/{estimator}") if estimator else None,
+            camera_estimator=loaded.get(geometry_estimator_key(estimator)) if estimator else None,
             camera_estimator_selected=bool(estimator),
             tier=tier,
             device=device,

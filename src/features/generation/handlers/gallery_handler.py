@@ -20,6 +20,11 @@ from src.features.generation.handlers.mesh_handler import (
     mesh_api_path,
     mesh_format_of,
 )
+from src.features.generation.handlers.splat_handler import (
+    SplatGenerationOutputHandler,
+    splat_api_path,
+    splat_format_of,
+)
 from src.features.generation.output_types import OutputTypeSpec, SerializeContext, output_type_registry
 from src.features.generation.media_utils import create_base64_image
 from src.platform.settings.settings import Settings
@@ -52,10 +57,12 @@ class GalleryGenerationOutputHandler(BaseGenerationOutputHandler):
             'video_count': len(output.videos) if output.videos else 0,
             'audio_count': len(output.audios) if output.audios else 0,
             'mesh_count': len(output.meshes) if output.meshes else 0,
+            'splat_count': len(output.splats) if output.splats else 0,
             'processed_images': [],
             'processed_videos': [],
             'processed_audios': [],
-            'processed_meshes': []
+            'processed_meshes': [],
+            'processed_splats': []
         }
 
         try:
@@ -126,6 +133,16 @@ class GalleryGenerationOutputHandler(BaseGenerationOutputHandler):
                     # Update our counter
                     self.image_counter = mesh_handler.image_counter
 
+            if output.splats:
+                splat_handler = SplatGenerationOutputHandler(self.generation_id, self.user_id, self.settings, self.storage_driver)
+
+                for idx, splat_output in enumerate(output.splats):
+                    splat_handler.image_counter = self.image_counter
+                    splat_metadata = splat_handler.handle(splat_output)
+                    splat_metadata['gallery_index'] = idx
+                    metadata['processed_splats'].append(splat_metadata)
+                    self.image_counter = splat_handler.image_counter
+
             return metadata
 
         except Exception as e:
@@ -145,7 +162,9 @@ def serialize_gallery_output(output: GalleryGenerationOutput, ctx: SerializeCont
         'audios': [],
         'audio_urls_list': [],
         'meshes': [],
-        'mesh_urls_list': []
+        'mesh_urls_list': [],
+        'splats': [],
+        'splat_urls_list': []
     }
 
     if output.images:
@@ -348,6 +367,29 @@ def serialize_gallery_output(output: GalleryGenerationOutput, ctx: SerializeCont
         except Exception as e:
             logger.error(f"Failed to serialize gallery meshes: {str(e)}")
             result['meshes'] = []
+
+    if getattr(output, 'splats', None):
+        try:
+            splats_list = []
+            for splat_output in output.splats:
+                splat_data = {
+                    'file_type': 'splat',
+                    'splat_format': splat_format_of(splat_output),
+                    'derived': bool(getattr(splat_output, 'derived', False)),
+                    'seed': getattr(splat_output, 'seed', None),
+                    'splat_count': getattr(splat_output, 'splat_count', None),
+                    'temporary': getattr(splat_output, 'temporary', True),
+                }
+                api_path = splat_api_path(splat_output, ctx.generation_id)
+                if api_path and not getattr(splat_output, 'temporary', True):
+                    splat_data['path'] = api_path
+                    result['splat_urls_list'].append(splat_data)
+                splats_list.append(splat_data)
+            result['splats'] = splats_list
+
+        except Exception as e:
+            logger.error(f"Failed to serialize gallery splats: {str(e)}")
+            result['splats'] = []
 
     return result
 

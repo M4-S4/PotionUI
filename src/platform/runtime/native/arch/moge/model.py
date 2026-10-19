@@ -9,9 +9,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .config import BILINEAR, CONV_TRANSPOSE, DEFAULT_RESOLUTION_LEVEL, IMAGENET_MEAN, IMAGENET_STD, MoGe2Config
-from .geometry import fov_from_focal, normalized_view_plane_uv, recover_focal
+from .geometry import (
+    depth_to_points,
+    focal_to_fx_fy,
+    fov_from_focal,
+    normalized_view_plane_uv,
+    recover_focal,
+    recover_focal_shift,
+)
 
-__all__ = ["FovEstimate", "MoGe2Model"]
+__all__ = ["FovEstimate", "MoGe2Model", "MoGeGeometry"]
 
 
 @dataclass(frozen=True)
@@ -19,6 +26,23 @@ class FovEstimate:
     fov_x_deg: float
     fov_y_deg: float
     focal: float
+
+
+@dataclass(frozen=True)
+class MoGeGeometry:
+    points: torch.Tensor
+    depth: torch.Tensor
+    mask: torch.Tensor
+    focal: float
+    shift: float
+    fx: float
+    fy: float
+    fov_x_deg: float
+    fov_y_deg: float
+
+    def focal_pixels(self) -> Tuple[float, float]:
+        height, width = self.depth.shape[-2:]
+        return self.fx * width, self.fy * height
 
 
 class _PatchEmbed(nn.Module):
@@ -275,3 +299,42 @@ class MoGe2Model(nn.Module):
             fov_x, fov_y = fov_from_focal(focal, width / height)
             estimates.append(FovEstimate(fov_x, fov_y, focal) if math.isfinite(fov_x) else None)
         return estimates
+
+    @torch.no_grad()
+    def estimate_geometry(
+        self,
+        image: torch.Tensor,
+        resolution_level: int = DEFAULT_RESOLUTION_LEVEL,
+        mask_threshold: Optional[float] = None,
+    ) -> List[Optional[MoGeGeometry]]:
+        if image.dim() == 3:
+            image = image.unsqueeze(0)
+        parameter = next(self.parameters())
+        image = image.to(device=parameter.device, dtype=parameter.dtype)
+        height, width = image.shape[-2:]
+        aspect = width / height
+        threshold = self.config.mask_threshold if mask_threshold is None else mask_threshold
+        points, mask = self(image, self.config.num_tokens(resolution_level))
+        binary = mask > threshold
+        geometries: List[Optional[MoGeGeometry]] = []
+        for index, solution in enumerate(recover_focal_shift(points, binary)):
+            if solution is None:
+                geometries.append(None)
+                continue
+            focal, shift = solution
+            fx, fy = focal_to_fx_fy(focal, aspect)
+            fov_x, fov_y = fov_from_focal(focal, aspect)
+            depth = points[index, ..., 2] + shift
+            valid = binary[index] & torch.isfinite(depth) & (depth > 0)
+            geometries.append(MoGeGeometry(
+                points=depth_to_points(depth, fx, fy),
+                depth=depth,
+                mask=valid,
+                focal=focal,
+                shift=shift,
+                fx=fx,
+                fy=fy,
+                fov_x_deg=fov_x,
+                fov_y_deg=fov_y,
+            ))
+        return geometries
