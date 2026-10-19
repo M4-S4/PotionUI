@@ -31,20 +31,6 @@ class SearchModelPromptsTool(BaseTool):
         return "Finds example prompts in your prompt library, including ones you imported."
 
     @property
-    def hint(self) -> str:
-        return (
-            "ALWAYS call this BEFORE you write, improve, or suggest any prompt — you do not need the "
-            "user to ask. Ground every suggestion in real prompts from the user's library. "
-            "Decompose the desired image into ATOMIC concepts (subject, environment, style, lighting, "
-            "composition, mood) and pass them all as separate elements of `queries` in a single call — "
-            "the search is semantic, so compound phrases like 'fox in forest' match poorly while "
-            "'fox' and 'forest' searched separately match well. "
-            "{{#if get_active_models}}First call get_active_models to get the model IDs currently "
-            "selected, then pass a model_id here for model-specific results. {{/if}}"
-            "Also use when the user needs ideas, is stuck, asks 'what should I generate', or switches models."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Search the user's own saved Prompt library (prompts they saved or imported, e.g. from a "
@@ -55,7 +41,8 @@ class SearchModelPromptsTool(BaseTool):
             "phrase — the search is semantic and compound phrases match poorly. "
             "{{#if get_active_models}}Best workflow: call get_active_models first to get model IDs, then "
             "pass the relevant model_id here for model-specific results. {{/if}}"
-            "Use proactively when writing prompts to ground them in the user's saved examples."
+            "Use proactively when writing prompts to ground them in the user's saved examples. "
+            "Also use it when the user wants ideas or switches models."
         )
 
     @property

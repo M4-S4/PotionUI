@@ -2316,8 +2316,8 @@ class TestPromiseSentenceRenders:
 
         rendered = registry.resolve_system_prompt(mode, "hints", allowed_names=["get_form_state"])
 
-        assert "your current workspace" in rendered
-        assert "prompting guidance an admin wrote for them" in rendered
+        assert "the active workspace" in rendered
+        assert "admin prompting guidance" in rendered
         assert "{{" not in rendered
 
 
@@ -2330,7 +2330,7 @@ class TestToolCallFormatGuidance:
 
         rendered = registry.resolve_system_prompt(mode, "hints", allowed_names=["get_form_state"])
 
-        assert "never as <tool_action> markup" in rendered
+        assert "a call written as <tool_action> markup" in rendered
         assert "{{" not in rendered
 
     def test_native_client_injects_concrete_tool_call_example(self):

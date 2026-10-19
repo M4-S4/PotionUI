@@ -32,13 +32,6 @@ class ListSegmentCategoriesTool(BaseTool):
         return "Lists the categories of your saved segment library."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When helping the user build or organize their prompt, call this "
-            "to see what reusable segment categories exist."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "List all segment categories available to the user. "
@@ -97,10 +90,6 @@ class GetSavedSegmentsTool(BaseTool):
         return "Fetches reusable prompt segments from your library."
 
     @property
-    def hint(self) -> str:
-        return "Use when the user wants one reusable prompt card from their categorized library."
-
-    @property
     def description(self) -> str:
         return (
             "Get saved Segments: named, categorized single rich prompt cards. "
@@ -154,13 +143,6 @@ class GetSegmentTemplatesTool(BaseTool):
     @property
     def user_description(self) -> str:
         return "Fetches your reusable multi-segment prompt templates."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When helping build prompts, use this to find reusable templates "
-            "the user has created. Good for jumpstarting prompt construction."
-        )
 
     @property
     def description(self) -> str:
@@ -357,9 +339,6 @@ class CreateSavedSegmentTool(_SavedSegmentTool):
     def user_description(self): return "Saves a new reusable segment to your library."
 
     @property
-    def hint(self): return "When the user wants to keep a reusable prompt card in a category"
-
-    @property
     def description(self):
         return (
             "Create a saved Segment: one named, reusable rich prompt card filed under a category. "
@@ -402,9 +381,6 @@ class UpdateSavedSegmentTool(_SavedSegmentTool):
 
     @property
     def user_description(self): return "Edits a saved segment in your library."
-
-    @property
-    def hint(self): return "When the user wants to change a saved segment's text, name, category or tags"
 
     @property
     def description(self):
@@ -469,9 +445,6 @@ class DeleteSavedSegmentTool(_SavedSegmentTool):
     def user_description(self): return "Removes a saved segment from your library."
 
     @property
-    def hint(self): return "When the user wants to permanently remove a saved segment"
-
-    @property
     def description(self):
         return "Delete one saved Segment. segment_id comes from get_saved_segments. Requires user approval."
 
@@ -516,9 +489,6 @@ class CreateSegmentTemplateTool(_TemplateTool):
     def user_description(self): return "Saves a new multi-segment template to your library."
 
     @property
-    def hint(self): return "When the user wants to keep an ordered set of prompt segments as a template"
-
-    @property
     def description(self):
         return (
             "Create a Segment Template: a named, ordered array of one or more rich segments, "
@@ -558,9 +528,6 @@ class UpdateSegmentTemplateTool(_TemplateTool):
 
     @property
     def user_description(self): return "Edits a segment template in your library."
-
-    @property
-    def hint(self): return "When the user wants to change a segment template"
 
     @property
     def description(self):
@@ -626,9 +593,6 @@ class DeleteSegmentTemplateTool(_TemplateTool):
     def user_description(self): return "Removes a segment template from your library."
 
     @property
-    def hint(self): return "When the user wants to permanently remove a segment template"
-
-    @property
     def description(self):
         return "Delete one Segment Template. template_id comes from get_segment_templates. Requires user approval."
 
@@ -673,9 +637,6 @@ class CreateSegmentCategoryTool(_CategoryTool):
     def user_description(self): return "Creates a new category in your segment library."
 
     @property
-    def hint(self): return "When the user needs a new category to file saved segments under"
-
-    @property
     def description(self):
         return "Create a segment category (e.g. 'Character', 'Style'). Names must be unique. Requires user approval."
 
@@ -707,9 +668,6 @@ class UpdateSegmentCategoryTool(_CategoryTool):
 
     @property
     def user_description(self): return "Edits a category in your segment library."
-
-    @property
-    def hint(self): return "When the user wants to rename or recolor a segment category"
 
     @property
     def description(self):
@@ -766,9 +724,6 @@ class DeleteSegmentCategoryTool(_CategoryTool):
 
     @property
     def user_description(self): return "Removes an empty category from your segment library."
-
-    @property
-    def hint(self): return "When the user wants to remove a segment category that holds no saved segments"
 
     @property
     def description(self):

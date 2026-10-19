@@ -55,9 +55,6 @@ class TestUpdateFormSettingsToolSchema:
     def test_name(self):
         assert UpdateFormSettingsTool().name == "update_form_settings"
 
-    def test_hint_is_nonempty(self):
-        assert len(UpdateFormSettingsTool().hint) > 0
-
     def test_description_is_nonempty(self):
         assert len(UpdateFormSettingsTool().description) > 0
 

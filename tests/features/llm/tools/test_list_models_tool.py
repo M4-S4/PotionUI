@@ -60,9 +60,6 @@ class TestListModelsToolSchema:
     def test_name(self):
         assert ListModelsTool().name == "list_models"
 
-    def test_hint_is_nonempty(self):
-        assert len(ListModelsTool().hint) > 0
-
     def test_description_is_nonempty(self):
         assert len(ListModelsTool().description) > 0
 

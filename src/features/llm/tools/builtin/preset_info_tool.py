@@ -48,20 +48,14 @@ class ListPresetsTool(BaseTool):
         return "Lists the presets you can generate with."
 
     @property
-    def hint(self) -> str:
-        return (
-            "Call to find a preset id: before get_preset_info or start_generation when no "
-            "preset is open, or when the user names a model family or asks what they can make."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "List the presets the user can generate with, honoring their preset and group "
             "access. Each entry has id, name, engine, modes and a short description. Pass an id "
             "to get_preset_info for its form fields. Optional 'query' matches id, name, tags and "
             "description; 'engine' filters by engine (e.g. 'native', 'comfyui'). Paged with "
-            f"'offset'/'limit' (default {DEFAULT_PRESET_LIMIT}, max {MAX_PRESET_LIMIT})."
+            f"'offset'/'limit' (default {DEFAULT_PRESET_LIMIT}, max {MAX_PRESET_LIMIT}). "
+            "Use it to find a preset id when no preset is open or the user names a model family."
         )
 
     @property
@@ -163,14 +157,6 @@ class GetPresetInfoTool(BaseTool):
     @property
     def user_description(self) -> str:
         return "Reads the settings and options of the preset you are using."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Call when you need to understand what the user's preset supports — "
-            "available modes, pipeline steps, or form fields. Useful early in "
-            "conversations and before suggesting workflow changes."
-        )
 
     @property
     def description(self) -> str:

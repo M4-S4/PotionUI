@@ -46,13 +46,6 @@ class ListLibraryItemsTool(BaseTool):
         return "Lists the files in your library, such as uploads."
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use to find library item ids (uploads) before manage_collections with scope "
-            "'library', or when the user asks about files they uploaded."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "List the user's library items (uploaded and saved files, not generations), newest "

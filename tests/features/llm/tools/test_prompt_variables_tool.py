@@ -49,10 +49,8 @@ class TestSchema:
     def test_requires_approval(self):
         assert ManagePromptVariablesTool().requires_approval is True
 
-    def test_hint_and_description_nonempty(self):
-        tool = ManagePromptVariablesTool()
-        assert len(tool.hint) > 0
-        assert len(tool.description) > 0
+    def test_description_nonempty(self):
+        assert len(ManagePromptVariablesTool().description) > 0
 
     def test_to_schema_structure(self):
         schema = ManagePromptVariablesTool().to_schema()

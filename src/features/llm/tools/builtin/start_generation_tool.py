@@ -41,18 +41,11 @@ class StartGenerationTool(BaseTool):
         return "Starts a generation from a chosen preset, without needing an open form."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When there is no live Generate form to read (e.g. no form_state / an MCP caller) "
-            "and the user wants to generate with a specific preset - give preset_id, prompt, and "
-            "any field overrides directly.{{#if get_preset_info}} Call get_preset_info first to "
-            "see the preset's fields and default mode.{{/if}}"
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Start a generation for an explicit preset, independent of any live form state. "
+            "{{#if run_generation}}Use it only when there is no open Generate form; otherwise "
+            "use run_generation. {{/if}}"
             "Unset fields fall back to the preset's own defaults. Get preset ids from list_presets "
             "and a preset's modes and field names from get_preset_info. Requires user approval; "
             "returns the generation_id once started. For several distinct prompts in one run, pass "

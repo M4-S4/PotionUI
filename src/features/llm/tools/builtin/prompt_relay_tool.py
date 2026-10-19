@@ -141,24 +141,13 @@ class SetPromptRelayTimelineTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "When the user wants to create a video as a sequence of timed scenes, "
-            "a 'prompt relay', or shots that change over time — you should compose "
-            "the timeline yourself: write each segment's prompt and choose the start "
-            "and end times that make creative sense. Then call set_prompt_relay_timeline "
-            "to put the timeline into the editor. Do the creative work (scene writing, "
-            "pacing, timing) before calling the tool — don't ask the user to fill in "
-            "the details."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Apply a Prompt Relay timeline to the user's editor: a global prompt plus "
             "an ordered list of segments, each with a start time, end time (seconds) "
             "and a prompt that controls that slice of the video. The user approves "
-            "before it is applied."
+            "before it is applied. Write every segment's prompt and timing yourself "
+            "before calling; do not ask the user to fill them in."
         )
 
     @property

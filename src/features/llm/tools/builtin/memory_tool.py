@@ -179,53 +179,14 @@ class WriteMemoryTool(BaseTool):
         return "Saves a note about you the assistant can recall in later chats."
 
     @property
-    def hint(self) -> str:
-        return (
-            "Remember the PATTERN, not the instance — something true of the user's next ten "
-            "generations, not just this one. The moments to call this: the user corrects you "
-            "('no, I always want...'), repeats a request you've now seen twice, or states a "
-            "preference outright. Check the notes already in context first — if one "
-            "covers this topic, call update_memory with its scope and key instead of a new "
-            "one. "
-            "scope is REQUIRED and decides where the note surfaces again — pick the narrowest "
-            "scope the fact is actually true at. Decision rule: if the fact names or only applies "
-            "to one preset, model, or chat mode, it MUST be scoped to it; 'global' is only for "
-            "facts true everywhere, in every mode, on every preset and every model. Contrast: "
-            "{\"scope\": \"global\", \"content\": \"prefers painterly fantasy scenes, dislikes "
-            "photorealism\"} (true no matter what preset is open — global is correct); "
-            "{\"scope\": \"preset\", \"content\": \"on Krea-2 Turbo, cfg 1 washes out reds — keep "
-            "cfg above 2\"} (only true on that preset — scope_ref auto-resolves to the active "
-            "session preset, omit it); {\"scope\": \"model\", \"scope_ref\": \"<model id>\", "
-            "\"content\": \"responds well to cfg 3.5 with short prompts\"} (only true for that "
-            "checkpoint); {\"scope\": \"mode\", \"content\": \"always wants captions under 20 "
-            "words\"} (only true in this chat mode's own workflow — scope_ref auto-resolves to "
-            "the session's mode, omit it). A preset's image/video mode is finer than 'preset' "
-            "scope but there is no separate scope for that — name it in the content instead, e.g. "
-            "\"in video mode, keep duration under 4s to avoid OOM\" at scope='preset'. "
-            "The subject of a generation request — what was asked for THIS time — is never a "
-            "preference by itself, no matter the scope: do not save "
-            "{\"content\": \"likes generating a knight in silver armor\"} just because that's what "
-            "the user asked for once; save it only if they said it's a standing preference, or the "
-            "same request came up again on its own in a later message. "
-            "Bad — do not save these: {\"content\": \"generated a castle at seed 1234\"} (one "
-            "generation, not a pattern); {\"content\": \"user asked for a dragon\"} (a single "
-            "request, not a preference). If it won't hold next week, don't save it. "
-            "Saves immediately, no approval needed."
-        )
-
-    @property
     def description(self) -> str:
         return (
-            "Save a persistent memory note that will be available across chat sessions. "
-            "Content must describe a lasting pattern (a preference, a quirk, a habit) rather "
-            "than a fact about one generation — seeds and generation ids are rejected outright, "
-            "and at global scope a bare parameter dump with no descriptive text is rejected too. "
-            "Notes are identified by a key and MUST be explicitly scoped: globally (true on every "
-            "preset, model, and mode), to the active preset, to the active model, or to the "
-            "active chat mode — pick 'global' only when the fact holds regardless of what "
-            "preset/model is open or what mode the chat is in; a fact that names or only applies "
-            "to one preset/model/mode must use that scope instead. Writing to an existing key "
-            "updates the note. Saves immediately — no user approval required."
+            "Save a persistent note later chats see: a standing preference, a preset or model "
+            "quirk, a trigger word. Never the subject of one request; seeds, generation ids "
+            "and bare parameter dumps are rejected. "
+            "Good: {\"scope\": \"preset\", \"content\": \"cfg 1 washes out reds here; keep cfg above 2\"}. "
+            "Bad: {\"scope\": \"global\", \"content\": \"user asked for a dragon\"}. "
+            "Writing an existing key updates that note. Saves immediately, no approval."
         )
 
     @property
@@ -257,7 +218,8 @@ class WriteMemoryTool(BaseTool):
                         "omit it. 'mode' is for anything tied to this chat mode's own workflow (not "
                         "the Generate form) -- scope_ref auto-resolves to the session's mode, omit "
                         "it. " + SESSION_SCOPE_TEXT + " If the note names or only applies to one "
-                        "preset/model/mode/session, it MUST use that scope."
+                        "preset/model/mode/session, it MUST use that scope. A preset's image/video "
+                        "mode has no scope of its own; name it in the content."
                     ),
                 },
                 "scope_ref": {
@@ -350,14 +312,6 @@ class ReadMemoryTool(BaseTool):
         return "Reads notes the assistant saved in earlier chats."
 
     @property
-    def hint(self) -> str:
-        return (
-            "Relevant memory is already injected into context automatically at the start of "
-            "each conversation — call this for a scope not shown there, an explicit refresh, "
-            "or to check existing notes before saving."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Read persistent memory notes from previous sessions. "
@@ -366,7 +320,8 @@ class ReadMemoryTool(BaseTool):
             "tab, 'all' returns global notes plus the notes for that tab's preset, model, mode and "
             "saved session; with no open tab (e.g. an MCP client) 'all' returns every note the user "
             "has, each with its scope and scope_ref. 'session' means a saved Generate session, not "
-            "a chat conversation. Returns all matching notes."
+            "a chat conversation. Returns all matching notes. Notes for the open tab are "
+            "already in your context; call this only for another scope or to refresh."
         )
 
     @property
@@ -496,10 +451,6 @@ class DeleteMemoryTool(BaseTool):
         return "Deletes one of the assistant's saved memory notes."
 
     @property
-    def hint(self) -> str:
-        return "When the user wants to remove a previously saved memory note"
-
-    @property
     def description(self) -> str:
         return (
             "Delete a persistent memory note by its ID. "
@@ -625,14 +576,6 @@ class UpdateMemoryTool(BaseTool):
         return "Edits one of the assistant's saved memory notes."
 
     @property
-    def hint(self) -> str:
-        return (
-            "Address the note by the scope and key you already see in context — no need to "
-            "read_memory first. Prefer this over delete_memory + write_memory when correcting "
-            "or refining an existing note. The user approves before anything changes."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Edit an existing persistent memory note, changing its key and/or content. Address "
@@ -640,6 +583,7 @@ class UpdateMemoryTool(BaseTool):
             "every note already injected into your context) — no need to call read_memory first. "
             "At least one of 'new_key' or 'content' must be given. Requires user approval, "
             "showing the note's current values alongside the proposed change."
+            "{{#if delete_memory}} Prefer it over delete_memory plus write_memory.{{/if}}"
         )
 
     @property

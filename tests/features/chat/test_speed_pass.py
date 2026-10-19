@@ -198,18 +198,18 @@ class TestFormStateAwareToolAvailability:
         )
         assert set(allowed) == {"get_video_director"}
 
-    def test_unavailable_tools_drop_from_hints_and_schemas(self):
+    def test_unavailable_tools_drop_from_prompt_and_schemas(self):
         builder = self._make_builder()
         registry = builder._m.tool_executor.tool_registry
 
-        _prompt, allowed_inactive, _ = builder.resolve_session_prompt_and_tools(_session())
-        assert "get_video_director" not in registry.get_tool_hints_text(allowed_inactive)
+        prompt_inactive, allowed_inactive, _ = builder.resolve_session_prompt_and_tools(_session())
+        assert "get_video_director" not in prompt_inactive
         assert registry.get_schemas(allowed_inactive) == []
 
-        _prompt, allowed_active, _ = builder.resolve_session_prompt_and_tools(
+        prompt_active, allowed_active, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=self._active_form_state(),
         )
-        assert "get_video_director" in registry.get_tool_hints_text(allowed_active)
+        assert "get_video_director" in prompt_active
         schema_names = {s["function"]["name"] for s in registry.get_schemas(allowed_active)}
         assert schema_names == {"get_video_director"}
 

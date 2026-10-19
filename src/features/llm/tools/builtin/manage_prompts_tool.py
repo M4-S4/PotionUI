@@ -117,9 +117,6 @@ class GetPromptTool(BaseTool):
     def user_description(self): return "Reads one prompt from your library in full."
 
     @property
-    def hint(self): return "When the user wants to read a saved Prompt, or before editing one"
-
-    @property
     def description(self):
         return (
             "Read one saved Prompt in full: name, usage_hint, every segment with its chips, "
@@ -162,9 +159,6 @@ class ListPromptsTool(BaseTool):
 
     @property
     def user_description(self): return "Lists the prompts in your library."
-
-    @property
-    def hint(self): return "When the user wants to browse or find saved Prompts"
 
     @property
     def description(self):
@@ -227,9 +221,6 @@ class AddPromptTool(BaseTool):
 
     @property
     def user_description(self): return "Saves a new prompt composition to your library."
-
-    @property
-    def hint(self): return "When the user wants to save a prompt. Save text the user gave verbatim; compose only when asked"
 
     @property
     def description(self):
@@ -320,9 +311,6 @@ class EditPromptTool(BaseTool):
 
     @property
     def user_description(self): return "Updates a prompt already saved in your library."
-
-    @property
-    def hint(self): return "When the user wants to replace a saved Prompt composition"
 
     @property
     def description(self):
@@ -436,9 +424,6 @@ class DeletePromptTool(BaseTool):
 
     @property
     def user_description(self): return "Removes a saved prompt from your library."
-
-    @property
-    def hint(self): return "When the user wants to permanently remove a saved Prompt"
 
     @property
     def description(self): return "Delete one detached Prompt aggregate from the user's library."

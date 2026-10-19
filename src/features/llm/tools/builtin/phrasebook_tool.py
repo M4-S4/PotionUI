@@ -83,21 +83,13 @@ class ListPhrasebookCategoriesTool(BaseTool):
         return "Lists your phrasebook vocabulary categories."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When helping with prompts, call this to discover what model-specific "
-            "values are available (art styles, camera angles, lighting, etc.). "
-            "These values are what the model actually understands. Each category's "
-            "'marker' string can be embedded directly in update_segment content."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "List all phrasebook categories available to the user. "
             "Categories organize prompt helpers like art styles, camera angles, "
             "lighting types, emotions, etc. Use this to discover what "
-            "phrasebook suggestions are available."
+            "phrasebook suggestions are available. Each category's 'marker' can go "
+            "straight into proposed segment text."
         )
 
     @property
@@ -155,20 +147,6 @@ class GetPhrasebookValuesTool(BaseTool):
         return "Looks up the saved values in one phrasebook category."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When writing or improving prompts, use this to get model-specific "
-            "values (e.g., exact camera angle names, art style keywords). "
-            "Prefer these over generic suggestions — they produce better results. "
-            "Returned 'marker' and 'category_marker' strings can be embedded "
-            "directly in update_segment content. Categories can hold hundreds of "
-            "values, so this only returns a page at a time (default 100, max 200) — "
-            "pass 'search' when you know roughly what you're after (cheapest), or "
-            "page with 'offset'/'limit' and check 'has_more' rather than assuming "
-            "one call returned everything."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Get phrasebook values for a specific category, with optional "
@@ -177,7 +155,8 @@ class GetPhrasebookValuesTool(BaseTool):
             "hard max 200). Returns the actual values (e.g., specific camera "
             "angles, art styles, or lighting types) that the model understands, "
             "each with a 'marker' string for embedding in prompts, plus 'total' "
-            "and 'has_more' so you know whether to page further."
+            "and 'has_more' so you know whether to page further. Prefer these values "
+            "over generic terms; pass 'search' when you know roughly what you want."
         )
 
     @property
@@ -310,28 +289,15 @@ class ListPhrasebookValuesTool(BaseTool):
         return "Browses or searches the values in an phrasebook category."
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use this to browse or search a category's values — categories can hold hundreds "
-            "of entries, so never assume an attached phrasebook resource or a single call "
-            "here shows you everything. For a literal ask (e.g. text containing 'cat'), pass "
-            "'search' — it's the cheapest way to find matches. For a broader semantic ask (e.g. "
-            "\"anything about cats\", which should also catch 'kitten' or 'feline' that a plain "
-            "substring search misses), page through with 'offset'/'limit' (default 100, max 200 "
-            "per call) and read each page's text yourself, accumulating the ids that match as "
-            "you go, until 'has_more' is false. Once you've collected every matching id, make "
-            "ONE remove_phrasebook_values call with all of them — never call it repeatedly, "
-            "and never request an entire large category in a single call."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "List a category's phrasebook values with optional server-side 'search' (case-"
             "insensitive substring match against label or value text) and 'offset'/'limit' "
             "pagination (limit defaults to 100, hard max 200). Returns a compact id/text/active "
             "entry per value plus 'total' and 'has_more' so you know whether to page further. "
-            "'category' accepts either a category id or a dot-separated path."
+            "'category' accepts either a category id or a dot-separated path. For a semantic "
+            "ask, page until has_more is false and collect the matching ids"
+            "{{#if remove_phrasebook_values}}, then make ONE remove_phrasebook_values call{{/if}}."
         )
 
     @property
@@ -440,22 +406,12 @@ class CreatePhrasebookCategoryTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use this when the user wants to save a new kind of prompt vocabulary as an "
-            "phrasebook category — e.g. \"save these as phrasebook options\" or when a "
-            "useful category (camera angles, art styles, etc.) doesn't exist yet. If the "
-            "path has a parent (e.g. 'camera.angles' under 'camera'), the parent must "
-            "already exist — create it first. The user approves before anything is created."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Create a new phrasebook category at the given dot-separated path (e.g. "
             "'camera.angles'). If the path has a parent segment, that parent category "
             "must already exist. Requires user approval before the category is actually "
-            "created."
+            "created. Create a missing parent first."
         )
 
     @property
@@ -597,22 +553,13 @@ class UpdatePhrasebookCategoryTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use this to rename a phrasebook category, change its description, or switch it "
-            "on or off — e.g. \"disable my lighting category\". Get the exact category id or "
-            "path first with list_phrasebook_categories. Only pass the fields that should "
-            "change. The path cannot be changed; to move a category, create a new one and "
-            "re-add its values. The user approves before anything is changed."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Edit an existing phrasebook category, identified by 'category' (id or "
             "dot-separated path). Pass at least one of 'name', 'description' or 'is_active'; "
             "fields you leave out keep their current value. The category's path is never "
-            "changed by this tool. Requires user approval before anything is changed."
+            "changed by this tool. Requires user approval before anything is changed. "
+            "To move a category, create a new one and re-add its values."
         )
 
     @property
@@ -770,21 +717,13 @@ class DeletePhrasebookCategoryTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use this only when the user asks to delete a whole phrasebook category. Every "
-            "value in it is deleted too, so to remove just some values use "
-            "remove_phrasebook_values instead. A category that has sub-categories cannot be "
-            "deleted until those are deleted first. Get the exact id or path with "
-            "list_phrasebook_categories. The user approves before anything is deleted."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Delete a phrasebook category, identified by 'category' (id or dot-separated "
             "path), together with all of its values. Refused while the category still has "
             "sub-categories. Requires user approval before anything is deleted."
+            "{{#if remove_phrasebook_values}} To remove only some values, use "
+            "remove_phrasebook_values.{{/if}}"
         )
 
     @property
@@ -894,26 +833,14 @@ class RemovePhrasebookValuesTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use this to delete phrasebook values the user asked to remove — e.g. "
-            "\"remove all values about cats\" or \"clean up my camera angles list\". Find every "
-            "matching id first with list_phrasebook_values (search, or page through with "
-            "offset/limit for semantic asks that a plain search would miss) — an attached "
-            "phrasebook resource only shows a small sample, not the whole category, so don't "
-            "assume it's complete. Once you've accumulated all the matching ids, call this ONCE "
-            "with the exact value_ids you picked. Never guess or invent ids, and never pass a "
-            "label/text in place of an id. The user approves before anything is deleted."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Delete one or more phrasebook values, identified by exact 'value_ids' obtained "
             "from list_phrasebook_values or an attached phrasebook resource. Optionally "
             "pass 'category_path' or 'category_id' as a safety check — value_ids that don't "
             "belong to that category are rejected instead of deleted. Requires user approval "
-            "before values are actually removed."
+            "before values are actually removed. Collect every id first (an attached phrasebook "
+            "resource is only a sample), then call this once; never pass a label as an id."
         )
 
     @property
@@ -1110,16 +1037,6 @@ class UpdatePhrasebookValuesTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use this to rename a value's label or change the prompt text it inserts — e.g. "
-            "\"rename 'Wide' to 'Wide angle'\" or \"change what 'Golden hour' actually inserts\". "
-            "Get exact ids first with list_phrasebook_values or get_phrasebook_values — never "
-            "guess or invent them. Batch every edit you intend to make into ONE call rather than "
-            "calling this repeatedly. The user approves before anything is changed."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Edit one or more existing phrasebook values in a category, identified by "
@@ -1127,7 +1044,7 @@ class UpdatePhrasebookValuesTool(BaseTool):
             "(from list_phrasebook_values or get_phrasebook_values) and at least one of "
             "'new_label' or 'new_value'. Renaming onto a label that already exists elsewhere "
             "in the category is skipped and reported, not applied. Requires user approval "
-            "before values are actually changed."
+            "before values are actually changed. Batch every edit into one call."
         )
 
     @property
@@ -1344,23 +1261,14 @@ class CreatePhrasebookValuesTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use this to add new concrete values to an existing phrasebook category — "
-            "e.g. when the user wants to save specific camera angles, styles, or other "
-            "reusable vocabulary."
-            "{{#if create_phrasebook_category}} If the category doesn't exist yet, create it "
-            "first with create_phrasebook_category.{{/if}}"
-            " The user approves before anything is saved."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Create one or more phrasebook values in an existing category, identified by "
             "'category_path' (preferred) or 'category_id'. Each value needs a 'label' and "
             "optionally a distinct 'value' text (defaults to the label). Requires user "
             "approval before values are actually created."
+            "{{#if create_phrasebook_category}} Create a missing category first with "
+            "create_phrasebook_category.{{/if}}"
         )
 
     @property

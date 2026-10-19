@@ -232,20 +232,6 @@ class ManagePromptVariablesTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "Prompt variables are named ${name} placeholders the user reuses across the "
-            "prompt. An EXISTING variable is used by writing ${name} verbatim in proposed "
-            "segment text — no tool call needed for that. To introduce a NEW variable, call "
-            "this tool first (the user approves the change), then use ${name} in the "
-            "segment text you propose. Never write a ${name} that neither already exists "
-            "nor is created by this tool in the same turn — an undefined variable expands "
-            "to nothing."
-            "{{#if get_form_state}} Call get_form_state first to see which variables "
-            "already exist.{{/if}}"
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Create, update, or remove ${name} prompt variables on the user's generation "

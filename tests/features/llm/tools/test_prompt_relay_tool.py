@@ -36,9 +36,6 @@ class TestSetPromptRelayTimelineToolSchema:
     def test_requires_approval(self):
         assert SetPromptRelayTimelineTool().requires_approval is True
 
-    def test_hint_is_nonempty(self):
-        assert len(SetPromptRelayTimelineTool().hint) > 0
-
     def test_description_is_nonempty(self):
         assert len(SetPromptRelayTimelineTool().description) > 0
 

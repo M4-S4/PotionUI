@@ -55,10 +55,6 @@ class ManageCollectionsTool(BaseTool):
         return "Creates, renames, deletes collections and adds/removes generations, library items, or prompts from them."
 
     @property
-    def hint(self) -> str:
-        return "When the user wants to organize generations, library items, or prompts into named collections/folders."
-
-    @property
     def description(self) -> str:
         return (
             "Manage the user's collections (named, optionally nested folders) and their membership. "

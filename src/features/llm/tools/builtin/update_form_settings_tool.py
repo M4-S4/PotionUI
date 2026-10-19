@@ -38,15 +38,6 @@ class UpdateFormSettingsTool(BaseTool):
         return True
 
     @property
-    def hint(self) -> str:
-        return (
-            "When the user asks to change generation settings or wants recommendations "
-            "for better values — propose changes with this tool."
-            "{{#if get_form_state}} Always call get_form_state first to see current "
-            "values before proposing changes.{{/if}}"
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Propose changes to the user's form field values. Each change specifies "

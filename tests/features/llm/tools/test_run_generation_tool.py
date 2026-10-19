@@ -71,9 +71,6 @@ class TestRunGenerationToolSchema:
     def test_name(self):
         assert RunGenerationTool().name == "run_generation"
 
-    def test_hint_is_nonempty(self):
-        assert len(RunGenerationTool().hint) > 0
-
     def test_description_is_nonempty(self):
         assert len(RunGenerationTool().description) > 0
 

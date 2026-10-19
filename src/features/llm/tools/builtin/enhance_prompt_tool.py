@@ -36,16 +36,6 @@ class EnhancePromptTool(BaseTool):
         return "Rewrites your prompt into a stronger version tuned to your model."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When the user wants their prompt made richer — 'improve it', 'make it better', "
-            "'expand this', 'help me' — or the prompt is thin or generic. This runs a full "
-            "creative pipeline (model grounding, community examples, ideation, writing); do NOT "
-            "rewrite the prompt yourself first. Present the returned prompt EXACTLY as-is inside "
-            "a tool_action update_segment tag."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Enhance an image generation prompt via a dedicated multi-step creative pipeline "
@@ -53,7 +43,9 @@ class EnhancePromptTool(BaseTool):
             "approved prompts. Returns a finished rich prompt. Pass a brief; in chat it falls "
             "back to the open tab's prompt segments. Without an open Generate tab, pass "
             "model_id (from search_models) and/or preset_id (from list_presets) to ground the "
-            "result on that model and preset."
+            "result on that model and preset. Use it when the user wants a richer prompt; "
+            "do not rewrite it yourself first. Present the result verbatim in an "
+            "update_segment tag."
         )
 
     @property

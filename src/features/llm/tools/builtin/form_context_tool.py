@@ -72,14 +72,6 @@ class GetCurrentSegmentsTool(BaseTool):
         return "Reads the prompt segments currently in your editor."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When the user asks about their current prompt or wants edits — "
-            "call this to read their prompt segments. Use the returned segment_index "
-            "and segment_id to propose changes via <tool_action> tags."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Read the user's currently loaded prompt segments from their editor. "
@@ -94,7 +86,8 @@ class GetCurrentSegmentsTool(BaseTool):
             "Use this tool to understand what the user has already written before suggesting "
             "edits, additions, or improvements to their prompt. "
             "The per-turn PROMPT STATE system block is only a truncated view of these segments — "
-            "call this tool to read their full, untruncated content."
+            "call this tool to read their full, untruncated content. "
+            "Use each segment's index and id in update_segment tags."
         )
 
     @property
@@ -164,14 +157,6 @@ class GetFormStateTool(BaseTool):
     @property
     def user_description(self) -> str:
         return "Reads the current values of your generation form."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Call early in most conversations to understand the user's setup. "
-            "Also call when the user asks about settings, wants recommendations, "
-            "or before proposing form changes."
-        )
 
     @property
     def description(self) -> str:

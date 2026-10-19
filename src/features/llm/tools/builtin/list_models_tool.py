@@ -74,13 +74,6 @@ class ListModelsTool(BaseTool):
         return "Lists the models installed on your server."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When the user asks what models are available, wants to switch models, "
-            "or needs to find a specific model by name or type."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "List available models, optionally filtered by type or search query. "
@@ -171,13 +164,6 @@ class SearchModelsTool(BaseTool):
     @property
     def user_description(self) -> str:
         return "Searches the models you can use, with their trigger words."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "Use to find a model id: before get_model_info, before choosing a LoRA or "
-            "checkpoint for a generation, or when the user asks which models they have."
-        )
 
     @property
     def description(self) -> str:

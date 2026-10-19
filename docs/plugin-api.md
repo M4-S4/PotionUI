@@ -125,6 +125,11 @@ belongs to (see "Contributing a chat mode" below); the host applies it as an
 instance-level override after constructing your tool, so the class itself stays free
 of any registry wiring.
 
+Say what the tool does and when to call it in `description`. That text is what the model
+sees with native tool calling and with prompt-injected tools alike, and what MCP clients
+see. `hint` is optional and only fills your own mode's `{{TOOL_HINTS}}` placeholder; keep
+it to what the description cannot say. The builtin tools set no hint.
+
 A pipe that finishes a mesh pipeline:
 
 ```python

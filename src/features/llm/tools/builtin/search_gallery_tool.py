@@ -43,18 +43,6 @@ class SearchGalleryTool(BaseTool):
         return "Finds images in your gallery by describing what they show."
 
     @property
-    def hint(self) -> str:
-        return (
-            "Use when the user refers to images they generated before ('the castle from "
-            "yesterday', 'my cyberpunk portraits') or wants to find, revisit, compare or build "
-            "on past results. Describe the VISUAL CONTENT of the wanted image as ATOMIC concepts "
-            "(subject, setting, style), one per element of `queries` — compound phrases like "
-            "'red fox in a snowy forest at night' match worse than 'red fox' + 'snowy forest' + "
-            "'night' searched together. Each result carries a `path` you pass verbatim to a "
-            "media form field to reuse that exact file."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Semantic visual search over the user's generated image gallery. Each element of "
@@ -66,7 +54,8 @@ class SearchGalleryTool(BaseTool):
             "user made before, based on what the images show rather than their prompt text. "
             "When the server has no vision embedder installed, it falls back to a text search "
             "over the user's generation prompts, preset and model names; the result then has "
-            "search_mode 'text' and a note saying so."
+            "search_mode 'text' and a note saying so. Use it when the user refers to images "
+            "they made before."
         )
 
     @property

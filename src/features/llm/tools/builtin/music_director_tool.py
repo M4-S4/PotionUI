@@ -715,15 +715,6 @@ class GetMusicDirectorTool(BaseTool):
         return "Reads the Music Director document on your generation form."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When the user asks about their song's lyrics, sections, references, or Music "
-            "Director settings -- call this first."
-            "{{#if update_music_director}} Use it before proposing changes with "
-            "update_music_director.{{/if}}"
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Read the Music Director document currently loaded on the user's generation "
@@ -807,17 +798,6 @@ class UpdateMusicDirectorTool(BaseTool):
     @property
     def requires_approval(self) -> bool:
         return True
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When the user asks to change their song's lyrics, sections, style description, "
-            "references, instrumental toggle, or settings on an active Music Director -- "
-            "propose changes with this tool."
-            "{{#if get_music_director}} Always call get_music_director first to see the "
-            "current document and which fields/kinds are valid before proposing "
-            "operations.{{/if}}"
-        )
 
     @property
     def description(self) -> str:

@@ -60,32 +60,22 @@ class TestScopeModeShape:
         assert "{{/if" not in prompt
         assert "{{#ifany" not in prompt
 
-    def test_phrasebook_prompt_joins_tool_names_with_all_tools_allowed(self):
-        """Regression: the nested {{#ifany}} separators in the phrasebook and
-        prompts templates were once closed with {{/if}} instead of {{/ifany}},
-        which desynced the block matcher and left raw markers in the prompt."""
+    def test_phrasebook_prompt_keeps_the_look_before_you_change_rule(self):
         registry = ChatModeRegistry()
-        allowed = [
-            "list_phrasebook_categories", "list_phrasebook_values", "get_phrasebook_values",
-            "create_phrasebook_category", "create_phrasebook_values",
-            "update_phrasebook_values", "remove_phrasebook_values",
-        ]
-        prompt = registry.resolve_system_prompt(build_phrasebook_mode(), "", allowed)
+        prompt = registry.resolve_system_prompt(build_phrasebook_mode(), "", ["list_phrasebook_values"])
         assert "{{#if" not in prompt
-        assert "{{/if" not in prompt
-        assert "list_phrasebook_categories, list_phrasebook_values and get_phrasebook_values" in prompt
-        assert "create_phrasebook_category, create_phrasebook_values, update_phrasebook_values and remove_phrasebook_values" in prompt
+        assert "Look up what exists before you change it" in prompt
 
-    def test_prompts_prompt_joins_tool_names_with_all_tools_allowed(self):
+    def test_prompts_prompt_keeps_the_verbatim_rule_only_with_a_save_tool(self):
         registry = ChatModeRegistry()
-        prompt = registry.resolve_system_prompt(
+        with_save = registry.resolve_system_prompt(
             build_prompts_mode(), "", ["search_model_prompts", "add_prompt", "edit_prompt", "delete_prompt"],
         )
-        assert "{{#if" not in prompt
-        assert "{{/if" not in prompt
-        assert "add_prompt, edit_prompt and delete_prompt" in prompt
-        assert "exactly as written" in prompt
-        assert "Compose or improve a prompt only when the user asks you to" in prompt
+        without_save = registry.resolve_system_prompt(build_prompts_mode(), "", ["search_model_prompts"])
+        assert "{{#if" not in with_save
+        assert "save it exactly as written" in with_save
+        assert "Compose or improve a prompt only when asked" in with_save
+        assert "exactly as written" not in without_save
 
 
 class TestScopeModeRegistration:

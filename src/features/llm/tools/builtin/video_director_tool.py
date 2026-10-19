@@ -573,15 +573,6 @@ class GetVideoDirectorTool(BaseTool):
         return "Reads the Video Director document on your generation form."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When the user asks about their video shots, segments, timeline, keyframes, "
-            "or Video Director settings -- call this first. Its how_to_edit field explains "
-            "the only change you may propose: prompt VERSIONS via the update_director_segment "
-            "tag. Shot count, durations, media, mode, and settings are user-only."
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Read the Video Director document currently loaded on the user's generation "

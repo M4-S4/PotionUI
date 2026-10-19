@@ -35,7 +35,6 @@ class TestSchema:
         assert tool.modes == ["generation"]
         assert tool.group == "Generation"
         assert tool.user_description
-        assert tool.hint
 
     def test_parameters_require_queries_array(self):
         params = SearchGalleryTool().parameters

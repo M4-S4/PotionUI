@@ -172,7 +172,6 @@ def test_save_tools_tell_the_model_to_keep_the_users_text_verbatim():
     for tool in (AddPromptTool(), EditPromptTool()):
         assert "VERBATIM" in tool.description
         assert "only when the user asks" in tool.description
-    assert "verbatim" in AddPromptTool().hint
 
 
 @pytest.mark.asyncio

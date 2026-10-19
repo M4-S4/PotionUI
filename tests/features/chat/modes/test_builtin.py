@@ -12,21 +12,21 @@ class TestMemoryPromptBullet:
     def test_update_over_append_instruction_present_when_both_tools_allowed(self):
         prompt = self._resolve(["write_memory", "update_memory"])
         assert "Save the pattern, not the instance" in prompt
-        assert "call update_memory by its scope and key" in prompt
+        assert "or update_memory when a note in your context already covers it" in prompt
         assert "{{#if" not in prompt
         assert "{{/if" not in prompt
 
     def test_update_over_append_instruction_absent_without_update_memory(self):
         prompt = self._resolve(["write_memory"])
         assert "Save the pattern, not the instance" in prompt
-        assert "call update_memory by its scope and key" not in prompt
+        assert "update_memory" not in prompt
         assert "{{#if" not in prompt
         assert "{{/if" not in prompt
 
     def test_memory_bullet_absent_without_write_memory(self):
         prompt = self._resolve(["update_memory"])
         assert "Save the pattern, not the instance" not in prompt
-        assert "call update_memory by its scope and key" not in prompt
+        assert "update_memory" not in prompt
         assert "{{#if" not in prompt
         assert "{{/if" not in prompt
 

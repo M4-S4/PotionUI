@@ -66,10 +66,10 @@ class TestWriteMemoryTool:
         assert "scope" in schema["function"]["parameters"]["required"]
         assert "default" not in schema["function"]["parameters"]["properties"]["scope"]
 
-    def test_has_hint(self):
-        tool = self._tool()
-        assert tool.hint
-        assert "remember" in tool.hint.lower()
+    def test_description_carries_one_good_and_one_bad_example(self):
+        description = self._tool().description
+        assert "Good: {" in description
+        assert "Bad: {" in description
 
     @pytest.mark.asyncio
     async def test_execute_persists_immediately(self, mock_ops):
@@ -301,10 +301,8 @@ class TestReadMemoryTool:
         assert "scope" in schema["function"]["parameters"]["properties"]
         assert schema["function"]["parameters"]["required"] == []
 
-    def test_has_hint(self):
-        tool = self._tool()
-        assert tool.hint
-        assert "memory" in tool.hint.lower()
+    def test_description_points_at_the_notes_already_in_context(self):
+        assert "already in your context" in self._tool().description
 
     @pytest.mark.asyncio
     async def test_execute_returns_all_notes(self, mock_ops):
@@ -435,11 +433,6 @@ class TestDeleteMemoryTool:
         assert "note_id" in schema["function"]["parameters"]["properties"]
         assert "note_id" in schema["function"]["parameters"]["required"]
 
-    def test_has_hint(self):
-        tool = self._tool()
-        assert tool.hint
-        assert "memory" in tool.hint.lower()
-
     @pytest.mark.asyncio
     async def test_execute_returns_preview(self, mock_ops):
         note = make_note()
@@ -555,11 +548,8 @@ class TestUpdateMemoryTool:
         assert "content" in props
         assert schema["function"]["parameters"]["required"] == []
 
-    def test_has_hint(self):
-        tool = self._tool()
-        assert tool.hint
-        assert "scope" in tool.hint.lower()
-        assert "key" in tool.hint.lower()
+    def test_description_addresses_notes_by_scope_and_key(self):
+        assert "'scope' + 'key'" in self._tool().description
 
     @pytest.mark.asyncio
     async def test_execute_returns_preview_for_content_change(self, mock_ops):

@@ -39,14 +39,6 @@ class RunGenerationTool(BaseTool):
         return "Starts a generation with your current form settings."
 
     @property
-    def hint(self) -> str:
-        return (
-            "When the user wants to generate — e.g., 'generate', 'run it', "
-            "'make an image', 'let's try it' — propose the generation."
-            "{{#if get_form_state}} Call get_form_state first to confirm settings.{{/if}}"
-        )
-
-    @property
     def description(self) -> str:
         return (
             "Start an image/video generation using the user's current form state. "

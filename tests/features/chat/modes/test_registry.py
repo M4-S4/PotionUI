@@ -1,6 +1,7 @@
 """Tests for the chat mode registry and builtin generation mode."""
 
 import itertools
+import re
 
 import pytest
 
@@ -130,8 +131,7 @@ class TestReplyContractBlock:
         registry = ChatModeRegistry()
         mode = _mode(system_prompt="Base.")
         prompt = registry.resolve_system_prompt(mode, "")
-        assert "Resuming:" in prompt
-        assert "continue the task immediately" in prompt
+        assert "is their answer: continue the task immediately" in prompt
 
 
 class TestBuildGenerationMode:
@@ -152,9 +152,10 @@ class TestBuildGenerationMode:
         registry = ChatModeRegistry()
         mode = build_generation_mode()
         prompt = registry.resolve_system_prompt(mode, "- echo: Use to echo.")
-        assert "PotionUI" in prompt
-        assert "- echo: Use to echo." in prompt
+        assert "PotionAI" in prompt
+        assert "- echo: Use to echo." not in prompt
         assert "{{TOOL_HINTS}}" not in prompt
+        assert "Tool guide" not in prompt
         assert "tool_action" in prompt
         assert "update_segment" in prompt
 
@@ -180,7 +181,7 @@ class TestBuildGenerationMode:
         registry = ChatModeRegistry()
         prompt = registry.resolve_system_prompt(build_generation_mode(), "- echo: Use to echo.", [])
         assert "update_segment" not in prompt
-        assert "## Changing the prompt" not in prompt
+        assert "## Proposing prompt text" not in prompt
 
     def test_director_segment_tag_is_scoped_and_complete(self):
         """The Video Director prompt-variant tag mirrors update_segment's contract:
@@ -205,7 +206,7 @@ class TestBuildGenerationMode:
         registry = ChatModeRegistry()
         prompt = registry.resolve_system_prompt(build_generation_mode(), "- echo: Use to echo.", [])
         assert "update_director_segment" not in prompt
-        assert "Video Director shots" not in prompt
+        assert "Video Director document" not in prompt
 
     def test_global_direction_prompt_is_named_as_user_only(self):
         """The director paragraph must not leave "segment #N" as the only
@@ -226,19 +227,11 @@ class TestBuildGenerationMode:
 
 
 # Every tool name the builtin generation prompt references in a conditional block.
-_PROMPT_TOOL_NAMES = [
-    "get_form_state",
-    "get_active_models",
-    "search_model_prompts",
-    "get_phrasebook_values",
-    "enhance_prompt",
-    "write_memory",
-    "get_current_segments",
-    "list_phrasebook_categories",
-    "create_phrasebook_category",
-    "create_phrasebook_values",
-    "get_video_director",
-]
+_PROMPT_TOOL_NAMES = sorted({
+    name
+    for match in re.finditer(r"\{\{#(?:if|ifany)\s+([a-z0-9_ ]+)\}\}", DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE)
+    for name in match.group(1).split()
+})
 
 
 class TestGenerationPromptIsSessionAccurate:
@@ -260,7 +253,7 @@ class TestGenerationPromptIsSessionAccurate:
             ("write_memory",),
             ("get_current_segments",),
             ("list_phrasebook_categories",),
-            ("get_phrasebook_values", "create_phrasebook_values"),
+            ("get_phrasebook_values", "manage_prompt_variables"),
             ("get_video_director",),
             tuple(_PROMPT_TOOL_NAMES),
         ],

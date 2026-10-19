@@ -100,9 +100,6 @@ class TestGetMusicDirectorToolSchema:
     def test_name(self):
         assert GetMusicDirectorTool().name == "get_music_director"
 
-    def test_hint_is_nonempty(self):
-        assert len(GetMusicDirectorTool().hint) > 0
-
     def test_description_is_nonempty(self):
         assert len(GetMusicDirectorTool().description) > 0
 

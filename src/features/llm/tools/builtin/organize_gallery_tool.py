@@ -58,10 +58,6 @@ class OrganizeGalleryTool(BaseTool):
         return "Tags, rates, and lists your recent generations."
 
     @property
-    def hint(self) -> str:
-        return "When the user wants to tag, rate, or review their recent generations."
-
-    @property
     def description(self) -> str:
         return (
             "Organize the user's generation history. `operation` selects what happens: 'tag'/'untag' "

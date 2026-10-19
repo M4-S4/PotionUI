@@ -143,12 +143,6 @@ class TestRegisterBuiltinTools:
             "start_generation",
         }
 
-    def test_all_builtin_tools_have_hints(self):
-        registry = ToolRegistry()
-        register_builtin_tools(registry)
-        for tool in registry.get_all():
-            assert tool.hint, f"Tool '{tool.name}' is missing a hint"
-
     TOOL_GROUPS = {
         "Models & presets",
         "Prompt writing",
@@ -186,13 +180,13 @@ class TestRegisterBuiltinTools:
         names = [t.name for t in registry.get_for_mode(mode)]
         return mode_registry.resolve_system_prompt(mode, registry.get_tool_hints_text(names))
 
-    def test_generation_mode_prompt_includes_all_builtin_hints(self):
+    def test_generation_mode_prompt_leaves_tool_guidance_to_the_schemas(self):
         registry = ToolRegistry()
         register_builtin_tools(registry)
         prompt = self._generation_prompt(registry)
-        assert "PotionUI" in prompt
-        for tool in registry.get_all():
-            assert tool.name in prompt
+        assert "PotionAI" in prompt
+        assert "Tool guide" not in prompt
+        assert "list_segment_categories" not in prompt
 
     def test_generation_mode_prompt_includes_marker_syntax(self):
         registry = ToolRegistry()
@@ -204,8 +198,6 @@ class TestRegisterBuiltinTools:
         assert "#[path with spaces]" in prompt
         assert "list_phrasebook_categories" in prompt
         assert "get_phrasebook_values" in prompt
-        assert "create_phrasebook_category" in prompt
-        assert "create_phrasebook_values" in prompt
 
 
 # ---------------------------------------------------------------------------

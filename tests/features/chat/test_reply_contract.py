@@ -16,7 +16,7 @@ class TestToolLoopContinuationNudge:
         list must carry a matching line so a model that only ever reads the
         block (never sees the mid-loop nudge, e.g. a non-structured-reply
         mode) still gets the instruction."""
-        assert "announcing an action you have not yet performed" in REPLY_CONTRACT_PROMPT_BLOCK
+        assert "Never end a turn announcing an action you have not taken" in REPLY_CONTRACT_PROMPT_BLOCK
 
     def test_nudge_constant_is_non_empty_imperative_text(self):
         assert TOOL_LOOP_CONTINUATION_NUDGE
@@ -30,22 +30,16 @@ class TestTagInventionForbidden:
     any tag."""
 
     def test_prompt_block_forbids_inventing_a_tag(self):
-        assert "do NOT invent a tag" in REPLY_CONTRACT_PROMPT_BLOCK
+        assert "Never invent a tag." in REPLY_CONTRACT_PROMPT_BLOCK
 
-    def test_prompt_block_states_the_tool_call_is_the_delivery_mechanism_absent_a_taught_tag(self):
-        assert (
-            "a change is delivered exclusively by calling the tool for it"
-            in REPLY_CONTRACT_PROMPT_BLOCK
-        )
+    def test_prompt_block_states_the_tool_call_delivers_every_untagged_change(self):
+        assert "any other change is delivered by calling its tool" in REPLY_CONTRACT_PROMPT_BLOCK
 
-    def test_prompt_block_scopes_the_no_tag_no_delivery_rule_to_taught_tags(self):
-        assert (
-            "This only applies when a tool taught you a tag" in REPLY_CONTRACT_PROMPT_BLOCK
-        )
+    def test_prompt_block_scopes_tags_to_the_ones_the_instructions_define(self):
+        assert "`<tool_action>` tag these instructions define" in REPLY_CONTRACT_PROMPT_BLOCK
 
-    def test_reminder_forbids_inventing_a_tag(self):
-        assert "never invent one" in REPLY_CONTRACT_REMINDER
-        assert "call the tool itself to deliver the change" in REPLY_CONTRACT_REMINDER
+    def test_reminder_routes_untagged_changes_through_their_tool(self):
+        assert "other changes go through their tool" in REPLY_CONTRACT_REMINDER
 
 
 class TestParseReplyContract:
