@@ -165,6 +165,7 @@ class GenerationHistoryArchive:
             or media_resolver.is_video(file_ext)
             or media_resolver.is_audio(file_ext)
             or media_resolver.is_mesh(file_ext)
+            or media_resolver.is_splat(file_ext)
         )
 
     def _process_uploaded_file(
@@ -209,8 +210,11 @@ class GenerationHistoryArchive:
         is_video = media_resolver.is_video(file_ext)
         is_mesh = media_resolver.is_mesh(file_ext)
         is_audio = media_resolver.is_audio(file_ext)
+        is_splat = media_resolver.is_splat(file_ext)
         if is_mesh:
             file_type = 'MESH'
+        elif is_splat:
+            file_type = 'SPLAT'
         elif is_audio:
             file_type = 'AUDIO'
         elif is_video:
@@ -225,7 +229,7 @@ class GenerationHistoryArchive:
 
         profile = load_thumbnail_profile(self.settings) if self.settings else DEFAULT_PROFILE
 
-        if not is_video and not is_mesh and not is_audio:
+        if not is_video and not is_mesh and not is_audio and not is_splat:
             try:
                 with Image.open(io.BytesIO(content)) as img:
                     width, height = img.size

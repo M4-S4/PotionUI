@@ -219,5 +219,45 @@ class TestMeshFormatRegistryDrivesResolver:
         assert '.glb' in resolver.MESH_EXTENSIONS
 
 
+class TestSplatMediaTypes:
+
+    @pytest.fixture
+    def resolver(self):
+        return MediaTypeResolver()
+
+    @pytest.mark.parametrize("suffix,mime", [
+        ('.ply', 'model/x-ply'),
+        ('.SPZ', 'model/x-spz'),
+        ('.splat', 'model/x-splat'),
+    ])
+    def test_splat_suffixes_resolve_to_their_mime(self, resolver, suffix, mime):
+        assert resolver.is_splat(suffix) is True
+        assert resolver.is_mesh(suffix) is False
+        assert resolver.get_media_type(suffix) == mime
+        assert resolver.is_valid_media_type(mime) is True
+
+    def test_non_splat_suffixes(self, resolver):
+        assert resolver.is_splat('.glb') is False
+        assert resolver.is_splat('.png') is False
+
+    def test_splat_extensions_property_tracks_registry(self, resolver):
+        assert resolver.SPLAT_EXTENSIONS == {'.ply', '.spz', '.splat'}
+
+    def test_unregistered_model_mime_stays_rejected(self, resolver):
+        assert resolver.is_valid_media_type('model/x-ksplat') is False
+
+    def test_a_registered_mesh_ply_wins_over_the_splat_ply(self, resolver):
+        from src.platform.filesystem.mesh_formats import MeshFormat, mesh_format_registry
+
+        mesh_format_registry.register(
+            MeshFormat(extension='.ply', mime_type='application/x-ply', probe=lambda path: (None, None))
+        )
+        try:
+            assert resolver.get_media_type('.ply') == 'application/x-ply'
+        finally:
+            del mesh_format_registry._by_extension['.ply']
+        assert resolver.get_media_type('.ply') == 'model/x-ply'
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

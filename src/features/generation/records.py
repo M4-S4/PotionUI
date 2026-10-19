@@ -11,7 +11,7 @@ from src.platform.database.rows import dt_column, dt_iso, json_column, row_get
 class File:
     """Represents a generated file in the system"""
     file_path: str  # Relative path without base storage directory
-    file_type: str  # 'IMAGE' | 'VIDEO' | 'AUDIO' | 'MESH'
+    file_type: str  # 'IMAGE' | 'VIDEO' | 'AUDIO' | 'MESH' | 'SPLAT'
     user_id: str
     mime_type: Optional[str] = None  # e.g., 'image/png', 'video/mp4'
     file_size: Optional[int] = None

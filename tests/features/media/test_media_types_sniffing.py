@@ -60,3 +60,15 @@ class TestSniffMediaExtension:
     @pytest.mark.parametrize("content", [b"", b"\x00\x01\x02\x03junk", b"RIFF\x00\x00\x00\x00NOPE"])
     def test_unrecognised_bytes_return_none(self, content):
         assert sniff_media_extension(content) is None
+
+
+class TestSniffGaussianPly:
+
+    def test_a_gaussian_ply_sniffs_as_a_splat(self, gaussian_ply_bytes):
+        ext = sniff_media_extension(gaussian_ply_bytes)
+        assert ext == '.ply'
+        assert MediaTypeResolver().is_splat(ext)
+
+    def test_a_mesh_ply_is_not_sniffed(self):
+        mesh_ply = b"ply\nformat binary_little_endian 1.0\nelement vertex 3\nproperty float x\nend_header\n"
+        assert sniff_media_extension(mesh_ply) is None
