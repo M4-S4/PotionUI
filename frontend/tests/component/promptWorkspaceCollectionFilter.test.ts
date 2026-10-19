@@ -10,7 +10,6 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 		api: {
 			...actual.api,
 			listPrompts: vi.fn(),
-			searchPrompts: vi.fn(),
 			getModels: vi.fn(),
 			listCollections: vi.fn(),
 			listPromptImporters: vi.fn()

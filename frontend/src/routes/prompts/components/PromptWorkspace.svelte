@@ -175,7 +175,7 @@
 			if (requestId !== gridRequestId) return;
 			prompts = reset ? result.rows : [...prompts, ...result.rows];
 			total = result.total;
-			semanticHitCount = reset ? result.semanticHits : semanticHitCount;
+			semanticHitCount = (reset ? 0 : semanticHitCount) + result.semanticHits;
 			if (!collectionId && !unsorted && !favoritesOnly && !query && filterCount === 0) setLibraryCount('prompts', result.total);
 		} catch {
 			if (requestId === gridRequestId) toasts.error('Failed to load prompts');

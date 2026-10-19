@@ -311,6 +311,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         has_variables: Optional[bool] = None,
         nsfw: Literal["exclude", "include"] = "exclude",
         sort_by: str = "created_at", sort_order: str = "desc",
+        semantic: bool = Query(False, description="With q, append filtered semantic matches after the last text-match page"),
         current_user: User = Depends(get_current_active_user),
     ):
         user_id = _user_id(current_user)
@@ -319,24 +320,33 @@ def build_router(container: "AppContainer") -> APIRouter:
             nsfw = "exclude"
         repository = controller.collaborators.repository
         tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()] if tags else None
-        items = repository.get_all(
-            user_id=user_id, limit=limit, offset=offset,
+        filters = dict(
             source_provider=source_provider, base_model=base_model, model_id=model_id,
             usage_hint=usage_hint, collection_id=collection_id,
-            q=q, tags=tag_list, used=used, used_after=used_after,
-            has_variables=has_variables, nsfw=nsfw,
-            sort_by=sort_by, sort_order=sort_order,
-            include_descendants=include_descendants, unsorted=unsorted, favorites_only=favorites_only,
-        )
-        total = repository.count(
-            user_id, source_provider, model_id, base_model, usage_hint, collection_id,
-            q=q, tags=tag_list, used=used, used_after=used_after,
+            tags=tag_list, used=used, used_after=used_after,
             has_variables=has_variables, nsfw=nsfw,
             include_descendants=include_descendants, unsorted=unsorted, favorites_only=favorites_only,
         )
+        items = repository.get_all(
+            user_id=user_id, limit=limit, offset=offset, q=q,
+            sort_by=sort_by, sort_order=sort_order, **filters,
+        )
+        total = repository.count(user_id, q=q, **filters)
+        semantic_hits = 0
+        if semantic and q and offset + len(items) >= total:
+            ids = await operations.semantic_ids(controller.collaborators, user_id, q, limit)
+            if ids:
+                rank = {prompt_id: index for index, prompt_id in enumerate(ids)}
+                extras = repository.get_all(
+                    user_id=user_id, limit=len(ids), ids=ids, exclude_text=q, **filters,
+                )
+                extras.sort(key=lambda prompt: rank[prompt.id])
+                items += extras
+                semantic_hits = len(extras)
+                total += semantic_hits
         data = {
             "items": [item.to_dict() for item in items], "total": total,
-            "limit": limit, "offset": offset,
+            "limit": limit, "offset": offset, "semantic_hits": semantic_hits,
         }
         prompt_ids = [item["id"] for item in data["items"]]
         usage = generation_repo.usage_stats_by_source_prompt(prompt_ids, user_id)

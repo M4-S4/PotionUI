@@ -260,11 +260,45 @@ def test_list_delegates_browse_filters_without_generation_configuration(client, 
         favorites_only=False,
     )
     collaborators.repository.count.assert_called_once_with(
-        "user-1", "civitai", None, None, "negative", None,
+        "user-1", source_provider="civitai", base_model=None, model_id=None,
+        usage_hint="negative", collection_id=None,
         q=None, tags=None, used="any", used_after=None,
         has_variables=None, nsfw="exclude",
         include_descendants=True, unsorted=False, favorites_only=False,
     )
+
+
+def test_list_appends_filtered_semantic_matches_after_the_last_text_page(client, collaborators, mock_operations):
+    exact, near, nearer = make_prompt("exact"), make_prompt("near"), make_prompt("nearer")
+    collaborators.repository.get_all.side_effect = [[exact], [near, nearer]]
+    collaborators.repository.count.return_value = 1
+    mock_operations.semantic_ids = AsyncMock(return_value=["nearer", "exact", "near"])
+
+    response = client.get("/api/prompts?q=women&has_variables=true&semantic=true&limit=48")
+
+    data = response.json()["data"]
+    assert [item["id"] for item in data["items"]] == ["exact", "nearer", "near"]
+    assert data["total"] == 3
+    assert data["semantic_hits"] == 2
+    extras_call = collaborators.repository.get_all.call_args_list[1].kwargs
+    assert extras_call["ids"] == ["nearer", "exact", "near"]
+    assert extras_call["exclude_text"] == "women"
+    assert extras_call["has_variables"] is True
+    assert extras_call["nsfw"] == "exclude"
+
+
+def test_list_holds_semantic_matches_back_while_text_pages_remain(client, collaborators, mock_operations):
+    collaborators.repository.get_all.return_value = [make_prompt("a"), make_prompt("b")]
+    collaborators.repository.count.return_value = 5
+    mock_operations.semantic_ids = AsyncMock(return_value=["c"])
+
+    response = client.get("/api/prompts?q=women&semantic=true&limit=2")
+
+    data = response.json()["data"]
+    assert [item["id"] for item in data["items"]] == ["a", "b"]
+    assert data["total"] == 5
+    assert data["semantic_hits"] == 0
+    mock_operations.semantic_ids.assert_not_called()
 
 
 def test_list_merges_usage_aggregates_from_generation_repo(client, collaborators, generation_repo_mock):

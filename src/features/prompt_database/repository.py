@@ -243,8 +243,12 @@ class PromptRepository:
         q: Optional[str], tags: Optional[Sequence[str]], used: str,
         used_after: Optional[str], has_variables: Optional[bool], nsfw: str,
         include_descendants: bool = True, unsorted: bool = False, favorites_only: bool = False,
+        ids: Optional[Sequence[str]] = None, exclude_text: Optional[str] = None,
     ) -> Tuple[List[str], List[Any], bool]:
         clauses, params = ["prompts.user_id = ?"], [user_id]
+        if ids is not None:
+            clauses.append(f"prompts.id IN ({','.join('?' for _ in ids) or 'NULL'})")
+            params.extend(ids)
         for column, value in (
             ("source_provider", source_provider), ("base_model", base_model),
             ("model_id", model_id), ("usage_hint", usage_hint),
@@ -271,6 +275,12 @@ class PromptRepository:
             clauses.append("(prompts.name LIKE ? OR prompts.flattened_text LIKE ?)")
             like = f"%{q}%"
             params.extend([like, like])
+        if exclude_text:
+            clauses.append(
+                "NOT (COALESCE(prompts.name, '') LIKE ? OR COALESCE(prompts.flattened_text, '') LIKE ?)"
+            )
+            like = f"%{exclude_text}%"
+            params.extend([like, like])
         if tags:
             placeholders = ",".join("?" for _ in tags)
             clauses.append(
@@ -278,9 +288,9 @@ class PromptRepository:
             )
             params.extend(tags)
         if has_variables is True:
-            clauses.append("prompts.variables IS NOT NULL")
+            clauses.append("COALESCE(prompts.variables, '{}') NOT IN ('{}', 'null')")
         elif has_variables is False:
-            clauses.append("prompts.variables IS NULL")
+            clauses.append("COALESCE(prompts.variables, '{}') IN ('{}', 'null')")
         if nsfw != "include":
             clauses.append("prompts.nsfw = 0")
         needs_usage_join = used in ("used", "never") or bool(used_after)
@@ -303,11 +313,12 @@ class PromptRepository:
         has_variables: Optional[bool] = None, nsfw: str = "exclude",
         sort_by: str = "created_at", sort_order: str = "desc",
         include_descendants: bool = True, unsorted: bool = False, favorites_only: bool = False,
+        ids: Optional[Sequence[str]] = None, exclude_text: Optional[str] = None,
     ) -> List[Prompt]:
         clauses, params, needs_usage_join = self._list_filters(
             user_id, source_provider, base_model, model_id, usage_hint, collection_id,
             q, tags, used, used_after, has_variables, nsfw,
-            include_descendants, unsorted, favorites_only,
+            include_descendants, unsorted, favorites_only, ids, exclude_text,
         )
         sort_columns = {
             "created_at": "prompts.created_at", "updated_at": "prompts.updated_at",

@@ -20,6 +20,7 @@ export interface PromptListParams {
 	used_after?: string;
 	has_variables?: boolean;
 	nsfw?: 'exclude' | 'include';
+	semantic?: boolean;
 	sort_by?: string;
 	sort_order?: string;
 }
@@ -108,20 +109,10 @@ export function createPromptsApi(client: AxiosInstance) {
 				total: number;
 				limit: number;
 				offset: number;
+				semantic_hits?: number;
 			}>
 		> {
 			const response = await client.get('/api/prompts', { params });
-			return response.data;
-		},
-
-		async searchPrompts(params: {
-			q: string;
-			limit?: number;
-			base_model?: string;
-			model_id?: string;
-			source_provider?: string;
-		}): Promise<APIResponse<Prompt[]>> {
-			const response = await client.get('/api/prompts/search', { params });
 			return response.data;
 		},
 

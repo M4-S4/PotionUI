@@ -8,7 +8,6 @@ vi.mock('$lib/services/api/index', async (importOriginal) => {
 		api: {
 			...actual.api,
 			listPrompts: vi.fn(),
-			searchPrompts: vi.fn(),
 			getModels: vi.fn(),
 			listPromptTags: vi.fn()
 		}
@@ -96,7 +95,6 @@ beforeEach(() => {
 		success: true,
 		data: { items: [prompt(), rooftop], total: 2, limit: 48, offset: 0 }
 	} as never);
-	vi.mocked(api.searchPrompts).mockResolvedValue({ success: true, data: [rooftop] } as never);
 	vi.mocked(api.getModels).mockResolvedValue({ success: true, data: { models: [] } } as never);
 	vi.mocked(api.listPromptTags).mockResolvedValue({ success: true, data: { tags: [] } } as never);
 });
@@ -119,24 +117,24 @@ describe('SegmentListApplyModal prompt library', () => {
 		expect(varSpan?.className).toContain('text-signal');
 		expect(rows()[0].textContent).toContain('used 12×');
 		expect(vi.mocked(api.listPrompts).mock.calls[0][0]).toMatchObject({ limit: 48, offset: 0, nsfw: 'exclude', sort_by: 'last_used_at' });
-		expect(api.searchPrompts).not.toHaveBeenCalled();
+		expect(vi.mocked(api.listPrompts).mock.calls[0][0]?.semantic).toBeUndefined();
 	});
 
-	it('runs the semantic and plain searches for a typed query and shows the semantic hint', async () => {
+	it('asks for semantic matches with a typed query and shows the semantic hint', async () => {
 		mounted = mountModal();
 		await settle();
 		vi.mocked(api.listPrompts).mockResolvedValue({
 			success: true,
-			data: { items: [prompt()], total: 1, limit: 48, offset: 0 }
+			data: { items: [prompt(), rooftop], total: 2, limit: 48, offset: 0, semantic_hits: 1 }
 		} as never);
 		const input = searchInput();
 		input.value = 'dancer';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
 		await waitDebounce();
-		expect(api.searchPrompts).toHaveBeenCalledWith(expect.objectContaining({ q: 'dancer', limit: 48 }));
-		expect(vi.mocked(api.listPrompts).mock.calls.at(-1)?.[0]).toMatchObject({ q: 'dancer', offset: 0 });
+		expect(vi.mocked(api.listPrompts).mock.calls.at(-1)?.[0]).toMatchObject({ q: 'dancer', offset: 0, semantic: true });
 		expect(dialog().textContent).toContain('semantic · 1 hits');
-		expect(rows()[0].textContent).toContain('Afrobeats waist wind');
+		expect(rows()[0].textContent).toContain('Dancing girl factory');
+		expect(rows()[1].textContent).toContain('Afrobeats waist wind');
 	});
 
 	it('counts a changed filter on the Filters button and lists it as a chip', async () => {

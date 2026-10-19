@@ -205,7 +205,7 @@
 			if (requestId !== promptRequestId) return;
 			loadedItems = reset ? result.rows : [...loadedItems, ...result.rows];
 			total = result.total;
-			semanticHitCount = reset ? result.semanticHits : semanticHitCount;
+			semanticHitCount = (reset ? 0 : semanticHitCount) + result.semanticHits;
 		} catch (loadError) {
 			if (requestId !== promptRequestId) return;
 			logger.error('Failed to load prompt library:', loadError);
