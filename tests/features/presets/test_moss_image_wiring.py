@@ -6,19 +6,20 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
 
 
 @pytest.fixture(scope="module")
 def moss_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "marketplace/MOSS-Image" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/MOSS-Image" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("marketplace/MOSS-Image preset not present")
+        pytest.fail("marketplace/MOSS-Image preset not present")
     return template
 
 
@@ -36,11 +37,8 @@ def _process(template, form_over: dict | None = None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        template, "txt2img", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "txt2img", "form_data": dict(bound.values)}
+    form_data = bound_form_data(template, "txt2img", form_data)
+    generation_data = {"prompts": [], "mode": "txt2img", "form_data": form_data}
     return processor.process(template, generation_data)
 
 

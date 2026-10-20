@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
 
 
 @pytest.fixture(scope="module")
 def flux3_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "marketplace/Flux3" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/Flux3" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("marketplace/Flux3 preset not present")
+        pytest.fail("marketplace/Flux3 preset not present")
     return template
 
 
@@ -37,11 +39,8 @@ def _process(template, form_over: dict | None = None, mode: str = "txt2img"):
         form_data["source_image"] = ["/uploads/a.png", "/uploads/b.png"]
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        template, mode, form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": mode, "form_data": dict(bound.values)}
+    form_data = bound_form_data(template, mode, form_data)
+    generation_data = {"prompts": [], "mode": mode, "form_data": form_data}
     return processor.process(template, generation_data)
 
 

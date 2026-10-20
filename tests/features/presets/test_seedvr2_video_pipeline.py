@@ -9,6 +9,7 @@ whole thing validates via GenerationEngine.validate_pipeline.
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -24,6 +25,8 @@ from src.pipelines.pipes.media_loader.main import MediaLoaderPipe
 from src.pipelines.pipes.model_loader.seedvr2.main import ModelLoaderSeedVR2Pipe
 from src.pipelines.pipes.param_emitter.main import ParamEmitterPipe
 
+from ._bound_form import bound_form_data
+
 
 PIPE_CLASSES = {
     "media_loader": MediaLoaderPipe,
@@ -38,9 +41,9 @@ PIPE_CLASSES = {
 def seedvr2_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "native/SeedVR2" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/SeedVR2" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("native/SeedVR2 preset not present")
+        pytest.fail("marketplace/SeedVR2 preset not present")
     return template
 
 
@@ -66,6 +69,7 @@ def _process(seedvr2_template, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
+    form_data = bound_form_data(seedvr2_template, "video_upscale", form_data)
     generation_data = {"prompts": [], "mode": "video_upscale", "form_data": form_data}
     return processor.process(seedvr2_template, generation_data)
 
@@ -89,6 +93,7 @@ def _process_minimal(seedvr2_template, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
+    form_data = bound_form_data(seedvr2_template, "video_upscale", form_data)
     generation_data = {"prompts": [], "mode": "video_upscale", "form_data": form_data}
     return processor.process(seedvr2_template, generation_data)
 
@@ -140,6 +145,7 @@ def test_batch_size_defaults_to_zero_auto_when_form_omits_it(seedvr2_template):
         "vae": "models/vae/ema_vae_fp16.safetensors",
         "prompt_embedding": "models/text_encoders/pos_emb.pt",
     }
+    form_data = bound_form_data(seedvr2_template, "video_upscale", form_data)
     pipes = processor.process(
         seedvr2_template, {"prompts": [], "mode": "video_upscale", "form_data": form_data}
     )

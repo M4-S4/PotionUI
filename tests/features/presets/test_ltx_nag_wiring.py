@@ -20,11 +20,12 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
+
+from ._bound_form import bound_form_data
 
 PRESET_DIR = Path("content/presets/marketplace/LTX-2")
 
@@ -42,9 +43,9 @@ _NAG_ON = {"nag_scale": 1.35, "nag_tau": 4.0, "nag_alpha": 0.25}
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/LTX-2")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("/LTX-2")), None)
     if template is None:
-        pytest.skip("LTX-2 preset not present")
+        pytest.fail("LTX-2 preset not present")
     return template
 
 
@@ -69,11 +70,8 @@ def _process(ltx_template, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        ltx_template, "video", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "video", "form_data": dict(bound.values)}
+    form_data = bound_form_data(ltx_template, "video", form_data)
+    generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
     return processor.process(ltx_template, generation_data)
 
 

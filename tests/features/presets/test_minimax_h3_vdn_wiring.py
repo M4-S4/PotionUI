@@ -17,10 +17,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
 
 _VDN_PRESET_ID = "01KX47H3VDNMINIMAX000000VA"
 
@@ -39,7 +40,7 @@ def vdn_template():
     loader.load_presets()
     template = next((p for p in loader.presets if p.id == _VDN_PRESET_ID), None)
     if template is None:
-        pytest.skip("MiniMax-H3-VDN preset not present")
+        pytest.fail("MiniMax-H3-VDN preset not present")
     return template
 
 
@@ -60,14 +61,11 @@ def _process(vdn_template, form_over: dict | None = None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        vdn_template, "video", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
+    form_data = bound_form_data(vdn_template, "video", form_data)
     generation_data = {
         "prompts": [{"positive": "a dragon", "negative": ""}],
         "mode": "video",
-        "form_data": dict(bound.values),
+        "form_data": form_data,
     }
     return processor.process(vdn_template, generation_data)
 

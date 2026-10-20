@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 import pytest
 
 from src.features.forms.binding import FormBindingError, bind_form
@@ -13,9 +14,9 @@ ABC_MESSAGE = "ABC needs an X: (reference number) and a K: (key) header line"
 def yue2_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("YuE2")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("YuE2")), None)
     if template is None:
-        pytest.skip("YuE2 preset not present")
+        pytest.fail("YuE2 preset not present")
     return template
 
 

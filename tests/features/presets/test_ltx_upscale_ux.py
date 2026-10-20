@@ -39,11 +39,12 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
+
+from ._bound_form import bound_form_data
 
 STRONG_RECIPE = "0.909375, 0.725, 0.421875, 0.0"
 BALANCED_RECIPE = "0.725, 0.421875, 0.0"
@@ -63,9 +64,9 @@ _DOC_T2V = {
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/LTX-2")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("/LTX-2")), None)
     if template is None:
-        pytest.skip("LTX-2 preset not present")
+        pytest.fail("LTX-2 preset not present")
     return template
 
 
@@ -97,13 +98,10 @@ def _process(ltx_template, mode, form_over=None, prompts=None):
         })
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        ltx_template, mode, form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
+    form_data = bound_form_data(ltx_template, mode, form_data)
     generation_data = {
         "prompts": prompts if prompts is not None else [], "mode": mode,
-        "form_data": dict(bound.values),
+        "form_data": form_data,
     }
     return processor.process(ltx_template, generation_data)
 

@@ -89,7 +89,7 @@ def wan_pipeline_builder():
     loader.load_presets()
     template = next((p for p in loader.presets if Path(p.path).name == "Wan"), None)
     if template is None:
-        pytest.skip("marketplace Wan preset not present")
+        pytest.fail("marketplace Wan preset not present")
 
     processor = PresetProcessor(
         template_processor=TemplateProcessor(settings=Mock()),

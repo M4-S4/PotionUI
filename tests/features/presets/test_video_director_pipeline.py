@@ -11,11 +11,11 @@ relies on -- see the pipeline.yml header comment).
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
-from src.features.forms.binding import bind_form
 from src.features.generation.engine import GenerationEngine, deep_update, validate_pipe_configuration
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
@@ -35,6 +35,8 @@ from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe
 from src.pipelines.pipes.seed_generator.main import SeedGeneratorPipe
 from src.pipelines.pipes.from_iotype.main import FromIOTypePipe
 from src.pipelines.pipes.param_emitter.main import ParamEmitterPipe
+
+from ._bound_form import bound_form_data
 
 
 PIPE_CLASSES = {
@@ -135,9 +137,9 @@ DOC_CHAIN_MIXED = {
 def wan_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/Wan")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("/Wan")), None)
     if template is None:
-        pytest.skip("Wan preset not present")
+        pytest.fail("Wan preset not present")
     return template
 
 
@@ -167,11 +169,8 @@ def _process(wan_template, doc, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        wan_template, "video", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "video", "form_data": dict(bound.values)}
+    form_data = bound_form_data(wan_template, "video", form_data)
+    generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
     return processor.process(wan_template, generation_data)
 
 
@@ -541,9 +540,9 @@ DOC_DIRECTOR_LTX_MIXED_REFS = {
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/LTX-2")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("/LTX-2")), None)
     if template is None:
-        pytest.skip("LTX-2 preset not present")
+        pytest.fail("LTX-2 preset not present")
     return template
 
 
@@ -571,11 +570,8 @@ def _process_ltx(ltx_template, doc, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        ltx_template, "video", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "video", "form_data": dict(bound.values)}
+    form_data = bound_form_data(ltx_template, "video", form_data)
+    generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
     return processor.process(ltx_template, generation_data)
 
 

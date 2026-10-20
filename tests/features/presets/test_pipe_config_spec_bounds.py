@@ -25,6 +25,7 @@ no DB write. A pipe whose module cannot be imported in this environment
 """
 
 import copy
+from pathlib import Path
 import tempfile
 import warnings
 
@@ -91,7 +92,7 @@ def rendered_pipe_configs(tmp_path_factory, pipe_catalog):
     presets, _errors = load_all_presets()
     processor = build_processor()
 
-    core_root = str(ROOT / "content" / "presets")
+    core_root = (ROOT / "content" / "presets").resolve()
     results = []
     for preset in sorted(presets, key=lambda p: p.id):
         for mode in sorted(preset.modes.keys()):
@@ -106,7 +107,7 @@ def rendered_pipe_configs(tmp_path_factory, pipe_catalog):
                 # and take every core preset's coverage with it -- its own
                 # bounds simply cannot be checked, which is reported via
                 # the warning, not hidden.
-                if str(preset.path).startswith(core_root):
+                if Path(preset.path).resolve().is_relative_to(core_root):
                     raise
                 warnings.warn(
                     f"unrenderable plugin preset skipped by spec-bounds sweep: "

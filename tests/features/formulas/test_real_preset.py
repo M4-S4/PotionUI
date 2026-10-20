@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -20,7 +21,7 @@ from tests.features.formulas.conftest import FakeModels, make_user
 def preset_world():
     loader = PresetTemplateLoader(["content/presets/marketplace"])
     loader.get_all_presets()
-    preset = next(item for item in loader.presets if str(item.path).rstrip("/").endswith("MiniMax-H3"))
+    preset = next(item for item in loader.presets if Path(item.path).as_posix().endswith("MiniMax-H3"))
     db_repo = Mock()
     db_repo.get_preset_form_overrides.return_value = {}
     preset_collaborators = PresetCollaborators(

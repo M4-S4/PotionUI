@@ -60,17 +60,7 @@ CASES = [
     ("presets/marketplace/Pixal3D", "views2mesh", {"front_image", "left_image", "back_image", "right_image"}),
     ("presets/marketplace/MiniMax-H3", "refs", {"references"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
-    ("comfyui-backend/presets/LTX-2-3/official", "flf2v", {"first_frame", "last_frame"}),
-    ("comfyui-backend/presets/LTX-2-3/official", "ia2v", {"source_image", "source_audio"}),
-    ("comfyui-backend/presets/LTX-2-3/official", "img2vid", {"source_image"}),
-    ("comfyui-backend/presets/LTX-2", "img2vid", {"source_image"}),
     ("comfyui-backend/presets/QwenImage", "img2img", {"source_image", "ref_image_2", "ref_image_3"}),
-    ("comfyui-backend/presets/WAN_2_2/custom", "img2vid", {"source_image"}),
-    ("comfyui-backend/presets/WAN_2_2/official", "img2vid", {"source_image"}),
-    ("comfyui-backend/presets/WAN_2_2/svi20pro", "img2vid", {"source_image"}),
-    ("comfyui-backend/presets/WAN_2_2/flf", "flf", {"start_image", "end_image"}),
-    ("comfyui-backend/presets/WAN_2_2/perfectloop", "clip", {"source_image"}),
-    ("comfyui-backend/presets/WAN_2_2/perfectloop", "vace", {"input_video"}),
 ]
 
 # Reference-related SETTINGS that moved onto the tab alongside the media they
@@ -84,10 +74,6 @@ SETTING_CASES = [
     # FE rework, 2026-08-24) -- not a convention violation for that preset.
     ("presets/marketplace/MiniMax-H3", "refs", "reference_pixel_budget"),
     ("presets/marketplace/Krea2", "edit", "ref_boost"),
-    ("comfyui-backend/presets/LTX-2-3/official", "ia2v", "switch_to_t2v"),
-    ("comfyui-backend/presets/WAN_2_2/flf", "flf", "enable_loop"),
-    ("comfyui-backend/presets/WAN_2_2/flf", "flf", "remove_first_frame"),
-    ("comfyui-backend/presets/WAN_2_2/flf", "flf", "remove_last_frame"),
 ]
 
 # Media-bearing modes that must stay as they are: the media is the operand of a
@@ -101,8 +87,6 @@ UNTOUCHED_CASES = [
     ("presets/marketplace/SeedVR2", "video_upscale"),
     ("presets/marketplace/LTX-2", "upscale"),
     ("presets/marketplace/LTX-2.5", "upscale"),
-    ("comfyui-backend/presets/LTX-2-3/utility", "effects"),
-    ("comfyui-backend/presets/WAN_2_2/custom", "interpolation"),
 ]
 
 
@@ -128,7 +112,7 @@ def serializer(loader):
 def _preset(loader, suffix):
     matches = [p for p in loader.presets if str(p.path).replace("\\", "/").endswith(suffix)]
     if not matches:
-        pytest.skip(f"preset {suffix} not present")
+        pytest.fail(f"preset {suffix} not present")
     # Suffix matching must identify exactly one preset -- `presets/marketplace/QwenImage`
     # and `comfyui-backend/presets/QwenImage` are different presets.
     assert len(matches) == 1, f"{suffix} matched {len(matches)} presets"

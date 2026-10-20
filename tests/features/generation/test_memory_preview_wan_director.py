@@ -92,7 +92,7 @@ def wan_preset_template():
     loader.load_presets()
     template = next((p for p in loader.presets if Path(p.path).name == "Wan"), None)
     if template is None:
-        pytest.skip("marketplace Wan preset not present")
+        pytest.fail("marketplace Wan preset not present")
     return template
 
 

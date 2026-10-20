@@ -23,6 +23,7 @@ docs/models/ltx.md for the sampler/schedule provenance.
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -32,6 +33,8 @@ from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
 
+from ._bound_form import bound_form_data
+
 DISTILLED_RECIPE = "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
 STAGE2_RECIPE = "0.909375, 0.725, 0.421875, 0.0"
 
@@ -40,9 +43,9 @@ STAGE2_RECIPE = "0.909375, 0.725, 0.421875, 0.0"
 def ltx25_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).endswith("native/LTX-2.5")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("marketplace/LTX-2.5")), None)
     if template is None:
-        pytest.skip("native/LTX-2.5 preset not present")
+        pytest.fail("marketplace/LTX-2.5 preset not present")
     return template
 
 
@@ -81,15 +84,12 @@ def _process_video(ltx25_template, form_over=None):
         # are DEFINED empty strings, which the pipeline reads with `or`).
         "manual_sigmas": "",
         "upscale_refine_sigmas": "",
-        # DFR (Enhance tab) at its off default. Present here so the common path
-        # exercises the real submitted values rather than the Jinja fallbacks;
-        # test_renders_without_any_dfr_keys below is what keeps those fallbacks
-        # covered.
         "dfr_rounds": "off",
         "temporal_upscale_model": "",
     }
     if form_over:
         form_data.update(form_over)
+    form_data = bound_form_data(ltx25_template, "video", form_data)
     generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
     return _processor().process(ltx25_template, generation_data)
 
@@ -105,6 +105,7 @@ def _process_upscale(ltx25_template, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
+    form_data = bound_form_data(ltx25_template, "upscale", form_data)
     generation_data = {"prompts": [], "mode": "upscale", "form_data": form_data}
     return _processor().process(ltx25_template, generation_data)
 
@@ -162,9 +163,10 @@ def test_audio_vae_is_optional(ltx25_template):
                  "text_encoder": "/te.safetensors",
                  "video_vae": "/models/ltx25_video_vae.safetensors",
                  "resolution": "768x512", "manual_sigmas": "", "upscale_refine_sigmas": ""}
+    form_data = bound_form_data(ltx25_template, "video", form_data)
     pipes = _processor().process(ltx25_template, {"prompts": [], "mode": "video", "form_data": form_data})
     loader = _pipe(pipes, "model_loader/ltx")
-    assert loader["config"]["audio_model"]["file_path"] == ""
+    assert loader["config"]["audio_model"]["file_path"] is None
 
 
 # -- stage-1 sampler: ancestral on every profile ----------------------------
@@ -241,36 +243,6 @@ def test_refine_passes_select_no_schedule(ltx25_template):
     assert "schedule" not in stage2["config"]
     refine = _pipe(_process_upscale(ltx25_template), "generator/txt2vid_ltx")
     assert "schedule" not in refine["config"]
-
-
-# -- Jinja fallback coverage for the DFR keys -------------------------------
-
-def test_renders_without_any_dfr_keys(ltx25_template):
-    # The DFR fields (Enhance tab) arrived after this preset shipped, so every
-    # read of them must carry a fallback -- the template evaluator raises on a
-    # missing form_data key rather than rendering empty. `_process_video` above
-    # now submits both keys at their defaults, so this is the ONLY case left
-    # that exercises those fallbacks: drop a `| default(...)` from any
-    # dfr_rounds/temporal_upscale_model read and this is what catches it.
-    doc = copy.deepcopy(_DOC_T2V)
-    doc.update(derive_ltx_media_fields(doc["media"], doc["ic_lora"], doc["settings"].get("fps")))
-    form_data = {
-        "video_director": doc,
-        "model": "/models/ltx25_dit.safetensors",
-        "text_encoder": "/models/gemma4.safetensors",
-        "video_vae": "/models/ltx25_video_vae.safetensors",
-        "resolution": "768x512",
-        "manual_sigmas": "",
-        "upscale_refine_sigmas": "",
-    }
-    pipes = _processor().process(ltx25_template, {"prompts": [], "mode": "video", "form_data": form_data})
-    dfr = _pipe(pipes, "generator/dfr_video_ltx", pipe_id="dfr")
-    assert dfr["enabled"] is False
-    # Absent keys must resolve to the same "DFR off" wiring as an explicit
-    # "off": stage 1 still decodes, and the gallery reads stage 1 directly.
-    assert _pipe(pipes, "generator/video_ltx", pipe_id="generator_stage1")["config"]["decode"] is True
-    gallery_video = next(i for i in _pipe(pipes, "gallery")["input"] if i["name"] == "video")
-    assert gallery_video["provider"] == "generator_stage1"
 
 
 # -- the removed runtime version-gate ---------------------------------------

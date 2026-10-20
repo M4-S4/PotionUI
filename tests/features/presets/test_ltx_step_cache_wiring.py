@@ -26,6 +26,8 @@ from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 
+from ._bound_form import bound_form_data
+
 PRESET_DIR = Path("content/presets/marketplace/LTX-2")
 
 _CACHE_ON = {
@@ -41,9 +43,9 @@ _KEYS = ("step_cache_threshold", "step_cache_warmup_steps", "step_cache_max_skip
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).endswith("native/LTX-2")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("marketplace/LTX-2")), None)
     if template is None:
-        pytest.skip("native/LTX-2 preset not present")
+        pytest.fail("marketplace/LTX-2 preset not present")
     return template
 
 
@@ -98,6 +100,7 @@ def _process(ltx_template, form_over: dict | None = None, *, upscale: str = "off
         })
     if form_over:
         form_data.update(form_over)
+    form_data = bound_form_data(ltx_template, mode, form_data)
     generation_data = {"prompts": [], "mode": mode, "form_data": form_data}
     return processor.process(ltx_template, generation_data)
 

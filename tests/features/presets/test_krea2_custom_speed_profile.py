@@ -27,6 +27,7 @@ with one declaration.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -37,6 +38,8 @@ from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.plugins.loader import PluginLoader
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
 
 KREA2_EDIT_PLUGIN_ID = "krea2-edit"
 
@@ -58,9 +61,9 @@ _OFF_PROFILE = {"steps": 33, "sampler": "unipc", "cfg": 7.5}
 def krea2_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "native/Krea2" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/Krea2" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("native/Krea2 preset not present")
+        pytest.fail("marketplace/Krea2 preset not present")
     return template
 
 
@@ -74,7 +77,7 @@ def krea2_with_edit_mode():
     registry = SimpleNamespace(get_enabled_plugins=lambda: [manifest])
     loader = PresetTemplateLoader(["content/presets"], plugin_registry=registry)
     loader.load_presets()
-    template = next((p for p in loader.presets if "native/Krea2" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/Krea2" in Path(p.path).as_posix()), None)
     if template is None or "edit" not in template.modes:
         pytest.skip("krea2-edit's edit mode not contributed")
     return template
@@ -132,6 +135,7 @@ def _process(template, mode, form_over=None):
     form_data = dict(_BASE_FORM)
     if form_over:
         form_data.update(form_over)
+    form_data = bound_form_data(template, mode, form_data)
     return processor.process(template, {"prompts": [], "mode": mode, "form_data": form_data})
 
 

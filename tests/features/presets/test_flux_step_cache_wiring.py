@@ -19,10 +19,11 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
 
 PRESET_DIRS = {
     "Flux1": Path("content/presets/marketplace/Flux1"),
@@ -58,9 +59,9 @@ def flux_template(preset_name):
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
     suffix = f"marketplace/{preset_name}"
-    template = next((p for p in loader.presets if suffix in str(p.path)), None)
+    template = next((p for p in loader.presets if suffix in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip(f"{suffix} preset not present")
+        pytest.fail(f"{suffix} preset not present")
     return template
 
 
@@ -81,11 +82,8 @@ def _process(flux_template, preset_name, form_over: dict | None = None):
     # validation"). Skipping it (as this test used to) leaves any field the
     # test doesn't explicitly set genuinely undefined, which a guard-free
     # pipeline.yml (correctly, for the real request path) no longer covers.
-    bound = bind_form(
-        flux_template, "txt2img", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "txt2img", "form_data": dict(bound.values)}
+    form_data = bound_form_data(flux_template, "txt2img", form_data)
+    generation_data = {"prompts": [], "mode": "txt2img", "form_data": form_data}
     return processor.process(flux_template, generation_data)
 
 
