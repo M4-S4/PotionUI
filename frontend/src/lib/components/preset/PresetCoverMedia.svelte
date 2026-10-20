@@ -133,12 +133,16 @@
 		const video = videoEl;
 		if (!video || !showVideo) return;
 		if (active && nearView && !reducedMotion) {
-			const started = video.play();
-			if (started && typeof started.catch === 'function') started.catch(() => {});
-		} else {
-			video.pause();
-			if (video.currentTime > 0) video.currentTime = 0;
+			const start = () => {
+				const started = video.play();
+				if (started && typeof started.catch === 'function') started.catch(() => {});
+			};
+			start();
+			video.addEventListener('canplay', start);
+			return () => video.removeEventListener('canplay', start);
 		}
+		video.pause();
+		if (video.currentTime > 0) video.currentTime = 0;
 	});
 </script>
 
