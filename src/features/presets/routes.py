@@ -12,9 +12,10 @@ All business logic is delegated to `src.features.presets.operations`.
 
 import asyncio
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.forms.exceptions import FormNotFoundException
@@ -42,6 +43,27 @@ if TYPE_CHECKING:
     from src.features.models.access_policy import ModelAccessPolicy
 
 
+_PRESET_REFUSALS = {
+    PresetNotFoundException: Fail("preset_not_found"),
+    ModeNotFoundException: Fail("mode_not_found"),
+    FormNotFoundException: Fail("form_not_found"),
+    NoModesAvailableException: Fail("no_modes_available"),
+    PresetNotInstalledException: Fail("preset_not_installed"),
+    PresetAlreadyInstalledException: Fail("preset_already_installed"),
+    PresetNotAssignedException: Fail("preset_not_assigned"),
+    UserNotFoundException: Fail("user_not_found"),
+    InvalidUsersException: Fail("invalid_users"),
+    PermissionDeniedException: Fail("permission_denied"),
+    InvalidModeDataException: Fail("invalid_mode_data"),
+    InvalidConfigurationException: Fail("invalid_configuration"),
+    InvalidFormOverridesException: Fail("invalid_form_overrides"),
+}
+
+
+def _guarded(code: str, message: str):
+    return guarded(_PRESET_REFUSALS, Fail(code, message, status=500), soft=True)
+
+
 class PresetController(BaseController):
     """Controller for preset endpoints - delegates to `src.features.presets.operations`."""
 
@@ -66,80 +88,6 @@ class PresetController(BaseController):
         # supplies it.
         self.model_access_policy = model_access_policy
 
-    def _handle_preset_exception(self, e: Exception, error_code: str, message: str):
-        """Convert domain exceptions to API responses.
-
-        Uses error_api_response for domain exceptions (returns APIResponse with success=False)
-        and handle_exception for unexpected errors (raises HTTPException).
-        """
-        if isinstance(e, PresetNotFoundException):
-            return self.error_api_response(
-                error="preset_not_found",
-                message=str(e)
-            )
-        elif isinstance(e, ModeNotFoundException):
-            return self.error_api_response(
-                error="mode_not_found",
-                message=str(e)
-            )
-        elif isinstance(e, FormNotFoundException):
-            return self.error_api_response(
-                error="form_not_found",
-                message=str(e)
-            )
-        elif isinstance(e, NoModesAvailableException):
-            return self.error_api_response(
-                error="no_modes_available",
-                message=str(e)
-            )
-        elif isinstance(e, PresetNotInstalledException):
-            return self.error_api_response(
-                error="preset_not_installed",
-                message=str(e)
-            )
-        elif isinstance(e, PresetAlreadyInstalledException):
-            return self.error_api_response(
-                error="preset_already_installed",
-                message=str(e)
-            )
-        elif isinstance(e, PresetNotAssignedException):
-            return self.error_api_response(
-                error="preset_not_assigned",
-                message=str(e)
-            )
-        elif isinstance(e, UserNotFoundException):
-            return self.error_api_response(
-                error="user_not_found",
-                message=str(e)
-            )
-        elif isinstance(e, InvalidUsersException):
-            return self.error_api_response(
-                error="invalid_users",
-                message=str(e)
-            )
-        elif isinstance(e, PermissionDeniedException):
-            return self.error_api_response(
-                error="permission_denied",
-                message=str(e)
-            )
-        elif isinstance(e, InvalidModeDataException):
-            return self.error_api_response(
-                error="invalid_mode_data",
-                message=str(e)
-            )
-        elif isinstance(e, InvalidConfigurationException):
-            return self.error_api_response(
-                error="invalid_configuration",
-                message=str(e)
-            )
-        elif isinstance(e, InvalidFormOverridesException):
-            return self.error_api_response(
-                error="invalid_form_overrides",
-                message=str(e)
-            )
-        else:
-            raise self.handle_exception(e, error_code, message)
-
     def _supports_prompt_batch(self, engine: Optional[str]) -> bool:
         return self.backend_registry.engine_supports_prompt_batch(engine)
 
@@ -153,46 +101,39 @@ class PresetController(BaseController):
             preset['supports_prompt_batch'] = self._supports_prompt_batch(preset.get('engine'))
         return data
 
+    @guarded(None, Fail("preset_list_failed", "Failed to list presets", status=500))
     async def list_presets(
         self,
         current_user: User,
         include_uninstalled: bool = False
     ) -> APIResponse:
         """Get list of available presets."""
-        try:
-            data = await asyncio.to_thread(self._list_presets, current_user, include_uninstalled)
-            return self.success_response(data=data)
-        except Exception as e:
-            raise self.handle_exception(e, "preset_list_failed", "Failed to list presets")
+        data = await asyncio.to_thread(self._list_presets, current_user, include_uninstalled)
+        return self.success_response(data=data)
 
+    @_guarded("preset_get_failed", "Failed to get preset")
     async def get_preset(self, preset_id: str, current_user: User) -> APIResponse:
         """Get specific preset information."""
-        try:
-            data = operations.get_preset(self.collaborators, preset_id)
-            data['recipes'] = (
-                self.recipe_links.recipes_for_preset(preset_id, current_user)
-                if self.recipe_links is not None
-                else []
-            )
-            data['supports_prompt_batch'] = self._supports_prompt_batch(data.get('engine'))
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(e, "preset_get_failed", "Failed to get preset")
+        data = operations.get_preset(self.collaborators, preset_id)
+        data['recipes'] = (
+            self.recipe_links.recipes_for_preset(preset_id, current_user)
+            if self.recipe_links is not None
+            else []
+        )
+        data['supports_prompt_batch'] = self._supports_prompt_batch(data.get('engine'))
+        return self.success_response(data=data)
 
+    @_guarded("requirements_check_failed", "Failed to check preset requirements")
     async def get_preset_requirements(
         self, preset_id: str, backend_id: Optional[str] = None, refresh: bool = False
     ) -> APIResponse:
         """Check this preset's declared `requirements:` against this instance (admin only)."""
-        try:
-            data = await operations.get_preset_requirements(
-                self.collaborators, preset_id, backend_id=backend_id, refresh=refresh
-            )
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(
-                e, "requirements_check_failed", "Failed to check preset requirements"
-            )
+        data = await operations.get_preset_requirements(
+            self.collaborators, preset_id, backend_id=backend_id, refresh=refresh
+        )
+        return self.success_response(data=data)
 
+    @_guarded("preset_models_failed", "Failed to list models for preset")
     async def get_preset_models(
         self,
         preset_id: str,
@@ -223,92 +164,73 @@ class PresetController(BaseController):
         """
         from src.features.models.availability import models_for_engine
 
-        try:
-            preset = self.collaborators.preset_loader.load_preset_by_id(preset_id)
-            if not preset:
-                return self.error_response(
-                    error="preset_not_found",
-                    message=f"Preset '{preset_id}' not found",
-                    status_code=404
-                )
-
-            from src.features.models.availability_repository import (
-                model_availability_repo,
+        preset = self.collaborators.preset_loader.load_preset_by_id(preset_id)
+        if not preset:
+            return self.error_response(
+                error="preset_not_found",
+                message=f"Preset '{preset_id}' not found",
+                status_code=404
             )
 
-            user_allowed_model_ids = None
-            if self.model_access_policy is not None and current_user is not None:
-                # all_models=True: an admin gets None (unrestricted); everyone
-                # else gets their real (possibly empty) assigned-model list
-                # regardless of the flag - see ModelAccessPolicy.get_allowed_model_ids.
-                user_allowed_model_ids = self.model_access_policy.get_allowed_model_ids(
-                    current_user, all_models=True
-                )
+        from src.features.models.availability_repository import (
+            model_availability_repo,
+        )
 
-            # Every filter is applied server-side, alongside availability, so a page is a
-            # page: filtering a LIMITed result client-side would drop rows that belong on it.
-            driver = preset.driver if isinstance(getattr(preset, "driver", None), str) else None
-            task_list = [t.strip() for t in tasks.split(",") if t.strip()] if tasks else None
-            type_list = [t.strip() for t in model_types.split(",") if t.strip()] if model_types else None
-            locator = getattr(self.collaborators.model_index, "locator", None) if unquantized_only else None
-            models = await asyncio.to_thread(
-                models_for_engine,
-                engine=preset.engine,
-                driver=driver,
-                tasks=task_list,
-                preset_id=preset.id if isinstance(getattr(preset, "id", None), str) else None,
-                backend_registry=self.backend_registry,
-                model_type=model_type,
-                model_types=type_list,
-                unquantized_only=unquantized_only,
-                path_for_model=locator.path_for_model if locator is not None else None,
-                search=search,
-                limit=limit,
-                offset=offset,
-                tag_ids=tag_ids.split(",") if tag_ids else None,
-                # OR semantics - see model_repository.get_all's docstring. Fed by a
-                # `model` field's resolved `filter_tags:` (src/features/fields/model.py).
-                any_tag_ids=any_tag_ids.split(",") if any_tag_ids else None,
-                favorites_only=favorites_only,
-                library_user_id=user_id,
-                admin=admin,
-                user_allowed_model_ids=user_allowed_model_ids,
+        user_allowed_model_ids = None
+        if self.model_access_policy is not None and current_user is not None:
+            user_allowed_model_ids = self.model_access_policy.get_allowed_model_ids(
+                current_user, all_models=True
             )
 
-            backend_ids = [
-                b.backend_id
-                for b in self.backend_registry.get_backends_for_engine(preset.engine)
-                if driver is None or b.config.effective_driver == driver
-            ]
+        driver = preset.driver if isinstance(getattr(preset, "driver", None), str) else None
+        task_list = [t.strip() for t in tasks.split(",") if t.strip()] if tasks else None
+        type_list = [t.strip() for t in model_types.split(",") if t.strip()] if model_types else None
+        locator = getattr(self.collaborators.model_index, "locator", None) if unquantized_only else None
+        models = await asyncio.to_thread(
+            models_for_engine,
+            engine=preset.engine,
+            driver=driver,
+            tasks=task_list,
+            preset_id=preset.id if isinstance(getattr(preset, "id", None), str) else None,
+            backend_registry=self.backend_registry,
+            model_type=model_type,
+            model_types=type_list,
+            unquantized_only=unquantized_only,
+            path_for_model=locator.path_for_model if locator is not None else None,
+            search=search,
+            limit=limit,
+            offset=offset,
+            tag_ids=tag_ids.split(",") if tag_ids else None,
+            any_tag_ids=any_tag_ids.split(",") if any_tag_ids else None,
+            favorites_only=favorites_only,
+            library_user_id=user_id,
+            admin=admin,
+            user_allowed_model_ids=user_allowed_model_ids,
+        )
 
-            return self.success_response(data={
-                "engine": preset.engine,
-                "models": models,
-                "total": len(models),
-                # Admin-only. False means the list is unfiltered because nothing has been
-                # indexed; `backend_ids` on each model will be empty and must not be read
-                # as "no backend has this".
-                "indexed": model_availability_repo.any_indexed(backend_ids) if admin else None,
-            })
+        backend_ids = [
+            b.backend_id
+            for b in self.backend_registry.get_backends_for_engine(preset.engine)
+            if driver is None or b.config.effective_driver == driver
+        ]
 
-        except HTTPException:
-            raise
-        except Exception as e:
-            return self._handle_preset_exception(
-                e, "preset_models_failed", "Failed to list models for preset"
-            )
+        return self.success_response(data={
+            "engine": preset.engine,
+            "models": models,
+            "total": len(models),
+            "indexed": model_availability_repo.any_indexed(backend_ids) if admin else None,
+        })
 
     async def get_mode_labels(self) -> APIResponse:
         return self.success_response(data={"labels": dict(MODE_LABELS)})
 
+    @_guarded("modes_get_failed", "Failed to get modes")
     async def get_available_modes(self, preset_id: str) -> APIResponse:
         """Get available modes for a specific preset."""
-        try:
-            data = operations.get_available_modes(self.collaborators, preset_id)
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(e, "modes_get_failed", "Failed to get modes")
+        data = operations.get_available_modes(self.collaborators, preset_id)
+        return self.success_response(data=data)
 
+    @_guarded("form_schema_failed", "Failed to get form schema")
     async def get_form_schema(
         self,
         preset_id: str,
@@ -316,12 +238,10 @@ class PresetController(BaseController):
         form_name: str = None
     ) -> APIResponse:
         """Get form schema for a specific preset and mode."""
-        try:
-            data = operations.get_form_schema(self.collaborators, preset_id, mode, form_name)
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(e, "form_schema_failed", "Failed to get form schema")
+        data = operations.get_form_schema(self.collaborators, preset_id, mode, form_name)
+        return self.success_response(data=data)
 
+    @_guarded("pipes_get_failed", "Failed to get pipes")
     async def get_pipeline(
         self,
         preset_id: str,
@@ -329,46 +249,36 @@ class PresetController(BaseController):
         form_data: dict = None
     ) -> APIResponse:
         """Get pipe configuration and connections for a specific preset."""
-        try:
-            result = operations.get_pipeline(self.collaborators, preset_id, mode, form_data)
-            return self.success_response(data=result.to_dict())
-        except Exception as e:
-            return self._handle_preset_exception(e, "pipes_get_failed", "Failed to get pipes")
+        result = operations.get_pipeline(self.collaborators, preset_id, mode, form_data)
+        return self.success_response(data=result.to_dict())
 
+    @_guarded("preset_reload_failed", "Failed to reload preset")
     async def reload_preset(self, preset_id: str) -> APIResponse:
         """Reload a preset from disk and return its current state."""
-        try:
-            data = operations.reload_preset(self.collaborators, preset_id)
-            # Rendered thumbnails are keyed by source mtime, so a stale one can never
-            # be served; this only reclaims renders whose source was renamed or removed.
-            if self.media_store is not None:
-                self.media_store.purge_preset_thumbnail_cache(preset_id)
-            return self.success_response(
-                data=data,
-                message=f"Preset '{preset_id}' reloaded successfully"
-            )
-        except Exception as e:
-            return self._handle_preset_exception(e, "preset_reload_failed", "Failed to reload preset")
+        data = operations.reload_preset(self.collaborators, preset_id)
+        if self.media_store is not None:
+            self.media_store.purge_preset_thumbnail_cache(preset_id)
+        return self.success_response(
+            data=data,
+            message=f"Preset '{preset_id}' reloaded successfully"
+        )
 
+    @_guarded("preset_install_failed", "Failed to install preset")
     async def install_preset(self, preset_id: str, current_user: User) -> APIResponse:
         """Install a preset (admin only)."""
-        try:
-            data = operations.install_preset(self.collaborators, preset_id, current_user)
-            return self.success_response(
-                data=data,
-                message=f"Preset '{preset_id}' installed successfully"
-            )
-        except Exception as e:
-            return self._handle_preset_exception(e, "preset_install_failed", "Failed to install preset")
+        data = operations.install_preset(self.collaborators, preset_id, current_user)
+        return self.success_response(
+            data=data,
+            message=f"Preset '{preset_id}' installed successfully"
+        )
 
+    @_guarded("preset_uninstall_failed", "Failed to uninstall preset")
     async def uninstall_preset(self, preset_id: str, current_user: User) -> APIResponse:
         """Uninstall a preset (admin only) - removes all user assignments."""
-        try:
-            message = operations.uninstall_preset(self.collaborators, preset_id, current_user)
-            return self.success_response(message=message)
-        except Exception as e:
-            return self._handle_preset_exception(e, "preset_uninstall_failed", "Failed to uninstall preset")
+        message = operations.uninstall_preset(self.collaborators, preset_id, current_user)
+        return self.success_response(message=message)
 
+    @_guarded("preset_assignment_failed", "Failed to assign preset")
     async def assign_preset_to_users(
         self,
         preset_id: str,
@@ -376,15 +286,13 @@ class PresetController(BaseController):
         current_user: User
     ) -> APIResponse:
         """Assign a preset to multiple users (admin only)."""
-        try:
-            data = operations.assign_preset_to_users(self.collaborators, preset_id, user_ids, current_user)
-            return self.success_response(
-                data=data,
-                message=f"Preset '{preset_id}' assigned to {data['assigned_count']} users"
-            )
-        except Exception as e:
-            return self._handle_preset_exception(e, "preset_assignment_failed", "Failed to assign preset")
+        data = operations.assign_preset_to_users(self.collaborators, preset_id, user_ids, current_user)
+        return self.success_response(
+            data=data,
+            message=f"Preset '{preset_id}' assigned to {data['assigned_count']} users"
+        )
 
+    @_guarded("preset_unassignment_failed", "Failed to unassign preset")
     async def unassign_preset_from_user(
         self,
         preset_id: str,
@@ -392,30 +300,22 @@ class PresetController(BaseController):
         current_user: User
     ) -> APIResponse:
         """Unassign a preset from a user (admin only)."""
-        try:
-            message = operations.unassign_preset_from_user(self.collaborators, preset_id, user_id, current_user)
-            return self.success_response(message=message)
-        except Exception as e:
-            return self._handle_preset_exception(e, "preset_unassignment_failed", "Failed to unassign preset")
+        message = operations.unassign_preset_from_user(self.collaborators, preset_id, user_id, current_user)
+        return self.success_response(message=message)
 
+    @_guarded("preset_assignments_failed", "Failed to get preset assignments")
     async def get_preset_assignments(self, preset_id: str, current_user: User) -> APIResponse:
         """Get assignment summary for a preset (admin only)."""
-        try:
-            data = operations.get_preset_assignments(self.collaborators, preset_id, current_user)
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(e, "preset_assignments_failed", "Failed to get preset assignments")
+        data = operations.get_preset_assignments(self.collaborators, preset_id, current_user)
+        return self.success_response(data=data)
 
+    @_guarded("preset_configuration_get_failed", "Failed to get preset configuration")
     async def get_preset_configuration(self, preset_id: str) -> APIResponse:
         """Get a preset's declared configuration schema merged with its stored values."""
-        try:
-            data = operations.get_preset_configuration(self.collaborators, preset_id)
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(
-                e, "preset_configuration_get_failed", "Failed to get preset configuration"
-            )
+        data = operations.get_preset_configuration(self.collaborators, preset_id)
+        return self.success_response(data=data)
 
+    @_guarded("preset_configuration_set_failed", "Failed to set preset configuration")
     async def set_preset_configuration(
         self,
         preset_id: str,
@@ -423,14 +323,10 @@ class PresetController(BaseController):
         current_user: User
     ) -> APIResponse:
         """Set admin-set configuration values for a preset (admin only)."""
-        try:
-            data = operations.set_preset_configuration(self.collaborators, preset_id, values, current_user)
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(
-                e, "preset_configuration_set_failed", "Failed to set preset configuration"
-            )
+        data = operations.set_preset_configuration(self.collaborators, preset_id, values, current_user)
+        return self.success_response(data=data)
 
+    @_guarded("form_overrides_get_failed", "Failed to get form overrides")
     async def get_form_overrides(
         self,
         preset_id: str,
@@ -438,14 +334,10 @@ class PresetController(BaseController):
         current_user: User,
     ) -> APIResponse:
         """Get a mode's unmerged field inventory and current admin overrides (admin only)."""
-        try:
-            data = operations.get_form_overrides_inventory(self.collaborators, preset_id, mode, current_user)
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(
-                e, "form_overrides_get_failed", "Failed to get form overrides"
-            )
+        data = operations.get_form_overrides_inventory(self.collaborators, preset_id, mode, current_user)
+        return self.success_response(data=data)
 
+    @_guarded("form_overrides_set_failed", "Failed to set form overrides")
     async def set_form_overrides(
         self,
         preset_id: str,
@@ -454,13 +346,8 @@ class PresetController(BaseController):
         current_user: User,
     ) -> APIResponse:
         """Set admin per-field form overrides for one mode of a preset (admin only)."""
-        try:
-            data = operations.set_form_overrides(self.collaborators, preset_id, mode, overrides, current_user)
-            return self.success_response(data=data)
-        except Exception as e:
-            return self._handle_preset_exception(
-                e, "form_overrides_set_failed", "Failed to set form overrides"
-            )
+        data = operations.set_form_overrides(self.collaborators, preset_id, mode, overrides, current_user)
+        return self.success_response(data=data)
 
 
 def build_router(container: "AppContainer") -> APIRouter:
