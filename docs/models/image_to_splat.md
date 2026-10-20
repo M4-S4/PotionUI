@@ -33,7 +33,12 @@ Licences: MoGe-2's code and weights are MIT (Microsoft, `Ruicheng/moge-2-vitl-no
    - disocclusion bands: from every near-side cut pixel, a band reaches into the occluder as far as the parallax a camera move of 0.3 × the median depth would reveal there, `f_px × 0.3 × 4 × (1/z_near − 1/z_far)` pixels, at least 4 px and at most 15 % of the long side. This covers an object that touches the ground and so never forms a segment of its own, such as a boat on the water.
 
    The sky is never hidden.
-7. **Hidden background.** The image and the log depth are inpainted with OpenCV Telea (radius 5 px, at half resolution) over the hidden region, extended to twice each band's reach and dilated by 6 px, so the band is filled from the background across the cut rather than from the occluder's own interior. OpenCV's Telea gives noise on float input, so the log depth goes through a 16-bit quantisation of its range. The filled depth is kept at least 3 % behind the foreground it hides.
+7. **Hidden background.** Each hidden pixel takes its background only from the surfaces that lie behind it, so a rope lying in a boat gets the boat behind it and the boat gets the sea, instead of both getting the sea.
+   - Threshold: the pixel's log depth, raised to the depth of its nearest occluding outline (the closest near-side cut pixel) when that outline is less than 0.6 farther in log depth, so the inside of a face or a coat does not borrow its own silhouette; plus 0.175, half the cut threshold.
+   - Samples: the visible pixels off the cuts, whose colours are not blurred across a jump.
+   - Fill: the thresholds are split into levels 0.1 apart in log depth (at most 48). At each level, the colour and the log depth of the samples farther than the level are spread over the image by a pull-push pyramid at half resolution: each coarser level averages the samples of the finer one, a block counts as known once a quarter of it is, and the way back down keeps the finest known value. Every hidden pixel blends the two levels around its threshold, so the background varies continuously along an occluder whose depth changes.
+
+   The filled depth is kept at least 3 % behind the foreground it hides.
 8. **Gaussians.** Every valid or sky pixel becomes a front Gaussian, and every hidden pixel also becomes a background Gaussian from the inpainted layer. Each sits at its pixel's unprojected position, with a SH0 colour from the pixel and an opacity of 0.95, lowered to 0.35 on the cuts. Its covariance lies on the surface:
    - the tangents `t_u` and `t_v` are central differences of the unprojected point map along the image axes;
    - next to a cut (a step over 0.35 in log depth) only the continuous side is used, forward or backward, so a Gaussian never stretches across a jump; a pixel cut off on both sides falls back to its pixel footprint `z / f_px` along the image axes;
@@ -45,9 +50,11 @@ Licences: MoGe-2's code and weights are MIT (Microsoft, `Ruicheng/moge-2-vitl-no
 
 Expect about 1.1 to 1.7 Gaussians per pixel: roughly 1 to 1.3 million and 55 to 75 MB at Standard for a 4:3 image, twice that at High.
 
-Every threshold above is a named constant in `arch/image_to_splat/config.py`: `EDGE_JUMP_LOG_RATIO`, `EDGE_SNAP_WINDOW_PX`, `EDGE_PIXELS`, `EDGE_OPACITY`, `FOREGROUND_VOTE_RATIO`, `DISOCCLUSION_BASELINE`, `HIDDEN_MIN_PX`, `HIDDEN_MAX_FRACTION`, `INPAINT_DILATE_PX`, `INPAINT_RADIUS_PX`, `INPAINT_SCALE`, `BACKGROUND_DEPTH_MARGIN`, `TANGENT_SCALE`, `TANGENT_MAX_FOOTPRINTS`, `NORMAL_THICKNESS`, `OPACITY`, `SKY_DEPTH_MIN`, `SKY_BEYOND_FARTHEST` and `KEEP_SKY`.
+Every threshold above is a named constant in `arch/image_to_splat/config.py`: `EDGE_JUMP_LOG_RATIO`, `EDGE_SNAP_WINDOW_PX`, `EDGE_PIXELS`, `EDGE_OPACITY`, `FOREGROUND_VOTE_RATIO`, `DISOCCLUSION_BASELINE`, `HIDDEN_MIN_PX`, `HIDDEN_MAX_FRACTION`, `BACKGROUND_BEHIND_LOG`, `BACKGROUND_OUTLINE_REACH`, `BACKGROUND_LEVEL_STEP`, `BACKGROUND_MAX_LEVELS`, `PULL_PUSH_GAIN`, `INPAINT_SCALE`, `BACKGROUND_DEPTH_MARGIN`, `TANGENT_SCALE`, `TANGENT_MAX_FOOTPRINTS`, `NORMAL_THICKNESS`, `OPACITY`, `SKY_DEPTH_MIN`, `SKY_BEYOND_FARTHEST` and `KEEP_SKY`.
 
 The current values were tuned on four real photographs (a fisherman with a coiled rope on a bow, a trawler in a harbour, boats in a misty bay, a boat at sunset). Each splat was rendered with an EWA Gaussian rasteriser at 640 px wide from seven cameras: the source view, an orbit of −10, +10 and +20°, a dolly of 15 and 30 % of the depth, and a crane of 10°. Against the first version (camera-facing discs flattened along the ray, 3×3 cuts, foreground segments only), small holes inside the scene (pixels left more than half transparent that a 9×9 closing would fill) fell on average from 1.6, 1.3 and 2.0 % to 0.35, 0.27 and 0.16 % for the three orbits, and from 3.9 % to 0.27 % for the crane. The source view kept its fidelity: its PSNR against the input went from 31.8 to 32.5 dB.
+
+The background fill was measured on the same four photographs with an occluder pasted in front of each: a striped bar or disc, five per image, set at 0.55 times the depth behind it. The composite is lifted, and the background laid behind the occluder within 24 px of its outline is compared with the pixels and the depth it really hides. Against the earlier fill (OpenCV Telea over the whole foreground mask), the colour PSNR went from 16.3 to 19.9 dB. The share of pixels whose background depth lies within 0.2 in log depth (about 20 %) of the truth went from 65 to 81 %, and the median log-depth error from 0.26 to 0.07. On the fisherman's bow these figures go from 8.9 to 17.6 dB and from 31 to 84 %. In the renders, what the rope uncovers in the boat is the boat's dark interior instead of a patch of sky. The source view's PSNR stays at 32.5 dB, and the lift takes the same time, about a second at Standard. The background now sits at its real depth, farther than before, so a large move opens more of it. Small holes rose from 0.35, 0.27 and 0.16 % to 0.36, 0.31 and 0.30 % for the three orbits, and from 0.27 % to 0.34 % for the crane.
 
 ## Output
 
@@ -70,9 +77,10 @@ It uses `model_loader/image_to_splat` and `generator/image_to_splat`. There is n
 
 ## Limits
 
-- No generative completion. Behind the foreground there is only the inpainted background, and outside the frame there is nothing. Past an orbit of about 15° or a dolly of about 20 % of the depth, stretched edges, holes and empty borders show.
-- Two layers only: a middle ground hidden behind a foreground that is itself in front of a far background is filled with the far background.
-- Wide disocclusions (behind a boat or a person) are filled by inpainting, which smears texture there.
+- No generative completion. Behind the foreground there is only the filled background, and outside the frame there is nothing. Past an orbit of about 15° or a dolly of about 20 % of the depth, stretched edges, holes and empty borders show.
+- Two layers only: each point has a single background. The boat behind a rope is filled in, but the sea behind that hidden part of the boat does not exist, and a large camera move can open it.
+- Wide disocclusions (behind a boat or a person) are filled with a smooth pull-push of the surfaces behind: right colour and depth, no texture. Where that fill joins surfaces of very different depths, such as the sea and the sky behind a person, its Gaussians stretch along the slope and show as streaks at an orbit of 20°.
+- MoGe-2 often blurs a step of 30 to 40 % in depth over 4 to 15 px, as between a raincoat and the rope behind it. Such a step stays under the cut threshold, so the surface stretches across it and streaks when the camera turns. Lowering the threshold to 0.30 or 0.25 did not reduce the streaks and added holes.
 - Thin structures (hair, branches, fences) cut poorly and tend to leave halos.
 - Without metric scale, the scene is in arbitrary units with a median depth of 4.
 
