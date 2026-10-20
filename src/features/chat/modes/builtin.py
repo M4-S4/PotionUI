@@ -92,6 +92,15 @@ DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE = (
     "plain replacement text, no JSON. The user applies it; never print the text bare or "
     "claim you changed the prompt.\n"
     "{{/ifany}}"
+    "{{#if prompt_batch_actions}}"
+    "\n## Prompt batch\n\n"
+    "This preset runs several prompts in one generation; PROMPT STATE lists them by index. "
+    'Add `prompt="N"` to a segment tag to target prompt N (default: the active one). '
+    '<tool_action type="add_prompt" name="Night">text</tool_action> adds a prompt (name '
+    'and text optional); type="select_prompt" prompt="N" switches; type="remove_prompt" '
+    'prompt="N" deletes (never the last); type="rename_prompt" prompt="N" name="X". '
+    "Adding a prompt leaves the others untouched.\n"
+    "{{/if}}"
     "{{#ifany list_phrasebook_categories get_phrasebook_values}}"
     "\n## Phrasebook markers\n\n"
     "`#category.path` inserts a category (a value is picked per generation); "

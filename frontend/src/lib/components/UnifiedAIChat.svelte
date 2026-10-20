@@ -68,6 +68,17 @@
 	import { lastAppliedSegment } from '$lib/stores/lastAppliedSegment';
 	import { appliedSegmentActions } from '$lib/stores/appliedSegmentActions';
 	import { removedSegmentActions, removedActionKey } from '$lib/stores/removedSegmentActions';
+	import { promptActionUndos, promptActionMarkerKey } from '$lib/stores/promptActionUndos';
+	import { toasts } from '$lib/stores/toast';
+	import {
+		applyPromptListAction,
+		applySegmentActionToPrompt,
+		restoreSegmentInPrompt,
+		segmentTextInPrompt,
+		undoPromptListAction
+	} from '$lib/chat/promptActions';
+	import { isPromptListAction } from '$lib/utils/markdown';
+	import { activePromptIndex, promptCount, promptList } from '$lib/generation/promptBatch';
 	import { applyTitle, mapPersistedMessage } from '$lib/utils/chatStream';
 	import {
 		sendMessage as turnControllerSendMessage,
@@ -294,13 +305,19 @@
 	// cached for every preset id at once since both surfaces need it for
 	// every open tab, not just the current one.
 	let presetNamesCache: Record<string, string> = {};
+	let presetBatchCache: Record<string, boolean> = {};
 	async function loadPresetNames() {
 		try {
 			const response = await loadPresets();
 			if (response.success) {
 				const map: Record<string, string> = {};
-				for (const p of response.data || []) map[p.id] = p.name;
+				const batch: Record<string, boolean> = {};
+				for (const p of response.data || []) {
+					map[p.id] = p.name;
+					batch[p.id] = p.supports_prompt_batch === true;
+				}
 				presetNamesCache = map;
+				presetBatchCache = batch;
 			}
 		} catch (err) {
 			logger.error('Failed to load preset names:', err);
@@ -931,6 +948,9 @@
 		await sendMessage(instruction, { resourceRefs, attachedResources });
 	}
 
+	$: promptBatchOn =
+		!videoDirectorActive && !!contextTab?.selectedPreset && presetBatchCache[contextTab.selectedPreset] === true;
+
 	function buildContextMetadata(): Record<string, any> {
 		const tab = contextTab;
 		const activeSegments: Segment[] = videoDirectorActive ? [] : tab?.promptSegments || [];
@@ -975,6 +995,24 @@
 					: { active: false, doc: null, capabilities: null }
 			})
 		};
+		if (promptBatchOn && tab) {
+			const active = activePromptIndex(tab);
+			contextMetadata.form_state.prompt_batch = { supported: true, count: promptCount(tab), active };
+			contextMetadata.prompt_batch = {
+				active,
+				prompts: promptList(tab).map((entry, index) => {
+					const positive = entry.promptSegments || [];
+					return {
+						index,
+						name: entry.name?.trim() || '',
+						segments: [
+							...positive.map((seg, i) => mapSegment(seg, i, false)),
+							...(entry.negativePromptSegments || []).map((seg, i) => mapSegment(seg, positive.length + i, true))
+						]
+					};
+				})
+			};
+		}
 		Object.assign(contextMetadata, collectProvidedContext());
 		return contextMetadata;
 	}
@@ -1100,6 +1138,8 @@
 			 * utils/videoDirector.ts for the resolution rule this mirrors. */
 			shotId?: string;
 			list?: SegmentListKey;
+			promptIndex?: number;
+			name?: string;
 		},
 		messageId: string,
 		actionIndex: number
@@ -1107,6 +1147,20 @@
 		const tab = contextTab;
 		if (!tab) return;
 		if (!canApplySegmentAction(action)) return;
+
+		if (isPromptListAction(action.type)) {
+			await applyPromptAction(tab, action, messageId, actionIndex);
+			return;
+		}
+		if (
+			action.promptIndex !== undefined &&
+			promptBatchOn &&
+			action.promptIndex !== activePromptIndex(tab) &&
+			(action.type === 'update_segment' || action.type === 'add_segment' || action.type === 'delete_segment')
+		) {
+			await applySegmentToOtherPrompt(tab, action, messageId, actionIndex);
+			return;
+		}
 
 		if (action.type === 'add_segment' || action.type === 'delete_segment') {
 			await applySegmentListAction(tab, action, messageId, actionIndex);
@@ -1209,10 +1263,62 @@
 		appliedSegmentActions.set(result.removal.segment.id, messageId, actionIndex);
 	}
 
+	async function applyPromptAction(
+		tab: NonNullable<typeof contextTab>,
+		action: { type: string; promptIndex?: number; name?: string; content: string },
+		messageId: string,
+		actionIndex: number
+	) {
+		if (!promptBatchOn) return;
+		const result = await applyPromptListAction(tab, action, await resourceTokenContextFor(tab));
+		if (!result) return;
+		tabsStore.updateTab(tab.id, result.patch);
+		promptActionUndos.set(messageId, actionIndex, result.undo);
+		appliedSegmentActions.set(promptActionMarkerKey(messageId, actionIndex), messageId, actionIndex);
+	}
+
+	async function applySegmentToOtherPrompt(
+		tab: NonNullable<typeof contextTab>,
+		action: { type: string; segmentIndex: number; segmentId: string; content: string; list?: SegmentListKey; promptIndex?: number },
+		messageId: string,
+		actionIndex: number
+	) {
+		const result = await applySegmentActionToPrompt(tab, action.promptIndex!, action, await resourceTokenContextFor(tab));
+		if (!result) return;
+		tabsStore.updateTab(tab.id, result.patch);
+		if (result.removal) removedSegmentActions.set(messageId, actionIndex, result.removal);
+		appliedSegmentActions.set(result.segmentId, messageId, actionIndex);
+	}
+
+	function handleUndoPromptAction(messageId: string, actionIndex: number): boolean {
+		const tab = contextTab;
+		const undo = $promptActionUndos[removedActionKey(messageId, actionIndex)];
+		if (!undo) return false;
+		if (!tab) return true;
+		const patch = undoPromptListAction(tab, undo);
+		if (!patch) {
+			toasts.info("This prompt changed; undo isn't available");
+			return true;
+		}
+		tabsStore.updateTab(tab.id, patch);
+		appliedSegmentActions.clear(promptActionMarkerKey(messageId, actionIndex));
+		promptActionUndos.clear(messageId, actionIndex);
+		return true;
+	}
+
 	function handleUndoSegmentAction(messageId: string, actionIndex: number) {
+		if (handleUndoPromptAction(messageId, actionIndex)) return;
 		const tab = contextTab;
 		const removal = $removedSegmentActions[removedActionKey(messageId, actionIndex)];
 		if (!tab || !removal || videoDirectorActive) return;
+		if (removal.prompt !== undefined) {
+			const patch = restoreSegmentInPrompt(tab, removal.prompt, removal);
+			if (!patch) return;
+			tabsStore.updateTab(tab.id, patch);
+			appliedSegmentActions.clear(removal.segment.id);
+			removedSegmentActions.clear(messageId, actionIndex);
+			return;
+		}
 		const restored = restoreSegment(segmentListsOf(tab), removal);
 		commitSegmentList(tab.id, restored, removal.list);
 		appliedSegmentActions.clear(removal.segment.id);
@@ -1220,9 +1326,12 @@
 		lastAppliedSegment.set(removal.segment.id);
 	}
 
-	function segmentTextForAction(action: { segmentId: string; segmentIndex: number }): string | null {
+	function segmentTextForAction(action: { segmentId: string; segmentIndex: number; promptIndex?: number }): string | null {
 		const tab = contextTab;
 		if (!tab) return null;
+		if (action.promptIndex !== undefined && action.promptIndex !== activePromptIndex(tab)) {
+			return segmentTextInPrompt(tab, action.promptIndex, action);
+		}
 		const lists = segmentListsOf(tab);
 		const found = locateSegmentInLists(lists, action);
 		return found ? lists[found.list][found.index].content : null;
@@ -1835,6 +1944,7 @@
 							onUndoAction={(actionIndex) => handleUndoSegmentAction(message.id || '', actionIndex)}
 							segmentTextFor={segmentTextForAction}
 							listActionsDisabled={videoDirectorActive || !contextTab}
+							batchPromptCount={contextTab ? promptCount(contextTab) : 0}
 							applyActionHint={videoDirectorActive
 								? "Applies to the Video Director's persistent Direction prompt"
 								: undefined}

@@ -5,9 +5,12 @@
 		processMarkdownWithActions,
 		injectToolCallChips,
 		truncateAtReplyContractMarker,
+		isPromptListAction,
 		type ToolAction,
 		type ToolCallSpan
 	} from '$lib/utils/markdown';
+	import { promptActionHeading } from '$lib/chat/promptActions';
+	import { promptActionUndos } from '$lib/stores/promptActionUndos';
 	import type { ToolExecution, ResourceRef, TraceStep, ReplyContract } from '$lib/types/chat';
 	import { splitResourceTokens } from '$lib/utils/resourceTokens';
 	import { splitMarkerTokens } from '$lib/chat/previewTokens';
@@ -70,6 +73,7 @@
 	export let applyActionHint: string | undefined = undefined;
 	export let onUndoAction: ((actionIndex: number) => void) | undefined = undefined;
 	export let listActionsDisabled: boolean = false;
+	export let batchPromptCount: number = 0;
 	export let segmentTextFor: ((action: ToolAction) => string | null) | undefined = undefined;
 	export let onPromptFeedback:
 		| ((data: { actionIndex: number; verdict: 'approved' | 'rejected'; reason?: string }) => void)
@@ -141,7 +145,23 @@
 		(_, idx) => $removedSegmentActions[removedActionKey(messageId, idx)]
 	);
 
-	function actionHeading(action: ToolAction): string {
+	$: promptUndoByIndex = markdownResult.actions.map((_, idx) => $promptActionUndos[removedActionKey(messageId, idx)]);
+
+	function promptActionNumber(index: number): number {
+		const undo = promptUndoByIndex[index];
+		return undo?.kind === 'add' ? undo.index + 1 : batchPromptCount + 1;
+	}
+
+	function promptActionBody(action: ToolAction): string {
+		const number = (action.promptIndex ?? 0) + 1;
+		if (action.type === 'select_prompt') return `Makes prompt ${number} the active prompt.`;
+		if (action.type === 'remove_prompt') return `Removes prompt ${number} and its segments.`;
+		if (action.type === 'rename_prompt') return `Renames prompt ${number} to "${action.name}".`;
+		return 'Adds an empty prompt.';
+	}
+
+	function actionHeading(action: ToolAction, index = 0): string {
+		if (isPromptListAction(action.type)) return promptActionHeading(action, promptActionNumber(index));
 		if (action.type === 'update_director_segment') return 'Director Segment';
 		if (action.type === 'add_segment') return action.list === 'negative' ? 'Add Negative Segment' : 'Add Segment';
 		if (action.type === 'delete_segment') return 'Delete Segment';
@@ -149,22 +169,33 @@
 	}
 
 	function actionPosition(action: ToolAction): string {
-		return action.type === 'add_segment' || action.segmentIndex < 0 ? '' : ` #${action.segmentIndex + 1}`;
+		if (isPromptListAction(action.type)) return '';
+		const position = action.type === 'add_segment' || action.segmentIndex < 0 ? '' : ` #${action.segmentIndex + 1}`;
+		return action.promptIndex !== undefined ? `${position} · Prompt ${action.promptIndex + 1}` : position;
 	}
 
 	function actionTag(action: ToolAction): string {
-		if (action.type === 'add_segment') return 'Suggested addition';
-		if (action.type === 'delete_segment') return 'Suggested removal';
+		if (action.type === 'add_segment' || action.type === 'add_prompt') return 'Suggested addition';
+		if (action.type === 'delete_segment' || action.type === 'remove_prompt') return 'Suggested removal';
+		if (action.type === 'select_prompt') return 'Suggested switch';
+		if (action.type === 'rename_prompt') return 'Suggested rename';
 		return 'Suggested change';
 	}
 
 	function isReapplicable(action: ToolAction): boolean {
-		return action.type !== 'add_segment' && action.type !== 'delete_segment';
+		return action.type !== 'add_segment' && action.type !== 'delete_segment' && !isPromptListAction(action.type);
+	}
+
+	function carriesPromptText(action: ToolAction): boolean {
+		return action.type !== 'delete_segment' && (!isPromptListAction(action.type) || action.content.trim().length > 0);
 	}
 
 	function applyLabel(action: ToolAction, applied: boolean): string {
-		if (action.type === 'add_segment') return applied ? '✓ Added' : 'Add';
+		if (action.type === 'add_segment' || action.type === 'add_prompt') return applied ? '✓ Added' : 'Add';
 		if (action.type === 'delete_segment') return applied ? '✓ Deleted' : 'Delete';
+		if (action.type === 'remove_prompt') return applied ? '✓ Removed' : 'Remove';
+		if (action.type === 'select_prompt') return applied ? '✓ Switched' : 'Switch';
+		if (action.type === 'rename_prompt') return applied ? '✓ Renamed' : 'Rename';
 		return applied ? '✓ Applied' : 'Apply';
 	}
 
@@ -344,11 +375,11 @@
 						<div class="prompt-card-head">
 							<div class="prompt-card-title">
 								<svg class="icon"><use href="#i-edit" /></svg>
-								<strong>{actionHeading(action)}{actionPosition(action)}</strong>
+								<strong>{actionHeading(action, i)}{actionPosition(action)}</strong>
 								<span class="prompt-label">{actionTag(action)}</span>
 							</div>
 							<div class="flex flex-shrink-0 items-center gap-2">
-								{#if onPromptFeedback && sessionId && messageId && action.type !== 'delete_segment'}
+								{#if onPromptFeedback && sessionId && messageId && carriesPromptText(action)}
 									<button
 										type="button"
 										class="message-action"
@@ -373,7 +404,7 @@
 									</button>
 								{/if}
 								{#if onApplyAction}
-									{#if action.type === 'delete_segment' && applied && removalByIndex[i] && onUndoAction}
+									{#if applied && onUndoAction && ((action.type === 'delete_segment' && removalByIndex[i]) || promptUndoByIndex[i])}
 										<button
 											type="button"
 											class="undo-button"
@@ -387,7 +418,7 @@
 										type="button"
 										class="apply-button {applied ? '' : 'disabled:opacity-50 disabled:cursor-not-allowed'}"
 										class:applied
-										class:destructive={action.type === 'delete_segment' && !applied}
+										class:destructive={(action.type === 'delete_segment' || action.type === 'remove_prompt') && !applied}
 										data-testid="segment-action-apply"
 										disabled={conditionProblemsByIndex[i].length > 0 || (!isReapplicable(action) && (applied || listActionsDisabled))}
 										title={applied ? (isReapplicable(action) ? 'Re-apply this variant' : undefined) : applyActionHint}
@@ -414,6 +445,8 @@
 							<div class="prompt-copy prompt-copy-removed" data-testid="segment-removed-text">
 								{removalByIndex[i]?.segment.content ?? segmentTextFor?.(action) ?? ''}
 							</div>
+						{:else if isPromptListAction(action.type) && !action.content.trim()}
+							<div class="prompt-copy prompt-copy-note" data-testid="prompt-action-note">{promptActionBody(action)}</div>
 						{:else}
 						<div class="prompt-copy">
 							{#each splitConditionText(action.content) as part, partIndex (partIndex)}{#if part.kind === 'condition'}{#key part.raw}<ConditionChip raw={part.raw} context={conditionContext} readonly checkVariables={variables !== undefined} />{/key}{:else}{#each splitMarkerTokens(part.text) as token}{#if token.kind === 'phrasebook'}<Tooltip text="Phrasebook: {token.label}" wrapperClass="inline-flex"><span class="prompt-token"><span class="prompt-token-mark">#</span>{token.label}</span></Tooltip>{:else if token.kind === 'variable'}<Tooltip text={variableChips[token.label] ?? `Variable: ${token.label}`} wrapperClass="inline-flex"><span class="prompt-token variable"><span class="prompt-token-mark">$</span>{token.label}</span></Tooltip>{:else}{#each splitResourceTokenPreview(token.text, promptResources, resourceFormValues) as part}{#if part.kind === 'linked'}<span class="prompt-token resource" data-resource-token="linked"><span class="prompt-token-mark">@</span>{part.label}</span>{:else if part.kind === 'unresolved'}<span class="prompt-token-unresolved" data-resource-token="unresolved">{part.text}</span>{:else}{part.text}{/if}{/each}{/if}{/each}{/if}{/each}

@@ -240,6 +240,13 @@ def video_director_active(form_state: Optional[Dict[str, Any]]) -> bool:
     return bool(vd and vd.get("active"))
 
 
+def prompt_batch_supported(form_state: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(form_state, dict):
+        return False
+    batch = form_state.get("prompt_batch")
+    return isinstance(batch, dict) and bool(batch.get("supported")) and not video_director_active(form_state)
+
+
 def music_director_active(form_state: Optional[Dict[str, Any]]) -> bool:
     """Whether the Music Director document is the active editor on the form.
     Mirrors `video_director_active` exactly."""

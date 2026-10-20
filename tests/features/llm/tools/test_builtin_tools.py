@@ -2065,7 +2065,35 @@ class TestGetCurrentSegmentsTool:
         schema = tool.to_schema()
         assert schema["type"] == "function"
         assert schema["function"]["parameters"]["required"] == []
-        assert schema["function"]["parameters"]["properties"] == {}
+        assert list(schema["function"]["parameters"]["properties"]) == ["prompt_index"]
+
+    @pytest.mark.asyncio
+    async def test_prompt_index_reads_another_prompts_segments(self):
+        other = [{"id": "n1", "content": "night street", "name": "Night", "type": "text", "enabled": True}]
+        ctx = make_context(session_metadata={
+            "segments": [{"id": "a1", "content": "day"}],
+            "prompt_batch": {"active": 0, "prompts": [
+                {"index": 0, "name": "Day", "segments": [{"id": "a1", "content": "day"}]},
+                {"index": 1, "name": "Night", "segments": other},
+            ]},
+        })
+
+        result = await self._tool().execute(ctx, prompt_index=1)
+
+        data = json.loads(result.data)
+        assert result.success is True
+        assert data["segments"][0]["id"] == "n1"
+        assert data["segments"][0]["content"] == "night street"
+        assert data["prompt_index"] == 1
+        assert 'prompt="1"' in data["instruction"]
+
+    @pytest.mark.asyncio
+    async def test_prompt_index_without_batch_or_out_of_range_fails(self):
+        no_batch = make_context(session_metadata={"segments": [{"id": "a1", "content": "day"}]})
+        assert (await self._tool().execute(no_batch, prompt_index=1)).success is False
+
+        ranged = make_context(session_metadata={"prompt_batch": {"active": 0, "prompts": [{"index": 0, "segments": []}]}})
+        assert (await self._tool().execute(ranged, prompt_index=4)).success is False
 
     @pytest.mark.asyncio
     async def test_returns_segments(self):

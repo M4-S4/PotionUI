@@ -89,7 +89,8 @@ describe('prompt list operations', () => {
 
 		expect(promptCount(tab)).toBe(2);
 		expect(tab.activePromptTab).toBe(1);
-		expect(entries(tab)[1]).toEqual(entries(tab)[0]);
+		expect({ ...entries(tab)[1], id: undefined }).toEqual({ ...entries(tab)[0], id: undefined });
+		expect(entries(tab)[1].id).not.toBe(entries(tab)[0].id);
 		expect(entries(tab)[1].promptSegments).not.toBe(entries(tab)[0].promptSegments);
 	});
 

@@ -10,7 +10,15 @@ export interface ToolAction {
 	 * `tool_action` type, and on a single-shot/chain document. */
 	shotId?: string;
 	list?: 'positive' | 'negative';
+	promptIndex?: number;
+	name?: string;
 	content: string;
+}
+
+export const PROMPT_LIST_ACTION_TYPES = ['add_prompt', 'select_prompt', 'remove_prompt', 'rename_prompt'] as const;
+
+export function isPromptListAction(type: string): boolean {
+	return (PROMPT_LIST_ACTION_TYPES as readonly string[]).includes(type);
 }
 
 export interface MarkdownOptions {
@@ -451,6 +459,22 @@ export function parseToolActions(text: string): { cleanedText: string; actions: 
 		if (!type) return match;
 		const segmentIndex = parseSegmentIndex(attributes.segment_index);
 		const segmentId = attributes.segment_id ?? '';
+		const promptIndex = parseSegmentIndex(attributes.prompt);
+		if (isPromptListAction(type)) {
+			const name = (attributes.name ?? '').trim();
+			const needsIndex = type !== 'add_prompt';
+			if (needsIndex && promptIndex === -1) return match;
+			if (type === 'rename_prompt' && !name) return match;
+			actions.push({
+				type,
+				segmentIndex: -1,
+				segmentId: '',
+				...(needsIndex ? { promptIndex } : {}),
+				...(name ? { name } : {}),
+				content: content.trim()
+			});
+			return '';
+		}
 		const addressed =
 			type === 'add_segment' ||
 			(type === 'delete_segment' ? segmentIndex !== -1 || segmentId !== '' : segmentIndex !== -1 && segmentId !== '');
@@ -463,6 +487,7 @@ export function parseToolActions(text: string): { cleanedText: string; actions: 
 			...(type === 'add_segment' && attributes.list
 				? { list: attributes.list.toLowerCase() === 'negative' ? 'negative' : 'positive' }
 				: {}),
+			...(promptIndex !== -1 ? { promptIndex } : {}),
 			content: content.trim()
 		});
 		return '';

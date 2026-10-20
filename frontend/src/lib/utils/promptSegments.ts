@@ -117,6 +117,7 @@ export interface SegmentRemoval {
 	segment: Segment;
 	previousId: string | null;
 	nextId: string | null;
+	prompt?: number;
 }
 
 export function locateSegmentInLists(

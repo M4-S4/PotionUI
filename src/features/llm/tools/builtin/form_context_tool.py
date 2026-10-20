@@ -87,12 +87,37 @@ class GetCurrentSegmentsTool(BaseTool):
     def parameters(self) -> Dict[str, Any]:
         return {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "prompt_index": {
+                    "type": "integer",
+                    "description": "Index of another prompt in the batch to read; omit for the active prompt.",
+                },
+            },
             "required": [],
         }
 
+    @staticmethod
+    def _prompt_segments(session_metadata: Dict[str, Any], prompt_index: Any) -> Optional[list]:
+        batch = session_metadata.get("prompt_batch")
+        prompts = batch.get("prompts") if isinstance(batch, dict) else None
+        if not isinstance(prompts, list):
+            return None
+        for entry in prompts:
+            if isinstance(entry, dict) and entry.get("index") == prompt_index:
+                return entry.get("segments") or []
+        return None
+
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        prompt_index = kwargs.get("prompt_index")
         segments_raw = context.session_metadata.get("segments")
+        if prompt_index is not None:
+            segments_raw = self._prompt_segments(context.session_metadata, prompt_index)
+            if segments_raw is None:
+                return ToolResult(
+                    success=False,
+                    data="",
+                    error=f"No prompt at index {prompt_index}.",
+                )
 
         if segments_raw is None:
             return ToolResult(
@@ -124,7 +149,9 @@ class GetCurrentSegmentsTool(BaseTool):
             data=json.dumps({
                 "segments": result_segments,
                 "count": len(result_segments),
-                "instruction": _SEGMENT_UPDATE_INSTRUCTION,
+                **({"prompt_index": prompt_index} if prompt_index is not None else {}),
+                "instruction": _SEGMENT_UPDATE_INSTRUCTION
+                + (f' Add prompt="{prompt_index}" to each tag to edit this prompt.' if prompt_index is not None else ""),
             }),
         )
 

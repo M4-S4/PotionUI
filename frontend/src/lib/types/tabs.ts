@@ -294,6 +294,7 @@ export interface PromptTabData {
 	prompt: string;
 	negativePrompt: string;
 	name?: string;
+	id?: string;
 }
 
 /** The prompt- and form-editor slice of a tab, snapshotted per preset mode so

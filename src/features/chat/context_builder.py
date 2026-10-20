@@ -60,6 +60,11 @@ _CONDITION_END = "<<end>>"
 _CONDITION_ELIDED = "<<if …>>"
 _CONDITION_EXTEND_FACTOR = 4
 _PROMPT_STATE_MAX_BLOCK_CHARS = 4000
+_PROMPT_STATE_MAX_PROMPTS = 20
+_PROMPT_STATE_PREVIEW_CHARS = 60
+_PROMPT_STATE_NAME_CHARS = 40
+_PROMPT_STATE_OVERVIEW_MAX_CHARS = 2000
+PROMPT_BATCH_ACTIONS_CAPABILITY = "prompt_batch_actions"
 _PROMPT_STATE_HEADER = "PROMPT STATE (current editor contents; truncated):"
 _PROMPT_STATE_HEADER_WITH_TOOL = (
     "PROMPT STATE (current editor contents; truncated — "
@@ -174,6 +179,63 @@ def _render_prompt_state_line(seq: int, seg: Dict[str, Any]) -> str:
     return f'{prefix}: "{shown}"'
 
 
+def _render_prompt_overview(
+    context_metadata: Optional[Dict[str, Any]], segments_offered: bool
+) -> List[str]:
+    from src.features.llm.tools.builtin.utils import prompt_batch_supported
+
+    metadata = context_metadata if isinstance(context_metadata, dict) else {}
+    if not prompt_batch_supported(metadata.get("form_state")):
+        return []
+    batch = metadata.get("prompt_batch")
+    prompts = batch.get("prompts") if isinstance(batch, dict) else None
+    if not isinstance(prompts, list) or len(prompts) < 2:
+        return []
+    active = batch.get("active")
+    if not isinstance(active, int) or isinstance(active, bool):
+        active = 0
+    lines = [f"Prompts ({len(prompts)}, active {active}):"]
+    used = len(lines[0])
+    for entry in prompts[:_PROMPT_STATE_MAX_PROMPTS]:
+        if not isinstance(entry, dict):
+            continue
+        index = entry.get("index")
+        if not isinstance(index, int) or isinstance(index, bool):
+            continue
+        raw_name = entry.get("name")
+        name = raw_name if isinstance(raw_name, str) and raw_name.strip() else f"Prompt {index + 1}"
+        name, _, name_cut = _truncate_prompt_content(name, _PROMPT_STATE_NAME_CHARS)
+        if name_cut:
+            name += "…"
+        raw_segments = entry.get("segments")
+        entry_segments = [s for s in raw_segments if isinstance(s, dict)] if isinstance(raw_segments, list) else []
+        preview = next(
+            (
+                s["content"]
+                for s in entry_segments
+                if not s.get("negative")
+                and s.get("enabled", True)
+                and isinstance(s.get("content"), str)
+                and s["content"].strip()
+            ),
+            "",
+        )
+        shown, _, truncated = _truncate_prompt_content(preview, _PROMPT_STATE_PREVIEW_CHARS)
+        mark = "*" if index == active else ""
+        count = len(entry_segments)
+        line = f'  {index}{mark} "{name}" ({count} segment{"" if count == 1 else "s"})'
+        if shown:
+            line += f': "{shown}{"…" if truncated else ""}"'
+        if used + len(line) + 1 > _PROMPT_STATE_OVERVIEW_MAX_CHARS:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    if segments_offered:
+        lines.append("Another prompt's segments: get_current_segments with prompt_index.")
+    lines.append(f"The segment lists below belong to prompt {active}.")
+    return lines
+
+
 def _format_triggers(triggers: Any) -> str:
     if isinstance(triggers, (list, tuple)):
         return ", ".join(str(t) for t in triggers)
@@ -285,6 +347,8 @@ class ChatContextBuilder:
         Raises:
             UnknownChatModeException: If the session's mode is not registered
         """
+        from src.features.llm.tools.builtin.utils import prompt_batch_supported
+
         mode = self._m.chat_mode_registry.require(session.mode)
 
         session_metadata = getattr(session, 'metadata', None) or {}
@@ -313,6 +377,7 @@ class ChatContextBuilder:
             tuple(sorted(user_disabled & set(mode_tool_names))),
             tool_tier,
             tuple(sorted(set(loaded_groups))),
+            prompt_batch_supported(form_state),
         )
         cached = self._prompt_tools_cache.get(cache_key)
         if cached is not None:
@@ -339,7 +404,10 @@ class ChatContextBuilder:
             prompt = ""
         else:
             hints = registry.get_tool_hints_text(allowed_names) if (registry and allowed_names) else ""
-            prompt = self._m.chat_mode_registry.resolve_system_prompt(mode, hints, allowed_names)
+            capabilities = list(allowed_names)
+            if prompt_batch_supported(form_state) and "get_current_segments" in allowed_names:
+                capabilities.append(PROMPT_BATCH_ACTIONS_CAPABILITY)
+            prompt = self._m.chat_mode_registry.resolve_system_prompt(mode, hints, capabilities)
 
         self._prompt_tools_cache.set(cache_key, (prompt, allowed_names, deferred))
         return prompt, allowed_names, mode, deferred
@@ -1074,13 +1142,18 @@ class ChatContextBuilder:
         if video_director_active((context_metadata or {}).get("form_state")):
             return
 
+        segments_offered = _tool_offered(offered_tools, "get_current_segments")
+        overview = _render_prompt_overview(context_metadata, segments_offered)
+
         segments = (context_metadata or {}).get("segments")
-        if not isinstance(segments, list) or not segments:
+        if not isinstance(segments, list):
+            segments = []
+        if not segments and not overview:
             return
 
         positives = [s for s in segments if isinstance(s, dict) and not s.get("negative")]
         negatives = [s for s in segments if isinstance(s, dict) and s.get("negative")]
-        if not positives and not negatives:
+        if not positives and not negatives and not overview:
             return
 
         template_names: List[str] = []
@@ -1095,8 +1168,8 @@ class ChatContextBuilder:
                     seen.add(nm)
                     template_names.append(str(nm))
 
-        segments_offered = _tool_offered(offered_tools, "get_current_segments")
         lines = [_PROMPT_STATE_HEADER_WITH_TOOL if segments_offered else _PROMPT_STATE_HEADER]
+        lines.extend(overview)
         if len(template_names) == 1:
             lines.append(f'Template: "{template_names[0]}"')
         elif template_names:

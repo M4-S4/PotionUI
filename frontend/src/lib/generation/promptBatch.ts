@@ -1,6 +1,7 @@
 import type { PromptTabData, Tab } from '$lib/types/tabs';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
 import { ensureSegmentList } from '$lib/utils/richSegments';
+import { randomUUID } from '$lib/utils/uuid';
 
 export const MAX_BATCH_IMAGES = 20;
 
@@ -28,8 +29,27 @@ export function emptyPrompt(): PromptTabData {
 		promptSegments: ensureSegmentList([]),
 		negativePromptSegments: ensureSegmentList([]),
 		prompt: '',
-		negativePrompt: ''
+		negativePrompt: '',
+		id: randomUUID()
 	};
+}
+
+export function assignPromptIds(list: PromptTabData[]): PromptTabData[] {
+	if (list.every((entry) => entry.id)) return list;
+	const taken = new Set(list.map((entry) => entry.id).filter(Boolean));
+	let next = 1;
+	return list.map((entry) => {
+		if (entry.id) return entry;
+		while (taken.has(`p${next}`)) next++;
+		const id = `p${next}`;
+		taken.add(id);
+		return { ...entry, id };
+	});
+}
+
+export function withPromptIds(tab: PromptFields): PromptFields {
+	if (promptCount(tab) < 2) return tab;
+	return { ...tab, promptTabs: assignPromptIds(tab.promptTabs!) };
 }
 
 function workingPrompt(tab: PromptFields): PromptTabData {
@@ -58,7 +78,8 @@ export function promptList(tab: PromptFields): PromptTabData[] {
 	return [...tab.promptTabs!];
 }
 
-function buildPatch(list: PromptTabData[], active: number): PromptListPatch {
+function buildPatch(rawList: PromptTabData[], active: number): PromptListPatch {
+	const list = rawList.length < 2 ? rawList : assignPromptIds(rawList);
 	if (list.length < 2) {
 		const only = list[0] ?? emptyPrompt();
 		return {
@@ -91,11 +112,29 @@ export function addPrompt(tab: PromptFields): PromptListPatch {
 	return buildPatch(list, list.length - 1);
 }
 
+export function addPromptWith(tab: PromptFields, entry: PromptTabData): PromptListPatch {
+	const list = [...promptList(tab), entry];
+	return buildPatch(list, list.length - 1);
+}
+
+export function insertPrompt(tab: PromptFields, index: number, entry: PromptTabData, active: number): PromptListPatch {
+	const list = promptList(tab);
+	list.splice(Math.min(Math.max(index, 0), list.length), 0, entry);
+	return buildPatch(list, active);
+}
+
+export function replacePrompt(tab: PromptFields, index: number, entry: PromptTabData): PromptListPatch | null {
+	const list = promptList(tab);
+	if (index < 0 || index >= list.length) return null;
+	list[index] = entry;
+	return buildPatch(list, activePromptIndex(tab));
+}
+
 export function duplicatePrompt(tab: PromptFields, index: number): PromptListPatch {
 	const list = promptList(tab);
 	const source = list[index];
 	if (!source) return buildPatch(list, activePromptIndex(tab));
-	const copy: PromptTabData = structuredClone(source);
+	const copy: PromptTabData = { ...structuredClone(source), id: randomUUID() };
 	if (copy.name?.trim()) copy.name = `${copy.name.trim()} copy`;
 	else delete copy.name;
 	list.splice(index + 1, 0, copy);

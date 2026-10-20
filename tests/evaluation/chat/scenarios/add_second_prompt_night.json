@@ -1,0 +1,84 @@
+{
+  "version": 2,
+  "id": "add_second_prompt_night",
+  "title": "Adding a second batch prompt with a night version leaves prompt 1 intact",
+  "mode": "generation",
+  "tool_names": [
+    "get_form_state",
+    "get_current_segments"
+  ],
+  "context": {
+    "form_facts": {
+      "prompt": "a quiet village at noon"
+    }
+  },
+  "user_turns": [
+    "Add a second prompt in this generation with a night version of my village scene."
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "type=\"add_prompt\"",
+        "night"
+      ]
+    },
+    {
+      "type": "final_answer_not_contains",
+      "phrases": [
+        "type=\"update_segment\"",
+        "type=\"delete_segment\"",
+        "type=\"remove_prompt\"",
+        "type=\"select_prompt\""
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 1
+    }
+  ],
+  "live_supported": true,
+  "live_context_metadata": {
+    "form_state": {
+      "preset": "sdxl/base",
+      "mode": "txt2img",
+      "form_data": {
+        "prompt": "a quiet village at noon"
+      },
+      "tab_id": "chat-eval-tab",
+      "prompt_batch": {
+        "supported": true,
+        "count": 1,
+        "active": 0
+      }
+    },
+    "segments": [
+      {
+        "index": 0,
+        "id": "seg1",
+        "type": "content",
+        "enabled": true,
+        "content": "a quiet village at noon"
+      }
+    ],
+    "prompt_batch": {
+      "active": 0,
+      "prompts": [
+        {
+          "index": 0,
+          "name": "",
+          "segments": [
+            {
+              "index": 0,
+              "id": "seg1",
+              "type": "content",
+              "enabled": true,
+              "content": "a quiet village at noon"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
