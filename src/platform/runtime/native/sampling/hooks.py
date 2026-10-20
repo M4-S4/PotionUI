@@ -17,7 +17,7 @@ from typing import Protocol, Sequence, runtime_checkable
 
 import torch
 
-from ..errors import SamplingNumericsError
+from ..errors import SamplingCancelled, SamplingNumericsError
 
 logger = logging.getLogger(__name__)
 
@@ -231,3 +231,37 @@ def apply_latent_filters(hooks: Sequence[StepHook], step_index: int, total_steps
         if filtered is not None:
             x = filtered
     return x
+
+
+class StepLoop:
+    def __init__(self, sigmas, hooks, is_cancelled=None, start_step: int = 0,
+                 total_steps: int | None = None) -> None:
+        self.sigmas = sigmas
+        self.hooks = hooks
+        self.is_cancelled = is_cancelled
+        self.start_step = start_step
+        self.total = len(sigmas) - 1 if total_steps is None else total_steps
+
+    def __enter__(self) -> StepLoop:
+        run_hooks(self.hooks, "on_start", self.total)
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        run_hooks(self.hooks, "on_end")
+        return False
+
+    def check_cancelled(self, step_index: int) -> None:
+        if self.is_cancelled is not None and self.is_cancelled():
+            raise SamplingCancelled(step_index=step_index)
+
+    def __iter__(self):
+        sigmas = self.sigmas
+        for i in range(self.start_step, len(sigmas) - 1):
+            self.check_cancelled(i)
+            yield i, self.total, sigmas[i], sigmas[i + 1]
+
+    def finish_step(self, x: Tensor, step_index: int, sigma, sigma_next, x0: Tensor | None) -> Tensor:
+        x = apply_latent_filters(self.hooks, step_index, self.total, x, float(sigma_next))
+        run_hooks(self.hooks, "on_step", step_index, self.total, x, float(sigma), x0)
+        return x
+

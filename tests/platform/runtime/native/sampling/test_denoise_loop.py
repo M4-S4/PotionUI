@@ -12,7 +12,7 @@ from src.platform.runtime.native.errors import PoisonedConditioningError
 from src.platform.runtime.native.sampling.cfg import NoCFG, SkipLayerGuidance, TrueCFG
 from src.platform.runtime.native.sampling.denoise_loop import (
     _expert_switch_step,
-    _make_guidance,
+    make_guidance,
     denoise,
     ensure_sampler_generator,
 )
@@ -435,10 +435,9 @@ def test_schedule_and_detail_strength_thread_through_sampling_settings():
     assert seen_sigma0["v"] == pytest.approx(1.0, abs=1e-5)  # schedule still starts at 1.0
 
 
-# -- _make_guidance: APG + SLG settings threading -----------------------------
 
 def test_apg_kwargs_default_to_true_cfg_own_off_defaults():
-    strat = _make_guidance({"guidance": "cfg"}, guidance_scale=2.0)
+    strat = make_guidance({"guidance": "cfg"}, guidance_scale=2.0)
     assert isinstance(strat, TrueCFG)
     assert strat.apg_eta == 1.0
     assert strat.apg_norm_threshold == 0.0
@@ -447,7 +446,7 @@ def test_apg_kwargs_default_to_true_cfg_own_off_defaults():
 
 
 def test_apg_kwargs_thread_from_sampling_settings_into_true_cfg():
-    strat = _make_guidance(
+    strat = make_guidance(
         {"guidance": "cfg", "apg_eta": 0.3, "apg_norm_threshold": 0.5, "apg_momentum": -0.4},
         guidance_scale=2.0,
     )
@@ -460,15 +459,15 @@ def test_apg_kwargs_thread_from_sampling_settings_into_true_cfg():
 
 def test_apg_kwargs_ignored_by_non_cfg_modes():
     # embedded/none modes have no TrueCFG to carry apg_* onto; must not raise.
-    embedded = _make_guidance({"guidance": "embedded", "apg_eta": 0.1}, guidance_scale=3.5)
-    none_mode = _make_guidance({"guidance": None, "apg_eta": 0.1}, guidance_scale=0.0)
+    embedded = make_guidance({"guidance": "embedded", "apg_eta": 0.1}, guidance_scale=3.5)
+    none_mode = make_guidance({"guidance": None, "apg_eta": 0.1}, guidance_scale=0.0)
     assert not isinstance(embedded, TrueCFG)
     assert not isinstance(none_mode, TrueCFG)
 
 
 def test_slg_scale_zero_or_absent_does_not_wrap():
-    default_absent = _make_guidance({"guidance": "cfg"}, guidance_scale=2.0)
-    explicit_zero = _make_guidance({"guidance": "cfg", "slg_scale": 0.0}, guidance_scale=2.0)
+    default_absent = make_guidance({"guidance": "cfg"}, guidance_scale=2.0)
+    explicit_zero = make_guidance({"guidance": "cfg", "slg_scale": 0.0}, guidance_scale=2.0)
     assert isinstance(default_absent, TrueCFG)
     assert isinstance(explicit_zero, TrueCFG)
     assert not isinstance(default_absent, SkipLayerGuidance)
@@ -476,7 +475,7 @@ def test_slg_scale_zero_or_absent_does_not_wrap():
 
 
 def test_slg_scale_positive_wraps_the_inner_strategy():
-    strat = _make_guidance(
+    strat = make_guidance(
         {"guidance": "cfg", "slg_scale": 1.5, "slg_layers": {0, 2}, "slg_sigma_start": 0.9, "slg_sigma_end": 0.1},
         guidance_scale=2.0,
     )
@@ -489,10 +488,10 @@ def test_slg_scale_positive_wraps_the_inner_strategy():
 
 
 def test_slg_wraps_embedded_and_none_modes_too():
-    embedded_wrapped = _make_guidance(
+    embedded_wrapped = make_guidance(
         {"guidance": "embedded", "slg_scale": 1.0, "slg_layers": {1}}, guidance_scale=3.5
     )
-    none_wrapped = _make_guidance(
+    none_wrapped = make_guidance(
         {"guidance": None, "slg_scale": 1.0, "slg_layers": {1}}, guidance_scale=0.0
     )
     assert isinstance(embedded_wrapped, SkipLayerGuidance)
@@ -504,7 +503,7 @@ def test_slg_no_default_layers_means_no_op_even_with_scale():
     # wraps (so the settings-driven toggle is consistent), but the wrapped
     # strategy's own empty-layers passthrough (tested in test_cfg.py) makes it
     # inert.
-    strat = _make_guidance({"guidance": "cfg", "slg_scale": 1.0}, guidance_scale=2.0)
+    strat = make_guidance({"guidance": "cfg", "slg_scale": 1.0}, guidance_scale=2.0)
     assert isinstance(strat, SkipLayerGuidance)
     assert strat.layers == set()
 
@@ -675,14 +674,14 @@ def test_flow_map_mode_rejects_a_sampler_that_leaves_the_schedule():
 
 def test_make_guidance_flow_map_needs_sigmas():
     with pytest.raises(ValueError, match="sigma"):
-        _make_guidance({"guidance": "flow_map"}, 1.0)
+        make_guidance({"guidance": "flow_map"}, 1.0)
 
 
 def test_make_guidance_threads_uncond_skip_layers_into_true_cfg():
-    strat = _make_guidance({"guidance": "cfg", "uncond_skip_layers": [22, 23]}, guidance_scale=3.0)
+    strat = make_guidance({"guidance": "cfg", "uncond_skip_layers": [22, 23]}, guidance_scale=3.0)
     assert strat.uncond_skip_layers == frozenset({22, 23})
 
 
 @pytest.mark.parametrize("settings", [{"guidance": "cfg"}, {"guidance": "cfg", "uncond_skip_layers": []}, {"guidance": "cfg", "uncond_skip_layers": None}])
 def test_make_guidance_defaults_to_no_uncond_skip_layers(settings):
-    assert _make_guidance(settings, guidance_scale=3.0).uncond_skip_layers == frozenset()
+    assert make_guidance(settings, guidance_scale=3.0).uncond_skip_layers == frozenset()

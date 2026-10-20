@@ -125,7 +125,7 @@ def _expert_switch_step(sigmas: Tensor, boundary: float | None) -> int | None:
     return None
 
 
-def _make_guidance(
+def make_guidance(
     sampling_settings: dict,
     guidance_scale,
     cfg_zero_star: bool = True,
@@ -182,10 +182,6 @@ def _make_guidance(
             sigma_end=sampling_settings.get("slg_sigma_end", 0.0),
         )
     return strategy
-
-
-# Public alias: conditioned.py builds the same strategies for its pre-noised loop.
-make_guidance = _make_guidance
 
 
 class _CachingGuidance:
@@ -248,6 +244,80 @@ class _CachingGuidance:
             return model_fn(xx, ss, {**conditioning, "step_cache": cache})
 
         return self.inner(cached_model_fn, x, sigma, cond, uncond, step_index)
+
+
+def schedule_from_settings(
+    steps: int,
+    sampling_settings: dict,
+    *,
+    image_seq_len: int | None = None,
+    denoise_strength: float = 1.0,
+) -> Tensor:
+    return build_sigmas(
+        steps,
+        shift=sampling_settings.get("shift"),
+        base_shift=sampling_settings.get("base_shift"),
+        max_shift=sampling_settings.get("max_shift"),
+        dynamic_shift=sampling_settings.get("dynamic_shift"),
+        fixed_mu=sampling_settings.get("fixed_mu"),
+        image_seq_len=image_seq_len,
+        denoise=denoise_strength,
+        schedule=sampling_settings.get("schedule"),
+        schedule_options=sampling_settings.get("schedule_options"),
+        detail_strength=sampling_settings.get("detail_strength", 0.0),
+        detail_start=sampling_settings.get("detail_start", 0.1),
+        detail_end=sampling_settings.get("detail_end", 0.9),
+    )
+
+
+def resolve_sampler(sampler_name: str):
+    if not sampler_registry.has(sampler_name):
+        raise ValueError(
+            f"unknown sampler {sampler_name!r}; available: {sorted(sampler_registry.keys())}"
+        )
+    return sampler_registry.get(sampler_name).sample
+
+
+def fp32_trajectory_forward(model_forward, traj_dtype):
+    def model_forward_fp32(x_fp32: Tensor, sigma_fp32: Tensor, conditioning: dict) -> Tensor:
+        x_model = x_fp32.to(traj_dtype)
+        sigma_model = sigma_fp32.to(traj_dtype)
+        v_model = model_forward(x_model, sigma_model, conditioning)
+        return v_model.float()
+
+    return model_forward_fp32
+
+
+def warn_discarded_guidance_scale(log: logging.Logger, caller: str, guidance_override, guidance_scale) -> None:
+    if math.isclose(float(guidance_scale), 1.0):
+        return
+    override_cfg = getattr(getattr(guidance_override, "video_params", None), "cfg_scale", None)
+    log.warning(
+        "%s: guidance_override (%s) is active and discards the passed "
+        "guidance_scale=%.3f (override's own cfg=%s) -- check for conflicting "
+        "quality_mode/distilled_mode config",
+        caller, type(guidance_override).__name__, float(guidance_scale),
+        f"{override_cfg:.3f}" if override_cfg is not None else "n/a",
+    )
+
+
+def wrap_step_cache(guidance, step_cache_options: dict | None, model_forward, total_steps: int):
+    cache_set = StepCacheSet(step_cache_options) if step_cache_options else None
+    if cache_set is not None and cache_set.enabled:
+        return _CachingGuidance(guidance, cache_set, total_steps=total_steps,
+                                model_forward=model_forward), cache_set
+    return guidance, None
+
+
+def log_step_cache_totals(log: logging.Logger, cache_set: StepCacheSet | None) -> None:
+    if cache_set is None:
+        return
+    totals = cache_set.totals()
+    log.debug(
+        "FBCache: skipped %d of %d model forwards (rel_threshold=%.3f)",
+        totals["skipped"], totals["skipped"] + totals["computed"],
+        cache_set.options["rel_threshold"],
+    )
 
 
 def denoise(
@@ -337,11 +407,7 @@ def denoise(
     """
     if resume is not None and sampler_name != "euler":
         raise ValueError(f"trajectory resume requires sampler 'euler', got {sampler_name!r}")
-    if not sampler_registry.has(sampler_name):
-        raise ValueError(
-            f"unknown sampler {sampler_name!r}; available: {sorted(sampler_registry.keys())}"
-        )
-    sampler = sampler_registry.get(sampler_name).sample
+    sampler = resolve_sampler(sampler_name)
     _assert_finite_conditioning(cond, uncond)
 
     # FP32 trajectory: build sigmas in fp32 (schedule's native precision, no
@@ -351,20 +417,9 @@ def denoise(
     if sigmas is not None:
         sigmas = sigmas.to(device=latents.device, dtype=torch.float32)
     else:
-        sigmas = build_sigmas(
-            steps,
-            shift=sampling_settings.get("shift"),
-            base_shift=sampling_settings.get("base_shift"),
-            max_shift=sampling_settings.get("max_shift"),
-            dynamic_shift=sampling_settings.get("dynamic_shift"),
-            fixed_mu=sampling_settings.get("fixed_mu"),
-            image_seq_len=image_seq_len,
-            denoise=denoise_strength,
-            schedule=sampling_settings.get("schedule"),
-            schedule_options=sampling_settings.get("schedule_options"),
-            detail_strength=sampling_settings.get("detail_strength", 0.0),
-            detail_start=sampling_settings.get("detail_start", 0.1),
-            detail_end=sampling_settings.get("detail_end", 0.9),
+        sigmas = schedule_from_settings(
+            steps, sampling_settings,
+            image_seq_len=image_seq_len, denoise_strength=denoise_strength,
         ).to(device=latents.device, dtype=torch.float32)
 
     sigma0 = sigmas[0]
@@ -404,25 +459,12 @@ def denoise(
         # resolved cfg/steps/sampler while the override won the sampling
         # strategy -- the desync check_guider_mode_conflict() guards upstream.
         # Warn here too, as defense-in-depth.
-        if not math.isclose(float(guidance_scale), 1.0):
-            override_cfg = getattr(getattr(guidance_override, "video_params", None), "cfg_scale", None)
-            logger.warning(
-                "denoise: guidance_override (%s) is active and discards the passed "
-                "guidance_scale=%.3f (override's own cfg=%s) -- check for conflicting "
-                "quality_mode/distilled_mode config",
-                type(guidance_override).__name__, float(guidance_scale),
-                f"{override_cfg:.3f}" if override_cfg is not None else "n/a",
-            )
+        warn_discarded_guidance_scale(logger, "denoise", guidance_override, guidance_scale)
         guidance = guidance_override
     else:
-        guidance = _make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps, sigmas=sigmas)
+        guidance = make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps, sigmas=sigmas)
 
-    cache_set = StepCacheSet(step_cache_options) if step_cache_options else None
-    if cache_set is not None and cache_set.enabled:
-        guidance = _CachingGuidance(guidance, cache_set, total_steps=len(sigmas) - 1,
-                                    model_forward=model_forward)
-    else:
-        cache_set = None
+    guidance, cache_set = wrap_step_cache(guidance, step_cache_options, model_forward, len(sigmas) - 1)
 
     logger.debug(
         "denoise: sampler=%s steps=%d guidance=%s sigma0=%.5f denoise=%.3f",
@@ -434,11 +476,7 @@ def denoise(
     # fp32 state (x, v, x0_est, ancestral noise via randn_like) while the model
     # receives its original traj_dtype. Guidance/CFG, preview hooks, and FBCache
     # operate on the fp32 trajectory; only the DiT forward runs in traj_dtype.
-    def model_forward_fp32(x_fp32: Tensor, sigma_fp32: Tensor, conditioning: dict) -> Tensor:
-        x_model = x_fp32.to(traj_dtype)
-        sigma_model = sigma_fp32.to(traj_dtype)
-        v_model = model_forward(x_model, sigma_model, conditioning)
-        return v_model.float()
+    model_forward_fp32 = fp32_trajectory_forward(model_forward, traj_dtype)
 
     # Multi-expert discontinuity: tell a multistep sampler (unipc, dpmpp_2m,
     # dpmpp_2m_sde, dpmpp_3m, res_multistep) which step index switches network
@@ -472,13 +510,7 @@ def denoise(
         **resume_kwargs,
     )
 
-    if cache_set is not None:
-        totals = cache_set.totals()
-        logger.debug(
-            "FBCache: skipped %d of %d model forwards (rel_threshold=%.3f)",
-            totals["skipped"], totals["skipped"] + totals["computed"],
-            cache_set.options["rel_threshold"],
-        )
+    log_step_cache_totals(logger, cache_set)
 
     # Cast the final latent back to the original dtype (one final rounding, same as
     # the reference's decode-boundary cast). Downstream decode contracts unchanged.

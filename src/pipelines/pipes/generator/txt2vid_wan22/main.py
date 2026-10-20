@@ -27,7 +27,7 @@ from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
 from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
-from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
+from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
 from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, chunked_decode_causal3d
 from src.pipelines.contracts import logger
@@ -266,18 +266,7 @@ def resolve_expert_boundary(spec, config: dict, sampling_settings: dict, steps: 
             logger.warning("[%s] ignoring non-integer expert_switch_step %r", log_tag, switch_step)
             step_idx = None
         if step_idx is not None and step_idx > 0:
-            sigmas = build_sigmas(
-                int(steps),
-                shift=sampling_settings.get("shift"),
-                base_shift=sampling_settings.get("base_shift"),
-                max_shift=sampling_settings.get("max_shift"),
-                dynamic_shift=sampling_settings.get("dynamic_shift"),
-                schedule=sampling_settings.get("schedule"),
-                schedule_options=sampling_settings.get("schedule_options"),
-                detail_strength=sampling_settings.get("detail_strength", 0.0),
-                detail_start=sampling_settings.get("detail_start", 0.1),
-                detail_end=sampling_settings.get("detail_end", 0.9),
-            )
+            sigmas = schedule_from_settings(int(steps), sampling_settings)
             # sigmas descend 1->0 over steps+1 entries; the sigma AT step_idx is
             # the threshold that makes steps 0..step_idx-1 run the high expert and
             # step_idx.. the low one. Clamp past-the-end to the final (0.0) sigma.

@@ -65,3 +65,13 @@ def test_step_conversion_uses_schedule_knobs_so_it_matches_the_run():
     low_shift = resolve_expert_boundary(spec, {"expert_switch_step": 8}, {"shift": 2.0}, 30)
     high_shift = resolve_expert_boundary(spec, {"expert_switch_step": 8}, {"shift": 8.0}, 30)
     assert low_shift != high_shift
+
+
+def test_switch_step_boundary_follows_the_runs_full_sampling_settings_including_fixed_mu():
+    from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
+
+    settings = {"shift": 5.0, "fixed_mu": 1.15}
+    spec = _Spec({"expert_boundary": 0.875})
+    got = resolve_expert_boundary(spec, {"expert_switch_step": 12}, settings, 30)
+    assert got == float(schedule_from_settings(30, settings)[12])
+    assert got != float(build_sigmas(30, shift=5.0)[12])

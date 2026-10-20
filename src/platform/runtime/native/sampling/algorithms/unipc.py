@@ -33,8 +33,8 @@ import math
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled, SamplingNumericsError
+from ..hooks import StepLoop
+from ...errors import SamplingNumericsError
 
 Tensor = torch.Tensor
 
@@ -194,30 +194,21 @@ def sample_unipc(
     continuous trajectory the solver's math has any reason to stay stable
     across. Otherwise this solver has no options of its own.
     """
-    total_steps = len(sigmas) - 1
-    run_hooks(hooks, "on_start", total_steps)
-    discontinuity_steps = frozenset((sampler_options or {}).get("discontinuity_steps") or ())
+    with StepLoop(sigmas, hooks, is_cancelled) as loop:
+        discontinuity_steps = frozenset((sampler_options or {}).get("discontinuity_steps") or ())
 
-    s_in = x.new_ones((x.shape[0],))
-    x0_hist: list[Tensor] = []
-    sigma_hist: list[float] = []
-    last_sample: Tensor | None = None
-    lower_order_nums = 0
-    carried_order = 0  # this_order from the previous step, used by the corrector
-
-    try:
-        for i in range(total_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=i)
-
+        s_in = x.new_ones((x.shape[0],))
+        x0_hist: list[Tensor] = []
+        sigma_hist: list[float] = []
+        last_sample: Tensor | None = None
+        lower_order_nums = 0
+        carried_order = 0
+        for i, total_steps, sigma, sigma_next in loop:
             if i in discontinuity_steps:
                 last_sample = None
                 x0_hist = []
                 sigma_hist = []
                 lower_order_nums = 0
-
-            sigma = sigmas[i]
-            sigma_next = sigmas[i + 1]
 
             v = guidance(model_fn, x, sigma * s_in, cond, uncond, i)
             x0 = x - sigma * v  # convert_model_output (predict_x0, flow)
@@ -266,8 +257,7 @@ def sample_unipc(
 
             x = x_next
             try:
-                x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
-                run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0)
+                x = loop.finish_step(x, i, sigma, sigma_next, x0)
             except SamplingNumericsError as err:
                 # Enrich with THIS solver's own state at the moment of
                 # failure -- generic to run_hooks/NumericsWatchdog, so it has
@@ -275,7 +265,5 @@ def sample_unipc(
                 err.solver_order = carried_order
                 err.history_depth = len(x0_hist)
                 raise
-    finally:
-        run_hooks(hooks, "on_end")
 
     return x

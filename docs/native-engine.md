@@ -235,7 +235,7 @@ Concretely, adding model family N+1 means:
    `variant`, the `signature` dict that `matches()` checks against the detected config,
    `model_class` (a lazy `"module.path:ClassName"` string — registering a spec never imports the
    arch module), `sampling_settings` (drives the sigma schedule + guidance strategy —
-   see `sampling/denoise_loop.py:_make_guidance`), `latent_format` (scale/shift factors — get the
+   see `sampling/denoise_loop.py:make_guidance`), `latent_format` (scale/shift factors — get the
    real numbers from ComfyUI's `latent_formats.py`, never guess them), `clip_targets` / `vae_target`
    (which TE(s)/VAE this family pairs with), and `expected_missing_keys` /
    `expected_unexpected_keys` (fnmatch globs for the load-integrity allowlist — quant sidecars like
@@ -279,7 +279,7 @@ Concretely, adding model family N+1 means:
 
 If a new family needs a genuinely new *guidance* shape (not covered by `EmbeddedGuidance`/
 `TrueCFG`/`NoCFG`), add a class satisfying `cfg.GuidanceStrategy`'s `Protocol` and pick it in
-`denoise_loop._make_guidance` by a new `sampling_settings["guidance"]` value — still data-driven,
+`denoise_loop.make_guidance` by a new `sampling_settings["guidance"]` value — still data-driven,
 still no branch on family name.
 
 ## Quantization support matrix
