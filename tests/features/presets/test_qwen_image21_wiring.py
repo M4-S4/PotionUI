@@ -347,7 +347,7 @@ def test_a_rendered_control_pipeline_loads_the_patched_dit(qwen_image21_template
     from types import SimpleNamespace
 
     from src.pipelines.contracts import PipeInput
-    import src.pipelines.pipes.model_loader.qwen_image21.main as loader_module
+    import src.pipelines.pipes._shared.generation.three_component_loader as loader_module
     from src.pipelines.pipes.model_loader.qwen_image21.main import ModelLoaderQwenImage21Pipe
 
     loads = []

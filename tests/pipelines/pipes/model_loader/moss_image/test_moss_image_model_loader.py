@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.model_loader.moss_image.bundle import MossImageModelBundle
+from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 from src.pipelines.pipes.model_loader.moss_image.main import ModelLoaderMossImagePipe
 from src.pipelines.pipes.model_loader.moss_image.moss_image_clip import MossImageClipTextEncoder
 from src.pipelines.pipes._shared.generation.loader_helpers import lora_stack_fingerprint
@@ -95,7 +95,7 @@ def test_lora_is_applied_and_stamped_when_the_dit_loads(_apply_spy):
         def load(self, path, kind, **kw):
             return loaded
 
-    with patch("src.pipelines.pipes.model_loader.moss_image.main.NativeEngineLoader", _Loader):
+    with patch("src.pipelines.pipes._shared.generation.three_component_loader.NativeEngineLoader", _Loader):
         models, _out = _run(ModelLoaderMossImagePipe(config=_config(loras=loras)))
         applied_before = len(_apply_spy)
         models.loaders["native/dit//m/dit.safetensors"]()
@@ -134,7 +134,7 @@ def test_text_encoder_is_acquired_lazily_under_the_moss_key():
 def test_bundle_remembers_the_text_encoder_key():
     _models, out = _run(ModelLoaderMossImagePipe(config=_config()))
     bundle = out.output["model"]
-    assert isinstance(bundle, MossImageModelBundle)
+    assert isinstance(bundle, DitTeVaeBundle)
     assert bundle.te_cache_key == "native/te//m/te.safetensors|moss_image"
 
 
@@ -149,7 +149,7 @@ def test_each_component_loads_from_its_own_path():
             calls.append((path, kind, kw))
             return SimpleNamespace(module=object())
 
-    with patch("src.pipelines.pipes.model_loader.moss_image.main.NativeEngineLoader", _Loader):
+    with patch("src.pipelines.pipes._shared.generation.three_component_loader.NativeEngineLoader", _Loader):
         models, out = _run(ModelLoaderMossImagePipe(config=_config()))
         _ = out.output["text_encoder"].encoder
         for loader in models.loaders.values():

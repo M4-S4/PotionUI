@@ -35,19 +35,38 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import torch
 
 from src.platform.runtime.native.memory import run_text_encode_batch
+from src.platform.runtime.native.text_encoders import NativeTextEncoder
 from src.platform.runtime.primitives.clip import ClipTextEncoder, ConditioningModel
 
 
 class SequentialWindowClipTextEncoder(ClipTextEncoder):
     """``ClipTextEncoder`` whose ``encode_prompts`` runs every miss under ONE
     shared GPU-resident window instead of one window per request.
-
-    Subclasses must set ``self.encoder``/``self.device`` (as every existing
-    family adapter already does) and implement ``_encode_fn_and_key``/``_pack``.
     """
 
-    encoder: Any
-    device: str
+    def __init__(
+        self,
+        encoder: Optional[NativeTextEncoder] = None,
+        *,
+        device: str = "cuda",
+        model_fingerprint: Optional[str] = None,
+        te_loader: Optional[Callable[[], NativeTextEncoder]] = None,
+    ) -> None:
+        self._encoder = encoder
+        self._te_loader = te_loader
+        self.device = device
+        self._model_fingerprint = model_fingerprint
+
+    @property
+    def encoder(self) -> NativeTextEncoder:
+        if self._encoder is None and self._te_loader is not None:
+            self._encoder = self._te_loader()
+            self._te_loader = None
+        return self._encoder
+
+    @encoder.setter
+    def encoder(self, value: NativeTextEncoder) -> None:
+        self._encoder = value
 
     @abstractmethod
     def _encode_fn_and_key(self, request: Dict[str, Any]) -> Tuple[Callable[[], Any], Optional[str]]:
@@ -56,11 +75,14 @@ class SequentialWindowClipTextEncoder(ClipTextEncoder):
         straight to ``run_text_encode``."""
         raise NotImplementedError
 
-    @abstractmethod
     def _pack(self, request: Dict[str, Any], result: Any) -> ConditioningModel:
-        """Wrap one encode result (freshly encoded, or an embed-cache hit)
-        into a ``ConditioningModel``."""
-        raise NotImplementedError
+        embeds, n_embeds = result
+        return ConditioningModel(
+            p_prompt=request["prompt"],
+            n_prompt=request["negative_prompt"],
+            embeds=embeds,
+            n_embeds=n_embeds,
+        )
 
     @torch.inference_mode()
     def encode_prompt(

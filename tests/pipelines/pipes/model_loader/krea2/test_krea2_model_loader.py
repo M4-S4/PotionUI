@@ -28,7 +28,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     lora_stack_fingerprint as _lora_stack_fingerprint,
 )
 from src.pipelines.pipes.model_loader.krea2.main import ModelLoaderKrea2Pipe
-from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
+from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 from src.pipelines.pipes.model_loader.krea2.krea2_clip import Krea2ClipTextEncoder
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 
@@ -164,7 +164,7 @@ def test_te_never_acquired_when_encoder_is_never_read():
 
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderKrea2Pipe(config=_config()))
-    assert isinstance(out.output["model"], Krea2ModelBundle)
+    assert isinstance(out.output["model"], DitTeVaeBundle)
     assert isinstance(out.output["text_encoder"], Krea2ClipTextEncoder)
 
 
@@ -286,6 +286,27 @@ def test_different_dit_path_still_forces_a_real_reload(_fake_engine):
     _run(ModelLoaderKrea2Pipe(config=_config(diffusion_model={"file_path": "/m/krea2_dit.safetensors"})), models)
     _run(ModelLoaderKrea2Pipe(config=_config(diffusion_model={"file_path": "/m/krea2_dit_v2.safetensors"})), models)
     assert _fake_engine["diffusion_model"] == 2
+
+
+def test_windowed_lora_rides_the_bundle_and_stays_out_of_the_baked_stack(_apply_spy):
+    loras = [
+        {"model": "/m/style.safetensors", "strength": 0.8},
+        {"model": "/m/turbo-sda.safetensors", "strength": 1.0, "step_start": 1, "step_end": 4},
+    ]
+    models, out = _run(ModelLoaderKrea2Pipe(config=_config(loras=loras)))
+    bundle = out.output["model"]
+    assert [(w["file_path"], w["window"]) for w in bundle.windowed_loras] == [
+        ("/m/turbo-sda.safetensors", LoraStepWindow(1, 4)),
+    ]
+    assert [c for c in _apply_spy if c] == [[{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]]
+    assert "turbo-sda" not in bundle.dit._active_lora_fp
+    assert "style.safetensors" in bundle.dit._active_lora_fp
+    assert all("turbo-sda" not in fp for _, fp in models.calls)
+
+
+def test_no_windowed_lora_passes_an_empty_tuple_through():
+    _, out = _run(ModelLoaderKrea2Pipe(config=_config(loras=[{"model": "/m/style.safetensors", "strength": 0.8}])))
+    assert out.output["model"].windowed_loras == ()
 
 
 class TestWindowedStackRevision:

@@ -1,43 +1,33 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from src.pipelines.outputs import (
-    ModelGenerationOutput,
-    ModelsGenerationOutput,
-)
-from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
-from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.contracts import (
     IOType,
-    PipeInput,
-    PipeInputSpec,
-    PipeOutput,
     PipeOutputSpec,
     PipeConfigSpec,
 )
-from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPipe
-from src.pipelines.pipes._shared.generation.loader_helpers import (
-    ComponentProgress,
-    active_loras as _active_loras,
-    apply_loras_to as _apply_loras_to,
-    lora_stack_fingerprint as _lora_stack_fingerprint,
-    path_of as _path_of,
-    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
-    vram_budget as _vram_budget_fn,
-)
-from src.pipelines.pipes._shared.generation.loader_lifecycle import (
-    Component,
-    ComponentLifecycle,
-)
-from src.pipelines.pipes.model_loader.qwen_image21.bundle import QwenImage21ModelBundle
+from src.pipelines.pipes._shared.generation.three_component_loader import ThreeComponentLoaderPipe
+from src.pipelines.pipes._shared.generation.loader_helpers import path_of as _path_of
+from src.pipelines.pipes._shared.generation.three_component_loader import LoaderContext
+from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.pipelines.pipes.model_loader.qwen_image21.qwen_image21_clip import QwenImage21ClipTextEncoder
 
 
-class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
+class ModelLoaderQwenImage21Pipe(ThreeComponentLoaderPipe):
     name = "model_loader"
     description = "Load a native Qwen-Image-2.1 checkpoint set (MMDiT + Qwen3-VL-8B TE + RGBA 16x VAE)"
+    log_tag = "MODEL LOADER QWEN IMAGE 2.1"
+    family = "qwen_image21"
+    display_name = "Qwen-Image-2.1"
+    component_labels = (
+        ("diffusion_model", "qwen_image21_dit"),
+        ("text_encoder", "qwen_image21_text_encoder"),
+        ("vae", "qwen_image21_vae"),
+        ("control_model", "qwen_image21_fun_control"),
+    )
+    clip_cls = QwenImage21ClipTextEncoder
+    te_vision = True
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
@@ -68,116 +58,32 @@ class ModelLoaderQwenImage21Pipe(BaseModelLoaderPipe):
         ]
 
     @classmethod
-    def inputs(cls) -> List[PipeInputSpec]:
-        return [
-            PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for per-component reuse", is_array=False),
-            PipeInputSpec("GPU", IOType.SERVICE, False, "GPU manager for the VRAM budget", is_array=False),
-        ]
-
-    @classmethod
     def outputs(cls) -> List[PipeOutputSpec]:
         return [
             PipeOutputSpec("model", IOType.MODEL, "Qwen-Image-2.1 model bundle (DiT + TE + VAE)", is_array=False),
             PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "Qwen3-VL-8B text encoder (ClipTextEncoder ABC)", is_array=False),
         ]
 
-    def progress_message(self) -> str:
-        dit_path = _path_of(self.config.get("diffusion_model")) or "?"
-        return f"Loading Qwen-Image-2.1 model <<MODEL:{Path(dit_path).stem}>>"
+    def _control_path(self):
+        return _path_of(self.config.get("control_model"))
 
-    def describe_models(self) -> List[ModelGenerationOutput]:
-        out: List[ModelGenerationOutput] = []
-        for key, mtype in (
-            ("diffusion_model", "qwen_image21_dit"),
-            ("text_encoder", "qwen_image21_text_encoder"),
-            ("vae", "qwen_image21_vae"),
-            ("control_model", "qwen_image21_fun_control"),
-        ):
-            cfg = self.config.get(key)
-            if _path_of(cfg):
-                out.append(ModelGenerationOutput(name=cfg.get("name") or Path(_path_of(cfg)).stem, type=mtype))
-        for lora in _active_loras(self.config.get("loras")):
-            out.append(ModelGenerationOutput(name=Path(lora["file_path"]).stem, type="lora", weight=lora["weight"]))
-        return out
+    def _dit_key(self, ctx: LoaderContext) -> str:
+        control_path = self._control_path()
+        key = super()._dit_key(ctx)
+        return f"{key}+control={control_path}" if control_path else key
 
-    def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
-        self.validate()
-        generation_outputs(ModelsGenerationOutput(models=self.describe_models()))
+    def _dit_fingerprint(self, ctx: LoaderContext) -> str:
+        control_path = self._control_path()
+        fp = super()._dit_fingerprint(ctx)
+        return f"{fp}|control={control_path}" if control_path else fp
 
-        dit_path = _path_of(self.config.get("diffusion_model"))
-        te_path = _path_of(self.config.get("text_encoder"))
-        vae_path = _path_of(self.config.get("vae"))
-        if not (dit_path and te_path and vae_path):
-            raise ValueError("model_loader/qwen_image21 requires diffusion_model, text_encoder and vae file paths")
-
-        device = self.config.get("device", "cuda")
-        dtype = self.config.get("dtype", "bfloat16")
-        loras = _active_loras(self.config.get("loras"))
-        vision = bool(self.config.get("vision", False))
-        control_path = _path_of(self.config.get("control_model"))
-
-        vram_gb = self._vram_budget(pipe_input)
-        loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
-
-        te_fp = f"{te_path}|{dtype}|vision={vision}"
-        vae_fp = f"{vae_path}|{dtype}"
-        lora_fp = _lora_stack_fingerprint(loras) or "none"
-        dit_fp = f"{dit_path}|{dtype}|{lora_fp}"
-        if control_path:
-            dit_fp = f"{dit_fp}|control={control_path}"
-
-        def load_te() -> NativeModel:
-            return loader.load(te_path, "text_encoder", vision=vision)
-
-        def load_vae() -> NativeModel:
-            return loader.load(vae_path, "vae")
-
-        def load_dit() -> NativeModel:
-            if control_path:
-                model = loader.load(dit_path, "diffusion_model", model_patch=control_path)
-            else:
-                model = loader.load(dit_path, "diffusion_model")
-            model._active_lora_application = self._apply_loras(model, loras)  # noqa: SLF001
-            return model
-
-        models = pipe_input.input.get("MODELS", None)
-        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
-        lifecycle = ComponentLifecycle(models, progress)
-
-        te_key = f"native/te/{te_path}"
-        te = Component("text encoder", te_key, te_fp, load_te, file_size_gb(te_path))
-        vae = Component("VAE", f"native/vae/{vae_path}", vae_fp, load_vae, file_size_gb(vae_path))
-        dit_gb = file_size_gb(dit_path)
+    def _dit_size_gb(self, ctx: LoaderContext):
+        control_path = self._control_path()
+        dit_gb = super()._dit_size_gb(ctx)
         if control_path and dit_gb is not None:
             dit_gb += file_size_gb(control_path) or 0.0
-        dit_key = f"native/dit/{dit_path}+control={control_path}" if control_path else f"native/dit/{dit_path}"
-        dit = Component("DiT", dit_key, dit_fp, load_dit, dit_gb)
+        return dit_gb
 
-        if not lifecycle.caching:
-            te_model = lifecycle.acquire(te)
-            vae_model = lifecycle.acquire(vae)
-            dit_model = lifecycle.acquire(dit)
-            _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER QWEN IMAGE 2.1")
-            return PipeOutput(output={
-                "model": QwenImage21ModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key),
-                "text_encoder": QwenImage21ClipTextEncoder(
-                    te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
-                ),
-            })
-
-        vae_model = lifecycle.acquire(vae)
-        dit_model = lifecycle.acquire(dit)
-        _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER QWEN IMAGE 2.1")
-        bundle = QwenImage21ModelBundle(dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key)
-        clip = QwenImage21ClipTextEncoder(
-            device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
-            te_loader=lifecycle.deferred_module(te),
-        )
-        return PipeOutput(output={"model": bundle, "text_encoder": clip})
-
-    def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:
-        return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER QWEN IMAGE 2.1")
-
-    @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
-        return _apply_loras_to(dit_model, loras, "MODEL LOADER QWEN IMAGE 2.1")
+    def _dit_load_kwargs(self, ctx: LoaderContext):
+        control_path = self._control_path()
+        return {"model_patch": control_path} if control_path else {}

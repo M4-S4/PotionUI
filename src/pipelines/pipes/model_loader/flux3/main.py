@@ -1,43 +1,30 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from src.pipelines.outputs import (
-    ModelGenerationOutput,
-    ModelsGenerationOutput,
-)
-from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
-from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.contracts import (
     IOType,
-    PipeInput,
-    PipeInputSpec,
-    PipeOutput,
     PipeOutputSpec,
     PipeConfigSpec,
 )
-from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPipe
-from src.pipelines.pipes._shared.generation.loader_helpers import (
-    ComponentProgress,
-    active_loras as _active_loras,
-    apply_loras_to as _apply_loras_to,
-    lora_stack_fingerprint as _lora_stack_fingerprint,
-    path_of as _path_of,
-    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
-    vram_budget as _vram_budget_fn,
-)
-from src.pipelines.pipes._shared.generation.loader_lifecycle import (
-    Component,
-    ComponentLifecycle,
-)
-from src.pipelines.pipes.model_loader.flux3.bundle import Flux3ModelBundle
+from src.pipelines.pipes._shared.generation.three_component_loader import ThreeComponentLoaderPipe
 from src.pipelines.pipes.model_loader.flux3.flux3_clip import Flux3ClipTextEncoder
 
 
-class ModelLoaderFlux3Pipe(BaseModelLoaderPipe):
+class ModelLoaderFlux3Pipe(ThreeComponentLoaderPipe):
     name = "model_loader"
     description = "Load a native FLUX 3 Image Klein checkpoint set (DiT + Qwen3-VL-4B TE + FLUX 2 AE)"
+    log_tag = "MODEL LOADER FLUX 3"
+    family = "flux3"
+    display_name = "FLUX 3"
+    component_labels = (
+        ("diffusion_model", "flux3_dit"),
+        ("text_encoder", "flux3_text_encoder"),
+        ("vae", "flux3_vae"),
+    )
+    clip_cls = Flux3ClipTextEncoder
+    te_suffix = "|flux3"
+    te_load_kwargs = {"te_variant": "flux3"}
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
@@ -64,104 +51,8 @@ class ModelLoaderFlux3Pipe(BaseModelLoaderPipe):
         ]
 
     @classmethod
-    def inputs(cls) -> List[PipeInputSpec]:
-        return [
-            PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for per-component reuse", is_array=False),
-            PipeInputSpec("GPU", IOType.SERVICE, False, "GPU manager for the VRAM budget", is_array=False),
-        ]
-
-    @classmethod
     def outputs(cls) -> List[PipeOutputSpec]:
         return [
             PipeOutputSpec("model", IOType.MODEL, "FLUX 3 model bundle (DiT + TE + VAE)", is_array=False),
             PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "Qwen3-VL-4B text encoder (ClipTextEncoder ABC)", is_array=False),
         ]
-
-    def progress_message(self) -> str:
-        dit_path = _path_of(self.config.get("diffusion_model")) or "?"
-        return f"Loading FLUX 3 model <<MODEL:{Path(dit_path).stem}>>"
-
-    def describe_models(self) -> List[ModelGenerationOutput]:
-        out: List[ModelGenerationOutput] = []
-        for key, mtype in (
-            ("diffusion_model", "flux3_dit"),
-            ("text_encoder", "flux3_text_encoder"),
-            ("vae", "flux3_vae"),
-        ):
-            cfg = self.config.get(key)
-            if _path_of(cfg):
-                out.append(ModelGenerationOutput(name=cfg.get("name") or Path(_path_of(cfg)).stem, type=mtype))
-        for lora in _active_loras(self.config.get("loras")):
-            out.append(ModelGenerationOutput(name=Path(lora["file_path"]).stem, type="lora", weight=lora["weight"]))
-        return out
-
-    def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
-        self.validate()
-        generation_outputs(ModelsGenerationOutput(models=self.describe_models()))
-
-        dit_path = _path_of(self.config.get("diffusion_model"))
-        te_path = _path_of(self.config.get("text_encoder"))
-        vae_path = _path_of(self.config.get("vae"))
-        if not (dit_path and te_path and vae_path):
-            raise ValueError("model_loader/flux3 requires diffusion_model, text_encoder and vae file paths")
-
-        device = self.config.get("device", "cuda")
-        dtype = self.config.get("dtype", "bfloat16")
-        loras = _active_loras(self.config.get("loras"))
-
-        vram_gb = self._vram_budget(pipe_input)
-        loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
-
-        te_fp = f"{te_path}|{dtype}|flux3"
-        vae_fp = f"{vae_path}|{dtype}"
-        lora_fp = _lora_stack_fingerprint(loras) or "none"
-        dit_fp = f"{dit_path}|{dtype}|{lora_fp}"
-
-        def load_te() -> NativeModel:
-            return loader.load(te_path, "text_encoder", te_variant="flux3")
-
-        def load_vae() -> NativeModel:
-            return loader.load(vae_path, "vae")
-
-        def load_dit() -> NativeModel:
-            model = loader.load(dit_path, "diffusion_model")
-            model._active_lora_application = self._apply_loras(model, loras)
-            return model
-
-        models = pipe_input.input.get("MODELS", None)
-        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
-        lifecycle = ComponentLifecycle(models, progress)
-
-        te_key = f"native/te/{te_path}|flux3"
-        te = Component("text encoder", te_key, te_fp, load_te, file_size_gb(te_path))
-        vae = Component("VAE", f"native/vae/{vae_path}", vae_fp, load_vae, file_size_gb(vae_path))
-        dit = Component("DiT", f"native/dit/{dit_path}", dit_fp, load_dit, file_size_gb(dit_path))
-
-        if not lifecycle.caching:
-            te_model = lifecycle.acquire(te)
-            vae_model = lifecycle.acquire(vae)
-            dit_model = lifecycle.acquire(dit)
-            _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER FLUX 3")
-            return PipeOutput(output={
-                "model": Flux3ModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key),
-                "text_encoder": Flux3ClipTextEncoder(
-                    te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
-                ),
-            })
-
-        vae_model = lifecycle.acquire(vae)
-        dit_model = lifecycle.acquire(dit)
-        _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER FLUX 3")
-        bundle = Flux3ModelBundle(dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key)
-        clip = Flux3ClipTextEncoder(
-            device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
-            te_loader=lifecycle.deferred_module(te),
-        )
-        return PipeOutput(output={"model": bundle, "text_encoder": clip})
-
-    def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:
-        return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER FLUX 3")
-
-    @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
-        return _apply_loras_to(dit_model, loras, "MODEL LOADER FLUX 3")

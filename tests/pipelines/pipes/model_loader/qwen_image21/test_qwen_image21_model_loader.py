@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.model_loader.qwen_image21.main import ModelLoaderQwenImage21Pipe
-from src.pipelines.pipes.model_loader.qwen_image21.bundle import QwenImage21ModelBundle
+from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 from src.pipelines.pipes.model_loader.qwen_image21.qwen_image21_clip import QwenImage21ClipTextEncoder
 
 
@@ -77,7 +77,7 @@ def test_te_never_acquired_when_encoder_is_never_read():
 
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderQwenImage21Pipe(config=_config()))
-    assert isinstance(out.output["model"], QwenImage21ModelBundle)
+    assert isinstance(out.output["model"], DitTeVaeBundle)
     assert isinstance(out.output["text_encoder"], QwenImage21ClipTextEncoder)
 
 
@@ -181,7 +181,7 @@ def test_vision_flag_threaded_to_the_engine_loader(monkeypatch):
                 received.update(kwargs)
             return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
 
-    import src.pipelines.pipes.model_loader.qwen_image21.main as qi21_main
+    import src.pipelines.pipes._shared.generation.three_component_loader as qi21_main
     monkeypatch.setattr(qi21_main, "NativeEngineLoader", _FakeLoader)
 
     pipe = ModelLoaderQwenImage21Pipe(config=_config(vision=True))
@@ -227,7 +227,7 @@ def test_the_control_model_is_loaded_with_the_dit(monkeypatch):
             received.append((path, kind, kwargs))
             return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
 
-    import src.pipelines.pipes.model_loader.qwen_image21.main as qi21_main
+    import src.pipelines.pipes._shared.generation.three_component_loader as qi21_main
     monkeypatch.setattr(qi21_main, "NativeEngineLoader", _FakeLoader)
 
     pipe = ModelLoaderQwenImage21Pipe(config=_config(control_model=_CONTROL))

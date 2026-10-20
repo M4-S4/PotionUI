@@ -1,48 +1,33 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from src.pipelines.outputs import (
-    ModelGenerationOutput,
-    ModelsGenerationOutput,
-)
-from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
-from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.contracts import (
     IOType,
-    PipeInput,
-    PipeInputSpec,
-    PipeOutput,
     PipeOutputSpec,
     PipeConfigSpec,
 )
-from src.pipelines.pipes._shared.generation.loader_base import BaseModelLoaderPipe
-from src.pipelines.pipes._shared.generation.loader_helpers import (
-    ComponentProgress,
-    active_loras as _active_loras,
-    apply_loras_to as _apply_loras_to,
-    lora_stack_fingerprint as _lora_stack_fingerprint,
-    path_of as _path_of,
-    reemit_lora_application_diagnostics as _emit_lora_diagnostics,
-    vram_budget as _vram_budget_fn,
-)
-from src.pipelines.pipes._shared.generation.loader_lifecycle import (
-    NO_LORAS,
-    Component,
-    ComponentLifecycle,
-    sync_loras as _sync_loras,
-)
-from src.pipelines.pipes.model_loader.moss_image.bundle import MossImageModelBundle
+from src.pipelines.pipes._shared.generation.three_component_loader import ThreeComponentLoaderPipe
 from src.pipelines.pipes.model_loader.moss_image.moss_image_clip import MossImageClipTextEncoder
 
 
 _LOG_TAG = "MODEL LOADER MOSS"
 
 
-class ModelLoaderMossImagePipe(BaseModelLoaderPipe):
+class ModelLoaderMossImagePipe(ThreeComponentLoaderPipe):
     name = "model_loader"
     description = "Load a native MOSS-Image checkpoint set (DiT + Qwen3.5-9B TE + FLUX 2 AE)"
+    log_tag = _LOG_TAG
+    family = "moss_image"
+    display_name = "MOSS-Image"
+    component_labels = (
+        ("diffusion_model", "moss_image_dit"),
+        ("text_encoder", "moss_image_text_encoder"),
+        ("vae", "moss_image_vae"),
+    )
+    clip_cls = MossImageClipTextEncoder
+    te_suffix = "|moss_image"
+    sync_loras = True
 
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
@@ -70,121 +55,8 @@ class ModelLoaderMossImagePipe(BaseModelLoaderPipe):
         ]
 
     @classmethod
-    def inputs(cls) -> List[PipeInputSpec]:
-        return [
-            PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for per-component reuse", is_array=False),
-            PipeInputSpec("GPU", IOType.SERVICE, False, "GPU manager for the VRAM budget", is_array=False),
-        ]
-
-    @classmethod
     def outputs(cls) -> List[PipeOutputSpec]:
         return [
             PipeOutputSpec("model", IOType.MODEL, "MOSS-Image model bundle (DiT + TE + VAE)", is_array=False),
             PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "Qwen3.5-9B text encoder (ClipTextEncoder ABC)", is_array=False),
         ]
-
-    def progress_message(self) -> str:
-        dit_path = _path_of(self.config.get("diffusion_model")) or "?"
-        return f"Loading MOSS-Image model <<MODEL:{Path(dit_path).stem}>>"
-
-    def describe_models(self) -> List[ModelGenerationOutput]:
-        out: List[ModelGenerationOutput] = []
-        for key, mtype in (
-            ("diffusion_model", "moss_image_dit"),
-            ("text_encoder", "moss_image_text_encoder"),
-            ("vae", "moss_image_vae"),
-        ):
-            cfg = self.config.get(key)
-            if _path_of(cfg):
-                out.append(ModelGenerationOutput(name=cfg.get("name") or Path(_path_of(cfg)).stem, type=mtype))
-        for lora in self._loras():
-            out.append(ModelGenerationOutput(name=Path(lora["file_path"]).stem, type="lora", weight=lora["weight"]))
-        return out
-
-    def _loras(self) -> List[Dict[str, Any]]:
-        return _active_loras(self.config.get("loras"), log_tag=_LOG_TAG)
-
-    def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
-        self.validate()
-        generation_outputs(ModelsGenerationOutput(models=self.describe_models()))
-
-        dit_path = _path_of(self.config.get("diffusion_model"))
-        te_path = _path_of(self.config.get("text_encoder"))
-        vae_path = _path_of(self.config.get("vae"))
-        if not (dit_path and te_path and vae_path):
-            raise ValueError("model_loader/moss_image requires diffusion_model, text_encoder and vae file paths")
-
-        device = self.config.get("device", "cuda")
-        dtype = self.config.get("dtype", "bfloat16")
-        loras = self._loras()
-
-        vram_gb = self._vram_budget(pipe_input)
-        loader = NativeEngineLoader(device=device, vram_gb=vram_gb)
-
-        te_fp = f"{te_path}|{dtype}|moss_image"
-        vae_fp = f"{vae_path}|{dtype}"
-        dit_fp = f"{dit_path}|{dtype}"
-        lora_fp = _lora_stack_fingerprint(loras) or NO_LORAS
-
-        def load_te() -> NativeModel:
-            return loader.load(te_path, "text_encoder")
-
-        def load_vae() -> NativeModel:
-            return loader.load(vae_path, "vae")
-
-        def load_dit() -> NativeModel:
-            model = loader.load(dit_path, "diffusion_model")
-            model._active_lora_application = self._apply_loras(model, loras)
-            model._active_lora_fp = lora_fp
-            return model
-
-        models = pipe_input.input.get("MODELS", None)
-        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
-        lifecycle = ComponentLifecycle(models, progress)
-
-        te_key = f"native/te/{te_path}|moss_image"
-        te = Component("text encoder", te_key, te_fp, load_te, file_size_gb(te_path))
-        vae = Component("VAE", f"native/vae/{vae_path}", vae_fp, load_vae, file_size_gb(vae_path))
-        dit = Component("DiT", f"native/dit/{dit_path}", dit_fp, load_dit, file_size_gb(dit_path))
-
-        if not lifecycle.caching:
-            te_model = lifecycle.acquire(te)
-            vae_model = lifecycle.acquire(vae)
-            dit_model = lifecycle.acquire(dit)
-            _emit_lora_diagnostics(dit_model, generation_outputs, _LOG_TAG)
-            return PipeOutput(output={
-                "model": MossImageModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=te_key),
-                "text_encoder": MossImageClipTextEncoder(
-                    te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
-                ),
-            })
-
-        vae_model = lifecycle.acquire(vae)
-        dit_model = lifecycle.acquire(dit)
-        self._sync_loras(dit_model, loras, lora_fp, lifecycle, dit, generation_outputs)
-        bundle = MossImageModelBundle(dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key)
-        clip = MossImageClipTextEncoder(
-            device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
-            te_loader=lifecycle.deferred_module(te),
-        )
-        return PipeOutput(output={"model": bundle, "text_encoder": clip})
-
-    def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:
-        return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), _LOG_TAG)
-
-    @staticmethod
-    def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]):
-        return _apply_loras_to(dit_model, loras, _LOG_TAG)
-
-    @staticmethod
-    def _sync_loras(
-        dit_model: NativeModel,
-        loras: List[Dict[str, Any]],
-        lora_fp: str,
-        lifecycle: Optional[ComponentLifecycle] = None,
-        component: Optional[Component] = None,
-        generation_outputs: Optional[callable] = None,
-    ) -> None:
-        _sync_loras(dit_model, loras, lora_fp, ModelLoaderMossImagePipe._apply_loras,
-                    lifecycle=lifecycle, component=component,
-                    generation_outputs=generation_outputs, log_tag=_LOG_TAG)

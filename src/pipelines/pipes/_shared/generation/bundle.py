@@ -11,11 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MossImageModelBundle:
+class DitTeVaeBundle:
     dit: NativeModel = field(default=WeakModelRef())
     te: NativeModel = field(default=WeakModelRef())
     vae: NativeModel = field(default=WeakModelRef())
     te_cache_key: Optional[str] = None
+    windowed_loras: tuple = ()
 
     @property
     def spec(self):
@@ -31,4 +32,4 @@ class MossImageModelBundle:
             try:
                 component.unload()
             except Exception:
-                logger.debug("moss_image bundle component eviction failed", exc_info=True)
+                logger.debug("bundle component eviction failed", exc_info=True)

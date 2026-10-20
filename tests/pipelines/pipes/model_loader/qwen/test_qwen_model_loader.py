@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.model_loader.qwen.main import ModelLoaderQwenPipe
-from src.pipelines.pipes.model_loader.qwen.bundle import QwenModelBundle
+from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 from src.pipelines.pipes.model_loader.qwen.qwen_clip import QwenClipTextEncoder
 
 
@@ -95,7 +95,7 @@ def test_te_never_acquired_when_encoder_is_never_read():
 
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderQwenPipe(config=_config()))
-    assert isinstance(out.output["model"], QwenModelBundle)
+    assert isinstance(out.output["model"], DitTeVaeBundle)
     assert isinstance(out.output["text_encoder"], QwenClipTextEncoder)
 
 
@@ -207,7 +207,7 @@ def test_vision_flag_threaded_to_the_engine_loader(monkeypatch):
                 received.update(kwargs)
             return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
 
-    import src.pipelines.pipes.model_loader.qwen.main as qwen_main
+    import src.pipelines.pipes._shared.generation.three_component_loader as qwen_main
     monkeypatch.setattr(qwen_main, "NativeEngineLoader", _FakeLoader)
 
     pipe = ModelLoaderQwenPipe(config=_config(vision=True))

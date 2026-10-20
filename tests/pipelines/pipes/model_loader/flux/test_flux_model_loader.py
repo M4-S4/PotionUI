@@ -22,7 +22,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     lora_stack_fingerprint as _lora_stack_fingerprint,
 )
 from src.pipelines.pipes.model_loader.flux.main import ModelLoaderFluxPipe
-from src.pipelines.pipes.model_loader.flux.bundle import FluxModelBundle
+from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 from src.pipelines.pipes.model_loader.flux.flux_clip import FluxClipTextEncoder
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 
@@ -154,7 +154,7 @@ def test_te_never_acquired_when_encoder_is_never_read():
 
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderFluxPipe(config=_config()))
-    assert isinstance(out.output["model"], FluxModelBundle)
+    assert isinstance(out.output["model"], DitTeVaeBundle)
     assert isinstance(out.output["text_encoder"], FluxClipTextEncoder)
 
 

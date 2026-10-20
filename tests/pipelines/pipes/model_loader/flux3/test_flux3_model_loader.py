@@ -6,7 +6,7 @@ from unittest.mock import patch
 import torch
 
 from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.model_loader.flux3.bundle import Flux3ModelBundle
+from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 from src.pipelines.pipes.model_loader.flux3.flux3_clip import Flux3ClipTextEncoder
 from src.pipelines.pipes.model_loader.flux3.main import ModelLoaderFlux3Pipe
 from src.platform.runtime.native.text_encoders import prompt_embed_key
@@ -63,7 +63,7 @@ def test_text_encoder_is_acquired_lazily_under_the_flux3_key():
 def test_bundle_remembers_the_text_encoder_key():
     _models, out = _run(ModelLoaderFlux3Pipe(config=_config()))
     bundle = out.output["model"]
-    assert isinstance(bundle, Flux3ModelBundle)
+    assert isinstance(bundle, DitTeVaeBundle)
     assert bundle.te_cache_key == "native/te//m/te.safetensors|flux3"
 
 
@@ -78,7 +78,7 @@ def test_text_encoder_loads_with_the_flux3_variant():
             calls.append((path, kind, kwargs))
             return SimpleNamespace(module=object(), spec=None, estimated_vram_gb=1.0)
 
-    with patch("src.pipelines.pipes.model_loader.flux3.main.NativeEngineLoader", _Loader):
+    with patch("src.pipelines.pipes._shared.generation.three_component_loader.NativeEngineLoader", _Loader):
         models, out = _run(ModelLoaderFlux3Pipe(config=_config()))
         _ = out.output["text_encoder"].encoder
         models.loaders["native/te//m/te.safetensors|flux3"]()

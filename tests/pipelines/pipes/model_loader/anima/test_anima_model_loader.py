@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.model_loader.anima.bundle import AnimaModelBundle
+from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 from src.pipelines.pipes.model_loader.anima.anima_clip import AnimaClipTextEncoder
 from src.pipelines.pipes.model_loader.anima.main import ModelLoaderAnimaPipe
 
@@ -87,7 +87,7 @@ def test_te_never_acquired_when_encoder_is_never_read():
 
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderAnimaPipe(config=_config()))
-    assert isinstance(out.output["model"], AnimaModelBundle)
+    assert isinstance(out.output["model"], DitTeVaeBundle)
     assert isinstance(out.output["text_encoder"], AnimaClipTextEncoder)
 
 
