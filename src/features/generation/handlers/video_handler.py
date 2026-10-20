@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from PIL import Image
 
+from src.platform.util.video_transcode import find_ffmpeg
 from src.pipelines.outputs import VideoGenerationOutput
 from src.features.generation.handlers.base_handler import BaseGenerationOutputHandler
 from src.features.generation.output_types import OutputTypeSpec, SerializeContext, output_type_registry
@@ -58,7 +59,7 @@ def render_poster_frame(video_path: str, width: int, timeout: int = 10) -> Optio
     with tempfile.TemporaryDirectory() as tmp_dir:
         poster_path = os.path.join(tmp_dir, "poster.jpg")
         command = [
-            'ffmpeg', '-y', '-nostdin',
+            find_ffmpeg() or 'ffmpeg', '-y', '-nostdin',
             '-i', video_path,
             '-vf', f'scale={width}:-1',
             '-vframes', '1',
@@ -118,7 +119,7 @@ def generate_video_thumbnails(
 
                 with local_target(storage_driver, key, suffix=".jpg") as target_path:
                     cmd = [
-                        'ffmpeg', '-y',
+                        find_ffmpeg() or 'ffmpeg', '-y',
                         '-i', video_path,
                         '-vf', f'scale={width}:-1',
                         '-vframes', '1',  # Only first frame
@@ -144,7 +145,7 @@ def generate_video_thumbnails(
 
                 with local_target(storage_driver, key, suffix=".webp") as target_path:
                     cmd = [
-                        'ffmpeg', '-y',
+                        find_ffmpeg() or 'ffmpeg', '-y',
                         '-i', video_path,
                         '-t', str(profile.video_seconds),
                         '-vf', f'fps={profile.video_fps},scale={width}:-1',

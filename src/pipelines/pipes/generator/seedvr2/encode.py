@@ -30,8 +30,9 @@ from typing import Callable, Iterable, Optional, Union
 
 import numpy as np
 
+from src.platform.util.video_transcode import find_ffmpeg
 from src.pipelines.pipes._shared.media.video_encode import (
-    FFmpegNotFoundError,
+    require_ffmpeg,
     _build_ffmpeg_args,
     _pad_to_even,
 )
@@ -138,7 +139,7 @@ def mux_audio_into_video(
     :func:`encode_video_with_audio` before this is ever called.
     """
     cmd = [
-        "ffmpeg", "-y",
+        find_ffmpeg() or "ffmpeg", "-y",
         "-i", str(video_only), "-i", str(source),
         "-map", "0:v:0", "-map", "1:a:0",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest",
@@ -331,11 +332,7 @@ def encode_frames_stream_to_mp4(
         raise TypeError(
             "encode_frames_stream_to_mp4 encodes video only; mux audio with encode_video_with_audio"
         )
-    if shutil.which("ffmpeg") is None:
-        raise FFmpegNotFoundError(
-            "ffmpeg binary not found on PATH -- required to encode video output. "
-            "Install ffmpeg (e.g. `apt install ffmpeg`) and retry."
-        )
+    ffmpeg = require_ffmpeg()
 
     frames_iter = iter(frames)
     try:
@@ -347,7 +344,7 @@ def encode_frames_stream_to_mp4(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = _build_ffmpeg_args(
-        width=width, height=height, fps=fps, codec=codec, crf=crf,
+        ffmpeg, width=width, height=height, fps=fps, codec=codec, crf=crf,
         out_path=out_path, audio_path=None,
     )
 

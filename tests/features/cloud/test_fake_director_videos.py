@@ -19,7 +19,7 @@ def ffmpeg_encoder(monkeypatch):
 
     import src.pipelines.pipes._shared.media.video_encode as video_encode
 
-    monkeypatch.setattr(fake.shutil, "which", lambda name: "/usr/bin/ffmpeg" if name == "ffmpeg" else None)
+    monkeypatch.setattr(fake, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(video_encode, "encode_frames_to_mp4", encode)
     return calls
 

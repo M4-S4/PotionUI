@@ -27,6 +27,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from src.platform.util.video_transcode import find_ffmpeg
+
 logger = logging.getLogger(__name__)
 
 FramesInput = Union[np.ndarray, List[Image.Image], torch.Tensor]
@@ -34,6 +36,17 @@ FramesInput = Union[np.ndarray, List[Image.Image], torch.Tensor]
 
 class FFmpegNotFoundError(RuntimeError):
     """Raised when the `ffmpeg` binary is not available on PATH."""
+
+
+def require_ffmpeg() -> str:
+    found = find_ffmpeg()
+    if found is None:
+        raise FFmpegNotFoundError(
+            "ffmpeg binary not found on PATH and no bundled imageio-ffmpeg binary is available -- "
+            "required to encode video output. Install ffmpeg (e.g. `apt install ffmpeg`, "
+            "`winget install ffmpeg`) and retry."
+        )
+    return found
 
 
 @dataclass
@@ -262,6 +275,7 @@ def _write_wav_pcm16(waveform: np.ndarray, sample_rate: int, out_path: Union[str
 
 
 def _build_ffmpeg_args(
+    ffmpeg: str,
     *,
     width: int,
     height: int,
@@ -278,7 +292,7 @@ def _build_ffmpeg_args(
     tests without invoking ffmpeg.
     """
     cmd = [
-        "ffmpeg", "-y",
+        ffmpeg, "-y",
         "-f", "rawvideo",
         "-pix_fmt", "rgb24",
         "-s", f"{width}x{height}",
@@ -398,11 +412,7 @@ def encode_frames_to_mp4(
     malformed/empty input, and `RuntimeError` if ffmpeg exits non-zero or
     times out.
     """
-    if shutil.which("ffmpeg") is None:
-        raise FFmpegNotFoundError(
-            "ffmpeg binary not found on PATH -- required to encode video output. "
-            "Install ffmpeg (e.g. `apt install ffmpeg`) and retry."
-        )
+    ffmpeg = require_ffmpeg()
 
     arr = _normalize_frames(frames)
     arr = _pad_to_even(arr)
@@ -435,7 +445,7 @@ def encode_frames_to_mp4(
 
     try:
         cmd = _build_ffmpeg_args(
-            width=w, height=h, fps=fps, codec=codec, crf=crf, out_path=out_path, audio_path=audio_path,
+            ffmpeg, width=w, height=h, fps=fps, codec=codec, crf=crf, out_path=out_path, audio_path=audio_path,
         )
 
         logger.info(f"[VIDEO_ENCODE] Encoding {t} frames ({w}x{h} @ {fps}fps) -> {out_path} via {codec}"

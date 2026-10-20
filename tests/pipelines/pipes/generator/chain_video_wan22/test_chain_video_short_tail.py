@@ -171,7 +171,7 @@ def _stitch_with_recorded_frames():
 
     def real_stitch_side_effect(paths, overlaps, out_path, fps):
         from src.pipelines.pipes.generator.chain_video_wan22.stitch import stitch_segments as real_stitch
-        with patch("src.pipelines.pipes.generator.chain_video_wan22.stitch.shutil.which", return_value=None):
+        with patch("src.pipelines.pipes.generator.chain_video_wan22.stitch.find_ffmpeg", return_value=None):
             return real_stitch(
                 [str(p) for p in paths], overlaps, out_path, fps,
                 frame_reader=lambda p: iter(frames_by_path[str(p)]),

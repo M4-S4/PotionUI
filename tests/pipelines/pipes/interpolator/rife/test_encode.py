@@ -15,7 +15,7 @@ from src.pipelines.pipes.interpolator.rife import encode
 @pytest.fixture
 def ffmpeg_stub(monkeypatch):
     def _install(argv):
-        monkeypatch.setattr(encode.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+        monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
         real_popen = subprocess.Popen
         monkeypatch.setattr(
             encode.subprocess, "Popen", lambda cmd, **kw: real_popen(argv, **kw)
@@ -395,7 +395,7 @@ class _FloodingFakeProc:
 
 
 def test_stderr_flood_does_not_block_writes_and_close_completes(monkeypatch):
-    monkeypatch.setattr(encode.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     # 200KB of chatter, well past any real pipe's ~64KB kernel buffer, and a
     # stdin capacity small enough that a single frame needs the child
     # actually reading -- so this frame's write() only completes once the

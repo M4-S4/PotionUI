@@ -184,6 +184,27 @@ describe('extractContentFromDOM', () => {
 });
 
 describe('collectTextNodeSpans', () => {
+	it('counts the newline extractContentFromDOM adds after an Enter-created block, so offsets match the value', () => {
+		const editor = document.createElement('div');
+		const first = document.createElement('div');
+		first.textContent = '[Verse]';
+		const second = document.createElement('div');
+		second.textContent = '[Chorus]';
+		editor.append(first, second);
+		const { value } = extractContentFromDOM(editor, {});
+		const spans = collectTextNodeSpans(editor, {});
+		expect(value).toBe('[Verse]\n[Chorus]');
+		expect(spans[1]).toMatchObject({ start: value.indexOf('[Chorus]'), end: value.length });
+	});
+
+	it('counts a Shift+Enter line break the same way as the value does', () => {
+		const editor = document.createElement('div');
+		editor.append('[Verse]', document.createElement('br'), '[Chorus]');
+		const { value } = extractContentFromDOM(editor, {});
+		const spans = collectTextNodeSpans(editor, {});
+		expect(spans[1].start).toBe(value.indexOf('[Chorus]'));
+	});
+
 	it('returns one span per text node with correct absolute offsets, skipping atomic containers', () => {
 		const chip = makeChip();
 		const editor = document.createElement('div');

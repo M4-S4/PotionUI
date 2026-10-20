@@ -18,6 +18,7 @@
 
 import type { ModeState, Tab } from '$lib/types/tabs';
 import type { ModeBasedSessionData, SessionData } from '$lib/types/api';
+import { ensureSegmentList } from '$lib/utils/richSegments';
 
 export function captureModeState(
 	tab: Pick<
@@ -73,8 +74,8 @@ export function buildModeSwitchPatch(tab: Tab, fromMode: string | null, toMode: 
 		modeStateByMode,
 		prompt: restored.prompt,
 		negativePrompt: restored.negativePrompt,
-		promptSegments: restored.promptSegments,
-		negativePromptSegments: restored.negativePromptSegments,
+		promptSegments: ensureSegmentList(restored.promptSegments),
+		negativePromptSegments: ensureSegmentList(restored.negativePromptSegments),
 		promptTabs: restored.promptTabs,
 		activePromptTab: restored.activePromptTab,
 		formData: restored.formData,

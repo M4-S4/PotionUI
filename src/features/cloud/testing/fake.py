@@ -1,6 +1,5 @@
 import hashlib
 import os
-import shutil
 import struct
 import tempfile
 import zlib
@@ -11,6 +10,7 @@ from typing import Any, ClassVar, Literal, Optional, Sequence
 
 from pydantic import Field
 
+from src.platform.util.video_transcode import find_ffmpeg
 from src.features.cloud.contracts import (
     CloudArtifact,
     CloudBackendConfig,
@@ -107,7 +107,7 @@ def fake_video_bytes(
     handle, name = tempfile.mkstemp(suffix=".mp4", prefix="potionui-fake-video-")
     os.close(handle)
     try:
-        if shutil.which("ffmpeg") is not None:
+        if find_ffmpeg() is not None:
             _encode_with_ffmpeg(frames, name, fps, sound)
         else:
             _encode_with_opencv(frames, name, fps, size)

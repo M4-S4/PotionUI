@@ -16,6 +16,7 @@ from src.pipelines.contracts import (
     PipeConfigSpec,
 )
 from src.pipelines.outputs import Icon, Progress
+from src.platform.util.video_transcode import find_ffmpeg
 from src.pipelines.pipes._shared.media.video_encode import (
     has_audio_stream,
     probe_source_duration,
@@ -110,7 +111,7 @@ class VideoSpeedPipe(BasePipe):
 
         # Build FFmpeg command
         cmd = [
-            "ffmpeg", "-y",
+            find_ffmpeg() or "ffmpeg", "-y",
             "-i", video_path,
             "-filter:v", f"setpts={setpts_factor}*PTS",
         ]

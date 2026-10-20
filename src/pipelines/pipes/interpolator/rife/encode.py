@@ -11,7 +11,6 @@ video-only output rather than raising).
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import threading
 from pathlib import Path
@@ -19,9 +18,10 @@ from typing import Optional, Union
 
 import numpy as np
 
+from src.platform.util.video_transcode import find_ffmpeg
 from src.pipelines.pipes._shared.media.video_encode import (
-    FFmpegNotFoundError,
     has_audio_stream,
+    require_ffmpeg,
 )
 from src.platform.observability.logger import logger
 
@@ -103,10 +103,7 @@ class StreamingMp4Writer:
 
     def __init__(self, out_path: Union[str, Path], width: int, height: int,
                  fps: float, codec: str = "libx264", crf: int = 18):
-        if shutil.which("ffmpeg") is None:
-            raise FFmpegNotFoundError(
-                "ffmpeg binary not found on PATH -- required to encode video output."
-            )
+        ffmpeg = require_ffmpeg()
         self.width = int(width)
         self.height = int(height)
         if self.width % 2 or self.height % 2:
@@ -114,7 +111,7 @@ class StreamingMp4Writer:
                 f"StreamingMp4Writer needs even dimensions for yuv420p, got {self.width}x{self.height}"
             )
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg, "-y",
             "-f", "rawvideo", "-pix_fmt", "rgb24",
             "-s", f"{self.width}x{self.height}", "-r", str(fps),
             "-i", "-", "-an",
@@ -266,7 +263,7 @@ def mux_audio_from_source(video_only: Union[str, Path], source: Union[str, Path]
         return False
     for audio_args in (["-c:a", "copy"], ["-c:a", "aac", "-b:a", "192k"]):
         cmd = [
-            "ffmpeg", "-y",
+            find_ffmpeg() or "ffmpeg", "-y",
             "-i", str(video_only), "-i", str(source),
             "-map", "0:v:0", "-map", "1:a:0",
             "-c:v", "copy", *audio_args,

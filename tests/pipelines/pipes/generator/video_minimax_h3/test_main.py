@@ -101,6 +101,13 @@ def test_validate_config_rejects_invalid_audio_source():
 
 # -- build_context input validation (runtime, needs pipe_input) -------------
 
+def test_build_context_fails_fast_without_ffmpeg(monkeypatch):
+    monkeypatch.setattr("src.pipelines.pipes._shared.media.video_encode.find_ffmpeg", lambda: None)
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    with pytest.raises(GenerationExecutionError, match="ffmpeg"):
+        pipe.build_context(_pipe_input(model=_fake_bundle(), conditioning=[_fake_conditioning(3)]))
+
+
 def test_build_context_rejects_non_minimax_h3_family():
     pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
     bundle = SimpleNamespace(spec=SimpleNamespace(family="ltx", variant="whatever"))

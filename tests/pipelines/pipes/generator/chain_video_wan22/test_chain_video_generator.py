@@ -829,18 +829,6 @@ def test_last_frame_continuation_source_uses_single_frame_overlap():
     assert mock_stitch.call_args.args[1] == [0]
 
 
-# -- per-join stitch overlap: real generator -> real stitch, fake IO --------
-#
-# These run the ACTUAL stitch_segments algorithm (crossfade / plain-concat
-# logic in stitch.py) against what the generator actually emitted per
-# segment, without real ffmpeg/cv2: encode_frames_to_mp4 is faked to record
-# each segment's full frame array keyed by its temp path, and the pipe's
-# stitch_segments call is redirected to the real implementation with a
-# frame_reader/encode that read/write those same in-memory arrays (ffmpeg's
-# stream-copy path is forced off via shutil.which so the frame-accurate path
-# always runs). This proves the join overlap the pipe computes end-to-end --
-# resulting frame count and boundary pixel values -- not just the argument it
-# passes to a mocked stitcher.
 
 def _stitch_with_recorded_frames():
     frames_by_path: Dict[str, np.ndarray] = {}
@@ -850,7 +838,7 @@ def _stitch_with_recorded_frames():
 
     def real_stitch_side_effect(paths, overlaps, out_path, fps):
         from src.pipelines.pipes.generator.chain_video_wan22.stitch import stitch_segments as real_stitch
-        with patch("src.pipelines.pipes.generator.chain_video_wan22.stitch.shutil.which", return_value=None):
+        with patch("src.pipelines.pipes.generator.chain_video_wan22.stitch.find_ffmpeg", return_value=None):
             return real_stitch(
                 [str(p) for p in paths], overlaps, out_path, fps,
                 frame_reader=lambda p: iter(frames_by_path[str(p)]),

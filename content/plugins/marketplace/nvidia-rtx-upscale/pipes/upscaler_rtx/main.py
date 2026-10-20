@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 from PIL import Image
 
+from src.plugin_api.media import find_ffmpeg
 from src.plugin_api.pipes import (
     BasePipe,
     GalleryGenerationOutput,
@@ -66,7 +67,8 @@ class _StreamingMp4Writer:
 
     def __init__(self, out_path: Union[str, Path], width: int, height: int,
                  fps: float, codec: str = "libx264", crf: int = 18):
-        if shutil.which("ffmpeg") is None:
+        ffmpeg = find_ffmpeg()
+        if ffmpeg is None:
             raise FFmpegNotFoundError("ffmpeg binary not found on PATH")
         self.width = int(width)
         self.height = int(height)
@@ -75,7 +77,7 @@ class _StreamingMp4Writer:
                 f"_StreamingMp4Writer needs even dimensions for yuv420p, got {self.width}x{self.height}"
             )
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg, "-y",
             "-f", "rawvideo", "-pix_fmt", "rgb24",
             "-s", f"{self.width}x{self.height}", "-r", str(fps),
             "-i", "-", "-an",
@@ -143,7 +145,7 @@ def _mux_audio_from_source(video_only: Union[str, Path], source: Union[str, Path
         return False
     for audio_args in (["-c:a", "copy"], ["-c:a", "aac", "-b:a", "192k"]):
         cmd = [
-            "ffmpeg", "-y",
+            find_ffmpeg() or "ffmpeg", "-y",
             "-i", str(video_only), "-i", str(source),
             "-map", "0:v:0", "-map", "1:a:0",
             "-c:v", "copy", *audio_args,

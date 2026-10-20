@@ -52,6 +52,7 @@ ftfy>=6.1.0
 
 Pillow>=11.0.0
 opencv-python>=4.10.0.84
+imageio-ffmpeg>=0.6.0  # Bundled ffmpeg binary used when none is on PATH
 numpy>=1.21.0
 scipy>=1.11.0
 scikit-image>=0.21.0

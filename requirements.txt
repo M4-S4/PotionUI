@@ -28,6 +28,7 @@ ftfy>=6.1.0  # For text fixing
 Pillow>=11.0.0
 opencv-python>=4.10.0.84
 opencv-python-headless<4.12
+imageio-ffmpeg>=0.6.0  # Bundled ffmpeg binary used when none is on PATH
 numpy>=1.21.0
 scipy>=1.11.0  # For scientific computing
 scikit-image>=0.21.0  # For image processing

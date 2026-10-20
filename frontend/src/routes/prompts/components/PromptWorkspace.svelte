@@ -34,13 +34,12 @@
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import CreateTagModal from '$lib/components/modals/CreateTagModal.svelte';
 	import {
-		applySegmentList,
 		createBlankEditorSegment,
 		hasMeaningfulSegments,
 		toEditorSegment,
 		toRichSegment
 	} from '$lib/utils/richSegments';
-	import { mergeVariables } from '$lib/utils/variablesTransfer';
+	import { buildUseInGenerateUpdate } from './useInGenerate';
 	import { countUsagesInSegments } from '$lib/utils/promptVariables';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
@@ -459,18 +458,9 @@
 			toasts.error('No active Generate tab to apply this prompt to');
 			return;
 		}
-		const isNegative = usageHintValue === 'negative';
-		const currentList = (isNegative ? tab.negativePromptSegments : tab.promptSegments) ?? [];
-		const nextList = applySegmentList(currentList, segments, 'replace');
-		const updates: Record<string, unknown> = isNegative
-			? { negativePromptSegments: nextList, sourcePromptId }
-			: { promptSegments: nextList, sourcePromptId };
-		const importedCount = variables ? Object.keys(variables).length : 0;
-		if (importedCount > 0)
-			updates.variables = mergeVariables(tab.variables ?? {}, variables as VariablesMap, 'replace');
-		tabsStore.updateTab(tab.id, updates);
-		if (importedCount > 0) toasts.success(`Imported ${importedCount} variable${importedCount === 1 ? '' : 's'}`);
-		toasts.success('Prompt applied to the active Generate tab');
+		const result = buildUseInGenerateUpdate(tab, segments, variables, usageHintValue, sourcePromptId);
+		tabsStore.updateTab(tab.id, result.updates);
+		toasts.success(result.message);
 		await goto('/');
 	}
 

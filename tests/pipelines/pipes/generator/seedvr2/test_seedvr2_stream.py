@@ -566,6 +566,7 @@ class _FakeFFmpeg:
 
 def _wire_ffmpeg(monkeypatch, *, returncode=0, write_output=True):
     monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     created = []
 
     def _popen(cmd, stdin=None, stdout=None, stderr=None):
@@ -650,6 +651,7 @@ def test_stream_encoder_uses_the_same_ffmpeg_argv_as_the_eager_encoder(monkeypat
     seen = {}
 
     monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     def _popen(cmd, stdin=None, stdout=None, stderr=None):
         seen["cmd"] = cmd
@@ -661,13 +663,14 @@ def test_stream_encoder_uses_the_same_ffmpeg_argv_as_the_eager_encoder(monkeypat
     enc.encode_frames_stream_to_mp4(iter(_frames(2, size=4)), out_path, 24.0)
 
     assert seen["cmd"] == _build_ffmpeg_args(
-        width=4, height=4, fps=24.0, codec="libx264", crf=18,
+        "/usr/bin/ffmpeg", width=4, height=4, fps=24.0, codec="libx264", crf=18,
         out_path=out_path, audio_path=None,
     )
 
 
 def test_stream_encoder_times_out_and_cleans_up(monkeypatch, tmp_path):
     monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     class _Hanging(_FakeFFmpeg):
         def wait(self, timeout=None):
@@ -691,6 +694,7 @@ def test_stream_encoder_closes_stderr_handle_on_a_popen_spawn_failure(monkeypatc
     ``which`` check above, a permission error, ...) that handle must still be
     closed rather than leaked, and no output file must ever appear."""
     monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     created_handles = []
 
@@ -740,6 +744,7 @@ class _RaisingCloseFFmpeg(_FakeFFmpeg):
 
 def test_stream_encoder_stdin_close_failure_does_not_mask_the_producer_error(monkeypatch, tmp_path):
     monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(enc.subprocess, "Popen", lambda cmd, **kw: _RaisingCloseFFmpeg(cmd[-1]))
     out_path = tmp_path / "out.mp4"
 
@@ -759,6 +764,7 @@ def test_stream_encoder_stdin_close_failure_does_not_mask_sampling_cancelled(mon
     from src.platform.runtime.native.errors import SamplingCancelled
 
     monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(enc.subprocess, "Popen", lambda cmd, **kw: _RaisingCloseFFmpeg(cmd[-1]))
     out_path = tmp_path / "out.mp4"
 
@@ -795,6 +801,7 @@ class _EarlyClosingFFmpeg(_FakeFFmpeg):
 
 def test_stream_encoder_raises_when_the_pipe_breaks_before_the_producer_is_exhausted(monkeypatch, tmp_path):
     monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     created = []
 
     def _popen(cmd, stdin=None, stdout=None, stderr=None):
@@ -823,6 +830,7 @@ def test_stream_encoder_succeeds_when_the_pipe_never_breaks(monkeypatch, tmp_pat
         return proc
 
     monkeypatch.setattr(enc.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
     monkeypatch.setattr(enc.subprocess, "Popen", _popen)
     out_path = tmp_path / "out.mp4"
 

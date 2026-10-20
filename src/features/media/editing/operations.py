@@ -29,6 +29,7 @@ from typing import List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from src.platform.util.video_transcode import find_ffmpeg
 from src.features.generation import media_probe
 from src.features.media.editing.dto import (
     CropOperation,
@@ -190,7 +191,7 @@ def apply_video_operations(
     filters = _video_filter_chain(operations, width, height)
 
     command = [
-        "ffmpeg", "-y", "-nostdin",
+        find_ffmpeg() or "ffmpeg", "-y", "-nostdin",
         *seek_args,
         "-i", str(source),
     ]
@@ -276,7 +277,7 @@ def extract_video_frame(source: Path, dest: Path, time_seconds: float) -> Edited
         )
 
     command = [
-        "ffmpeg", "-y", "-nostdin",
+        find_ffmpeg() or "ffmpeg", "-y", "-nostdin",
         "-ss", f"{time_seconds:.6f}",
         "-i", str(source),
         "-frames:v", "1",
@@ -308,7 +309,7 @@ def apply_audio_operations(
     start, length = _validated_trim(trim, duration)
 
     command = [
-        "ffmpeg", "-y", "-nostdin",
+        find_ffmpeg() or "ffmpeg", "-y", "-nostdin",
         "-ss", f"{start:.6f}",
         "-i", str(source),
         "-t", f"{length:.6f}",
@@ -357,7 +358,7 @@ def split_audio(
 
     pattern = dest_dir / f"part_%03d{suffix}"
     command = [
-        "ffmpeg", "-y", "-nostdin",
+        find_ffmpeg() or "ffmpeg", "-y", "-nostdin",
         "-i", str(source),
         "-f", "segment",
         "-segment_time", f"{part_seconds:.6f}",

@@ -109,7 +109,6 @@ what the DiT samples against during the refine itself.
 from __future__ import annotations
 
 import math
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -157,7 +156,13 @@ from src.pipelines.pipes._shared.vae.minimax_h3_decode import (
     decode_tile_tokens,
     decode_video,
 )
-from src.pipelines.pipes._shared.media.video_encode import AudioInput, AudioTrack, encode_frames_to_mp4
+from src.pipelines.pipes._shared.media.video_encode import (
+    AudioInput,
+    AudioTrack,
+    FFmpegNotFoundError,
+    encode_frames_to_mp4,
+    require_ffmpeg,
+)
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.audio import (
@@ -380,6 +385,13 @@ def _load_reference_audio(audio_path: Any) -> ReferenceMedia:
     return ReferenceMedia(kind="audio", audio=waveform, sample_rate=int(sample_rate))
 
 
+def _require_ffmpeg_or_raise() -> str:
+    try:
+        return require_ffmpeg()
+    except FFmpegNotFoundError as exc:
+        raise GenerationExecutionError(f"generator/video_minimax_h3: {exc}") from exc
+
+
 def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
     """Any media file (pure audio, or a video with an embedded soundtrack) ->
     a `(channels, samples)` float32 waveform at its native rate, via a real
@@ -387,17 +399,13 @@ def _decode_waveform_via_ffmpeg(path: Any) -> tuple[Tensor, int]:
     containers) -- the fallback path for a refine's `audio_refine` when no
     `initial_audio_latent` was connected (module docstring, "Audio on a
     refine")."""
-    if shutil.which("ffmpeg") is None:
-        raise GenerationExecutionError(
-            "generator/video_minimax_h3: encoding a passthrough audio track into a refine's audio "
-            "latent needs ffmpeg on PATH"
-        )
+    ffmpeg = _require_ffmpeg_or_raise()
     import soundfile as sf
 
     wav_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
     try:
         result = subprocess.run(
-            ["ffmpeg", "-y", "-i", str(path), "-vn", "-acodec", "pcm_s16le", "-ar", str(AUDIO_SAMPLE_RATE), wav_path],
+            [ffmpeg, "-y", "-i", str(path), "-vn", "-acodec", "pcm_s16le", "-ar", str(AUDIO_SAMPLE_RATE), wav_path],
             capture_output=True, timeout=120,
         )
         if result.returncode != 0:
@@ -1279,6 +1287,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
     # -- context -------------------------------------------------------
 
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
+        _require_ffmpeg_or_raise()
         bundle = pipe_input.input["model"]
         conditioning = pipe_input.input["conditioning"] or []
         seeds = pipe_input.input.get("seed", [])

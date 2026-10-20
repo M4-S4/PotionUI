@@ -283,6 +283,7 @@ export function collectTextNodeSpans(
 				offset += 1;
 			} else {
 				for (const child of Array.from(node.childNodes)) walk(child);
+				if (el.tagName === 'DIV' && el.nextSibling) offset += 1;
 			}
 		}
 	}
