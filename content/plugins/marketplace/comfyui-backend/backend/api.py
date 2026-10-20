@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.plugin_api import (
-    PluginRepository,
+    plugin_settings,
     get_container,
     get_current_admin_user,
     lint_preset_dir,
@@ -50,25 +50,8 @@ _MARKETPLACE_PRESETS_ROOT = Path("content/presets/marketplace")
 
 
 def _read_comfyui_default_connection() -> Tuple[str, int, bool]:
-    repo = PluginRepository()
-    settings = repo.get_plugin_settings("comfyui-backend")
-
-    host = "127.0.0.1"
-    port = 8188
-    secure = False
-
-    for s in settings:
-        if s.setting_key == "default_host" and s.setting_value:
-            host = s.setting_value
-        elif s.setting_key == "default_port" and s.setting_value:
-            try:
-                port = int(s.setting_value)
-            except ValueError:
-                pass
-        elif s.setting_key == "default_secure" and s.setting_value is not None:
-            secure = str(s.setting_value).strip().lower() in ("1", "true", "yes", "on")
-
-    return host, port, secure
+    values = plugin_settings("comfyui-backend")
+    return values["default_host"], values["default_port"], values["default_secure"]
 
 
 def _get_comfyui_base_url() -> str:

@@ -23,8 +23,9 @@ PLUGIN_ID = "runpod-provider"
 
 
 class FakeSetting:
-    def __init__(self, value):
+    def __init__(self, value, key=None):
         self.setting_value = value
+        self.setting_key = key
 
 
 class FakePluginRepository:
@@ -37,6 +38,13 @@ class FakePluginRepository:
     def get_plugin_setting(self, plugin_id, key):
         value = self._store.get((plugin_id, key))
         return FakeSetting(value) if value is not None else None
+
+    def get_plugin_settings(self, plugin_id):
+        return [
+            FakeSetting(value, key)
+            for (owner, key), value in self._store.items()
+            if owner == plugin_id
+        ]
 
     def delete_plugin_setting(self, plugin_id, key):
         return self._store.pop((plugin_id, key), None) is not None
@@ -630,11 +638,17 @@ async def test_provision_rejects_an_empty_string_data_center_with_no_region_fall
     assert FakeRunPodClient.instances == []
 
 
-async def test_provision_without_image_ref_or_setting_raises(provisioner, repo):
+@pytest.mark.parametrize("stored", [None, ""])
+async def test_provision_without_a_worker_image_setting_uses_the_manifest_default(provisioner, repo, stored):
     repo._store.pop((PLUGIN_ID, "worker_image"))
+    if stored is not None:
+        repo._store[(PLUGIN_ID, "worker_image")] = stored
 
-    with pytest.raises(ComputeProvisionerError):
-        await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}), _noop_report)
+    await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}), _noop_report)
+
+    assert FakeRunPodClient.instances[-1].create_pod_calls[-1]["image_name"] == (
+        "ghcr.io/potionui/potionui-worker:latest"
+    )
 
 
 async def test_provision_constrains_host_cuda_to_the_worker_images_floor_by_default(provisioner):

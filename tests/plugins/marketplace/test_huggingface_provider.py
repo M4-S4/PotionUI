@@ -317,15 +317,6 @@ async def test_connection_uninitialized_returns_false():
     assert await p.test_connection() is False
 
 
-# ── settings schema ──────────────────────────────────────────────────
-
-
-def test_settings_schema_marks_api_key_as_password(provider):
-    schema = provider.get_settings_schema()
-    assert schema["properties"]["api_key"]["format"] == "password"
-    assert schema["required"] == []
-
-
 @pytest.mark.asyncio
 async def test_session_uses_the_shared_connector(monkeypatch):
     sentinel = object()

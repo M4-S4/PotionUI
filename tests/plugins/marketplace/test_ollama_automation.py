@@ -189,3 +189,30 @@ async def test_unload_session_uses_the_shared_tls_connector():
         assert connector._ssl is client_ssl_context()
     finally:
         await connector.close()
+
+
+class _StoredRows:
+    rows = {}
+
+    def get_plugin_settings(self, plugin_id):
+        assert plugin_id == "ollama"
+        return [
+            types.SimpleNamespace(setting_key=key, setting_value=value)
+            for key, value in self.rows.items()
+        ]
+
+
+@pytest.mark.parametrize(
+    "rows, expected",
+    [
+        ({}, ("http://localhost:11434", 10)),
+        ({"ollama_host": "http://gpu-box:11434/", "connection_timeout": "30"}, ("http://gpu-box:11434", 30)),
+        ({"ollama_host": "", "connection_timeout": "soon"}, ("http://localhost:11434", 10)),
+        ({"connection_timeout": "600"}, ("http://localhost:11434", 60)),
+    ],
+)
+def test_get_settings_reads_the_manifest_backed_values(monkeypatch, rows, expected):
+    monkeypatch.setattr(_StoredRows, "rows", rows)
+    monkeypatch.setattr("src.plugin_api.storage.PluginRepository", _StoredRows)
+
+    assert client.get_settings() == expected

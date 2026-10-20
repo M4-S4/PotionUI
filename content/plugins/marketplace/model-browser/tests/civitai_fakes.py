@@ -113,7 +113,7 @@ class MemoryCache:
 def fake_settings(monkeypatch, **overrides: Any) -> Dict[str, Any]:
     from backend import settings
 
-    values = dict(settings.DEFAULTS)
+    values = {"nsfw_ceiling": "inherit", "nsfw_max_level": 2, "hide_poi": False, "civitai_api_base": "https://civitai.com/api/v1", "cache_ttl_minutes": 10}
     values.update(overrides)
     monkeypatch.setattr(settings, "get_setting", lambda key: values[key])
     return values

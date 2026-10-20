@@ -3,6 +3,7 @@
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
+from types import SimpleNamespace
 
 from src.features.providers import (
     MarketplaceProviderBase,
@@ -47,19 +48,6 @@ class MockProvider(MarketplaceProviderBase):
             )
         return None
 
-    def get_settings_schema(self):
-        return {
-            "type": "object",
-            "properties": {
-                "api_key": {
-                    "type": "string",
-                    "title": "API Key",
-                    "format": "password"
-                }
-            },
-            "required": []
-        }
-
 
 class TestProviderRegistry(unittest.TestCase):
     """Test ProviderRegistry"""
@@ -68,6 +56,13 @@ class TestProviderRegistry(unittest.TestCase):
         """Set up test fixtures"""
         # Create a mock registry
         self.mock_registry = MagicMock()
+        self.mock_registry.get_plugin.side_effect = lambda plugin_id: (
+            SimpleNamespace(settings=[
+                {"name": "api_key", "type": "string", "label": "API Key", "is_secret": True},
+                {"name": "verify", "type": "boolean", "default": True},
+            ])
+            if plugin_id == "mock-provider" else None
+        )
         self.mock_registry.execute_hook.return_value = (
             MagicMock(data={'providers': {'mock': MockProvider}}),
             True
@@ -269,6 +264,74 @@ class TestProviderRegistry(unittest.TestCase):
         self.assertIsNotNone(schema)
         self.assertEqual(schema['type'], 'object')
         self.assertIn('api_key', schema['properties'])
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_provider_secret_keys_come_from_the_manifest(self, mock_plugin_repo):
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+        service._providers['mock'] = MockProvider()
+
+        self.assertEqual(service.get_provider_secret_keys('mock'), ['api_key'])
+        self.assertIsNone(service.get_provider_secret_keys('unmanifested'))
+        schema = service.get_provider_settings_schema('mock')
+        self.assertEqual(schema['properties']['api_key']['format'], 'password')
+        self.assertNotIn('format', schema['properties']['verify'])
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_update_provider_settings_encrypts_what_the_manifest_marks_secret(self, mock_plugin_repo):
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+        service._providers['mock'] = MockProvider()
+        mock_plugin_repo.return_value.get_plugin_settings.return_value = []
+
+        asyncio.run(service.update_provider_settings('mock', {'api_key': 'sk-1', 'verify': True}))
+
+        flags = {
+            call.kwargs['setting_key']: call.kwargs['is_secret']
+            for call in mock_plugin_repo.return_value.set_plugin_setting.call_args_list
+        }
+        self.assertEqual(flags, {'api_key': True, 'verify': False})
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_update_provider_settings_refuses_to_store_without_a_manifest(self, mock_plugin_repo):
+        from src.features.providers.registry import ProviderRegistry
+
+        self.mock_registry.get_plugin.side_effect = None
+        self.mock_registry.get_plugin.return_value = None
+        service = ProviderRegistry(self.mock_registry)
+        service._providers['mock'] = MockProvider()
+
+        self.assertFalse(asyncio.run(service.update_provider_settings('mock', {'api_key': 'sk-1'})))
+        mock_plugin_repo.return_value.set_plugin_setting.assert_not_called()
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_current_settings_mask_manifest_secrets(self, mock_plugin_repo):
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+        service._providers['mock'] = MockProvider()
+        mock_plugin_repo.return_value.get_plugin_settings.return_value = [
+            SimpleNamespace(setting_key='api_key', setting_value='sk-1', is_secret=False),
+            SimpleNamespace(setting_key='verify', setting_value='true', is_secret=False),
+        ]
+
+        self.assertEqual(
+            service.get_provider_current_settings('mock'), {'api_key': '***', 'verify': 'true'}
+        )
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_current_settings_mask_a_row_flagged_secret_outside_the_manifest(self, mock_plugin_repo):
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+        service._providers['mock'] = MockProvider()
+        mock_plugin_repo.return_value.get_plugin_settings.return_value = [
+            SimpleNamespace(setting_key='legacy_token', setting_value='x', is_secret=True),
+        ]
+
+        self.assertEqual(service.get_provider_current_settings('mock'), {'legacy_token': '***'})
 
     @patch('src.features.providers.registry.PluginRepository')
     def test_get_provider_settings_schema_not_found(self, mock_plugin_repo):

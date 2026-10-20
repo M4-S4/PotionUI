@@ -25,6 +25,7 @@ from src.features.providers import (
     ProviderModelInfo,
     ProviderSearchResult,
 )
+from src.features.plugins.manifest_settings import secret_setting_keys, settings_json_schema
 from src.features.plugins.repository import PluginRepository
 
 logger = logging.getLogger(__name__)
@@ -482,11 +483,17 @@ class ProviderRegistry:
         Returns:
             JSON Schema dictionary, or None if provider not found
         """
-        provider = self._providers.get(provider_id)
-        if not provider:
+        if provider_id not in self._providers:
             return None
 
-        return provider.get_settings_schema()
+        return settings_json_schema(self.registry, f"{provider_id}-provider") or {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
+
+    def get_provider_secret_keys(self, provider_id: str) -> Optional[List[str]]:
+        return secret_setting_keys(self.registry, f"{provider_id}-provider")
 
     async def update_provider_settings(
         self,
@@ -511,14 +518,10 @@ class ProviderRegistry:
             return False
 
         try:
-            # Get the schema to determine which settings are secrets
-            schema = provider.get_settings_schema()
-            secret_keys = set()
-
-            if schema and 'properties' in schema:
-                for key, prop in schema['properties'].items():
-                    if prop.get('format') == 'password':
-                        secret_keys.add(key)
+            secret_keys = self.get_provider_secret_keys(provider_id)
+            if secret_keys is None:
+                logger.error(f"No manifest for provider {provider_id}; refusing to store its settings")
+                return False
 
             # Save each setting
             plugin_id = f"{provider_id}-provider"
@@ -614,22 +617,14 @@ class ProviderRegistry:
         settings = {}
 
         try:
-            # Get schema to know which are secrets
-            provider = self._providers.get(provider_id)
-            schema = provider.get_settings_schema() if provider else {}
-            secret_keys = set()
-
-            if schema and 'properties' in schema:
-                for key, prop in schema['properties'].items():
-                    if prop.get('format') == 'password':
-                        secret_keys.add(key)
+            secret_keys = set(self.get_provider_secret_keys(provider_id) or [])
 
             # Get all settings
             plugin_id = f"{provider_id}-provider"
             plugin_settings = self._plugin_repo.get_plugin_settings(plugin_id, user_id)
 
             for setting in plugin_settings:
-                if setting.setting_key in secret_keys:
+                if setting.is_secret or setting.setting_key in secret_keys:
                     # Mask secrets - just indicate if set or not
                     settings[setting.setting_key] = "***" if setting.setting_value else None
                 else:

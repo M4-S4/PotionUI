@@ -411,45 +411,6 @@ class MarketplaceProviderBase(ABC):
         """Return prompt browsing records when PROMPT_FETCH is advertised."""
         raise NotImplementedError("This provider does not support prompt imports")
 
-    def get_settings_schema(self) -> Dict[str, Any]:
-        """
-        Get JSON schema for provider settings.
-
-        Returns a JSON Schema that describes the settings this provider
-        accepts. Used to generate settings forms in the UI.
-
-        Default implementation returns empty schema.
-        Override to define provider-specific settings.
-
-        Returns:
-            JSON Schema dictionary
-
-        Example:
-            {
-                "type": "object",
-                "properties": {
-                    "api_key": {
-                        "type": "string",
-                        "title": "API Key",
-                        "format": "password",
-                        "description": "Your API key from the provider"
-                    },
-                    "rate_limit": {
-                        "type": "number",
-                        "title": "Rate Limit (seconds)",
-                        "default": 1.0,
-                        "minimum": 0.1
-                    }
-                },
-                "required": ["api_key"]
-            }
-        """
-        return {
-            "type": "object",
-            "properties": {},
-            "required": []
-        }
-
     async def test_connection(self) -> bool:
         """
         Test if the provider connection is working.

@@ -383,7 +383,7 @@ def test_the_provider_gives_a_value_for_every_model_metadata_field(manifest):
         assign_to="none", info={"model": model.model_dump(mode="json"), "version_id": "2", "file_id": "3", "mb_type": "lora"},
     )
 
-    extra = _load("provider.pending_provider").build_model_info(row).extra_data
+    extra = _load("provider.pending_provider").build_model_info(row, max_level=2, hide_poi=False).extra_data
 
     assert {field["key"]: extra.get(field["key"]) for field in manifest.model_metadata_fields} == {
         "mb_base_model": "Illustrious",

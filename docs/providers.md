@@ -99,7 +99,9 @@ Declare what you support via `ProviderCapability`: `HASH_LOOKUP`, `SEARCH`, `DOW
 
 The methods that matter: `initialize(settings)`, `get_model_by_hash(sha256)`,
 `search_models(...)`, `get_download_url(...)`, `get_download_headers()`,
-`test_connection()`, and `get_settings_schema()`.
+and `test_connection()`.
+A provider declares no settings schema of its own: core reads secret keys and builds
+`GET /api/providers/{id}/settings/schema` from the manifest `settings:` section.
 
 Override `get_model_page_url(provider_model_id, provider_version_id)` to return this
 provider's own web page for a model — pure string construction, no network call. It

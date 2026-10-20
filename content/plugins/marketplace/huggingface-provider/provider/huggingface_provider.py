@@ -294,30 +294,6 @@ class HuggingFaceProvider(HttpMarketplaceProvider):
         session = await self._get_session()
         return await self.resolve_remote_url(session, url)
 
-    def get_settings_schema(self) -> Dict[str, Any]:
-        """Get JSON schema for HuggingFace provider settings."""
-        return {
-            "type": "object",
-            "properties": {
-                "api_key": {
-                    "type": "string",
-                    "title": "Access Token",
-                    "format": "password",
-                    "description": "Your HuggingFace access token (optional - only needed for "
-                                    "gated or private repos)"
-                },
-                "rate_limit_delay": {
-                    "type": "number",
-                    "title": "Rate Limit Delay (seconds)",
-                    "description": "Delay between API requests to avoid rate limiting",
-                    "default": 0.5,
-                    "minimum": 0.0,
-                    "maximum": 10.0
-                },
-            },
-            "required": []
-        }
-
     async def test_connection(self) -> bool:
         """Test if the HuggingFace connection (and token, if configured) is working."""
         if not self._initialized:

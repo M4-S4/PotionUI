@@ -65,11 +65,33 @@ class TestAdminImportDefaultBaseUrl(unittest.TestCase):
             _FakeSetting("default_secure", "true"),
         ]
 
-        with patch("backend.api.PluginRepository") as mock_repo_cls:
+        with patch("src.plugin_api.storage.PluginRepository") as mock_repo_cls:
             mock_repo_cls.return_value.get_plugin_settings.return_value = settings
             host, port, secure = _read_comfyui_default_connection()
 
         self.assertEqual(resolve_comfyui_endpoint(host, port, secure)[0], "https://comfyui:8188")
+
+    def test_unset_and_unusable_values_fall_back_to_the_manifest_defaults(self):
+        from backend.api import _read_comfyui_default_connection
+
+        settings = [
+            _FakeSetting("default_host", ""),
+            _FakeSetting("default_port", "not-a-port"),
+            _FakeSetting("default_secure", ""),
+        ]
+
+        with patch("src.plugin_api.storage.PluginRepository") as mock_repo_cls:
+            mock_repo_cls.return_value.get_plugin_settings.return_value = settings
+
+            self.assertEqual(_read_comfyui_default_connection(), ("127.0.0.1", 8188, False))
+
+    def test_an_out_of_range_port_is_clamped(self):
+        from backend.api import _read_comfyui_default_connection
+
+        with patch("src.plugin_api.storage.PluginRepository") as mock_repo_cls:
+            mock_repo_cls.return_value.get_plugin_settings.return_value = [_FakeSetting("default_port", "70000")]
+
+            self.assertEqual(_read_comfyui_default_connection()[1], 65535)
 
 
 if __name__ == "__main__":

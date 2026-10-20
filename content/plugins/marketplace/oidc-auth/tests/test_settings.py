@@ -2,7 +2,8 @@ from backend.settings import PLUGIN_ID, load_settings
 
 
 class _FakeSetting:
-    def __init__(self, value):
+    def __init__(self, key, value):
+        self.setting_key = key
         self.setting_value = value
 
 
@@ -10,10 +11,9 @@ class _FakeRepository:
     def __init__(self, values):
         self._values = values
 
-    def get_plugin_setting(self, plugin_id, key):
+    def get_plugin_settings(self, plugin_id):
         assert plugin_id == PLUGIN_ID
-        value = self._values.get(key)
-        return _FakeSetting(value) if value is not None else None
+        return [_FakeSetting(key, value) for key, value in self._values.items() if value is not None]
 
 
 def test_defaults_when_nothing_configured():

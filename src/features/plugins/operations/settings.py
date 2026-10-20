@@ -8,6 +8,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from src.features.plugins.manifest_settings import secret_setting_keys
 from src.features.plugins.dto import PluginSettingResponse
 from src.features.plugins.mappers import setting_to_response
 from src.features.plugins.repository import PluginRepository
@@ -24,25 +25,6 @@ class PluginManifestUnavailableError(RuntimeError):
     must not be answered with a 404. It is a transient inability to tell a
     credential from an ordinary setting.
     """
-
-
-def _secret_setting_keys(registry: PluginRegistry, plugin_id: str) -> Optional[set]:
-    """Setting names the plugin's manifest marks `is_secret`.
-
-    Returns None - distinct from an empty set - when the registry holds no
-    manifest. "This plugin declares no secrets" and "we cannot find out
-    what this plugin's secrets are" are different answers, and collapsing
-    them is what let a credential be stored in the clear.
-    """
-    manifest = registry.get_plugin(plugin_id)
-    if not manifest:
-        return None
-    if not manifest.settings:
-        return set()
-    return {
-        spec.name for spec in manifest.settings
-        if getattr(spec, 'is_secret', False)
-    }
 
 
 def update_plugin_settings(
@@ -80,7 +62,7 @@ def update_plugin_settings(
     if not plugin:
         raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
 
-    secret_keys = _secret_setting_keys(registry, plugin_id)
+    secret_keys = secret_setting_keys(registry, plugin_id)
     if secret_keys is None:
         # Without the manifest every key looks ordinary, so a credential
         # typed now would be stored in the clear AND unflagged - unflagged
@@ -141,7 +123,7 @@ def encrypt_declared_secrets(repo: PluginRepository, registry: PluginRegistry) -
     for plugin in repo.get_all_plugins():
         # None (no manifest) and an empty set are both "nothing to promote"
         # here - this pass only ever adds the flag a manifest asks for.
-        secret_keys = _secret_setting_keys(registry, plugin.id)
+        secret_keys = secret_setting_keys(registry, plugin.id)
         if not secret_keys:
             continue
         for setting in repo.get_plugin_settings(plugin.id):

@@ -368,43 +368,6 @@ class CivitaiProvider(HttpMarketplaceProvider):
                 return file_info
         return None
 
-    def get_settings_schema(self) -> Dict[str, Any]:
-        """Get JSON schema for CivitAI provider settings."""
-        return {
-            "type": "object",
-            "properties": {
-                "api_key": {
-                    "type": "string",
-                    "title": "API Key",
-                    "format": "password",
-                    "description": "Your CivitAI API key (optional but recommended for higher rate limits)"
-                },
-                "rate_limit_delay": {
-                    "type": "number",
-                    "title": "Rate Limit Delay (seconds)",
-                    "description": "Delay between API requests to avoid rate limiting",
-                    "default": 1.0,
-                    "minimum": 0.5,
-                    "maximum": 10.0
-                },
-                "download_media": {
-                    "type": "boolean",
-                    "title": "Download Preview Media",
-                    "description": "Download preview images and videos when fetching model info",
-                    "default": True
-                },
-                "max_media_files": {
-                    "type": "integer",
-                    "title": "Max Media Files",
-                    "description": "Maximum number of preview media files to download per model",
-                    "default": 10,
-                    "minimum": 1,
-                    "maximum": 50
-                }
-            },
-            "required": []
-        }
-
     async def _validate_model_id(
         self, model_id: str, session: Optional[aiohttp.ClientSession] = None
     ) -> Optional[Dict[str, Any]]:

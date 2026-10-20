@@ -159,6 +159,7 @@ from src.plugin_api.storage import (
     SettingRepository,
     Settings,
     generate_ulid,
+    plugin_settings,
 )
 
 # Contributing an automation node.
@@ -451,6 +452,7 @@ __all__ = [
     "Settings",
     "db",
     "generate_ulid",
+    "plugin_settings",
     # Automation nodes
     "NodeExecutionContext",
     "NodeField",

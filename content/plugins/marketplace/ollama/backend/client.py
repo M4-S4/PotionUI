@@ -10,13 +10,10 @@ from typing import Any, Dict, List, Optional
 
 import aiohttp
 
-from src.plugin_api import PluginRepository
+from src.plugin_api import plugin_settings
 from src.plugin_api.providers import aiohttp_connector
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_HOST = "http://localhost:11434"
-DEFAULT_TIMEOUT = 10
 
 
 class OllamaError(Exception):
@@ -24,20 +21,8 @@ class OllamaError(Exception):
 
 
 def get_settings() -> tuple[str, int]:
-    """(host, timeout) from the plugin's saved settings, falling back to defaults."""
-    repo = PluginRepository()
-    settings = repo.get_plugin_settings("ollama")
-    host = DEFAULT_HOST
-    timeout = DEFAULT_TIMEOUT
-    for s in settings:
-        if s.setting_key == "ollama_host" and s.setting_value:
-            host = s.setting_value.rstrip("/")
-        elif s.setting_key == "connection_timeout" and s.setting_value:
-            try:
-                timeout = int(s.setting_value)
-            except ValueError:
-                pass
-    return host, timeout
+    values = plugin_settings("ollama")
+    return values["ollama_host"].rstrip("/"), values["connection_timeout"]
 
 
 async def _list_loaded(session: aiohttp.ClientSession, host: str) -> List[Dict[str, Any]]:
