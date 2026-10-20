@@ -19,6 +19,7 @@ from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.http.spooled_zip import stream_spooled_zip
 from src.platform.security.current_user import get_current_active_user
 from src.features.library.collaborators import LibraryCollaborators
@@ -45,6 +46,7 @@ class LibraryController(BaseController):
         super().__init__()
         self.collaborators = library_collaborators
 
+    @guarded({ValueError: Fail("invalid_filter", status=400)}, Fail("list_failed", "Failed to list library items", 400))
     async def list_items(
         self,
         current_user,
@@ -59,71 +61,48 @@ class LibraryController(BaseController):
         favorites_only: bool = False,
     ) -> APIResponse:
         """List the current user's library, newest first."""
-        try:
-            parsed_tag_ids = [t.strip() for t in tag_ids.split(',')] if tag_ids else None
-            result = await asyncio.to_thread(
-                operations.list_items,
-                self.collaborators,
-                current_user.id,
-                media_type=media_type,
-                tag_ids=parsed_tag_ids,
-                collection_id=collection_id,
-                search=search,
-                limit=limit,
-                offset=offset,
-                include_descendants=include_descendants,
-                unsorted=unsorted,
-                favorites_only=favorites_only,
-            )
-            return self.success_response(data=result.model_dump())
-        except ValueError as e:
-            return self.error_response(error="invalid_filter", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Failed to list library items: {e}")
-            return self.error_response(error="list_failed", message="Failed to list library items")
+        parsed_tag_ids = [t.strip() for t in tag_ids.split(',')] if tag_ids else None
+        result = await asyncio.to_thread(
+            operations.list_items,
+            self.collaborators,
+            current_user.id,
+            media_type=media_type,
+            tag_ids=parsed_tag_ids,
+            collection_id=collection_id,
+            search=search,
+            limit=limit,
+            offset=offset,
+            include_descendants=include_descendants,
+            unsorted=unsorted,
+            favorites_only=favorites_only,
+        )
+        return self.success_response(data=result.model_dump())
 
+    @guarded(fallback=Fail("facets_failed", "Failed to get library facets", 400))
     async def get_facets(self, current_user) -> APIResponse:
         """Per-media-type counts for the current user's library."""
-        try:
-            facets = await asyncio.to_thread(operations.get_facets, self.collaborators, current_user.id)
-            return self.success_response(data=facets.model_dump())
-        except Exception as e:
-            self.logger.error(f"Failed to get library facets: {e}")
-            return self.error_response(error="facets_failed", message="Failed to get library facets")
+        facets = await asyncio.to_thread(operations.get_facets, self.collaborators, current_user.id)
+        return self.success_response(data=facets.model_dump())
 
+    @guarded({ValueError: Fail("not_found", status=404)}, Fail("get_failed", "Failed to get library item", 400))
     async def get_item(self, item_id: str, current_user) -> APIResponse:
         """Get one library item owned by the current user."""
-        try:
-            item = await asyncio.to_thread(operations.get_item, self.collaborators, item_id, current_user.id)
-            return self.success_response(data=item.model_dump())
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except Exception as e:
-            self.logger.error(f"Failed to get library item: {e}")
-            return self.error_response(error="get_failed", message="Failed to get library item")
+        item = await asyncio.to_thread(operations.get_item, self.collaborators, item_id, current_user.id)
+        return self.success_response(data=item.model_dump())
 
+    @guarded({ValueError: Fail("not_found", status=404)}, Fail("delete_failed", "Failed to delete library item", 400))
     async def delete_item(self, item_id: str, current_user) -> APIResponse:
         """Delete one library item owned by the current user."""
-        try:
-            await asyncio.to_thread(operations.delete_item, self.collaborators, item_id, current_user.id)
-            return self.success_response(data={"id": item_id, "deleted": True})
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except Exception as e:
-            self.logger.error(f"Failed to delete library item: {e}")
-            return self.error_response(error="delete_failed", message="Failed to delete library item")
+        await asyncio.to_thread(operations.delete_item, self.collaborators, item_id, current_user.id)
+        return self.success_response(data={"id": item_id, "deleted": True})
 
+    @guarded({ValueError: Fail("not_found", status=404)}, Fail("get_tags_failed", "Failed to get tags", 400))
     async def get_tags(self, item_id: str, current_user) -> APIResponse:
         """List a library item's tags."""
-        try:
-            tags = await asyncio.to_thread(operations.get_tags, self.collaborators, item_id, current_user.id)
-            return self.success_response(data={"tags": tags})
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except Exception as e:
-            self.logger.error(f"Failed to get library item tags: {e}")
-            return self.error_response(error="get_tags_failed", message="Failed to get tags")
+        tags = await asyncio.to_thread(operations.get_tags, self.collaborators, item_id, current_user.id)
+        return self.success_response(data={"tags": tags})
 
+    @guarded({ValueError: Fail("not_found", status=404)}, Fail("set_tags_failed", "Failed to set tags", 400))
     async def set_tags(
         self,
         item_id: str,
@@ -131,44 +110,29 @@ class LibraryController(BaseController):
         current_user
     ) -> APIResponse:
         """Replace a library item's tags."""
-        try:
-            tags = await asyncio.to_thread(operations.set_tags, self.collaborators, item_id, request.tag_ids, current_user.id)
-            return self.success_response(data={"tags": tags})
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except Exception as e:
-            self.logger.error(f"Failed to set library item tags: {e}")
-            return self.error_response(error="set_tags_failed", message="Failed to set tags")
+        tags = await asyncio.to_thread(operations.set_tags, self.collaborators, item_id, request.tag_ids, current_user.id)
+        return self.success_response(data={"tags": tags})
 
+    @guarded({ValueError: Fail("not_found", status=404)}, Fail("set_favorite_failed", "Failed to set favorite", 400))
     async def set_favorite(self, item_id: str, request: SetLibraryFavoriteRequest, current_user) -> APIResponse:
-        try:
-            value = await asyncio.to_thread(
-                operations.set_favorite, self.collaborators, item_id, request.is_favorite, current_user.id
-            )
-            return self.success_response(data={"id": item_id, "is_favorite": value})
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except Exception as e:
-            self.logger.error(f"Failed to set library item favorite: {e}")
-            return self.error_response(error="set_favorite_failed", message="Failed to set favorite")
+        value = await asyncio.to_thread(
+            operations.set_favorite, self.collaborators, item_id, request.is_favorite, current_user.id
+        )
+        return self.success_response(data={"id": item_id, "is_favorite": value})
 
+    @guarded({ValueError: Fail("not_found", status=404)}, Fail("copy_failed", "Failed to copy file into library", 400))
     async def copy_from_generation(
         self,
         request: CopyFromGenerationRequest,
         current_user
     ) -> APIResponse:
         """Copy one of the user's generated files into their library."""
-        try:
-            item = await asyncio.to_thread(
-                operations.copy_generation_file, self.collaborators, request.file_id, current_user.id
-            )
-            return self.success_response(data={"item": item.model_dump()})
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except Exception as e:
-            self.logger.error(f"Failed to copy file into library: {e}")
-            return self.error_response(error="copy_failed", message="Failed to copy file into library")
+        item = await asyncio.to_thread(
+            operations.copy_generation_file, self.collaborators, request.file_id, current_user.id
+        )
+        return self.success_response(data={"item": item.model_dump()})
 
+    @guarded({ValueError: Fail("validation_error", status=400)}, Fail("count_failed", "Failed to count library items by criteria", 400))
     async def count_items_by_criteria(
         self,
         request: BulkDeleteLibraryByCriteriaRequest,
@@ -179,20 +143,13 @@ class LibraryController(BaseController):
             criteria = owner_criteria(self.collaborators, request, current_user.id)
             return preview_items(self.collaborators, criteria)
 
-        try:
-            count = await asyncio.to_thread(_count)
-            return self.success_response(
-                message=f"Found {count} item(s) matching the given criteria",
-                data={"count": count}
-            )
-        except ValueError as e:
-            return self.error_response(error="validation_error", message=str(e), status_code=400)
-        except Exception as e:
-            self.logger.error(f"Failed to count library items by criteria: {e}")
-            return self.error_response(
-                error="count_failed", message="Failed to count library items by criteria"
-            )
+        count = await asyncio.to_thread(_count)
+        return self.success_response(
+            message=f"Found {count} item(s) matching the given criteria",
+            data={"count": count}
+        )
 
+    @guarded(fallback=Fail("delete_failed", "Failed to delete library items by criteria", 400))
     async def bulk_delete_by_criteria(
         self,
         request: BulkDeleteLibraryByCriteriaRequest,
@@ -211,18 +168,13 @@ class LibraryController(BaseController):
                 status_code=400
             )
 
-        try:
-            summary = await asyncio.to_thread(delete_items, self.collaborators, criteria)
-            return self.success_response(
-                message=f"Successfully deleted {summary['deleted_count']} item(s).",
-                data=summary
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to delete library items by criteria: {e}")
-            return self.error_response(
-                error="delete_failed", message="Failed to delete library items by criteria"
-            )
+        summary = await asyncio.to_thread(delete_items, self.collaborators, criteria)
+        return self.success_response(
+            message=f"Successfully deleted {summary['deleted_count']} item(s).",
+            data=summary
+        )
 
+    @guarded({ValueError: Fail("not_found", status=404)}, Fail("export_failed", "Failed to export library items", 400))
     async def export_items(self, request: LibraryExportRequest, current_user):
         """Export the given library items as a downloadable zip.
 
@@ -233,16 +185,10 @@ class LibraryController(BaseController):
             return self.error_response(
                 error="invalid_request", message="No item IDs provided", status_code=400
             )
-        try:
-            zip_file, filename = await asyncio.to_thread(
-                operations.export_zip, self.collaborators, request.item_ids, current_user.id
-            )
-            return stream_spooled_zip(zip_file, filename)
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except Exception as e:
-            self.logger.error(f"Failed to export library items: {e}")
-            return self.error_response(error="export_failed", message="Failed to export library items")
+        zip_file, filename = await asyncio.to_thread(
+            operations.export_zip, self.collaborators, request.item_ids, current_user.id
+        )
+        return stream_spooled_zip(zip_file, filename)
 
 
 def build_router(container: "AppContainer") -> APIRouter:

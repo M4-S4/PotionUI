@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 
+from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.media.editing.dto import (
@@ -46,6 +47,14 @@ class MediaEditController(BaseController):
         super().__init__()
         self.manager = media_editor
 
+    @guarded(
+        {
+            InvalidEditError: Fail("invalid_edit", status=400),
+            ValueError: Fail("not_found", status=404),
+            MediaEditFailedError: Fail("edit_failed", status=500),
+        },
+        Fail("edit_failed", "Failed to edit media", 500),
+    )
     async def edit_item(
         self,
         item_id: str,
@@ -53,22 +62,19 @@ class MediaEditController(BaseController):
         current_user
     ) -> APIResponse:
         """Apply an ordered list of operations to one library resource."""
-        try:
-            result = await self.manager.edit_item(
-                item_id, current_user.id, request.operations, request.mode
-            )
-            return self.success_response(data=result.model_dump())
-        except InvalidEditError as e:
-            return self.error_response(error="invalid_edit", message=str(e))
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except MediaEditFailedError as e:
-            self.logger.error(f"Failed to edit media {item_id}: {e}")
-            return self.error_response(error="edit_failed", message=str(e), status_code=500)
-        except Exception as e:
-            self.logger.error(f"Failed to edit media {item_id}: {e}")
-            return self.error_response(error="edit_failed", message="Failed to edit media", status_code=500)
+        result = await self.manager.edit_item(
+            item_id, current_user.id, request.operations, request.mode
+        )
+        return self.success_response(data=result.model_dump())
 
+    @guarded(
+        {
+            InvalidEditError: Fail("invalid_edit", status=400),
+            ValueError: Fail("not_found", status=404),
+            MediaEditFailedError: Fail("edit_failed", status=500),
+        },
+        Fail("edit_failed", "Failed to extract frame", 500),
+    )
     async def extract_frame(
         self,
         item_id: str,
@@ -76,22 +82,19 @@ class MediaEditController(BaseController):
         current_user
     ) -> APIResponse:
         """Save one frame of a video as a new image resource."""
-        try:
-            result = await self.manager.extract_frame(
-                item_id, current_user.id, request.time_seconds
-            )
-            return self.success_response(data=result.model_dump())
-        except InvalidEditError as e:
-            return self.error_response(error="invalid_edit", message=str(e))
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except MediaEditFailedError as e:
-            self.logger.error(f"Failed to extract a frame from {item_id}: {e}")
-            return self.error_response(error="edit_failed", message=str(e), status_code=500)
-        except Exception as e:
-            self.logger.error(f"Failed to extract a frame from {item_id}: {e}")
-            return self.error_response(error="edit_failed", message="Failed to extract frame", status_code=500)
+        result = await self.manager.extract_frame(
+            item_id, current_user.id, request.time_seconds
+        )
+        return self.success_response(data=result.model_dump())
 
+    @guarded(
+        {
+            InvalidEditError: Fail("invalid_edit", status=400),
+            ValueError: Fail("not_found", status=404),
+            MediaEditFailedError: Fail("edit_failed", status=500),
+        },
+        Fail("edit_failed", "Failed to split media", 500),
+    )
     async def split_item(
         self,
         item_id: str,
@@ -99,21 +102,10 @@ class MediaEditController(BaseController):
         current_user
     ) -> APIResponse:
         """Split one audio resource into fixed-length parts, none of them replacing it."""
-        try:
-            items = await self.manager.split_item(
-                item_id, current_user.id, request.part_seconds
-            )
-            return self.success_response(data=SplitMediaResult(items=items).model_dump())
-        except InvalidEditError as e:
-            return self.error_response(error="invalid_edit", message=str(e))
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except MediaEditFailedError as e:
-            self.logger.error(f"Failed to split media {item_id}: {e}")
-            return self.error_response(error="edit_failed", message=str(e), status_code=500)
-        except Exception as e:
-            self.logger.error(f"Failed to split media {item_id}: {e}")
-            return self.error_response(error="edit_failed", message="Failed to split media", status_code=500)
+        items = await self.manager.split_item(
+            item_id, current_user.id, request.part_seconds
+        )
+        return self.success_response(data=SplitMediaResult(items=items).model_dump())
 
 
 def build_router(container: "AppContainer") -> APIRouter:

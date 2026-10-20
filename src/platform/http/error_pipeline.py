@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from src.platform.http.base_controller import APIError, APIResponse, PassThrough
 from src.platform.http.errors import domain_failure
+from src.platform.security.failure_text import failure_detail
 from src.platform.security.user import AccountType
 
 Detail = Callable[[Exception, bool], str]
@@ -40,10 +41,13 @@ def _message(fail: Fail, exc: Exception, admin: Callable[[], bool]) -> str:
     return detail if message is None else f"{message}: {detail}"
 
 
-def translate(controller, exc: Exception, table: ErrorTable, fallback: Optional[Fail], admin: Callable[[], bool]):
+def translate(controller, exc: Exception, table: ErrorTable, fallback: Optional[Fail], admin: Callable[[], bool],
+              soft: bool = False):
     failure = domain_failure(exc)
     if failure is not None:
         controller.logger.info(f"Request refused: {failure.code}")
+        if soft:
+            return APIResponse(success=False, error=failure.code, message=failure.message)
         raise HTTPException(status_code=failure.status_code, detail=failure.detail)
     fail = next((entry for kinds, entry in table.items() if isinstance(exc, kinds)), None)
     if fail is None:
@@ -62,7 +66,8 @@ def translate(controller, exc: Exception, table: ErrorTable, fallback: Optional[
     raise HTTPException(status_code=status, detail=APIError(error=code, message=message).model_dump())
 
 
-def guarded(table: Optional[ErrorTable] = None, fallback: Optional[Fail] = None, admin: Optional[str] = None):
+def guarded(table: Optional[ErrorTable] = None, fallback: Optional[Fail] = None, admin: Optional[str] = None,
+            soft: bool = False):
     entries = dict(table or {})
 
     def decorate(fn):
@@ -81,19 +86,23 @@ def guarded(table: Optional[ErrorTable] = None, fallback: Optional[Fail] = None,
             async def wrapper(*args, **kwargs):
                 try:
                     return await fn(*args, **kwargs)
-                except PassThrough:
+                except (PassThrough, HTTPException):
                     raise
                 except Exception as exc:
-                    return translate(args[0], exc, entries, fallback, admin_of(args, kwargs))
+                    return translate(args[0], exc, entries, fallback, admin_of(args, kwargs), soft)
         else:
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
                 try:
                     return fn(*args, **kwargs)
-                except PassThrough:
+                except (PassThrough, HTTPException):
                     raise
                 except Exception as exc:
-                    return translate(args[0], exc, entries, fallback, admin_of(args, kwargs))
+                    return translate(args[0], exc, entries, fallback, admin_of(args, kwargs), soft)
         return wrapper
 
     return decorate
+
+
+def soft_guarded(code: str, message: str, admin: Optional[str] = None):
+    return guarded({ValueError: Fail(code)}, Fail(code, message, detail=failure_detail), admin=admin, soft=True)

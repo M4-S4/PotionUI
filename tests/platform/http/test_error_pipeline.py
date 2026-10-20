@@ -1,11 +1,12 @@
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from src.bootstrap.errors import register_error_handlers
 from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import BaseController
-from src.platform.http.error_pipeline import Fail, guarded, raw_detail
+from src.platform.http.errors import NotFoundError
+from src.platform.http.error_pipeline import Fail, guarded, raw_detail, soft_guarded
 from src.platform.security.failure_text import failure_detail
 from src.platform.security.user import AccountType
 
@@ -39,6 +40,14 @@ class Stub(BaseController):
     @guarded({}, Fail("failed", "Failed", detail=raw_detail))
     async def raw(self, raised):
         raise raised
+
+    @guarded({}, FALLBACK)
+    async def forbidden(self):
+        raise HTTPException(status_code=403, detail="no")
+
+    @guarded({}, FALLBACK)
+    def forbidden_sync(self):
+        raise HTTPException(status_code=403, detail="no")
 
     @guarded(TABLE, FALLBACK, admin="user")
     async def ok(self, user):
@@ -137,3 +146,68 @@ def test_a_pass_through_bypasses_the_table_and_the_global_handler_answers_403():
 
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "storage_quota_exceeded"
+
+
+async def test_an_http_exception_passes_through_an_async_fallback():
+    with pytest.raises(HTTPException) as caught:
+        await Stub().forbidden()
+
+    assert caught.value.status_code == 403
+    assert caught.value.detail == "no"
+
+
+def test_an_http_exception_passes_through_a_sync_fallback():
+    with pytest.raises(HTTPException) as caught:
+        Stub().forbidden_sync()
+
+    assert caught.value.status_code == 403
+
+
+class SoftStub(BaseController):
+    @soft_guarded("read_failed", "Failed to read", admin="user")
+    async def read(self, raised, user):
+        raise raised
+
+    @guarded({}, FALLBACK, soft=True)
+    async def soft_table(self, raised):
+        raise raised
+
+    @guarded({}, FALLBACK)
+    async def hard_table(self, raised):
+        raise raised
+
+
+async def test_a_soft_guard_keeps_the_envelope_for_a_typed_error():
+    response = await SoftStub().read(NotFoundError("thing_missing", "No such thing"), User(False))
+
+    assert (response.success, response.error, response.message) == (False, "thing_missing", "No such thing")
+
+
+async def test_a_hard_guard_still_raises_the_typed_error_status():
+    with pytest.raises(HTTPException) as caught:
+        await SoftStub().hard_table(NotFoundError("thing_missing", "No such thing"))
+
+    assert caught.value.status_code == 404
+    assert caught.value.detail["error"] == "thing_missing"
+
+
+async def test_a_soft_guard_returns_value_error_text_verbatim():
+    response = await SoftStub().read(ValueError("Name is required"), User(False))
+
+    assert (response.error, response.message) == ("read_failed", "Name is required")
+
+
+async def test_a_soft_guard_hides_unexpected_text_from_users_and_shows_admins():
+    regular = await SoftStub().read(RuntimeError("secret at /srv/app/x"), User(False))
+    admin = await SoftStub().read(RuntimeError("secret at /srv/app/x"), User(True))
+
+    assert "secret" not in regular.message
+    assert regular.message.startswith("Failed to read")
+    assert "secret at <server path>" in admin.message
+
+
+async def test_the_soft_flag_applies_to_plain_guarded_too():
+    response = await SoftStub().soft_table(NotFoundError("thing_missing", "No such thing"))
+
+    assert response.success is False
+

@@ -9,7 +9,10 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 from datetime import datetime
 
+from fastapi import HTTPException
+
 from src.features.tags import routes as routes_module
+from src.features.tags.errors import TagInUseByPresetError
 from src.features.tags.routes import TagController
 from src.features.tags.dto import Tag, TagWithCount, TagType, CreateTagRequest, UpdateTagRequest
 from src.platform.security.user import User
@@ -322,7 +325,7 @@ class TestTagController:
         result = await controller.delete_tag("nonexistent", sample_user)
 
         assert result.success is False
-        assert result.error == "delete_tag_failed"
+        assert result.error == "tag_not_found"
 
     @pytest.mark.asyncio
     async def test_delete_tag_access_denied(self, controller, mock_repository, sample_user, sample_generation_tag):
@@ -343,6 +346,20 @@ class TestTagController:
 
         assert result.success is False
         assert "Cannot delete system tag" in result.message
+
+    @pytest.mark.asyncio
+    async def test_delete_tag_in_use_by_preset_answers_409_with_the_presets(
+        self, controller, mock_operations, mock_repository, sample_user, sample_model_tag
+    ):
+        mock_repository.get_tag_by_id.return_value = sample_model_tag
+        mock_operations.delete_tag.side_effect = TagInUseByPresetError(sample_model_tag.id, [{"preset_id": "preset-a"}])
+
+        with pytest.raises(HTTPException) as caught:
+            await controller.delete_tag("tag-123", sample_user)
+
+        assert caught.value.status_code == 409
+        assert caught.value.detail["error"] == "tag_in_use_by_preset"
+        assert caught.value.detail["used_by"] == [{"preset_id": "preset-a"}]
 
     # ========== Router Factory Tests ==========
 
