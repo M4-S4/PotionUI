@@ -152,7 +152,7 @@ class SettingsController(BaseController):
                     continue
 
                 try:
-                    str_value = Setting.serialize_value(value, setting.value_type)
+                    str_value = Setting.serialize_for_storage(key, value, setting.value_type)
                 except Exception as e:
                     errors.append(f"Invalid value for '{key}': {str(e)}")
                     continue

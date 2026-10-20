@@ -412,5 +412,59 @@ def up():
                 self.assertNotIn("Applying migration", str(call))
 
 
+class TestEncryptS3SecretKeyThroughRunner(unittest.TestCase):
+
+    def setUp(self):
+        import importlib
+        import shutil
+        from src.platform.security.secrets import SecretCipher, configure_secret_cipher, generate_key
+
+        self.temp_dir = Path(tempfile.mkdtemp())
+        Database._instance = None
+        self.db = Database()
+        self.db.db_path = self.temp_dir / "test.sqlite"
+        self.db._initialized = True
+        for module_name in ("src.platform.database.database", "src.platform.database.migration_runner"):
+            module = importlib.import_module(module_name)
+            self.addCleanup(setattr, module, "db", module.db)
+            module.db = self.db
+        self.cipher = SecretCipher([generate_key()])
+        configure_secret_cipher(self.cipher)
+        self.addCleanup(configure_secret_cipher, None)
+        self.addCleanup(shutil.rmtree, self.temp_dir, True)
+        self.addCleanup(setattr, Database, "_instance", None)
+        self.addCleanup(Database.close_pool)
+
+        source = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations"
+        self.source = source
+        self.migrations_dir = self.temp_dir / "migrations"
+        self.migrations_dir.mkdir()
+        shutil.copy(source / "001_baseline.py", self.migrations_dir / "001_baseline.py")
+        self.runner = MigrationRunner()
+        self.runner.migrations_dir = self.migrations_dir
+
+    def test_pending_migration_encrypts_a_plaintext_secret(self):
+        import shutil
+
+        with patch("builtins.print"):
+            self.runner.run_migrations()
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE settings SET value = 'plain-secret' WHERE key = 's3_secret_key'")
+
+        shutil.copy(
+            self.source / "061_encrypt_s3_secret_key.py",
+            self.migrations_dir / "061_encrypt_s3_secret_key.py",
+        )
+        with patch("builtins.print"):
+            self.runner.run_migrations()
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("SELECT value FROM settings WHERE key = 's3_secret_key'")
+            stored = cursor.fetchone()[0]
+        self.assertNotEqual(stored, "plain-secret")
+        self.assertEqual(self.cipher.decrypt(stored, context="test"), "plain-secret")
+        self.assertIn("061_encrypt_s3_secret_key", self.runner.get_applied_migrations())
+
+
 if __name__ == '__main__':
     unittest.main()

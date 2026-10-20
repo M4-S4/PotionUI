@@ -641,3 +641,22 @@ def test_preflight_does_not_overwrite_an_undecryptable_value(db, config_manager)
     with db.get_cursor() as cursor:
         cursor.execute("SELECT setting_value FROM plugin_settings WHERE setting_key = 'api_key'")
         assert cursor.fetchone()[0] == before
+
+
+def test_preflight_reports_an_undecryptable_core_setting(db, config_manager):
+    from src.platform.settings.repository import SettingRepository
+    from src.platform.settings.settings import Settings
+
+    setting_repository = SettingRepository()
+    assert Settings(setting_repository).set_setting("s3_secret_key", PLAINTEXT_KEY)
+
+    assert run_secret_preflight(
+        PluginRepository(), config_manager, setting_repository=setting_repository
+    ) == []
+
+    configure_secret_cipher(SecretCipher([generate_key()]))
+    reported = run_secret_preflight(
+        PluginRepository(), config_manager, setting_repository=setting_repository
+    )
+
+    assert reported == ["settings:s3_secret_key"]

@@ -62,6 +62,8 @@ Model files are excluded from backups unless you ask for them (`--tier all` or `
 
 If your storage backend is configured as `s3`, `--tier media` and `--tier all` are refused — your media already lives in the S3 bucket, not on the local disk, so use your bucket's own versioning for that. `--tier config` still works and is still worth running regularly, since it covers the database and your credentials.
 
+The S3 secret access key is stored encrypted. Backups taken before that change still contain it in plain text, so if those archives are not tightly held, rotate the key in your S3 provider.
+
 ## Scheduling
 
 A nightly cron entry covering the database and media is enough for most installs:

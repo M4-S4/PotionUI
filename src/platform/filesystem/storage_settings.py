@@ -2,8 +2,9 @@
 
 Mirrors how `src/features/llm/repository.py` handles `llm_configurations.api_key`:
 the core `settings` table has no per-row encryption of its own, so the one
-field that needs it (`s3_secret_key`) is encrypted/decrypted explicitly at
-this boundary, through the same `SecretCipher` used everywhere else.
+field that needs it (`s3_secret_key`) is encrypted by the settings write path
+(`Setting.serialize_for_storage`) and decrypted at this boundary, through the
+same `SecretCipher` used everywhere else.
 """
 
 from __future__ import annotations
@@ -66,12 +67,7 @@ class StorageSettings:
         )
 
     def set_s3_secret_key(self, plaintext: str) -> bool:
-        """Encrypts and stores the S3 secret access key. Callers must not
-        write `s3_secret_key` through the generic settings endpoint with a
-        plaintext value - the generic path never encrypts this field."""
-        if not plaintext:
-            return self.settings.set_setting("s3_secret_key", "")
-        return self.settings.set_setting("s3_secret_key", get_secret_cipher().encrypt(plaintext))
+        return self.settings.set_setting("s3_secret_key", plaintext or "")
 
     def build_driver(self, local_base_dir: str) -> FileStorageDriver:
         """`local_base_dir` is `file_storage_directory` - always needed even

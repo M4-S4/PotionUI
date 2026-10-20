@@ -38,9 +38,9 @@ class Settings:
             if not setting:
                 return False
             
-            from src.platform.settings.records import Setting
             from src.platform.settings.runtime_flags import apply_saved_setting
-            str_value = Setting.serialize_value(value, setting.value_type)
+            from src.platform.settings.records import Setting
+            str_value = Setting.serialize_for_storage(key, value, setting.value_type)
             saved = self.setting_repository.update_setting_value(setting.id, str_value)
             if saved:
                 apply_saved_setting(key, value)

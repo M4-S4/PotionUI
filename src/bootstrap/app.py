@@ -357,6 +357,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         container.backend_registry.backend_config_store,
         container.llm_repository.config_repo,
         container.plugin_registry,
+        container.setting_repository,
     )
 
     automation_runtime = container.automation_runtime
