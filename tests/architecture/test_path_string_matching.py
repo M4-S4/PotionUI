@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 from typing import Iterator, List
 
@@ -9,6 +10,17 @@ SCOPES = ("tests", "content/plugins")
 SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".git", ".svelte-kit", "dist"}
 STRIP_METHODS = {"rstrip", "lstrip", "strip"}
 MATCH_METHODS = {"endswith", "startswith", "find", "rfind", "index", "rindex"}
+
+
+PATH_STR_RE = re.compile(r"str\(\s*[\w.]*path\s*\)", re.IGNORECASE)
+
+
+def _may_match_path_str(text: str) -> bool:
+    return PATH_STR_RE.search(text) is not None
+
+
+def _may_skip_on_missing_preset(text: str) -> bool:
+    return "not present" in text and "skip" in text
 
 
 def _test_files(source_index) -> Iterator[Path]:
@@ -70,6 +82,8 @@ def _violations(tree: ast.AST) -> List[int]:
 def test_tests_never_match_str_of_a_path_against_a_separator_literal(source_index):
     offenders: List[str] = []
     for path in _test_files(source_index):
+        if not _may_match_path_str(source_index.text(path)):
+            continue
         tree = source_index.tree(path)
         if tree is None:
             continue
@@ -99,6 +113,8 @@ def _skips_on_missing_preset(tree: ast.AST) -> List[int]:
 def test_a_tracked_preset_missing_from_a_fixture_fails_instead_of_skipping(source_index):
     offenders: List[str] = []
     for path in _test_files(source_index):
+        if not _may_skip_on_missing_preset(source_index.text(path)):
+            continue
         tree = source_index.tree(path)
         if tree is None:
             continue
