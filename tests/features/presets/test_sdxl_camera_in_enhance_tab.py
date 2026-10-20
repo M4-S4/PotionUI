@@ -7,7 +7,7 @@ unchanged; only its tab placement moved.
 The assertions run through the same path that serves `GET /api/presets/{id}/form`
 (PresetTemplateLoader -> PresetFormSerializer.process_form_fields) -- a tab
 body arrives as a `children:` Jinja path string and only becomes fields inside
-the serializer's `_resolve_external_children`.
+the loader's `children:` resolution.
 """
 
 from __future__ import annotations

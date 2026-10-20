@@ -16,7 +16,7 @@ and `tests/features/presets/test_references_tab_layout.py`:
 The assertions run through the same path that serves `GET /api/presets/{id}/form`
 (PresetTemplateLoader -> PresetFormSerializer.process_form_fields) since a tab
 body arrives as a `children:` Jinja path string and only becomes fields inside
-the serializer's `_resolve_external_children` -- a hand-built fixture or a raw
+the loader's `children:` resolution -- a hand-built fixture or a raw
 `yaml.safe_load` of the tab file would assert against a tree the frontend never
 receives, and would pass even if a tab body were unreachable.
 """

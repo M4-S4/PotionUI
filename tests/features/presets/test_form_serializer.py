@@ -214,10 +214,6 @@ class TestPresetFormSerializer(unittest.TestCase):
 
 
 class TestProcessFormFieldsOverrides(unittest.TestCase):
-    """The v2 seam: `overrides` is applied inside process_form_fields, right
-    after @loop/external-children resolution, through the real field-type
-    pipeline (not a mocked field_factory) - proves `readonly: true` actually
-    reaches the rendered schema via base_field.create_base_schema."""
 
     def setUp(self):
         self.mock_preset_loader = Mock(spec=PresetTemplateLoader)
@@ -229,8 +225,8 @@ class TestProcessFormFieldsOverrides(unittest.TestCase):
 
     def test_visible_false_removes_the_field_from_properties(self):
         fields = [
-            MockFieldTemplate('steps', 'slider'),
-            MockFieldTemplate('checkpoint', 'textbox'),
+            FieldTemplate(name='steps', type='slider'),
+            FieldTemplate(name='checkpoint', type='textbox'),
         ]
         result = self.mapper.process_form_fields(
             MockFormConfig(fields=fields), "test_preset",
@@ -240,7 +236,7 @@ class TestProcessFormFieldsOverrides(unittest.TestCase):
         self.assertNotIn('checkpoint', result['properties'])
 
     def test_editable_false_reaches_rendered_schema_as_readonly(self):
-        fields = [MockFieldTemplate('steps', 'slider')]
+        fields = [FieldTemplate(name='steps', type='slider')]
         result = self.mapper.process_form_fields(
             MockFormConfig(fields=fields), "test_preset",
             overrides={"steps": {"editable": False}},
@@ -248,12 +244,12 @@ class TestProcessFormFieldsOverrides(unittest.TestCase):
         self.assertIs(result['properties']['steps']['readonly'], True)
 
     def test_no_overrides_key_means_no_readonly_key(self):
-        fields = [MockFieldTemplate('steps', 'slider')]
+        fields = [FieldTemplate(name='steps', type='slider')]
         result = self.mapper.process_form_fields(MockFormConfig(fields=fields), "test_preset")
         self.assertNotIn('readonly', result['properties']['steps'])
 
     def test_default_override_reaches_rendered_schema(self):
-        fields = [MockFieldTemplate('steps', 'slider')]
+        fields = [FieldTemplate(name='steps', type='slider')]
         result = self.mapper.process_form_fields(
             MockFormConfig(fields=fields), "test_preset",
             overrides={"steps": {"default": 30}},

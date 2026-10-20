@@ -331,7 +331,6 @@ def render_check(paths: List[str], presets_root: Optional[Path] = None) -> List[
     """
     from scripts.preset_render import (
         build_fixture_form_data,
-        build_form_serializer,
         build_generation_data,
         build_processor,
         load_all_presets,
@@ -343,14 +342,13 @@ def render_check(paths: List[str], presets_root: Optional[Path] = None) -> List[
     scoped_roots = [Path(p).resolve() for p in paths]
 
     processor = build_processor()
-    form_serializer = build_form_serializer()
 
     for preset in sorted(presets, key=lambda p: p.id):
         if not _in_scope(preset.path, scoped_roots):
             continue
         for mode in sorted(preset.modes.keys()):
             try:
-                form_data = build_fixture_form_data(form_serializer, preset, mode)
+                form_data = build_fixture_form_data(preset, mode)
                 generation_data = build_generation_data(mode, form_data, preset.modes.get(mode))
                 processor.process(preset, generation_data)
             except TemplateEvaluationError as e:

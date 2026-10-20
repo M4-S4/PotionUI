@@ -361,10 +361,6 @@ class TestApplyOverridesToFields:
         assert checkpoint.readonly is False
 
     def test_original_fields_are_not_mutated(self):
-        """process_form_fields calls this on objects that are already fresh
-        copies (from _resolve_external_children), but the function itself
-        must still never mutate its input in place - it always returns new
-        objects for anything it changes."""
         original = _field("steps", "slider", default=20)
         fields = [original]
         apply_overrides_to_fields(fields, {"steps": {"editable": False, "default": 30}})

@@ -30,6 +30,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import yaml
 
 from src.platform.observability.logger import logger
+from src.platform.templating import TemplateProcessor
 from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from src.features.presets.children_refs import ChildrenRef, parse_children_ref, read_children_fragment
 from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
@@ -229,6 +230,7 @@ class PresetTemplateLoader:
         self.load_errors: Dict[str, List[str]] = {}
         self._loaded = False
         self._lock = threading.Lock()
+        self._loop_engine = None
         # Set post-construction by bootstrap once a collaborator that cares
         # about catalogue changes exists (e.g. `PresetMediaPrerenderQueue`
         # scheduling renders for new/changed preset media). Fired at the end
@@ -484,7 +486,7 @@ class PresetTemplateLoader:
             fields = []
             for field_data in validated.model_dump()['fields']:
                 try:
-                    fields.append(self._build_field_template(field_data, preset_root, prefix))
+                    fields.extend(self._build_field_templates(field_data, preset_root, prefix))
                 except Exception as e:
                     errors.append(f"{prefix}: error building field: {e}")
 
@@ -612,6 +614,33 @@ class PresetTemplateLoader:
                 errors.extend(self._check_fields_tags_categories(field.children, declared_config_keys, loc))
         return errors
 
+    def _build_field_templates(self, field_data: dict, preset_root: Path, prefix: str) -> List[FieldTemplate]:
+        if field_data.get('type') != '@loop':
+            return [self._build_field_template(field_data, preset_root, prefix)]
+
+        config = field_data.get('configuration')
+        if not config:
+            raise ValueError("@loop field requires configuration with count/items and template")
+
+        if self._loop_engine is None:
+            from src.features.presets.processor import PresetProcessor
+            self._loop_engine = PresetProcessor(
+                template_processor=TemplateProcessor(settings=None),
+                settings=None,
+                preset_template_loader=self,
+            )
+
+        context = {'paths': {'preset': str(preset_root), '_shared': str(self.shared_path)}}
+        expanded = self._loop_engine.process_value({'@loop': config}, context)
+
+        built: List[FieldTemplate] = []
+        for item in expanded:
+            for entry in item if isinstance(item, list) else [item]:
+                if not isinstance(entry, dict):
+                    raise ValueError(f"@loop template must expand to field dicts, got: {entry!r}")
+                built.extend(self._build_field_templates(entry, preset_root, prefix))
+        return built
+
     def _build_field_template(self, field_data: dict, preset_root: Path, prefix: str) -> FieldTemplate:
         """Recursively convert a validated field dict into a FieldTemplate.
 
@@ -637,13 +666,8 @@ class PresetTemplateLoader:
         """
         field_data = dict(field_data)
 
-        # "@loop" is a pipeline/form-expansion directive (a field list entry
-        # that PresetProcessor expands into N real fields at render time via
-        # its own `configuration.template`, not a renderable widget) - it was
-        # never meant to be in the field-type registry, so it's exempt from
-        # the unregistered-type check.
         field_type = field_data.get('type')
-        if field_type != '@loop' and field_type not in _known_field_types():
+        if field_type not in _known_field_types():
             raise ValueError(
                 f"field '{field_data.get('name')}': unregistered field type '{field_type}'"
             )
@@ -654,11 +678,11 @@ class PresetTemplateLoader:
             resolved_path = resolve_children_path(ref.file, preset_root, self.shared_path)
             external_fields = self._load_external_children_file(resolved_path, prefix, ref)
             field_data['children'] = [
-                self._build_field_template(c, preset_root, prefix) for c in external_fields
+                built for c in external_fields for built in self._build_field_templates(c, preset_root, prefix)
             ]
         elif isinstance(children, list):
             field_data['children'] = [
-                self._build_field_template(c, preset_root, prefix) for c in children
+                built for c in children for built in self._build_field_templates(c, preset_root, prefix)
             ]
 
         return FieldTemplate(**field_data)

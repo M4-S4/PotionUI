@@ -148,32 +148,3 @@ def test_lint_accepts_vars_include_and_flags_bad_vars(tmp_path):
     bad = '{file: "{{ paths._shared }}/x/tab.yml", vars: {steps: 4, extra: 1}}'
     issues = _lint_vars_preset(tmp_path / "bad", bad, fragment)
     assert [i for i in issues if i.level == "error" and "unknown vars" in i.message]
-
-
-def _serializer():
-    from unittest.mock import Mock
-
-    from src.features.presets.form_serializer import PresetFormSerializer
-    from src.platform.templating import TemplateProcessor
-
-    return PresetFormSerializer(Mock(), TemplateProcessor(settings=None))
-
-
-def _serializer_fields(tmp_path: Path, **vars):
-    from src.features.presets.templates import FieldTemplate
-
-    (tmp_path / "frag.yml").write_text(FRAGMENT, encoding="utf-8")
-    include = {"file": str(tmp_path / "frag.yml"), "vars": vars}
-    return _serializer()._resolve_external_children([FieldTemplate(name="box", type="section", children=include)], {})
-
-
-def test_serializer_substitutes_vars(tmp_path):
-    resolved = _serializer_fields(tmp_path, family="flux3", steps=50)
-    child = resolved[0].children[0]
-    assert child.default == 50
-    assert child.label == "flux3 steps"
-
-
-def test_serializer_surfaces_missing_var(tmp_path):
-    with pytest.raises(ChildrenVarsError, match="missing vars"):
-        _serializer_fields(tmp_path, family="flux3")

@@ -199,7 +199,8 @@ slots (`lora_1`, `lora_2`, ...) into a list in the pipeline. It is handled by
 
 1. **Inside a pipeline value** (most common), as a `"@loop":` mapping whose result replaces the value.
 2. **As a form field** of `type: "@loop"` whose `configuration` carries the loop config, expanding into
-   concrete fields.
+   concrete fields once when the preset loads. The template context holds only `paths`, so `form`,
+   `preset` and `runtime` expressions are not available there.
 
 Loop config keys used by presets:
 - `count` — how many iterations: a native integer, or an exact `{{ expression }}` that

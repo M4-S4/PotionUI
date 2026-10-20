@@ -3,7 +3,6 @@ import pytest
 from scripts.preset_render import (
     ROOT,
     build_fixture_form_data,
-    build_form_serializer,
     build_generation_data,
     build_processor,
     load_all_presets,
@@ -14,12 +13,12 @@ from scripts.preset_render import (
 def krea2():
     presets, _ = load_all_presets(presets_root=ROOT / "content" / "presets" / "marketplace", include_plugins=False)
     preset = next(p for p in presets if p.path.replace("\\", "/").rstrip("/").endswith("/Krea2"))
-    return preset, build_processor(), build_form_serializer()
+    return preset, build_processor()
 
 
 def _refine_tail(krea2, mode, **overrides):
-    preset, processor, serializer = krea2
-    form = build_fixture_form_data(serializer, preset, mode)
+    preset, processor = krea2
+    form = build_fixture_form_data(preset, mode)
     form.update(overrides)
     pipes = processor.process(preset, build_generation_data(mode, form, preset.modes.get(mode)))
     configs = [p["config"] for p in pipes if p["name"].startswith("generator") and p["config"].get("refine_tail")]

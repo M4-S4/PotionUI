@@ -33,48 +33,6 @@ def _preset(fields, form_name="custom", mode="txt2img", second_form=None):
     )
 
 
-class TestLoopFieldExpansion:
-    """`@loop` form-field declarations (e.g. numbered ControlNet slots -
-    content/presets/marketplace/SDXL/modes/txt2img/tabs/controlnet.yml)
-    must be expanded to their concrete per-iteration field names before the
-    field index is built, or bind_form strips the submitted values as
-    unknown keys and the pipeline's `form['controlnet_' ~ i ~ '_model']`
-    access breaks even though the client sent real data."""
-
-    def _loop_field(self, count=3):
-        return FieldTemplate(
-            type="@loop",
-            configuration={
-                "count": count,
-                "template": {
-                    "type": "text",
-                    "name": "slot_{{ loop.index }}_model",
-                    "default": "",
-                },
-            },
-        )
-
-    def test_loop_generated_fields_are_not_stripped(self):
-        preset = _preset([self._loop_field(3)])
-        raw = {"slot_1_model": "a.safetensors", "slot_2_model": "b.safetensors", "slot_3_model": "c.safetensors"}
-        bound = bind_form(preset, "txt2img", None, raw, "user_1")
-        assert bound.values["slot_1_model"] == "a.safetensors"
-        assert bound.values["slot_2_model"] == "b.safetensors"
-        assert bound.values["slot_3_model"] == "c.safetensors"
-        assert bound.stripped == []
-
-    def test_loop_generated_fields_apply_their_own_default_when_absent(self):
-        preset = _preset([self._loop_field(2)])
-        bound = bind_form(preset, "txt2img", None, {}, "user_1")
-        assert bound.values["slot_1_model"] == ""
-        assert bound.values["slot_2_model"] == ""
-
-    def test_loop_count_matches_expanded_field_count(self):
-        preset = _preset([self._loop_field(5)])
-        bound = bind_form(preset, "txt2img", None, {}, "user_1")
-        assert {f"slot_{i}_model" for i in range(1, 6)} <= set(bound.values.keys())
-
-
 class TestFormNameResolution:
     def test_default_form_used_when_form_name_omitted(self):
         preset = _preset([_field("steps", "slider", default=20)])

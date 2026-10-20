@@ -62,11 +62,11 @@ def test_hidden_abc_is_not_checked_when_cot_is_off(yue2_template):
 
 
 def test_abc_field_renders_as_tall_mono_textarea(yue2_template):
-    from src.features.forms.binding import _expand_form_fields, _flatten_fields
+    from src.features.forms.binding import _flatten_fields
 
     mode = yue2_template.modes["song"]
     index = {}
-    _flatten_fields(_expand_form_fields(mode.forms[0].fields, yue2_template), index)
+    _flatten_fields(mode.forms[0].fields, index)
     config = index["abc"].configuration
     assert index["abc"].type == "string"
     assert config["input_type"] == "textarea"

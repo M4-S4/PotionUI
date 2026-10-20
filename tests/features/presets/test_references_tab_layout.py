@@ -16,8 +16,8 @@ transformed in place, so the marketplace preset carries a References tab.
 The assertions run through the SAME path that serves `GET /api/presets/{id}/form`:
 PresetTemplateLoader -> PresetFormSerializer.process_form_fields. That matters
 here because a tab body arrives as a `children:` STRING (a Jinja
-`{{ paths.preset }}` path) and only becomes fields inside the serializer's
-`_resolve_external_children`. A fixture built by hand, or a `yaml.safe_load` of
+`{{ paths.preset }}` path) and only becomes fields inside the loader's
+`children:` resolution. A fixture built by hand, or a `yaml.safe_load` of
 the tab file, would assert against a tree the frontend never receives and would
 pass even if the new references.yml were unreachable.
 

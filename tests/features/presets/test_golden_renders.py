@@ -28,7 +28,6 @@ import pytest
 
 from scripts.preset_render import (
     ROOT,
-    build_form_serializer,
     build_processor,
     golden_filename,
     load_all_presets,
@@ -50,12 +49,11 @@ def _load_all_records():
         presets_root=ROOT / "content" / "presets" / "marketplace", include_plugins=False
     )
     processor = build_processor()
-    form_serializer = build_form_serializer()
 
     records = []
     for preset in sorted(presets, key=lambda p: p.id):
         for mode in sorted(preset.modes.keys()):
-            record = render_preset_mode(processor, form_serializer, preset, mode)
+            record = render_preset_mode(processor, preset, mode)
             records.append((preset, mode, record))
     return records
 

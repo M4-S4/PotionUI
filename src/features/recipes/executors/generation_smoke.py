@@ -92,8 +92,6 @@ class GenerationSmokeExecutor:
             form_data = build_fixture_form_data(
                 preset_template,
                 mode,
-                preset_template_loader=self.preset_template_loader,
-                template_processor=self.template_processor,
                 overrides=overrides,
                 recipe=context.recipe,
                 model_repository=self.model_repository,

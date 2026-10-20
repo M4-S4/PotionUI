@@ -31,7 +31,6 @@ import dataclasses
 from typing import Any, Dict, List
 
 from src.features.forms.binding import (
-    _expand_form_fields,
     _flatten_fields,
     is_numeric_field_type,
     override_default_problem,
@@ -69,9 +68,8 @@ def mode_field_inventory(preset_template: PresetTemplate, mode: str) -> Dict[str
 
     inventory: Dict[str, FieldTemplate] = {}
     for form in mode_data.forms:
-        resolved_fields = _expand_form_fields(form.fields, preset_template)
         variant_index: Dict[str, FieldTemplate] = {}
-        _flatten_fields(resolved_fields, variant_index)
+        _flatten_fields(form.fields, variant_index)
         for name, spec in variant_index.items():
             inventory.setdefault(name, spec)
 
@@ -153,10 +151,9 @@ def mode_field_inventory_with_tabs(
     tab_of: Dict[str, Any] = {}
     tabs: List[str] = []
     for form in mode_data.forms:
-        resolved_fields = _expand_form_fields(form.fields, preset_template)
         variant_inventory: Dict[str, FieldTemplate] = {}
         variant_tab_of: Dict[str, Any] = {}
-        _walk_mode_fields_with_tabs(resolved_fields, None, variant_inventory, variant_tab_of, tabs)
+        _walk_mode_fields_with_tabs(form.fields, None, variant_inventory, variant_tab_of, tabs)
         for name, spec in variant_inventory.items():
             inventory.setdefault(name, spec)
         for name, label in variant_tab_of.items():
@@ -265,12 +262,10 @@ def apply_overrides_to_fields(
     """Apply `overrides_for_mode` ({field_name: {default?, editable?, visible?}})
     onto an already-resolved `FieldTemplate` tree and return the resulting list.
 
-    Called by `PresetFormSerializer.process_form_fields` immediately after
-    `_resolve_external_children` (which expands `@loop`/external-`children`
-    declarations) - the single funnel every rendered field passes through, so
-    expanded field names (e.g. `slot_2_model`) match the override keys, and
-    the objects being walked are already freshly-constructed copies (never
-    the preset loader's cached originals) safe to replace.
+    Called by `PresetFormSerializer.process_form_fields` on the loaded field
+    tree, where `@loop`/external-`children` declarations are already expanded
+    so field names (e.g. `slot_2_model`) match the override keys. The loader's
+    cached originals are never mutated: changed fields are copied.
 
     - `visible: false` REMOVES the field entirely, including nested inside a
       container's `children` - server-side removal is the security boundary
