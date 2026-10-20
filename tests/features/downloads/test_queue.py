@@ -806,6 +806,82 @@ class TestClearCancelled:
         mock_repository.delete_cancelled.assert_called_once()
 
 
+class TestControlAndClearHooks:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("action,worker_method,failure", [
+        ("pause_download", "pause", "Download cannot be paused (not active)"),
+        ("resume_download", "resume", "Download cannot be resumed (not paused/failed)"),
+        ("cancel_download", "cancel", "Download cannot be cancelled (already completed/cancelled)"),
+    ])
+    async def test_control_fires_its_own_hook_pair_and_failure_text(
+        self, manager, mock_repository, action, worker_method, failure
+    ):
+        download = Mock()
+        download.id = 'test-id'
+        download.filename = 'a.safetensors'
+        download.type = DownloadType.MODEL
+        mock_repository.get_by_id.return_value = download
+        worker = AsyncMock()
+        setattr(worker, worker_method, AsyncMock(return_value=True))
+        manager.worker = worker
+        calls = []
+
+        def record(plugins, hook, data):
+            calls.append((hook, data))
+            return {}, False
+
+        with patch('src.features.downloads.queue.execute_hook', record):
+            await getattr(manager, action)('test-id')
+            getattr(worker, worker_method).return_value = False
+            with pytest.raises(DownloadOperationException) as raised:
+                await getattr(manager, action)('test-id')
+
+        stem = worker_method
+        assert calls[0] == (f"download.before_{stem}", {"download_id": "test-id", "filename": "a.safetensors"})
+        assert calls[1] == (f"download.after_{stem}", {"download_id": "test-id", "filename": "a.safetensors"})
+        assert len(calls) == 3
+        assert str(raised.value) == failure
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("action,reason", [
+        ("pause_download", "Pause blocked"),
+        ("resume_download", "Resume blocked"),
+        ("cancel_download", "Cancel blocked"),
+    ])
+    async def test_blocked_control_raises_default_reason(self, manager, mock_repository, action, reason):
+        download = Mock()
+        download.id = 'test-id'
+        download.filename = 'a.safetensors'
+        mock_repository.get_by_id.return_value = download
+        manager.worker = AsyncMock()
+
+        with patch('src.features.downloads.queue.execute_hook', lambda *_: ({}, True)):
+            with pytest.raises(DownloadOperationException) as raised:
+                await getattr(manager, action)('test-id')
+
+        assert str(raised.value) == reason
+
+    @pytest.mark.parametrize("action,clear_type,repo_method", [
+        ("clear_completed", "completed", "delete_completed"),
+        ("clear_cancelled", "cancelled", "delete_cancelled"),
+    ])
+    def test_clear_hooks_carry_type_and_count(self, manager, mock_repository, action, clear_type, repo_method):
+        getattr(mock_repository, repo_method).return_value = 4
+        calls = []
+
+        def record(plugins, hook, data):
+            calls.append((hook, data))
+            return {}, False
+
+        with patch('src.features.downloads.queue.execute_hook', record):
+            assert getattr(manager, action)() == 4
+
+        assert calls == [
+            ("download.before_clear", {"clear_type": clear_type}),
+            ("download.after_clear", {"clear_type": clear_type, "count": 4}),
+        ]
+
+
 class TestSettings:
     """Tests for settings operations."""
 
