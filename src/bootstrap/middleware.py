@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.gzip import GZipResponder
 
 from src.platform.security.current_user import get_auth
 from src.platform.security.media_session import media_cookie_header, media_cookie_name
@@ -28,20 +28,49 @@ from src.platform.security.session_renewal import renewed_token
 DEBUG_MODE = os.getenv('DEBUG', 'false').lower() in ('true', '1', 'yes')
 
 
-# GZip middleware that skips streaming endpoints to prevent SSE buffering.
-# GZipMiddleware buffers the full response body before compressing, which
-# breaks text/event-stream responses (events arrive all at once instead of
-# incrementally). This wrapper bypasses gzip for known streaming paths.
-class SSEAwareGZipMiddleware:
-    def __init__(self, app, minimum_size: int = 1000, compresslevel: int = 9):
+_COMPRESSIBLE_EXACT = frozenset({
+    "application/json",
+    "application/javascript",
+    "application/x-javascript",
+    "application/ecmascript",
+    "image/svg+xml",
+})
+
+
+def _is_compressible(headers: Headers) -> bool:
+    if "content-encoding" in headers or "content-range" in headers:
+        return False
+    media_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if media_type == "text/event-stream":
+        return False
+    return (
+        media_type.startswith("text/")
+        or media_type.endswith("+json")
+        or media_type in _COMPRESSIBLE_EXACT
+    )
+
+
+class _SelectiveGZipResponder(GZipResponder):
+    async def send_with_gzip(self, message):
+        if message["type"] == "http.response.start" and not _is_compressible(Headers(raw=message["headers"])):
+            self.content_encoding_set = True
+            self.initial_message = message
+            return
+        await super().send_with_gzip(message)
+
+
+class CompressibleGZipMiddleware:
+    def __init__(self, app, minimum_size: int = 1000, compresslevel: int = 6):
         self.app = app
-        self.gzip = GZipMiddleware(app, minimum_size=minimum_size, compresslevel=compresslevel)
+        self.minimum_size = minimum_size
+        self.compresslevel = compresslevel
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http" and scope.get("path", "").endswith("/messages/stream"):
-            await self.app(scope, receive, send)
-        else:
-            await self.gzip(scope, receive, send)
+        if scope["type"] == "http" and "gzip" in Headers(scope=scope).get("Accept-Encoding", ""):
+            responder = _SelectiveGZipResponder(self.app, self.minimum_size, compresslevel=self.compresslevel)
+            await responder(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
 REFRESHED_TOKEN_HEADER = "X-Refreshed-Token"
@@ -202,21 +231,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             raise
 
 
-async def _add_swagger_headers(request: Request, call_next):
-    response = await call_next(request)
-    # Check if the request is for Swagger UI or ReDoc
-    if request.url.path in ["/docs", "/redoc", "/openapi.json"]:
-        # Add CORS headers for Swagger UI access
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-    return response
-
-
 def register_middleware(app: FastAPI) -> None:
     """Add the middleware stack to `app`, preserving the original order."""
     # Add middleware for better performance and concurrency
-    app.add_middleware(SSEAwareGZipMiddleware, minimum_size=1000)  # Compress responses > 1KB, skip SSE
+    app.add_middleware(CompressibleGZipMiddleware, minimum_size=1000)
 
     # Add CORS middleware for frontend
     _default_origins = ["http://localhost:3005", "http://127.0.0.1:3005", "http://localhost:26731", "http://127.0.0.1:26731"]
@@ -230,9 +248,6 @@ def register_middleware(app: FastAPI) -> None:
         expose_headers=[REFRESHED_TOKEN_HEADER],
     )
     app.add_middleware(SessionRenewalMiddleware)
-
-    # Add middleware to serve Swagger UI and API docs
-    app.middleware("http")(_add_swagger_headers)
 
     # Add logging middleware
     app.add_middleware(LoggingMiddleware)
