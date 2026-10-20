@@ -3,7 +3,8 @@
 	import BaseModal from './modals/BaseModal.svelte';
 	import ConfirmFooter from './modals/ConfirmFooter.svelte';
 	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './modals/confirmKeyboard';
-	import { parseVariablesImport, mergeVariables, type ParsedVariablesImport } from '$lib/utils/variablesTransfer';
+	import { findNameCollision } from '$lib/utils/variableNames';
+	import { parseVariablesImport, mergeVariablesDetailed, remapNote, type ParsedVariablesImport } from '$lib/utils/variablesTransfer';
 	import type { VariablesMap } from '$lib/utils/variableDefs';
 
 	export let isOpen = false;
@@ -37,8 +38,9 @@
 
 	$: parsed = text.trim()
 		? parseVariablesImport(text, existing)
-		: ({ variables: {}, summary: { variables: 0, conditions: 0 }, errors: [] } as ParsedVariablesImport);
-	$: clashes = Object.keys(parsed.variables).filter((name) => name in existing);
+		: ({ variables: {}, summary: { variables: 0, conditions: 0 }, errors: [], notes: [] } as ParsedVariablesImport);
+	$: merge = mergeVariablesDetailed(existing, parsed.variables, mergeRule);
+	$: clashes = Object.keys(parsed.variables).filter((name) => findNameCollision(existing, name) !== null);
 	$: showMergeControl = clashes.length > 0;
 	$: canConfirm = text.trim().length > 0 && parsed.errors.length === 0 && parsed.summary.variables > 0;
 
@@ -58,8 +60,7 @@
 
 	function handleConfirm() {
 		settleIfEligible(settlementGate, canConfirm, () => {
-			const merged = mergeVariables(existing, parsed.variables, mergeRule);
-			dispatch('confirm', { variables: merged, count: parsed.summary.variables });
+			dispatch('confirm', { variables: merge.variables, count: parsed.summary.variables });
 		});
 	}
 
@@ -98,6 +99,16 @@
 			</ul>
 		{:else if text.trim()}
 			<p class="font-mono text-xs text-fg-subtle">{summaryLine}</p>
+			{#if parsed.notes.length > 0 || merge.remapped.length > 0}
+				<ul class="space-y-1" data-testid="paste-notes">
+					{#each parsed.notes as note}
+						<li class="font-mono text-xs text-warning">{note}</li>
+					{/each}
+					{#each merge.remapped as remap}
+						<li class="font-mono text-xs text-warning">Matched by name: {remapNote(remap)}</li>
+					{/each}
+				</ul>
+			{/if}
 		{/if}
 
 		{#if showMergeControl}

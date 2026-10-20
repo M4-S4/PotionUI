@@ -14,7 +14,7 @@
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import { segmentUsageNumbers } from '$lib/utils/variableUsageNumbering';
-	import { mergeVariables } from '$lib/utils/variablesTransfer';
+	import { libraryImportOutcome } from '$lib/utils/variablesTransfer';
 	import { toolbarFit } from '$lib/utils/toolbarFit';
 	import { toasts } from '$lib/stores/toast';
 	import { hydrateSegments } from '$lib/utils/chipParser';
@@ -393,8 +393,10 @@
 			const imported = (detail.item as Prompt).variables;
 			const importedCount = imported ? Object.keys(imported).length : 0;
 			if (importedCount > 0 && onVariablesImport) {
-				onVariablesImport(mergeVariables(variables, imported as VariablesMap, 'replace'));
-				toasts.success(`Imported ${importedCount} variable${importedCount === 1 ? '' : 's'}`);
+				const outcome = libraryImportOutcome(variables, imported as VariablesMap);
+				onVariablesImport(outcome.variables);
+				toasts.success(outcome.successMessage);
+				if (outcome.warningMessage) toasts.warning(outcome.warningMessage);
 			}
 		}
 		showPromptApplyModal = false;

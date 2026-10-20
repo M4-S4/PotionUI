@@ -12,6 +12,7 @@ import {
 	type VariablesMap
 } from './variableDefs';
 import { isValidVariableName } from './promptVariables';
+import { dedupeVariableNames, findNameCollision } from './variableNames';
 
 const MAX_NAME_CHARS = 60;
 
@@ -60,6 +61,7 @@ export interface ParsedVariablesImport {
 	variables: VariablesMap;
 	summary: VariablesImportSummary;
 	errors: string[];
+	notes: string[];
 }
 
 function parseOptionShape(name: string, rawOpt: unknown, errors: string[]): VariableOption | null | undefined {
@@ -206,7 +208,8 @@ function validateCondition(
 
 export function parseVariablesImport(text: string, existing: VariablesMap = {}): ParsedVariablesImport {
 	const errors: string[] = [];
-	const empty: ParsedVariablesImport = { variables: {}, summary: { variables: 0, conditions: 0 }, errors };
+	const notes: string[] = [];
+	const empty: ParsedVariablesImport = { variables: {}, summary: { variables: 0, conditions: 0 }, errors, notes };
 
 	let parsed: unknown;
 	try {
@@ -225,6 +228,11 @@ export function parseVariablesImport(text: string, existing: VariablesMap = {}):
 	const draft: VariablesMap = {};
 
 	for (const name of Object.keys(raw)) {
+		const twin = findNameCollision(draft, name);
+		if (twin !== null) {
+			notes.push(`'${name}' was skipped: it has the same name as '${twin}' (names are not case-sensitive).`);
+			continue;
+		}
 		if (!isValidVariableName(name) || name.length > MAX_NAME_CHARS) {
 			errors.push(
 				`'${name}' is not a valid variable name. Use letters, digits, and underscores, starting with a letter or underscore, up to ${MAX_NAME_CHARS} characters.`
@@ -263,7 +271,7 @@ export function parseVariablesImport(text: string, existing: VariablesMap = {}):
 		variables[name] = { ...def, options: validatedOptions };
 	}
 
-	return { variables, summary: summarizeVariables(variables), errors };
+	return { variables, summary: summarizeVariables(variables), errors, notes };
 }
 
 export function summarizeVariables(variables: VariablesMap): VariablesImportSummary {
@@ -275,11 +283,81 @@ export function summarizeVariables(variables: VariablesMap): VariablesImportSumm
 	return { variables: Object.keys(variables).length, conditions };
 }
 
-export function mergeVariables(existing: VariablesMap, imported: VariablesMap, rule: 'keep' | 'replace'): VariablesMap {
+export interface VariableRemap {
+	from: string;
+	to: string;
+}
+
+export interface VariablesMergeResult {
+	variables: VariablesMap;
+	remapped: VariableRemap[];
+}
+
+export function mergeVariablesDetailed(
+	existing: VariablesMap,
+	imported: VariablesMap,
+	rule: 'keep' | 'replace'
+): VariablesMergeResult {
 	const merged: VariablesMap = { ...existing };
-	for (const name of Object.keys(imported)) {
-		if (rule === 'keep' && name in merged) continue;
-		merged[name] = imported[name];
+	const { variables: unique } = dedupeVariableNames(imported);
+	const remapped: VariableRemap[] = [];
+	const note = (from: string, to: string) => {
+		if (!remapped.some((r) => r.from === from && r.to === to)) remapped.push({ from, to });
+	};
+	const written: string[] = [];
+	for (const name of Object.keys(unique)) {
+		const target = findNameCollision(merged, name) ?? name;
+		if (rule === 'keep' && target in merged) continue;
+		if (target !== name) note(name, target);
+		merged[target] = unique[name];
+		written.push(target);
 	}
-	return merged;
+	for (const target of written) {
+		const def = merged[target];
+		if (typeof def === 'string' || def.type !== 'choice') continue;
+		let changed = false;
+		const options = def.options.map((option) => {
+			const when = typeof option === 'string' ? undefined : option.when;
+			if (!when || when.var in merged) return option;
+			const to = findNameCollision(merged, when.var);
+			if (!to) return option;
+			note(when.var, to);
+			changed = true;
+			return { ...(option as { text: string }), when: { ...when, var: to } };
+		});
+		if (changed) merged[target] = { ...def, options };
+	}
+	return { variables: merged, remapped };
+}
+
+export function mergeVariables(existing: VariablesMap, imported: VariablesMap, rule: 'keep' | 'replace'): VariablesMap {
+	return mergeVariablesDetailed(existing, imported, rule).variables;
+}
+
+export function remapNote(remap: VariableRemap): string {
+	return `$${remap.from} → $${remap.to}`;
+}
+
+export interface LibraryImportOutcome {
+	variables: VariablesMap;
+	importedCount: number;
+	successMessage: string;
+	warningMessage: string | null;
+}
+
+export function libraryImportOutcome(existing: VariablesMap, imported: VariablesMap): LibraryImportOutcome {
+	const { dropped } = dedupeVariableNames(imported);
+	const { variables, remapped } = mergeVariablesDetailed(existing, imported, 'replace');
+	const importedCount = Object.keys(imported).length - dropped.length;
+	const parts: string[] = [];
+	if (dropped.length > 0) {
+		parts.push(`Skipped ${dropped.map((n) => `$${n}`).join(', ')}: same name as another variable (names are not case-sensitive)`);
+	}
+	if (remapped.length > 0) parts.push(`Matched by name: ${remapped.map(remapNote).join(', ')}`);
+	return {
+		variables,
+		importedCount,
+		successMessage: `Imported ${importedCount} variable${importedCount === 1 ? '' : 's'}`,
+		warningMessage: parts.length > 0 ? parts.join('. ') : null
+	};
 }

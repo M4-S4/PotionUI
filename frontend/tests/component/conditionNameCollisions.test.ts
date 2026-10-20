@@ -134,3 +134,74 @@ describe('condition editor with similar variable names', () => {
 		expect(document.querySelectorAll('[aria-label^="Toggle"]').length).toBe(2);
 	});
 });
+
+describe('Variables window name collisions', () => {
+	async function mountManager(variables: VariablesMap) {
+		const { default: VariableManagerModal } = await import('$lib/components/VariableManagerModal.svelte');
+		const { createClassComponent } = await import('svelte/legacy');
+		const host = document.createElement('div');
+		document.body.appendChild(host);
+		const changes: VariablesMap[] = [];
+		const component = createClassComponent({
+			component: VariableManagerModal as never,
+			target: host,
+			props: { isOpen: true, variables }
+		});
+		component.$on('change', (e: CustomEvent<VariablesMap>) => changes.push(e.detail));
+		await tick();
+		return { component, changes };
+	}
+
+	async function renameSecondTo(name: string) {
+		const rows = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+		rows[1].click();
+		await tick();
+		const input = document.querySelector<HTMLInputElement>('input[aria-label="Variable name"]')!;
+		input.value = name;
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		await tick();
+		await tick();
+	}
+
+	it.each(['mood', 'Mood', 'mood '])('blocks the name %j with an inline error and keeps the first variable', async (name) => {
+		const first = choice('calm', 'serene');
+		const { component, changes } = await mountManager({ mood: first, other: choice('x') });
+		await renameSecondTo(name);
+		expect(document.body.textContent).toContain('Another variable already uses this name');
+		const last = changes.at(-1);
+		if (last) {
+			expect(Object.keys(last)).toEqual(['mood']);
+			expect(last.mood).toEqual(first);
+		}
+		component.$destroy();
+	});
+
+	it('keeps a legacy case-twin stored when another row is edited, and deletes it only when its row is removed', async () => {
+		const mood = choice('calm', 'serene');
+		const twin = choice('x', 'y');
+		const { component, changes } = await mountManager({ Mood: mood, mood: twin, tone: choice('a', 'b') });
+		const rows = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+		rows[2].click();
+		await tick();
+		const input = document.querySelector<HTMLInputElement>('input[aria-label="Variable name"]')!;
+		input.value = 'tone2';
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		await tick();
+		await tick();
+		const afterEdit = changes.at(-1)!;
+		expect(Object.keys(afterEdit).sort()).toEqual(['Mood', 'mood', 'tone2']);
+		expect(afterEdit.mood).toEqual(twin);
+
+		const rowsAgain = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'));
+		rowsAgain[1].click();
+		await tick();
+		const remove = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
+			b.getAttribute('aria-label')?.startsWith('Remove variable mood')
+		)!;
+		remove.click();
+		await tick();
+		await tick();
+		expect(Object.keys(changes.at(-1)!).sort()).toEqual(['Mood', 'tone2']);
+		component.$destroy();
+	});
+});

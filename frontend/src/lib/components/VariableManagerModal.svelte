@@ -10,7 +10,7 @@
 	import VariableConditionChip from './VariableConditionChip.svelte';
 	import NumberVariableEditor from './NumberVariableEditor.svelte';
 	import PasteVariablesModal from './PasteVariablesModal.svelte';
-	import { isValidVariableName } from '$lib/utils/promptVariables';
+	import { usableNamedRows, variableNameErrors } from '$lib/utils/variableNames';
 	import { toasts } from '$lib/stores/toast';
 	import { copyText } from '$lib/utils/clipboard';
 	import { serializeVariables } from '$lib/utils/variablesTransfer';
@@ -157,20 +157,10 @@
 	// dependency scan sees `rows` directly and recomputes every row's error whenever
 	// ANY row's name changes; a function call would only recompute the row whose own
 	// reference changed, leaving the collision partner's error stale.
-	$: nameErrorByKey = new Map(
-		rows.map((row) => {
-			if (!row.name) return [row.key, null]; // an empty draft row isn't an error yet
-			if (!isValidVariableName(row.name)) {
-				return [row.key, 'Letters, numbers, underscore; must not start with a number.'];
-			}
-			const dupes = rows.filter((r) => r.name === row.name);
-			if (dupes.length > 1) return [row.key, 'Duplicate name — only the last one would be used.'];
-			return [row.key, null];
-		})
-	);
+	$: nameErrorByKey = variableNameErrors(rows);
 
 	$: liveVariables = Object.fromEntries(
-		rows.filter((r) => r.name.trim()).map((r) => [r.name.trim(), r.def])
+		usableNamedRows(rows).map((r) => [r.name.trim(), r.def])
 	) as VariablesMap;
 
 	$: selected = rows.find((r) => r.key === selectedKey) ?? null;
@@ -263,10 +253,10 @@
 
 	function commit() {
 		const next: VariablesMap = {};
+		const usable = new Set(usableNamedRows(rows));
 		for (const row of rows) {
-			const name = row.name.trim();
-			if (!name || !isValidVariableName(name)) continue;
-			next[name] = row.def;
+			if (usable.has(row)) next[row.name.trim()] = row.def;
+			else if (row.name in committedEdits && !(row.name in next)) next[row.name] = committedEdits[row.name];
 		}
 		const merged = applyVariableEdits(variables, committedEdits, next);
 		committedEdits = JSON.parse(JSON.stringify(next));

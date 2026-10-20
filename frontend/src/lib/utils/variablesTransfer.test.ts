@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { serializeVariables, parseVariablesImport, mergeVariables, summarizeVariables } from './variablesTransfer';
+import { serializeVariables, parseVariablesImport, mergeVariables, mergeVariablesDetailed, libraryImportOutcome, summarizeVariables } from './variablesTransfer';
 import type { VariablesMap } from './variableDefs';
 
 describe('serializeVariables / parseVariablesImport round-trip', () => {
@@ -216,5 +216,79 @@ describe('number variables in transfer', () => {
 	it('merges with keep and replace', () => {
 		expect(mergeVariables({ age: number }, { age: { ...number, mode: 'pin' } }, 'keep').age).toEqual(number);
 		expect((mergeVariables({ age: number }, { age: { ...number, mode: 'pin' } }, 'replace').age as any).mode).toBe('pin');
+	});
+});
+
+describe('name collisions across case', () => {
+	const text = (value: string) => ({ type: 'text', value }) as const;
+
+	it('keeps the first of pasted names that differ only by case and notes the rest', () => {
+		const parsed = parseVariablesImport(JSON.stringify({ mood: text('a'), Mood: text('b'), MOOD: text('c') }));
+		expect(Object.keys(parsed.variables)).toEqual(['mood']);
+		expect(parsed.notes).toHaveLength(2);
+		expect(parsed.errors).toEqual([]);
+	});
+
+	it('merges a case-variant into the existing entry instead of adding a twin', () => {
+		const existing: VariablesMap = { mood: text('old') };
+		expect(mergeVariables(existing, { Mood: text('new') }, 'replace')).toEqual({ mood: text('new') });
+		expect(mergeVariables(existing, { Mood: text('new') }, 'keep')).toEqual({ mood: text('old') });
+	});
+
+	it('never lets an imported map with case-variants create twins', () => {
+		const merged = mergeVariables({}, { a: text('1'), A: text('2') } as VariablesMap, 'replace');
+		expect(Object.keys(merged)).toEqual(['a']);
+	});
+});
+
+describe('remapping through case-variant names', () => {
+	const choice = (...options: (string | { text: string; when: { var: string; values: string[] } })[]) =>
+		({ type: 'choice', mode: 'shuffle', pinnedIndex: null, options }) as const;
+
+	it('rewrites when.var of imported definitions to the existing spelling and reports it', () => {
+		const existing: VariablesMap = { mood: choice('calm', 'tense') };
+		const imported: VariablesMap = {
+			Mood: choice('calm', 'tense'),
+			outfit: choice({ text: 'robe', when: { var: 'Mood', values: ['calm'] } }, 'coat')
+		};
+		const result = mergeVariablesDetailed(existing, imported, 'replace');
+		expect(Object.keys(result.variables).sort()).toEqual(['mood', 'outfit']);
+		const outfit = result.variables.outfit as { options: { text: string; when: { var: string } }[] };
+		expect(outfit.options[0].when.var).toBe('mood');
+		expect(result.remapped).toEqual([{ from: 'Mood', to: 'mood' }]);
+	});
+
+	it('rewrites a when.var that only differs by case from an existing variable', () => {
+		const existing: VariablesMap = { mood: choice('calm') };
+		const imported: VariablesMap = { outfit: choice({ text: 'robe', when: { var: 'MOOD', values: ['calm'] } }) };
+		const result = mergeVariablesDetailed(existing, imported, 'replace');
+		const outfit = result.variables.outfit as { options: { when: { var: string } }[] };
+		expect(outfit.options[0].when.var).toBe('mood');
+		expect(result.remapped).toEqual([{ from: 'MOOD', to: 'mood' }]);
+	});
+
+	it('does not report a remap for a variable skipped by keep', () => {
+		const result = mergeVariablesDetailed({ mood: choice('a') }, { Mood: choice('b') }, 'keep');
+		expect(result.remapped).toEqual([]);
+		expect(result.variables.mood).toEqual(choice('a'));
+	});
+});
+
+describe('libraryImportOutcome', () => {
+	const text = (value: string) => ({ type: 'text', value }) as const;
+
+	it('counts only kept variables and warns about skipped and matched names', () => {
+		const outcome = libraryImportOutcome({ mood: text('old') }, { Mood: text('new'), tone: text('t'), TONE: text('u') } as VariablesMap);
+		expect(outcome.importedCount).toBe(2);
+		expect(outcome.successMessage).toBe('Imported 2 variables');
+		expect(outcome.warningMessage).toContain('Skipped $TONE');
+		expect(outcome.warningMessage).toContain('$Mood → $mood');
+		expect(Object.keys(outcome.variables).sort()).toEqual(['mood', 'tone']);
+	});
+
+	it('has no warning when nothing collides', () => {
+		const outcome = libraryImportOutcome({}, { a: text('1') });
+		expect(outcome.successMessage).toBe('Imported 1 variable');
+		expect(outcome.warningMessage).toBeNull();
 	});
 });
