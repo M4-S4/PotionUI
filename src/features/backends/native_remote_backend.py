@@ -19,7 +19,6 @@ that method for the duck-typed call.
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 from pathlib import Path
 from typing import Any, Callable, ClassVar, Dict, List, Optional, Set

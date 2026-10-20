@@ -372,32 +372,6 @@ class TestFileRepository(PersistenceTestBase):
         
         other_user_files = self.repo.get_generation_files(generation_id, user_id="other_user")
         self.assertEqual(len(other_user_files), 0)
-    
-    def test_remove_generation_association(self):
-        """Test removing association between generation and file"""
-        # Create test file and generation
-        file = self.repo.create(self.test_file)
-        generation_id = self.create_test_generation(user_id=self.test_user_id)
-        
-        # Associate file with generation
-        self.repo.associate_with_generation(generation_id, file.id)
-        
-        # Verify association exists
-        gen_files = self.repo.get_generation_files(generation_id)
-        self.assertEqual(len(gen_files), 1)
-        
-        # Remove association
-        success = self.repo.remove_generation_association(generation_id, file.id)
-        self.assertTrue(success)
-        
-        # Verify association is removed
-        gen_files = self.repo.get_generation_files(generation_id)
-        self.assertEqual(len(gen_files), 0)
-    
-    def test_remove_nonexistent_association(self):
-        """Test removing nonexistent association"""
-        success = self.repo.remove_generation_association("nonexistent_gen", "nonexistent_file")
-        self.assertFalse(success)
 
     def test_get_generation_files_bulk_empty_for_generation_with_no_files(self):
         """Every requested generation id must be present in the result, even
@@ -564,23 +538,6 @@ class TestFileRepository(PersistenceTestBase):
             self.assertEqual(retrieved.thumbnail_small, "small.jpg")
             self.assertEqual(retrieved.thumbnail_medium, "medium.jpg")
             self.assertEqual(retrieved.thumbnail_large, "large.jpg")
-
-    def test_debug_recent_generation_files_reproduces_the_stale_column_bug(self):
-        """`generation_files` has been a bare junction table (id, generation_id,
-        file_id, created_at) since migration 010, but this debug dump still
-        reads file_path/file_type/file_size/pipe_name/is_final off its rows -
-        columns that live on `files`, not `generation_files`. That query
-        predates this move; it stays byte-for-byte so the move itself changes
-        nothing, not even the bug. The caller (the debug route) already turns
-        this into a JSON error response."""
-        generation_id = self.create_test_generation(user_id=self.test_user_id)
-        file_id = self.repo.create(File(
-            file_path="/test/f0.jpg", file_type="image", user_id=self.test_user_id,
-        )).id
-        self.repo.associate_with_generation(generation_id, file_id)
-
-        with self.assertRaises(Exception):
-            self.repo.debug_recent_generation_files(limit=2)
 
     def test_files_schema_has_no_updated_at(self):
         """The fresh `files` schema has no `updated_at` column. The removed

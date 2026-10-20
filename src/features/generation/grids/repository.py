@@ -114,11 +114,6 @@ class GridRepository:
             rows = cursor.fetchall()
         return {row["id"]: GridRecord.from_row(row) for row in rows}
 
-    def update_seeds(self, grid_id: str, seeds: Dict[str, int]) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("UPDATE generation_grids SET seeds = ? WHERE id = ?", (json.dumps(seeds), grid_id))
-
     def delete(self, grid_id: str) -> bool:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

@@ -279,13 +279,6 @@ class ModelLocationsRepository:
             )
             return {row["root_id"]: row["indexed_files"] for row in cursor.fetchall()}
 
-    def count_for_root(self, root_id: str) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("SELECT COUNT(*) AS n FROM model_locations WHERE root_id = ?", (root_id,))
-            row = cursor.fetchone()
-            return row["n"] if row else 0
-
     def delete_for_root_and_type(self, root_id: str, model_type: str) -> None:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

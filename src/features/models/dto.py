@@ -10,21 +10,6 @@ from pydantic import BaseModel
 
 # ============ Request DTOs ============
 
-class ListModelsQuery(BaseModel):
-    """Query parameters for listing models"""
-    model_type: Optional[str] = None
-    tag_ids: Optional[str] = None  # Comma-separated
-    search: Optional[str] = None
-    sort_by: str = "indexed_at"
-    sort_order: str = "desc"
-    limit: Optional[int] = 20
-    offset: int = 0
-    include_tags: bool = True
-    all_models: bool = False
-    assignment_filter: Optional[str] = None
-    assigned_user_id: Optional[str] = None
-    assigned_group_id: Optional[str] = None
-
 
 class ModelInfoFetchRequest(BaseModel):
     """Request to fetch model info from marketplace provider"""
@@ -155,11 +140,6 @@ class UserModelAssignmentRequest(BaseModel):
     """Request to assign/unassign a model to a user"""
     user_id: str
     model_id: str
-
-
-class GenerateThumbnailsRequest(BaseModel):
-    """Request to generate thumbnails for models"""
-    model_ids: Optional[List[str]] = None
 
 
 class ModelFavoriteRequest(BaseModel):

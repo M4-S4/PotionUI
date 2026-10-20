@@ -191,23 +191,6 @@ class BackendRegistry:
         """Return all registered driver -> config classes"""
         return self._registered_config_types.copy()
 
-    def register_engine(
-        self,
-        driver: str,
-        backend_class: Type[BaseBackend],
-        config_class: Type[BaseBackendConfig]
-    ):
-        """Dynamically register a new driver at runtime.
-
-        `driver` is the registration key an engine-only registration keys by
-        its engine name (see `_register_builtin_backends`'s docstring).
-        """
-        self._registered_backend_types[driver] = backend_class
-        self._registered_config_types[driver] = config_class
-        self.backend_config_store._registered_config_types[driver] = config_class
-
-        logger.info(f"[BACKEND_REGISTRY] Dynamically registered driver: {driver}")
-
     def _ensure_backends_initialized(self) -> None:
         """Run `_initialize_backends` on first real access rather than at construction.
 

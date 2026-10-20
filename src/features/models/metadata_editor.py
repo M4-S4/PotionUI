@@ -230,7 +230,6 @@ class ModelMetadataEditor:
         is missing, ModelIndexingException on an invalid/unsafe source path.
         """
         from src.features.generation.file_repository import file_repo
-        from src.features.generation.records import File
 
         model = self.model_repo.get_by_id(model_id, include_providers=False, include_tags=False)
         if not model:

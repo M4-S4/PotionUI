@@ -126,15 +126,5 @@ class GenerationModelRepository:
 
             return generations, total
 
-    def delete_by_generation(self, generation_id: str) -> int:
-        """Delete all model associations for a generation"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM generation_models WHERE generation_id = ?",
-                (generation_id,)
-            )
-            return cursor.rowcount
-
 # Global repository instance
 generation_model_repo = GenerationModelRepository()

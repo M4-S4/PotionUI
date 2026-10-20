@@ -8,7 +8,7 @@ Configuration is per LLM config via provider_options.pre_chat_actions.
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from src.features.chat.exceptions import PreChatActionError

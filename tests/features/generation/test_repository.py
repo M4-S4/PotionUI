@@ -440,37 +440,7 @@ class TestGenerationRepository(PersistenceTestBase):
         """Test deleting nonexistent generation"""
         success = self.repo.delete("nonexistent_id")
         self.assertFalse(success)
-    
-    def test_get_active_generations(self):
-        """Test getting active generations"""
-        # Create generations with different statuses
-        pending_gen = self.repo.create(self.test_generation)
-        
-        running_gen_data = Generation(
-            id=generate_ulid(),
-            preset_id="test_preset",
-            form_data=self.test_form_data,
-            user_id=self.test_user_id,
-            status="running"
-        )
-        running_gen = self.repo.create(running_gen_data)
-        
-        completed_gen_data = Generation(
-            id=generate_ulid(),
-            preset_id="test_preset",
-            form_data=self.test_form_data,
-            user_id=self.test_user_id,
-            status="completed"
-        )
-        completed_gen = self.repo.create(completed_gen_data)
-        
-        active = self.repo.get_active_generations()
-        active_ids = [g.id for g in active]
-        
-        self.assertIn(pending_gen.id, active_ids)
-        self.assertIn(running_gen.id, active_ids)
-        self.assertNotIn(completed_gen.id, active_ids)
-    
+
     def test_count_by_status(self):
         """Test counting generations by status"""
         # Create generations with different statuses

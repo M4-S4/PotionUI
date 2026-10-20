@@ -121,14 +121,6 @@ class DownloadRepository:
         """Get currently downloading downloads"""
         return self.get_all(status=DownloadStatus.DOWNLOADING)
 
-    def get_paused(self) -> List[Download]:
-        """Get paused downloads"""
-        return self.get_all(status=DownloadStatus.PAUSED)
-
-    def get_completed(self, limit: Optional[int] = 50) -> List[Download]:
-        """Get completed downloads"""
-        return self.get_all(limit=limit, status=DownloadStatus.COMPLETED)
-
     def get_failed(self, limit: Optional[int] = 50) -> List[Download]:
         """Get failed downloads"""
         return self.get_all(limit=limit, status=DownloadStatus.FAILED)

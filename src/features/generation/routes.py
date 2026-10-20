@@ -74,7 +74,6 @@ from src.features.generation.history_filter import HistoryFilter, history_filter
 from src.features.generation.repository import generation_repo
 from src.features.generation.state_lookup import resolve_generation_state
 from src.features.generation.status_tracker import TERMINAL_STATES
-from src.features.generation.file_repository import file_repo
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -1251,21 +1250,6 @@ def build_router(container: "AppContainer") -> APIRouter:
                     "generation": generation.to_dict(include_files=True),
                     "files_direct": [file.to_dict() for file in files],
                     "files_count": len(files)
-                }
-            }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    @router.get("/debug/files", summary="Debug All Files")
-    async def debug_all_files(current_user = Depends(get_current_admin_user)):
-        """Debug endpoint to inspect all files in the database (development only)."""
-        try:
-            files = file_repo.debug_recent_generation_files(limit=20)
-            return {
-                "success": True,
-                "data": {
-                    "files": files,
-                    "count": len(files)
                 }
             }
         except Exception as e:

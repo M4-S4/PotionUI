@@ -3,7 +3,6 @@ import os
 from typing import Dict, Any
 
 from src.pipelines.outputs import (
-    GenerationOutput,
     CompareImagesGenerationOutput,
     ProgressGenerationOutput,
     TimerGenerationOutput,

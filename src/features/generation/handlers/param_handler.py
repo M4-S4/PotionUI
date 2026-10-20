@@ -15,11 +15,10 @@ whose value looks like a model file path is reduced to its basename too.
 import logging
 from typing import Dict, Any, List, Optional
 
-from src.pipelines.outputs import GenerationOutput, ParamGenerationOutput
+from src.pipelines.outputs import ParamGenerationOutput
 from src.features.generation.handlers.base_handler import BaseGenerationOutputHandler
 from src.features.generation.output_types import OutputTypeSpec, output_type_registry
 from src.platform.filesystem.model_types import SUPPORTED_MODEL_EXTENSIONS
-from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 

@@ -859,10 +859,6 @@ class GenerationRepository:
         """Get files for a generation (delegates to file_repo)"""
         return file_repo.get_generation_files(generation_id, user_id=user_id, file_type=file_type, is_final=is_final)
 
-    def get_active_generations(self, user_id: Optional[str] = None) -> List[Generation]:
-        """Get all active (pending/running) generations"""
-        return self.get_all(user_id=user_id, status='pending') + self.get_all(user_id=user_id, status='running')
-
     def reconcile_interrupted_generations(self) -> int:
         """Fail every generation still `pending`/`running` at boot.
 

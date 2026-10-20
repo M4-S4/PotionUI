@@ -36,11 +36,3 @@ class GenerationPolicy:
         if owner_id is None:
             return False
         return getattr(user, "id", None) == owner_id
-
-    @staticmethod
-    def assert_can_access(user: Any, owner_id: Optional[str]) -> None:
-        """Raise GenerationAccessDenied if `user` may not access the generation."""
-        if not GenerationPolicy.can_access(user, owner_id):
-            raise GenerationAccessDenied(
-                "User is not permitted to access this generation"
-            )

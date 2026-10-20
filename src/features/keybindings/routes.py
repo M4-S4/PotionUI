@@ -3,14 +3,13 @@ Keybinding Controller
 
 Handles keybinding CRUD operations with thin route handlers delegating to controller methods.
 """
-import logging
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import soft_guarded
 from src.platform.security.current_user import get_current_active_user
-from src.features.keybindings.dto import KeybindingResponse, UpdateKeybindingRequest
+from src.features.keybindings.dto import UpdateKeybindingRequest
 from src.features.keybindings.repository import KeybindingRepository
 from src.platform.security.user import User
 

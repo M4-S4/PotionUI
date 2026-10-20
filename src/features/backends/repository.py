@@ -34,13 +34,6 @@ class BackendRepository:
             row = cursor.fetchone()
             return self._decrypt(Backend.from_row(row)) if row else None
 
-    def get_by_engine(self, engine: str) -> List[Backend]:
-        """Get all backends providing a given engine"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM backends WHERE engine = ? ORDER BY name", (engine,))
-            return [self._decrypt(Backend.from_row(row)) for row in cursor.fetchall()]
-
     def get_default(self, engine: str) -> Optional[Backend]:
         """Get the default backend for an engine"""
         from src.platform.database.database import db

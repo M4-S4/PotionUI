@@ -226,42 +226,6 @@ class FileRepository:
 
         return result
 
-    def remove_generation_association(self, generation_id: str, file_id: str) -> bool:
-        """Remove association between generation and file"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM generation_files WHERE generation_id = ? AND file_id = ?",
-                (generation_id, file_id)
-            )
-            return cursor.rowcount > 0
-    
-    def debug_recent_generation_files(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """Raw dump of the most recent `generation_files` rows, for the admin
-        debug endpoint. Note: `generation_files` is the junction table (id,
-        generation_id, file_id, created_at) since migration 010 - it carries
-        none of file_path/file_type/file_size/pipe_name/is_final, so row
-        access on those keys raises and the caller reports it as an error.
-        Preserved as-is; not the caller's job to redesign a debug endpoint.
-        """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM generation_files ORDER BY id DESC LIMIT ?", (limit,))
-            rows = cursor.fetchall()
-            return [
-                {
-                    "id": row['id'],
-                    "generation_id": row['generation_id'],
-                    "file_path": row['file_path'],
-                    "file_type": row['file_type'],
-                    "file_size": row['file_size'],
-                    "pipe_name": row['pipe_name'],
-                    "is_final": bool(row['is_final']),
-                    "created_at": row['created_at']
-                }
-                for row in rows
-            ]
-
     def set_thumbnail_paths(self, file_ids: List[str], thumbnail_small: Optional[str],
                           thumbnail_medium: Optional[str], thumbnail_large: Optional[str],
                           thumbnail_profile: Optional[str] = None) -> int:

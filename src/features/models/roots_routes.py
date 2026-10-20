@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 import platform
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel

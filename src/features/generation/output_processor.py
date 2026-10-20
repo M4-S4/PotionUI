@@ -281,16 +281,3 @@ class OutputProcessor:
 
         # Handle direct numeric value
         return float(progress)
-
-    def get_registered_output_types(self) -> list:
-        """
-        Get a list of all registered OutputTypeSpec entries.
-
-        Custom output types are now registered directly on the shared
-        ``output_type_registry`` (e.g. via the ``output_type.register``
-        plugin hook), rather than through this processor.
-
-        Returns:
-            List of OutputTypeSpec instances currently registered.
-        """
-        return self.type_registry.all()

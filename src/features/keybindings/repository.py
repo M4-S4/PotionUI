@@ -107,29 +107,6 @@ class KeybindingRepository:
             """, (user_id,))
             return cursor.rowcount
 
-    def register_default(self, id: str, key: str, modifiers: str = '', label: str = '',
-                         category: str = 'general', context: str = 'global',
-                         description: Optional[str] = None, source: str = 'system',
-                         sort_order: int = 0) -> None:
-        """Register or replace a default keybinding (used by plugins)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("""
-                INSERT OR REPLACE INTO keybinding_defaults
-                    (id, key, modifiers, label, category, context, description, enabled, source, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-            """, (id, key, modifiers, label, category, context, description, source, sort_order))
-
-    def unregister_defaults_by_source(self, source: str) -> int:
-        """Remove all default keybindings from a specific source (e.g. plugin cleanup)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("""
-                DELETE FROM keybinding_defaults
-                WHERE source = ?
-            """, (source,))
-            return cursor.rowcount
-
 
 # Global repository instance
 keybinding_repo = KeybindingRepository()

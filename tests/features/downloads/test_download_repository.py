@@ -276,26 +276,6 @@ class TestDownloadRepository(PersistenceTestBase):
         for download in result:
             self.assertEqual(download.status, DownloadStatus.DOWNLOADING)
 
-    def test_get_paused(self):
-        """Test getting paused downloads"""
-        self._create_test_download("paused-1", status="paused")
-
-        result = self.repository.get_paused()
-
-        self.assertIsInstance(result, list)
-        for download in result:
-            self.assertEqual(download.status, DownloadStatus.PAUSED)
-
-    def test_get_completed(self):
-        """Test getting completed downloads"""
-        self._create_test_download("completed-1", status="completed")
-
-        result = self.repository.get_completed()
-
-        self.assertIsInstance(result, list)
-        for download in result:
-            self.assertEqual(download.status, DownloadStatus.COMPLETED)
-
     def test_get_failed(self):
         """Test getting failed downloads"""
         self._create_test_download("failed-1", status="failed")

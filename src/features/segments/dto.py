@@ -158,20 +158,6 @@ class SavedSegment(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now)
     user_id: Optional[str] = None
 
-    def as_rich_segment(self) -> RichSegment:
-        return RichSegment(
-            type=self.type,
-            content=self.content,
-            chips=self.chips,
-            resources=self.resources,
-            enabled=self.enabled,
-            name=self.name,
-            color=self.effective_color,
-            description=self.description,
-            prefix=self.prefix,
-            suffix=self.suffix,
-        )
-
 
 class SavedSegmentRequest(BaseModel):
     name: str

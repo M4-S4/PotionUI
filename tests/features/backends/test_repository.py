@@ -118,15 +118,6 @@ class TestBackendRepository(unittest.TestCase):
         result = self.repo.set_default("does-not-exist", "comfyui")
         self.assertFalse(result)
 
-    def test_get_by_engine_filters_correctly(self):
-        self.repo.create(self._make_backend("comfy-1", "Comfy1", "comfyui"))
-        self.repo.create(self._make_backend("comfy-2", "Comfy2", "comfyui"))
-        self.repo.create(self._make_backend("native-1", "Native", "native"))
-
-        comfy_backends = self.repo.get_by_engine("comfyui")
-
-        self.assertEqual({b.id for b in comfy_backends}, {"comfy-1", "comfy-2"})
-
 
 if __name__ == "__main__":
     unittest.main()

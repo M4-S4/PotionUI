@@ -306,10 +306,6 @@ class Generation:
     def is_active(self) -> bool:
         """Check if generation is currently active"""
         return self.status in ['pending', 'running']
-    
-    def is_completed(self) -> bool:
-        """Check if generation is completed (success or failure)"""
-        return self.status in ['completed', 'failed', 'cancelled']
 
 @dataclass
 class GenerationParameter:

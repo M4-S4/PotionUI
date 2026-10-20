@@ -220,19 +220,7 @@ class Model:
     def get_model_type_display(self) -> str:
         """Get display-friendly model type"""
         return self.model_type.upper() if self.model_type else "UNKNOWN"
-    
-    def get_file_size_gb(self) -> Optional[float]:
-        """Get file size in GB"""
-        if self.file_size:
-            return round(self.file_size / (1024 * 1024 * 1024), 2)
-        return None
-    
-    def is_large_model(self) -> bool:
-        """Check if this is a large model (> 1GB)"""
-        if self.file_size:
-            return self.file_size > 1024 * 1024 * 1024
-        return False
-    
+
     def get_model_type_display(self) -> str:
         """Get display name for model type"""
         type_map = {

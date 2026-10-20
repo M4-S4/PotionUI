@@ -13,7 +13,6 @@ from enum import Enum
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List, Union, Literal, Tuple
 
-from src.pipelines.contracts import IOType
 
 
 class GenerationMode(Enum):
@@ -185,17 +184,3 @@ class PresetTemplate:
         # Default to the built-in native engine if not specified
         if self.engine is None:
             self.engine = "native"
-
-
-@dataclass
-class Annotation:
-    text: str
-    box: Optional[Tuple[int, int, int, int]] = None
-
-    def serialize(self) -> Tuple[Optional[Tuple[int, int, int, int]], str]:
-        return self.box if self.box else (0, 0, 0, 0), self.text
-
-
-@dataclass
-class PresetInput:
-    input: Dict[IOType, Any]

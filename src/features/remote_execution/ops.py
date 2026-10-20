@@ -26,7 +26,7 @@ from src.features.remote_execution.model_bundle_builder import (
     build_bundle_manifest,
     resolve_bundle_entry,
 )
-from src.features.remote_execution.transport import WorkerTransport, WorkerTransportError
+from src.features.remote_execution.transport import WorkerTransport
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.worker_protocol import ModelBundleEntryV1
 

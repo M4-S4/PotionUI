@@ -190,28 +190,6 @@ class TestGenerationModel(unittest.TestCase):
         # Test failed status
         self.test_generation.status = 'failed'
         self.assertFalse(self.test_generation.is_active())
-    
-    def test_is_completed(self):
-        """Test checking if generation is completed"""
-        # Test pending status
-        self.test_generation.status = 'pending'
-        self.assertFalse(self.test_generation.is_completed())
-        
-        # Test running status
-        self.test_generation.status = 'running'
-        self.assertFalse(self.test_generation.is_completed())
-        
-        # Test completed status
-        self.test_generation.status = 'completed'
-        self.assertTrue(self.test_generation.is_completed())
-        
-        # Test failed status
-        self.test_generation.status = 'failed'
-        self.assertTrue(self.test_generation.is_completed())
-        
-        # Test cancelled status
-        self.test_generation.status = 'cancelled'
-        self.assertTrue(self.test_generation.is_completed())
 
 
 class TestGenerationModeAndPromptState(unittest.TestCase):

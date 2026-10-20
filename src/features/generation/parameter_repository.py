@@ -110,16 +110,6 @@ class GenerationParameterRepository:
             """, (generation_id, parameter_name))
             
             return [GenerationParameter.from_row(row) for row in cursor.fetchall()]
-    
-    def delete_by_generation(self, generation_id: str) -> int:
-        """Delete all parameters for a generation"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM generation_parameters WHERE generation_id = ?",
-                (generation_id,)
-            )
-            return cursor.rowcount
 
 # Global repository instance
 generation_parameter_repo = GenerationParameterRepository()

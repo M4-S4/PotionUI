@@ -227,44 +227,6 @@ class TestUserGroupAccessControl(PersistenceTestBase):
         self.assertEqual(preset_ids.count("test.preset.shared"), 1)
         self.assertEqual(len(preset_ids), 1)
 
-    def test_is_preset_assigned_direct(self):
-        """is_preset_assigned_to_user returns True for direct assignment."""
-        user_id = self.create_test_user("user_check_direct")
-        preset_db_id = generate_ulid()
-        self.create_test_preset(preset_db_id, "test.preset.check")
-        self.assign_preset_directly(user_id, preset_db_id)
-
-        result = self.preset_repo.is_preset_assigned_to_user("test.preset.check", user_id)
-        self.assertTrue(result)
-
-    def test_is_preset_assigned_via_group(self):
-        """is_preset_assigned_to_user returns True for group assignment."""
-        user_id = self.create_test_user("user_check_group")
-        group_id = self.create_test_group("check_group")
-        preset_db_id = generate_ulid()
-        self.create_test_preset(preset_db_id, "test.preset.checkgroup")
-
-        self.add_user_to_group(user_id, group_id)
-        self.assign_preset_to_group(group_id, preset_db_id)
-
-        result = self.preset_repo.is_preset_assigned_to_user("test.preset.checkgroup", user_id)
-        self.assertTrue(result)
-        self.assertFalse(
-            self.preset_repo.is_preset_directly_assigned_to_user(
-                "test.preset.checkgroup",
-                user_id,
-            )
-        )
-
-    def test_is_preset_not_assigned(self):
-        """is_preset_assigned_to_user returns False when not assigned at all."""
-        user_id = self.create_test_user("user_no_access")
-        preset_db_id = generate_ulid()
-        self.create_test_preset(preset_db_id, "test.preset.noaccess")
-
-        result = self.preset_repo.is_preset_assigned_to_user("test.preset.noaccess", user_id)
-        self.assertFalse(result)
-
     def test_direct_assignment_can_be_added_when_group_access_exists(self):
         """Inherited access must not prevent creating a removable direct link."""
         user_id = self.create_test_user("user_inherited_then_direct")

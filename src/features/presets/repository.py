@@ -189,24 +189,6 @@ class DatabasePresetRepository:
                 )
             """, (user_id, user_id))
             return [row['preset_id'] for row in cursor.fetchall()]
-    
-    def is_preset_assigned_to_user(self, preset_id: str, user_id: str) -> bool:
-        """Check if a preset (by YAML preset_id) is assigned to a user (direct + group)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT 1
-                FROM presets p
-                WHERE p.preset_id = ? AND p.id IN (
-                    SELECT up.preset_id FROM user_presets up WHERE up.user_id = ?
-                    UNION
-                    SELECT ugp.preset_id FROM user_group_presets ugp
-                    JOIN user_group_members ugm ON ugp.group_id = ugm.group_id
-                    WHERE ugm.user_id = ?
-                )
-                LIMIT 1
-            """, (preset_id, user_id, user_id))
-            return cursor.fetchone() is not None
 
     def is_preset_directly_assigned_to_user(self, preset_id: str, user_id: str) -> bool:
         """Check for a removable direct assignment, excluding inherited access."""

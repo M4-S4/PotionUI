@@ -1,5 +1,5 @@
 from typing import Any, Dict, Iterable, List, Optional, Set
-from src.features.models.records import Model, ModelInfo, ModelFile, UserModel
+from src.features.models.records import Model, ModelInfo, UserModel
 from src.platform.filesystem.model_types import (
     CHECKPOINT_MODEL_TYPE,
     DIFFUSION_MODEL_TYPE,
@@ -1024,13 +1024,6 @@ class ModelRepository:
             return cursor.fetchall()
 
     # Model Files Methods
-    def get_model_file_by_id(self, model_file_id: str) -> Optional[ModelFile]:
-        """Get model file by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM model_files WHERE id = ?", (model_file_id,))
-            row = cursor.fetchone()
-            return ModelFile.from_row(row) if row else None
 
     def model_ids_for_file(self, file_id: str) -> List[str]:
         from src.platform.database.database import db
