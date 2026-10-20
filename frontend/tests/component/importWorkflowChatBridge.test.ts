@@ -7,10 +7,11 @@
 // while the Design (Form) step is showing an analyzed workflow, unregistered
 // on unmount, and an approved `propose_form_changes` tool result is applied
 // to the live form via the same code paths a manual edit uses.
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
@@ -83,7 +84,8 @@ function stubChatHost() {
 
 	const notifications = { toast: vi.fn(), notify: vi.fn(async () => {}) };
 
-	(window as unknown as { __potionui: unknown }).__potionui = { chat, notifications };
+	const existing = (window as unknown as { __potionui: Record<string, unknown> }).__potionui;
+	(window as unknown as { __potionui: unknown }).__potionui = { ...existing, chat, notifications };
 
 	return { chat, notifications, providers, toolHandlers, unregisterCounts };
 }
@@ -98,9 +100,14 @@ beforeAll(async () => {
 	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
 
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
+
 afterEach(() => {
 	vi.unstubAllGlobals();
-	delete (window as unknown as { __potionui?: unknown }).__potionui;
 	document.body.innerHTML = '';
 });
 

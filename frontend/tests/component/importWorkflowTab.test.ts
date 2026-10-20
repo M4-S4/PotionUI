@@ -9,10 +9,11 @@
 // pre-populated, add an unmapped input, merge a resolution pair) ->
 // Continue -> History step (toggle a row on) -> Continue -> Requirements
 // (mocked) -> Continue (create, mocked) -> Done step lint result.
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
@@ -93,6 +94,12 @@ beforeAll(async () => {
 	const raw = await loadDist();
 	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
+
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
 
 afterEach(() => {
 	vi.unstubAllGlobals();

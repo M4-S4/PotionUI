@@ -6,10 +6,11 @@
 // dispatches the generic potionui:switch-plugin-tab event the host listens
 // for), and delete (hand-built confirm modal, Esc/Enter, row disappears on
 // confirm). Same stage/load approach as importedPresetsTab.test.ts.
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount, flushSync } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
@@ -56,6 +57,12 @@ beforeAll(async () => {
 	const raw = await loadDist();
 	ImportedPresetsTab = _wrapPluginDistComponent(raw);
 });
+
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
 
 afterEach(() => {
 	vi.unstubAllGlobals();

@@ -9,10 +9,11 @@
 // because it can't survive a browser's JSON.parse as a Number must render
 // correctly, never be offered as an editable mapped field, and never reach
 // the posted form at all (the server refuses a field with no mappings).
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
@@ -218,6 +219,12 @@ beforeAll(async () => {
 	const raw = await loadDist();
 	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
+
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
 
 afterEach(() => {
 	vi.unstubAllGlobals();
