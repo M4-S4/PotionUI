@@ -67,15 +67,6 @@ class UserModelMetaRepository:
             """, (user_id, *model_ids))
             return {row['model_id']: UserModelMeta.from_row(row) for row in cursor.fetchall()}
 
-    def favorite_model_ids(self, user_id: str) -> set:
-        """Return the set of model IDs the user has favorited."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT model_id FROM user_model_meta WHERE user_id = ? AND is_favorite = 1
-            """, (user_id,))
-            return {row['model_id'] for row in cursor.fetchall()}
-
 
 # Global repository instance - for backward compatibility only.
 # Prefer using the DI-injected UserModelMetaRepository instead.

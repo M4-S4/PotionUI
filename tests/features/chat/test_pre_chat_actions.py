@@ -98,53 +98,6 @@ class TestRegisterAction:
         assert action_ids == {"action1", "action2"}
 
 
-class TestUnregisterAction:
-    """Tests for action unregistration."""
-
-    def test_unregister_action(self, manager, sample_action):
-        """Register then unregister an action, verify it's removed."""
-        manager.register_action(sample_action)
-        assert len(manager.get_all_actions()) == 1
-
-        result = manager.unregister_action("test_action")
-        assert result is True
-        assert len(manager.get_all_actions()) == 0
-
-    def test_unregister_nonexistent(self, manager):
-        """Unregister a non-existent action returns False."""
-        result = manager.unregister_action("nonexistent_action")
-        assert result is False
-
-    def test_unregister_leaves_others_intact(self, manager):
-        """Unregistering one action doesn't affect others."""
-        async def mock_execute():
-            return {"success": True}
-
-        action1 = PreChatAction(
-            id="action1",
-            name="Action 1",
-            description="First",
-            plugin_id="plugin1",
-            execute=mock_execute,
-        )
-        action2 = PreChatAction(
-            id="action2",
-            name="Action 2",
-            description="Second",
-            plugin_id="plugin2",
-            execute=mock_execute,
-        )
-
-        manager.register_action(action1)
-        manager.register_action(action2)
-
-        manager.unregister_action("action1")
-
-        all_actions = manager.get_all_actions()
-        assert len(all_actions) == 1
-        assert all_actions[0].id == "action2"
-
-
 class TestGetEnabledActions:
     """Tests for filtering enabled actions based on LLM config."""
 

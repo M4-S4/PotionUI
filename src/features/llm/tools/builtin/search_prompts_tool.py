@@ -1,9 +1,9 @@
 import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, ToolSource
-from src.features.llm.tools.builtin.utils import resolve_active_model_id, extract_model_path
+from src.features.llm.tools.builtin.utils import resolve_active_model_id
 from src.features.llm.tools.errors import unexpected
 from src.features.prompt_database import operations
 

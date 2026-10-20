@@ -143,14 +143,6 @@ class ChatRuntime:
     def _verify_active(self, session: SessionResponse) -> None:
         return self._policy.verify_active(session)
 
-    def _inject_memory_block(
-        self,
-        conversation_history: List[Dict[str, Any]],
-        context_metadata: Optional[Dict[str, Any]],
-        user_id: str,
-    ) -> Dict[str, Any]:
-        return self._context.inject_memory_block(conversation_history, context_metadata, user_id)
-
     # --- Session Operations ---
 
     def create_session(

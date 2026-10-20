@@ -73,13 +73,6 @@ _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _VARIANT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
-class RecipeError(Exception):
-    """Raised by `parse_recipe` when asked to parse a dict `validate_recipe_dict`
-    already found invalid. Callers should always validate first (see
-    `RecipeCatalog.reload`) - this is a programming-error guard, not a
-    user-facing error path."""
-
-
 # --- parsed shape ------------------------------------------------------------
 
 

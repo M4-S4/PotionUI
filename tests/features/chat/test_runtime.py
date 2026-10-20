@@ -1391,8 +1391,6 @@ class TestSendMessageResources:
 
 
 class TestInjectMemoryBlock:
-    """Tests for ChatRuntime._inject_memory_block."""
-
     def _make_note(self, key="pref", content="likes cinematic lighting"):
         note = Mock()
         note.key = key
@@ -1429,7 +1427,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
+        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert len(history) == 1
         assert history[0]["role"] == "user"
@@ -1441,7 +1439,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = []
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
+        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 
@@ -1463,7 +1461,7 @@ class TestInjectMemoryBlock:
             }
         }
 
-        self.manager._inject_memory_block(history, context_metadata, user_id="user-1")
+        self.manager._context.inject_memory_block(history, context_metadata, user_id="user-1")
 
         block = history[0]["content"]
         assert "[global]" in block
@@ -1483,7 +1481,7 @@ class TestInjectMemoryBlock:
         )
         history = [{"role": "user", "content": "hello"}]
 
-        manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
+        manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 
@@ -1513,7 +1511,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.side_effect = RuntimeError("db down")
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
+        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 

@@ -184,26 +184,6 @@ class TestGatewayContextBudgetHook:
         assert outcome.ledger["reserve_tokens"] == 2049
 
 
-class TestGatewayTokenCounterFor:
-    def test_no_provider_counter_returns_none(self):
-        gateway = LLMGateway(llm_repository=Mock())
-        config = make_config(type="ollama")
-        assert gateway.token_counter_for(config) is None
-
-    def test_uses_the_native_client_counter_when_present(self):
-        gateway = LLMGateway(llm_repository=Mock())
-        config = make_config(type="native", model="native-model")
-        gateway._native.token_counter = Mock(return_value=lambda text: 7)
-        counter = gateway.token_counter_for(config)
-        assert counter("anything") == 7
-
-    def test_a_raising_provider_counter_degrades_to_none(self):
-        gateway = LLMGateway(llm_repository=Mock())
-        config = make_config(type="native", model="native-model")
-        gateway._native.token_counter = Mock(side_effect=RuntimeError("boom"))
-        assert gateway.token_counter_for(config) is None
-
-
 class TestGatewayContextProfileFor:
     """`context_profile_for` is the single shared builder — both the real
     send hook and ConversationRunner's pre-flight ledger call it, so both

@@ -1,5 +1,5 @@
 """IO Types documentation generator."""
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 
 class IoTypesDocumenter:

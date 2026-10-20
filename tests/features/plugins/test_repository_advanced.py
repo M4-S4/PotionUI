@@ -76,23 +76,6 @@ class TestPluginRepositoryAdvanced(PersistenceTestBase):
         self.assertLess(duration, 1.0)
         self.assertEqual(len(enabled), 25)
 
-    def test_get_plugins_by_multiple_types(self):
-        """Test getting plugins when multiple types exist"""
-        # Only use valid types from the CHECK constraint
-        types = ["backend-only", "frontend-only", "full-stack"]
-
-        for i, plugin_type in enumerate(types):
-            for j in range(3):
-                plugin = self._create_sample_plugin(f"{plugin_type}_{j}")
-                plugin.type = plugin_type
-                self.repo.create_plugin(plugin)
-
-        # Get each type
-        for plugin_type in types:
-            plugins = self.repo.get_plugins_by_type(plugin_type)
-            self.assertEqual(len(plugins), 3)
-            self.assertTrue(all(p.type == plugin_type for p in plugins))
-
     def test_update_plugin_timestamps(self):
         """Test that updated_at timestamp is tracked"""
         plugin = self._create_sample_plugin()
@@ -224,71 +207,6 @@ class TestPluginRepositoryAdvanced(PersistenceTestBase):
         self.assertEqual(retrieved.setting_value, "")
 
     # ========== Plugin Hooks Advanced Tests ==========
-
-    def test_hooks_sorted_by_order(self):
-        """Test that hooks are returned sorted by sort_order"""
-        plugin = self._create_sample_plugin()
-        self.repo.create_plugin(plugin)
-
-        # Register hooks with specific orders
-        orders = [5, 1, 3, 2, 4]
-        for order in orders:
-            hook = PluginHook(
-                id=0,
-                plugin_id=plugin.id,
-                hook_name="ordered_hook",
-                hook_type="backend",
-                handler_path=f"/path/to/hook_{order}.py",
-                sort_order=order
-            )
-            self.repo.register_hook(hook)
-
-        hooks = self.repo.get_hooks_by_name("ordered_hook")
-
-        # Should be sorted by sort_order
-        sort_orders = [h.sort_order for h in hooks]
-        self.assertEqual(sort_orders, [1, 2, 3, 4, 5])
-
-    def test_hooks_with_same_sort_order(self):
-        """Test hooks with same sort_order value"""
-        plugin = self._create_sample_plugin()
-        self.repo.create_plugin(plugin)
-
-        # Register multiple hooks with same order
-        for i in range(3):
-            hook = PluginHook(
-                id=0,
-                plugin_id=plugin.id,
-                hook_name="same_order_hook",
-                hook_type="backend",
-                handler_path=f"/path/to/hook_{i}.py",
-                sort_order=0  # Same order
-            )
-            self.repo.register_hook(hook)
-
-        hooks = self.repo.get_hooks_by_name("same_order_hook")
-        self.assertEqual(len(hooks), 3)
-
-    def test_update_hook_order(self):
-        """Test updating hook sort order"""
-        plugin = self._create_sample_plugin()
-        self.repo.create_plugin(plugin)
-
-        hook = PluginHook(
-            id=0,
-            plugin_id=plugin.id,
-            hook_name="reorder_hook",
-            hook_type="backend",
-            handler_path="/path/to/hook.py",
-            sort_order=0
-        )
-        registered = self.repo.register_hook(hook)
-
-        # Update order
-        hook.sort_order = 10
-        updated = self.repo.update_hook(registered.id, hook)
-
-        self.assertEqual(updated.sort_order, 10)
 
     def test_get_hooks_by_type_mixed_plugins(self):
         """Test getting hooks by type across multiple plugins"""

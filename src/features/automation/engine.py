@@ -24,7 +24,6 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 from src.features.automation.context import AutomationServices, NodeExecutionContext, RunContext
 from src.features.automation.hooks import AUTOMATION_HOOKS
 from src.platform.plugins.automation_nodes import NodeResult, NodeTypeRegistry, node_type_registry
-from src.platform.plugins.hooks import HookContext
 from src.features.automation.records import AutomationRun, AutomationRunNode
 
 logger = logging.getLogger(__name__)

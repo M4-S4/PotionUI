@@ -62,14 +62,6 @@ class PreChatActionRegistry:
         self._actions[action.id] = action
         logger.debug(f"Registered pre-chat action: {action.id} ({action.name})")
 
-    def unregister_action(self, action_id: str) -> bool:
-        """Unregister a pre-chat action. Returns True if found and removed."""
-        if action_id in self._actions:
-            del self._actions[action_id]
-            logger.debug(f"Unregistered pre-chat action: {action_id}")
-            return True
-        return False
-
     def get_all_actions(self) -> List[PreChatAction]:
         """Return all registered actions."""
         return list(self._actions.values())

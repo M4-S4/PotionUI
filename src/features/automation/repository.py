@@ -1,5 +1,4 @@
 from typing import List, Optional
-from datetime import datetime
 
 from src.features.automation.records import Automation, AutomationRun, AutomationRunNode
 from src.platform.database.rows import dt_iso

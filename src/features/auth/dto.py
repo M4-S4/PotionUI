@@ -39,12 +39,6 @@ class ChangePasswordRequest(BaseModel):
         return validate_password_policy(value)
 
 
-class UserLogin(BaseModel):
-    """Request model for user login."""
-    username: str
-    password: str
-
-
 class Token(BaseModel):
     """Response model for JWT token."""
     access_token: str

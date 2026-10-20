@@ -290,20 +290,6 @@ class UserGroupRepository:
             row = cursor.fetchone()
             return row['count'] if row else 0
 
-    def get_groups_for_preset(self, preset_id: str) -> List[UserGroupPreset]:
-        """Get group assignments for a preset by public or database ID."""
-        preset_db_id = self._resolve_preset_db_id(preset_id)
-        if not preset_db_id:
-            return []
-
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "SELECT * FROM user_group_presets WHERE preset_id = ? ORDER BY assigned_at DESC",
-                (preset_db_id,)
-            )
-            return [UserGroupPreset.from_row(row) for row in cursor.fetchall()]
-
     def get_group_count_for_preset(self, preset_id: str) -> int:
         """Count group assignments for a preset by public or database ID."""
         preset_db_id = self._resolve_preset_db_id(preset_id)

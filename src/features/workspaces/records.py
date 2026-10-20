@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Any, Optional
-import json
 
 from src.platform.database.rows import dt_iso
 
@@ -25,14 +24,4 @@ class Workspace:
             'data': self.data,
             'created_at': dt_iso(self.created_at),
             'updated_at': dt_iso(self.updated_at)
-        }
-
-    def to_db_dict(self) -> dict:
-        """Convert to dictionary for database insertion (with JSON serialized data)."""
-        return {
-            'user_id': self.user_id,
-            'name': self.name,
-            'data': json.dumps(self.data),
-            'created_at': self.created_at,
-            'updated_at': self.updated_at
         }

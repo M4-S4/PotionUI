@@ -268,7 +268,7 @@ def test_resume_after_fresh_manager_instance(file_db):
 
     # Simulate a restart: brand-new manager + repository, same database file.
     restarted = RecipeRunner()
-    resumed = restarted.resume_position(run.id)
+    resumed = restarted.repo.get_run(run.id)
     assert resumed is not None
     assert resumed.status == RecipeRunStatus.RUNNING
     assert resumed.current_step == "models.index"

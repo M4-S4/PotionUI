@@ -194,13 +194,6 @@ class ChatMessageRepository:
             logger.exception("Failed to create chat message %s", message.id)
             return None
 
-    def delete_by_session(self, session_id: str) -> bool:
-        """Delete all messages for a session"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
-            return True
-
     def count_by_session(self, session_id: str) -> int:
         """Count messages in a session"""
         from src.platform.database.database import db

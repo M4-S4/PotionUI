@@ -3,17 +3,8 @@ Workspace DTOs for API requests and responses.
 
 These Pydantic models define the contract between the API layer and clients.
 """
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from pydantic import BaseModel
-
-
-class WorkspaceTabData(BaseModel):
-    """Data model for a single tab within a workspace."""
-    name: str
-    color: Optional[str] = None
-    preset_id: Optional[str] = None
-    mode: Optional[str] = None
-    autoTagIds: Optional[List[str]] = None
 
 
 class SaveWorkspaceRequest(BaseModel):

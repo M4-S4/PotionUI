@@ -56,13 +56,6 @@ class PluginRepository:
             cursor.execute("SELECT * FROM plugins WHERE enabled = 1 ORDER BY name")
             return [Plugin.from_row(row) for row in cursor.fetchall()]
 
-    def get_plugins_by_type(self, plugin_type: str) -> List[Plugin]:
-        """Get plugins by type (frontend-only, backend-only, full-stack)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("SELECT * FROM plugins WHERE type = ? ORDER BY name", (plugin_type,))
-            return [Plugin.from_row(row) for row in cursor.fetchall()]
-
     def create_plugin(self, plugin: Plugin) -> Plugin:
         """Create a new plugin record"""
         if not plugin.id:
@@ -356,18 +349,6 @@ class PluginRepository:
             """, (plugin_id,))
             return [PluginHook.from_row(row) for row in cursor.fetchall()]
 
-    def get_hooks_by_name(self, hook_name: str) -> List[PluginHook]:
-        """Get all hooks with a specific name (sorted by sort_order)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("""
-                SELECT h.* FROM plugin_hooks h
-                JOIN plugins p ON h.plugin_id = p.id
-                WHERE h.hook_name = ? AND p.enabled = 1
-                ORDER BY h.sort_order, h.id
-            """, (hook_name,))
-            return [PluginHook.from_row(row) for row in cursor.fetchall()]
-
     def get_hooks_by_type(self, hook_type: str) -> List[PluginHook]:
         """Get all hooks by type (backend or frontend)"""
         from src.platform.database.database import db
@@ -403,43 +384,6 @@ class PluginRepository:
             ))
             hook.id = cursor.lastrowid
         return hook
-
-    def update_hook(self, hook_id: int, hook: PluginHook) -> Optional[PluginHook]:
-        """Update an existing hook"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("""
-                UPDATE plugin_hooks
-                SET plugin_id = ?, hook_name = ?, hook_type = ?, handler_path = ?,
-                    component_path = ?, position = ?, sort_order = ?, label = ?, require_role = ?
-                WHERE id = ?
-            """, (
-                hook.plugin_id,
-                hook.hook_name,
-                hook.hook_type,
-                hook.handler_path,
-                hook.component_path,
-                hook.position,
-                hook.sort_order,
-                hook.label,
-                hook.require_role,
-                hook_id
-            ))
-
-            if cursor.rowcount == 0:
-                return None
-
-            # Fetch and return the updated hook
-            cursor.execute("SELECT * FROM plugin_hooks WHERE id = ?", (hook_id,))
-            row = cursor.fetchone()
-            return PluginHook.from_row(row) if row else None
-
-    def unregister_hook(self, hook_id: int) -> bool:
-        """Unregister a hook"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute("DELETE FROM plugin_hooks WHERE id = ?", (hook_id,))
-            return cursor.rowcount > 0
 
     def clear_plugin_hooks(self, plugin_id: str) -> int:
         """Clear all hooks for a plugin, return count deleted"""

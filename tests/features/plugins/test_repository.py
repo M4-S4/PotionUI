@@ -112,21 +112,6 @@ class TestPluginRepository(PersistenceTestBase):
         self.assertEqual(len(enabled), 1)
         self.assertTrue(enabled[0].enabled)
 
-    def test_get_plugins_by_type(self):
-        """Test getting plugins by type"""
-        plugin1 = self._create_sample_plugin("plugin_01")
-        plugin1.type = "backend-only"
-
-        plugin2 = self._create_sample_plugin("plugin_02")
-        plugin2.type = "frontend-only"
-
-        self.repo.create_plugin(plugin1)
-        self.repo.create_plugin(plugin2)
-
-        backend_plugins = self.repo.get_plugins_by_type("backend-only")
-        self.assertEqual(len(backend_plugins), 1)
-        self.assertEqual(backend_plugins[0].type, "backend-only")
-
     def test_update_plugin(self):
         """Test updating a plugin"""
         plugin = self._create_sample_plugin()
@@ -316,68 +301,6 @@ class TestPluginRepository(PersistenceTestBase):
         hooks = self.repo.get_plugin_hooks(plugin.id)
         self.assertEqual(len(hooks), 2)
 
-    def test_get_hooks_by_name(self):
-        """Test getting hooks by name"""
-        plugin = self._create_sample_plugin()
-        self.repo.create_plugin(plugin)
-
-        hook1 = PluginHook(
-            id=0,
-            plugin_id=plugin.id,
-            hook_name="before_generation",
-            hook_type="backend",
-            handler_path="/path/to/hook1.py",
-            sort_order=0
-        )
-        hook2 = PluginHook(
-            id=0,
-            plugin_id=plugin.id,
-            hook_name="before_generation",
-            hook_type="backend",
-            handler_path="/path/to/hook2.py",
-            sort_order=1
-        )
-
-        self.repo.register_hook(hook1)
-        self.repo.register_hook(hook2)
-
-        hooks = self.repo.get_hooks_by_name("before_generation")
-        self.assertEqual(len(hooks), 2)
-        self.assertEqual(hooks[0].sort_order, 0)
-        self.assertEqual(hooks[1].sort_order, 1)
-
-    def test_get_hooks_by_name_only_enabled_plugins(self):
-        """Test that get_hooks_by_name only returns hooks from enabled plugins"""
-        enabled_plugin = self._create_sample_plugin("enabled_plugin")
-        enabled_plugin.enabled = True
-        self.repo.create_plugin(enabled_plugin)
-
-        disabled_plugin = self._create_sample_plugin("disabled_plugin")
-        disabled_plugin.enabled = False
-        self.repo.create_plugin(disabled_plugin)
-
-        hook1 = PluginHook(
-            id=0,
-            plugin_id=enabled_plugin.id,
-            hook_name="test_hook",
-            hook_type="backend",
-            handler_path="/path/to/enabled.py"
-        )
-        hook2 = PluginHook(
-            id=0,
-            plugin_id=disabled_plugin.id,
-            hook_name="test_hook",
-            hook_type="backend",
-            handler_path="/path/to/disabled.py"
-        )
-
-        self.repo.register_hook(hook1)
-        self.repo.register_hook(hook2)
-
-        hooks = self.repo.get_hooks_by_name("test_hook")
-        self.assertEqual(len(hooks), 1)
-        self.assertEqual(hooks[0].plugin_id, enabled_plugin.id)
-
     def test_get_hooks_by_type(self):
         """Test getting hooks by type"""
         plugin = self._create_sample_plugin()
@@ -408,50 +331,6 @@ class TestPluginRepository(PersistenceTestBase):
         frontend_hooks = self.repo.get_hooks_by_type("frontend")
         self.assertEqual(len(frontend_hooks), 1)
         self.assertEqual(frontend_hooks[0].hook_type, "frontend")
-
-    def test_update_hook(self):
-        """Test updating a hook"""
-        plugin = self._create_sample_plugin()
-        self.repo.create_plugin(plugin)
-
-        hook = PluginHook(
-            id=0,
-            plugin_id=plugin.id,
-            hook_name="test_hook",
-            hook_type="backend",
-            handler_path="/path/to/hook.py"
-        )
-        registered = self.repo.register_hook(hook)
-
-        # Update the hook
-        hook.hook_name = "updated_hook"
-        hook.sort_order = 10
-
-        updated = self.repo.update_hook(registered.id, hook)
-
-        self.assertIsNotNone(updated)
-        self.assertEqual(updated.hook_name, "updated_hook")
-        self.assertEqual(updated.sort_order, 10)
-
-    def test_unregister_hook(self):
-        """Test unregistering a hook"""
-        plugin = self._create_sample_plugin()
-        self.repo.create_plugin(plugin)
-
-        hook = PluginHook(
-            id=0,
-            plugin_id=plugin.id,
-            hook_name="test_hook",
-            hook_type="backend",
-            handler_path="/path/to/hook.py"
-        )
-        registered = self.repo.register_hook(hook)
-
-        result = self.repo.unregister_hook(registered.id)
-        self.assertTrue(result)
-
-        hooks = self.repo.get_plugin_hooks(plugin.id)
-        self.assertEqual(len(hooks), 0)
 
     def test_clear_plugin_hooks(self):
         """Test clearing all hooks for a plugin"""

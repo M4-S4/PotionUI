@@ -138,15 +138,6 @@ class ProvisionedComputeRepository:
             )
             return cursor.rowcount > 0
 
-    def clear_backend_link(self, row_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "UPDATE provisioned_compute SET backend_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (row_id,),
-            )
-            return cursor.rowcount > 0
-
     def delete(self, row_id: str) -> bool:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

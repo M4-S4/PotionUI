@@ -74,7 +74,6 @@ def _read_preset_meta(preset_dir: Path) -> Tuple[str, Optional[str]]:
     yaml read — no preset processor boot needed.
     """
     try:
-        from src.platform.filesystem.yaml_io import load_yaml
 
         data = load_yaml_file(preset_dir / "preset.yml") or {}
         engine = str(data.get("engine", "native"))

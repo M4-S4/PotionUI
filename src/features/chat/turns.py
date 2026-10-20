@@ -74,7 +74,7 @@ import json
 import logging
 import time
 import uuid
-from typing import AsyncGenerator, Awaitable, Callable, Dict, Optional
+from typing import AsyncGenerator, Callable, Dict, Optional
 
 from src.platform.security.failure_text import failure_detail
 

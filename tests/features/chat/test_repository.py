@@ -146,21 +146,6 @@ class TestChatMessageRepository(PersistenceTestBase):
         count = self.repo.count_by_session(self.test_session.id)
         self.assertEqual(count, 5)
 
-    def test_delete_by_session(self):
-        """Test deleting all messages for a session"""
-        for i in range(3):
-            message = ChatMessage(
-                id=generate_ulid(),
-                session_id=self.test_session.id,
-                role='user',
-                content=f'Message {i}'
-            )
-            self.repo.create(message)
-
-        self.repo.delete_by_session(self.test_session.id)
-        messages = self.repo.get_by_session(self.test_session.id)
-        self.assertEqual(len(messages), 0)
-
     def _create_messages(self, count):
         ids = []
         for i in range(count):
