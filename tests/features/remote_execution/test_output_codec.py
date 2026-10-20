@@ -336,3 +336,16 @@ def test_encoding_a_non_generation_output_raises():
     materialize, _registry = _materializer(Path("."))
     with pytest.raises(OutputEncodeError):
         encode_output(object(), materialize)  # noqa
+
+
+def test_progress_bar_flag_survives_the_wire(tmp_path):
+    materialize, paths = _materializer(tmp_path)
+    original = ProgressGenerationOutput(state="Loading", progress=Progress(40, 100), bar=False)
+
+    encoded, _ = encode_output(original, materialize)
+    decoded = decode_output(encoded, paths, pipe_index=0, pipe_name="media_loader")
+
+    assert decoded.bar is False
+    assert decode_output(
+        encode_output(ProgressGenerationOutput(state="x"), materialize)[0], paths, pipe_index=0, pipe_name="p",
+    ).bar is True

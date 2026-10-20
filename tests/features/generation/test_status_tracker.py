@@ -42,6 +42,52 @@ class TestCreate:
         mock_generation_repo.update_status.assert_not_called()
 
 
+class TestBarGate:
+    def test_text_only_phases_never_move_the_bar_backwards(self, tracker):
+        tracker.create(id='gen1')
+        sequence = [
+            ProgressGenerationOutput(state='Loading 1', progress=Progress(40, 100), bar=False),
+            ProgressGenerationOutput(state='Loaded', progress=Progress(100, 100), bar=False),
+            ProgressGenerationOutput(state='EDIT', progress=Progress(1, 50)),
+            ProgressGenerationOutput(state='EDIT', progress=Progress(25, 50)),
+        ]
+        seen = []
+        for output in sequence:
+            tracker.update_from_output('gen1', output)
+            seen.append(tracker.get('gen1').progress)
+
+        assert seen == [None, None, 0.02, 0.5]
+
+class TestMonotonicBar:
+    def test_second_sampling_pass_never_moves_the_bar_back(self, tracker):
+        tracker.create(id='gen1')
+        values = []
+        for current in (1, 25, 50, 1, 20, 50):
+            effective = tracker.update_from_output(
+                'gen1', ProgressGenerationOutput(state='S', progress=Progress(current, 50)),
+            )
+            values.append(effective)
+
+        assert values == sorted(values)
+        assert values[-1] == 1.0
+        assert tracker.get('gen1').progress == 1.0
+
+    def test_skipped_second_pass_leaves_the_bar_where_it_was(self, tracker):
+        tracker.create(id='gen1')
+        tracker.update_from_output('gen1', ProgressGenerationOutput(state='S', progress=Progress(50, 50)))
+        tracker.update_from_output('gen1', ProgressGenerationOutput(state='Skipped'))
+
+        assert tracker.get('gen1').progress == 1.0
+
+    def test_new_generation_starts_from_zero(self, tracker):
+        tracker.create(id='gen1')
+        tracker.create(id='gen2')
+        tracker.update_from_output('gen1', ProgressGenerationOutput(state='S', progress=Progress(50, 50)))
+        tracker.update_from_output('gen2', ProgressGenerationOutput(state='S', progress=Progress(1, 50)))
+
+        assert tracker.get('gen2').progress == 0.02
+
+
 class TestUpdateFromOutput:
     def test_updates_progress_from_progress_object(self, tracker):
         tracker.create(id='gen1')

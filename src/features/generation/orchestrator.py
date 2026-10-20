@@ -93,7 +93,7 @@ from src.features.backends.backend_registry import BackendRegistry
 from src.features.generation.routing.contracts import RoutingRequest
 from src.features.models.form_refs import collect_model_ids, is_model_ref, model_id_of, resolve_form_model_refs
 from src.features.models.exceptions import ModelAccessDeniedException
-from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, ProgressGenerationOutput
+from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, Progress, ProgressGenerationOutput
 from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
 from src.features.generation.dto import GenerationStatus
@@ -1652,7 +1652,12 @@ class GenerationOrchestrator:
             apply_failure(output, failure)
             await self._record_failure(generation_id, failure)
         else:
-            self.status_tracker.update_from_output(generation_id, output)
+            effective = self.status_tracker.update_from_output(generation_id, output)
+            if isinstance(output, ProgressGenerationOutput):
+                if not output.bar:
+                    output.progress = None
+                elif effective is not None and effective > self.status_tracker._calculate_progress(output.progress):
+                    output.progress = Progress(round(effective * 10000), 10000)
 
         gate_outcome = None
         if self.content_safety is not None and not isinstance(output, ErrorGenerationOutput):

@@ -159,6 +159,7 @@ class ProgressGenerationOutput(GenerationOutput):
     segment_id: str = None
     current_step_num: int = None
     total_steps: int = None
+    bar: bool = True
 
 
 @dataclass

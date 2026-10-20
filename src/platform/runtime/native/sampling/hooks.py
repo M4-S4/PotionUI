@@ -104,11 +104,15 @@ class PreviewHook(BaseStepHook):
 
     def on_step(self, step_index, total_steps, x, sigma, denoised_x0) -> None:
         if denoised_x0 is None:
+            logger.debug("preview skipped at step %d/%d: sampler passed no x0", step_index, total_steps)
             return
         is_edge = step_index == 0 or step_index == total_steps - 1
         if not is_edge and (step_index + 1) % self._every_n != 0:
             return
         preview = self._decode_fn(denoised_x0)
+        logger.debug(
+            "preview step %d/%d decoded=%s every_n=%d", step_index, total_steps, preview is not None, self._every_n,
+        )
         self._callback(preview, step_index)
 
 

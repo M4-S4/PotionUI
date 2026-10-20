@@ -611,6 +611,53 @@ class TestOutputHandling:
         callback.assert_called_once_with(generation_id, output)
 
     @pytest.mark.asyncio
+    async def test_text_only_phase_keeps_its_text_but_never_pushes_a_fraction(
+        self,
+        orchestrator,
+        mock_output_processor,
+        mock_generation_repo
+    ):
+        from src.pipelines.outputs import ProgressGenerationOutput, Progress
+        from src.features.generation.status_tracker import GenerationState
+        generation_id = 'gen_text_phase'
+        orchestrator.status_tracker.create(id=generation_id)
+        orchestrator.status_tracker.transition(generation_id, GenerationState.RUNNING)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_123')
+        callback = AsyncMock()
+
+        load = ProgressGenerationOutput(state='Loading 2 of 2', progress=Progress(40, 100), bar=False)
+        loaded = ProgressGenerationOutput(state='Loaded', progress=Progress(100, 100), bar=False)
+        sampling = ProgressGenerationOutput(state='EDIT', progress=Progress(1, 50))
+        broadcast = []
+        for output in (load, loaded, sampling):
+            await orchestrator._handle_generation_output(generation_id, output, 'local', callback)
+            broadcast.append((output.state, output.progress and output.progress.current / output.progress.max))
+
+        assert broadcast == [('Loading 2 of 2', None), ('Loaded', None), ('EDIT', 0.02)]
+        assert orchestrator.status_tracker.get(generation_id).progress == 0.02
+
+    @pytest.mark.asyncio
+    async def test_second_sampling_pass_is_broadcast_without_going_back(
+        self,
+        orchestrator,
+        mock_output_processor,
+        mock_generation_repo
+    ):
+        from src.pipelines.outputs import ProgressGenerationOutput, Progress
+        from src.features.generation.status_tracker import GenerationState
+        generation_id = 'gen_two_passes'
+        orchestrator.status_tracker.create(id=generation_id)
+        orchestrator.status_tracker.transition(generation_id, GenerationState.RUNNING)
+        mock_generation_repo.get_by_id.return_value = Mock(user_id='user_123')
+        sent = []
+        for current in (10, 50, 1, 25):
+            output = ProgressGenerationOutput(state='S', progress=Progress(current, 50))
+            await orchestrator._handle_generation_output(generation_id, output, 'local', AsyncMock())
+            sent.append(output.progress.current / output.progress.max)
+
+        assert sent == [0.2, 1.0, 1.0, 1.0]
+
+    @pytest.mark.asyncio
     async def test_handle_error_output_fails_and_notifies(
         self,
         orchestrator,

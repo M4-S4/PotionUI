@@ -344,7 +344,8 @@ class MediaLoaderPipe(BasePipe):
         generation_outputs(ProgressGenerationOutput(
             state=f"Processing <<NUMBER:{len(media_list)} media files:folder>>",
             icon=Icon("folder"),
-            progress=Progress(0, 100)
+            progress=Progress(0, 100),
+            bar=False
         ))
 
         for i, media_item in enumerate(media_list):
@@ -404,7 +405,8 @@ class MediaLoaderPipe(BasePipe):
                 generation_outputs(ProgressGenerationOutput(
                     state=f"Loading <<EFFECT:{Path(file_path).name}:{media_type}>> (<<NUMBER:{i+1}/{len(media_list)}>>)",
                     icon=Icon("folder-open"),
-                    progress=Progress((i * 80) // len(media_list), 100)
+                    progress=Progress((i * 80) // len(media_list), 100),
+                    bar=False
                 ))
 
                 # Load based on type
@@ -484,7 +486,8 @@ class MediaLoaderPipe(BasePipe):
             state=f"Loaded <<NUMBER:{total_loaded} files:check-circle>> (<<NUMBER:{len(loaded_images)} images:image>>, "
                   f"<<NUMBER:{len(loaded_videos)} videos:video>>, <<NUMBER:{len(loaded_audio)} audio:audio>>)",
             icon=Icon("check-circle"),
-            progress=Progress(100, 100)
+            progress=Progress(100, 100),
+            bar=False
         ))
 
         logger.info(f"[MEDIA_LOADER] Successfully loaded {len(loaded_images)} images, {len(loaded_videos)} videos, "

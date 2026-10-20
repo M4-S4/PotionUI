@@ -156,7 +156,8 @@ class VideoFrameExtractorPipe(BasePipe):
             generation_outputs(ProgressGenerationOutput(
                 state=f"Extracting frames from <<EFFECT:{Path(video_path).name}:video>> at <<NUMBER:{extract_fps} FPS:clock>>",
                 icon=Icon("film"),
-                progress=Progress(0, 100)
+                progress=Progress(0, 100),
+                bar=False
             ))
 
             while current_time < end_time and (max_frames < 0 or len(extracted_frames) < max_frames):
@@ -196,7 +197,8 @@ class VideoFrameExtractorPipe(BasePipe):
                 generation_outputs(ProgressGenerationOutput(
                     state=f"Extracted <<NUMBER:{len(extracted_frames)} frames:photo>> from <<EFFECT:{Path(video_path).name}:video>>",
                     icon=Icon("film"),
-                    progress=Progress(progress, 100)
+                    progress=Progress(progress, 100),
+                    bar=False
                 ))
 
             cap.release()
@@ -206,7 +208,8 @@ class VideoFrameExtractorPipe(BasePipe):
             generation_outputs(ProgressGenerationOutput(
                 state=f"Successfully extracted <<NUMBER:{len(extracted_frames)} frames:check-circle>> from video",
                 icon=Icon("check-circle"),
-                progress=Progress(100, 100)
+                progress=Progress(100, 100),
+                bar=False
             ))
 
             return extracted_frames
@@ -229,7 +232,8 @@ class VideoFrameExtractorPipe(BasePipe):
         generation_outputs(ProgressGenerationOutput(
             state=f"Extracting <<NUMBER:frame {frame_index}:film>> from <<EFFECT:{Path(video_path).name}:video>>",
             icon=Icon("film"),
-            progress=Progress(0, 100)
+            progress=Progress(0, 100),
+            bar=False
         ))
 
         try:
@@ -247,7 +251,8 @@ class VideoFrameExtractorPipe(BasePipe):
             state=f"Extracted <<NUMBER:frame {frame_index}:check-circle>> from "
                   f"<<EFFECT:{Path(video_path).name}:video>>",
             icon=Icon("check-circle"),
-            progress=Progress(100, 100)
+            progress=Progress(100, 100),
+            bar=False
         ))
         return [frame]
 
@@ -281,7 +286,8 @@ class VideoFrameExtractorPipe(BasePipe):
             generation_outputs(ProgressGenerationOutput(
                 state=f"Processing video <<NUMBER:{i+1}/{len(videos)}:film>>: <<EFFECT:{Path(video_path).name}:video>>",
                 icon=Icon("play"),
-                progress=Progress((i * 100) // len(videos), 100)
+                progress=Progress((i * 100) // len(videos), 100),
+                bar=False
             ))
 
             frames = self.extract_frames_from_video(video_path, generation_outputs)
@@ -301,7 +307,8 @@ class VideoFrameExtractorPipe(BasePipe):
         generation_outputs(ProgressGenerationOutput(
             state=f"Frame extraction complete: <<NUMBER:{len(all_frames)} total frames:check-circle>>",
             icon=Icon("check-circle"),
-            progress=Progress(100, 100)
+            progress=Progress(100, 100),
+            bar=False
         ))
 
         return PipeOutput(output={

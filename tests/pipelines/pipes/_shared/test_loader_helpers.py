@@ -45,6 +45,12 @@ class TestComponentProgress:
         assert emitted[2].state == "Loading Flux model — DiT (3 of 3)"
         assert (emitted[2].progress.current, emitted[2].progress.max) == (2, 3)
 
+    def test_component_fractions_are_text_only_for_the_run_bar(self):
+        emitted = []
+        progress = lh.ComponentProgress(emitted.append, models=None, label="Loading Flux model", total=2)
+        progress.advance("VAE", "native/vae/bar")
+        assert emitted[0].bar is False
+
     def test_appends_cold_load_note_when_component_key_is_not_cached(self):
         class _FakeModels:
             def is_cached(self, key):

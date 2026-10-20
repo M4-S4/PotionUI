@@ -236,3 +236,29 @@ def test_multimodal_guider_composes_with_fbcache():
     # forced final compute are the only real evals; the rest skip).
     assert calls["cond"] == steps and calls["cond_evals"] < calls["cond"]
     assert calls["uncond"] == steps and calls["uncond_evals"] < calls["uncond"]
+
+
+def test_previews_keep_their_cadence_through_step_cache_skips():
+    from src.platform.runtime.native.sampling.hooks import PreviewHook
+
+    steps = 20
+    probe = torch.ones(1, 4, 4, 4)
+    model_forward, state = _fbcache_stub(lambda s: probe)
+    previewed = []
+    hook = PreviewHook(lambda x0: x0, 5, lambda image, step: previewed.append(step))
+
+    denoise(
+        model_forward,
+        latents=torch.zeros(1, 4, 4, 4),
+        cond={"context": "c"},
+        uncond=None,
+        steps=steps,
+        sampling_settings={"shift": 2.02, "guidance": None},
+        guidance_scale=0.0,
+        seed_noise=torch.randn(1, 4, 4, 4),
+        hooks=[hook],
+        step_cache_options={"rel_threshold": 0.5, "warmup_steps": 2, "max_consecutive_skips": 999},
+    )
+
+    assert state["evals"] < steps // 2
+    assert previewed == [0, 4, 9, 14, 19]
