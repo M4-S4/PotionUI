@@ -44,6 +44,17 @@
 	import { clearMissingModel, missingRequiredModelField, publishMissingModel } from '$lib/generation/requiredModelField';
 	import { publishCompareSchema } from '$lib/generation/compare/compareStore.svelte';
 	import { compareSchemaSignature, schemaForCompare } from '$lib/generation/compare/compareSchema';
+	import {
+		autopickValue,
+		collectAutopickSlots,
+		createModelSlotAutopick,
+		hasModelValue,
+		isSlotClearEdit,
+		resolveSlotTagIds,
+		markSlotCleared,
+		slotSearchRequest,
+		type AutopickSlot
+	} from '$lib/form/modelSlotAutopick';
 
 	const PUBLISHED_SNAPSHOT_LIMIT = 8;
 
@@ -399,8 +410,52 @@
 		}
 	}
 
+	async function searchAutopickSlot(slot: AutopickSlot) {
+		let tagIds: string[] = [];
+		if (slot.tagFilters.length > 0) {
+			const tags = await api.getTags('MODEL');
+			const resolved = resolveSlotTagIds(slot.tagFilters, tags.success ? tags.data?.tags : null);
+			if (!resolved) return null;
+			tagIds = resolved;
+		}
+		const request = slotSearchRequest(slot, tagIds);
+		if (request.kind !== 'preset') return null;
+		const response = await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts);
+		if (!response.success || !response.data) return null;
+		return { models: response.data.models ?? [], total: response.data.total };
+	}
+
+	const modelSlotAutopick = createModelSlotAutopick({ tabKey: tabId ?? '', search: searchAutopickSlot });
+
+	function syncModelSlotAutopick(schema: any, loadKey: string) {
+		if (!tabId) return;
+		modelSlotAutopick.sync({
+			loadKey,
+			slots: collectAutopickSlots(Object.values(schema?.properties ?? {}) as FieldConfig[], formData, presetId),
+			isPinned: (name) => reactionPinned.has(name),
+			isEmpty: (name) => !hasModelValue({ type: 'model' }, formData[name]),
+			onPick: (slot, model) => {
+				formData = { ...formData, [slot.name]: autopickValue(slot, model) };
+			}
+		});
+	}
+
+	$: if (initialLoadComplete && processedSchema && compareSchemaKey) {
+		syncModelSlotAutopick(processedSchema, compareSchemaKey);
+	}
+
 	// Handle field changes
 	function handleFieldChange(fieldName: string, value: any) {
+		if (
+			tabId &&
+			isSlotClearEdit(
+				allFields.some((f) => f.name === fieldName && f.type === 'model'),
+				formData[fieldName],
+				value
+			)
+		) {
+			markSlotCleared(tabId, fieldName);
+		}
 		formData = {
 			...formData,
 			[fieldName]: value
@@ -550,6 +605,7 @@
 	onDestroy(() => {
 		if (tabId) clearMissingModel(tabId);
 		capabilityTracker.destroy();
+		modelSlotAutopick.dispose();
 		cancelSchemaRetry();
 		schemaRequest.invalidate();
 	});
