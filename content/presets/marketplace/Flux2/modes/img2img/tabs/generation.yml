@@ -3,20 +3,7 @@ fields:
     label: "Image"
     children:
       - type: "row"
-        children:
-          - name: "seed"
-            type: "seed"
-            label: "Seed"
-            default: -1
-            width: "3/5"
-
-          - name: "quantity"
-            type: "stepper"
-            label: "Quantity"
-            default: 1
-            width: "2/5"
-            full_width: true
-            configuration: {min: 1, max: 10, step: 1}
+        children: "{{ paths._shared }}/native/seed_quantity.yml"
 
       - name: "denoise"
         type: "slider"

@@ -49,6 +49,27 @@ root option files use), so a fragment reused across presets can live under `cont
 e.g. `children: "{{ paths._shared }}/tabs/advanced.yml"`. `preset_lint` reports an error when the
 fragment a `children:` path names does not exist.
 
+A shared fragment that differs between presets only in a few values takes parameters through the
+mapping form of the include:
+
+```yaml
+- type: "section"
+  label: "Sampling"
+  children:
+    file: "{{ paths._shared }}/native/sampling_turbo_base.yml"
+    vars: {family: "flux3", steps: 50, steps_turbo: 16, steps_base: 50, cfg: 3.5, cfg_base: 3.5, shift_max: 20.0}
+```
+
+The fragment marks each parameter as `{{ vars.<name> }}`. Substitution runs on the parsed YAML at
+load time, before the schema validates it: a value that is exactly one `{{ vars.<name> }}` keeps the
+type of the supplied scalar (`steps: 50` stays an integer), and a marker inside a longer string is
+interpolated as text. Values must be scalars (string, number, boolean). A fragment included with
+`vars:` that uses a name the include does not supply, an include that supplies a name the fragment
+never uses, a non-scalar value, and a fragment that itself includes another fragment are all load
+errors, reported by `preset_lint` too. An include without `vars:` is never substituted, so existing
+fragments are unaffected. Field names and paths are unchanged by an include, so admin form overrides
+keyed by field path keep working.
+
 
 ## Variants
 

@@ -102,6 +102,12 @@ the same tab or option file keep one copy and point the other mode at it with
 `{{ paths.preset }}/modes/<mode>/tabs/<file>.yml`. Do not copy a file byte-for-byte between presets
 or modes; the form.yml entry point of each mode is the only per-mode file that stays duplicated.
 
+`content/presets/_shared/native/` holds the blocks the native image families repeat: the seed and
+quantity row (`seed_quantity.yml`), the turbo/base Sampling fields (`sampling_turbo_base.yml`,
+parameterised through `vars:`) and the Step Cache row (`step_cache.yml`). Pass per-model values
+with the `file` + `vars` form of `children:` (see
+[Modes and the form root](presets/forms.md#modes-and-the-form-root)).
+
 Rules the loader (`src/features/presets/loader.py`) and linter (`src/features/presets/linter.py`) enforce:
 
 - `preset.yml` is required and must validate.

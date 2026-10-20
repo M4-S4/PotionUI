@@ -5,6 +5,7 @@ import yaml
 from src.features.presets import PresetTemplateLoader
 from src.platform.templating import TemplateProcessor
 from src.features.fields.field_factory import FieldFactory
+from src.features.presets.children_refs import ChildrenRef, ChildrenVarsError, parse_children_ref, read_children_fragment
 from src.features.presets.templates import FieldTemplate
 from src.platform.observability.logger import logger
 
@@ -269,12 +270,13 @@ class PresetFormSerializer:
                 children = field_dict.get('children')
 
             # Check if children is a string (template path to external file)
-            if children and isinstance(children, str):
+            ref = parse_children_ref(children) if children else None
+            if ref is not None:
                 # Resolve the template path
-                resolved_path = self.template_processor.process_template(children, context)
+                resolved_path = self.template_processor.process_template(ref.file, context)
 
                 # Load external children
-                external_children = self._load_external_children_file(resolved_path)
+                external_children = self._load_external_children_file(resolved_path, ref)
                 field_dict['children'] = self._resolve_external_children(external_children, context) if external_children else []
             elif children and isinstance(children, list):
                 # Recursively process nested children
@@ -286,7 +288,7 @@ class PresetFormSerializer:
 
         return resolved_fields
 
-    def _load_external_children_file(self, file_path: str) -> List[FieldTemplate]:
+    def _load_external_children_file(self, file_path: str, ref: ChildrenRef) -> List[FieldTemplate]:
         """Load field children from external YAML file"""
         children_file = Path(file_path)
 
@@ -295,8 +297,7 @@ class PresetFormSerializer:
             return []
 
         try:
-            with open(children_file, 'r', encoding='utf-8') as f:
-                children_data = yaml.load(f, Loader=yaml.FullLoader)
+            children_data = read_children_fragment(children_file, ref)
 
             # Convert to FieldTemplate objects
             fields = []
@@ -307,6 +308,8 @@ class PresetFormSerializer:
                     logger.warning(f"Error parsing external field: {e}")
 
             return fields
+        except ChildrenVarsError:
+            raise
         except Exception as e:
             logger.error(f"Error loading external children file {children_file}: {e}")
             return []

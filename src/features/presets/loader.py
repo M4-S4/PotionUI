@@ -31,6 +31,7 @@ import yaml
 
 from src.platform.observability.logger import logger
 from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
+from src.features.presets.children_refs import ChildrenRef, parse_children_ref, read_children_fragment
 from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
 from .schema import (
     validate_manifest,
@@ -648,9 +649,10 @@ class PresetTemplateLoader:
             )
 
         children = field_data.get('children')
-        if isinstance(children, str):
-            resolved_path = resolve_children_path(children, preset_root, self.shared_path)
-            external_fields = self._load_external_children_file(resolved_path, prefix)
+        ref = parse_children_ref(children)
+        if ref is not None:
+            resolved_path = resolve_children_path(ref.file, preset_root, self.shared_path)
+            external_fields = self._load_external_children_file(resolved_path, prefix, ref)
             field_data['children'] = [
                 self._build_field_template(c, preset_root, prefix) for c in external_fields
             ]
@@ -662,7 +664,7 @@ class PresetTemplateLoader:
         return FieldTemplate(**field_data)
 
     @staticmethod
-    def _load_external_children_file(children_file: Path, prefix: str) -> List[dict]:
+    def _load_external_children_file(children_file: Path, prefix: str, ref: ChildrenRef) -> List[dict]:
         """Load + schema-validate an external tab/children fragment's `fields:`.
 
         Returns validated field dicts (`FieldSpec.model_dump()`), never the
@@ -672,9 +674,7 @@ class PresetTemplateLoader:
         if not children_file.exists():
             raise ValueError(f"external children file not found: {children_file}")
 
-        with open(children_file, 'r', encoding='utf-8') as f:
-            children_data = yaml.safe_load(f) or {}
-
+        children_data = read_children_fragment(children_file, ref)
         raw_fields = children_data.get('fields', [])
         validated, errors = validate_field_list(raw_fields, prefix=f"{prefix} -> {children_file}")
         if errors:

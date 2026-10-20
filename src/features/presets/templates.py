@@ -54,7 +54,7 @@ class FieldTemplate:
     visible: bool = None
     reactions: List[Dict[str, Any]] = None
     listeners: Any = None
-    children: Union[List['FieldTemplate'], str] = None
+    children: Union[List['FieldTemplate'], str, Dict[str, Any]] = None
     # "simple" (default) vs "advanced" - lets the frontend hide advanced-only
     # fields behind a toggle. Mirrors FieldSpec.audience in schema.py.
     audience: Literal["simple", "advanced"] = "simple"

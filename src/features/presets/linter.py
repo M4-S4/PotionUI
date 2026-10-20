@@ -23,6 +23,7 @@ from src.platform.plugins.sampling import (
     schedule_registry,
 )
 from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
+from .children_refs import parse_children_ref, read_children_fragment
 from .formula_groups import FORMULA_INPUT_TYPES, iter_formula_fields
 from .loader import discover_form_variants, plugin_preset_mode_contributions, read_mode_naming
 from .mode_labels import fallback_mode_label, is_known_mode, known_icon_names
@@ -793,10 +794,9 @@ class PresetLinter:
                     current = None if previous is None or current is None else previous | current
                 accepted[name] = current
         children = node.get("children")
-        if isinstance(children, str):
+        if self._is_children_include(children):
             try:
-                with open(self._resolve_children_path(children, preset_root), 'r', encoding='utf-8') as f:
-                    frag_data = yaml.safe_load(f) or {}
+                frag_data = self._read_fragment(children, preset_root)
             except Exception:
                 return
             self._collect_field_types(frag_data.get("fields", []), preset_root, acc, accepted)
@@ -1135,11 +1135,9 @@ class PresetLinter:
             if node.get("type") == "model" and isinstance(config, dict) and config.get("model_type") == "cloud":
                 tasks.update(task for task in (config.get("tasks") or []) if isinstance(task, str))
             children = node.get("children")
-            if isinstance(children, str):
-                fragment = self._resolve_children_path(children, preset_root)
+            if self._is_children_include(children):
                 try:
-                    with open(fragment, 'r', encoding='utf-8') as f:
-                        walk((yaml.safe_load(f) or {}).get("fields", []))
+                    walk(self._read_fragment(children, preset_root).get("fields", []))
                 except Exception:
                     return
             else:
@@ -1236,8 +1234,7 @@ class PresetLinter:
                 if not frag_path.exists():
                     continue  # missing fragment is a load error surfaced elsewhere
                 try:
-                    with open(frag_path, 'r', encoding='utf-8') as f:
-                        frag_data = yaml.safe_load(f) or {}
+                    frag_data = self._read_fragment(ref, preset_root)
                 except Exception as e:
                     issues.append(
                         LintIssue("error", preset_str, f"{loc}: children fragment {ref}: failed to parse: {e}")
@@ -1305,8 +1302,7 @@ class PresetLinter:
                 if not frag_path.exists():
                     continue
                 try:
-                    with open(frag_path, 'r', encoding='utf-8') as f:
-                        frag_data = yaml.safe_load(f) or {}
+                    frag_data = self._read_fragment(ref, preset_root)
                 except Exception:
                     continue
                 check(frag_data, f"{loc} -> {frag_path.name}")
@@ -2053,11 +2049,9 @@ class PresetLinter:
             acc.add(name)
 
         children = node.get("children")
-        if isinstance(children, str):
-            frag_path = self._resolve_children_path(children, preset_root)
+        if self._is_children_include(children):
             try:
-                with open(frag_path, 'r', encoding='utf-8') as f:
-                    frag_data = yaml.safe_load(f) or {}
+                frag_data = self._read_fragment(children, preset_root)
             except Exception:
                 return
             self._collect_field_names(frag_data.get("fields", []), preset_root, acc)
@@ -2090,11 +2084,9 @@ class PresetLinter:
             acc[name] = node["default"]
 
         children = node.get("children")
-        if isinstance(children, str):
-            frag_path = self._resolve_children_path(children, preset_root)
+        if self._is_children_include(children):
             try:
-                with open(frag_path, 'r', encoding='utf-8') as f:
-                    frag_data = yaml.safe_load(f) or {}
+                frag_data = self._read_fragment(children, preset_root)
             except Exception:
                 return
             self._collect_field_defaults(frag_data.get("fields", []), preset_root, acc)
@@ -2118,7 +2110,16 @@ class PresetLinter:
             return n
         return walk(template)
 
-    def _resolve_children_path(self, children_ref: str, preset_root: Path) -> Path:
+    @staticmethod
+    def _is_children_include(children) -> bool:
+        return isinstance(children, str) or (isinstance(children, dict) and isinstance(children.get("file"), str))
+
+    def _read_fragment(self, children, preset_root: Path) -> dict:
+        return read_children_fragment(
+            self._resolve_children_path(children, preset_root), parse_children_ref(children)
+        )
+
+    def _resolve_children_path(self, children_ref, preset_root: Path) -> Path:
         """Resolve an external `children:` path string ("{{ paths.preset
         }}/...") to a filesystem path (the one Jinja variable knowable at load
         time, per loader.py).
@@ -2128,14 +2129,15 @@ class PresetLinter:
         rare ref without the variable is left relative to the cwd rather than
         doubled onto ``preset_root``.
         """
-        return resolve_children_path(children_ref, preset_root, self.shared_path)
+        file = children_ref["file"] if isinstance(children_ref, dict) else children_ref
+        return resolve_children_path(file, preset_root, self.shared_path)
 
-    def _iter_external_children_refs(self, node) -> List[str]:
+    def _iter_external_children_refs(self, node) -> list:
         """Collect every `children:` value that is an external-file path string."""
-        refs: List[str] = []
+        refs: list = []
         if isinstance(node, dict):
             children = node.get("children")
-            if isinstance(children, str):
+            if self._is_children_include(children):
                 refs.append(children)
             for value in node.values():
                 refs.extend(self._iter_external_children_refs(value))
@@ -2608,13 +2610,12 @@ class PresetLinter:
                 continue
             node = dict(node)
             children = node.get("children")
-            if isinstance(children, str):
+            if self._is_children_include(children):
                 frag_path = self._resolve_children_path(children, preset_root)
                 frag_fields: Any = []
                 if frag_path not in chain and frag_path.is_file():
                     try:
-                        with open(frag_path, 'r', encoding='utf-8') as f:
-                            frag_fields = (yaml.safe_load(f) or {}).get("fields")
+                        frag_fields = self._read_fragment(children, preset_root).get("fields")
                     except Exception:
                         frag_fields = []
                 node["children"] = self._inline_children(frag_fields, preset_root, chain + (frag_path,))
