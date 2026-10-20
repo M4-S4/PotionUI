@@ -231,13 +231,6 @@ class PresetTemplateLoader:
         self._loaded = False
         self._lock = threading.Lock()
         self._loop_engine = None
-        # Set post-construction by bootstrap once a collaborator that cares
-        # about catalogue changes exists (e.g. `PresetMediaPrerenderQueue`
-        # scheduling renders for new/changed preset media). Fired at the end
-        # of every `_do_load_presets()` - the one choke point behind the
-        # initial lazy load, `load_presets()`, and `reload()` alike - with the
-        # freshly-swapped-in `self.presets`. Best-effort: a callback failure
-        # is logged, never allowed to break a preset load.
         self.on_presets_changed: Optional[Callable[[List[PresetTemplate]], None]] = None
 
     def all_preset_roots(self) -> List[Path]:
@@ -714,12 +707,16 @@ class PresetTemplateLoader:
 
     def _ensure_loaded(self):
         """Ensure presets are loaded (lazy loading with thread safety)"""
-        if not self._loaded:
-            with self._lock:
-                # Double-check pattern for thread safety
-                if not self._loaded:
-                    self._do_load_presets()
-                    self._loaded = True
+        if self._loaded:
+            return
+        loaded_here = False
+        with self._lock:
+            if not self._loaded:
+                self._do_load_presets()
+                self._loaded = True
+                loaded_here = True
+        if loaded_here:
+            self._notify_presets_changed()
 
     def _scan_presets(self) -> Tuple[List[PresetTemplate], Dict[str, List[str]]]:
         """Scan every preset root + apply plugin-contributed modes, returning
@@ -778,6 +775,8 @@ class PresetTemplateLoader:
             by_id[preset.id] = preset
         self.presets_by_id = by_id
         self.presets, self.load_errors = presets, errors
+
+    def _notify_presets_changed(self):
         if self.on_presets_changed is not None:
             try:
                 self.on_presets_changed(self.presets)
@@ -885,6 +884,7 @@ class PresetTemplateLoader:
         """Load all presets from both catalogue and custom directories"""
         self._do_load_presets()
         self._loaded = True
+        self._notify_presets_changed()
         return self.presets
 
     def clear_cache(self):
@@ -930,6 +930,7 @@ class PresetTemplateLoader:
         with self._lock:
             self._do_load_presets()
             self._loaded = True
+        self._notify_presets_changed()
 
     def get_preset_by_name(self, preset_name: str) -> Optional[PresetTemplate]:
         """

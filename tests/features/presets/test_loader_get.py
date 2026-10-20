@@ -63,3 +63,49 @@ def test_load_preset_by_id_delegates_to_get(tmp_path):
     loader = PresetTemplateLoader([str(tmp_path)])
 
     assert loader.load_preset_by_id("alpha") is loader.get("alpha")
+
+
+def _callback_lookups(loader, preset_id, seen):
+    def callback(presets):
+        seen.append((loader.get(preset_id), [p.id for p in loader.all()]))
+
+    return callback
+
+
+def _run_in_thread(fn):
+    import threading
+
+    thread = threading.Thread(target=fn, daemon=True)
+    thread.start()
+    thread.join(timeout=5)
+    return not thread.is_alive()
+
+
+def test_callback_can_look_up_presets_during_the_lazy_load(tmp_path):
+    _write_preset(tmp_path, "alpha", ["txt2img"])
+    loader = PresetTemplateLoader([str(tmp_path)])
+    seen = []
+    loader.on_presets_changed = _callback_lookups(loader, "alpha", seen)
+
+    finished = _run_in_thread(lambda: loader.get("alpha"))
+
+    assert finished
+    assert len(seen) == 1
+    found, ids = seen[0]
+    assert found is not None and found.id == "alpha"
+    assert ids == ["alpha"]
+
+
+def test_callback_can_look_up_presets_during_reload(tmp_path):
+    _write_preset(tmp_path, "alpha", ["txt2img"])
+    loader = PresetTemplateLoader([str(tmp_path)])
+    loader.load_presets()
+    loader.clear_cache()
+    seen = []
+    loader.on_presets_changed = _callback_lookups(loader, "alpha", seen)
+
+    finished = _run_in_thread(loader.reload)
+
+    assert finished
+    assert len(seen) == 1
+    assert seen[0][0] is not None
