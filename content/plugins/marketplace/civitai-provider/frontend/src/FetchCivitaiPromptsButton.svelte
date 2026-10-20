@@ -37,11 +37,6 @@
 
 	let usersById = $derived(Object.fromEntries(users.map((u) => [u.id, u])));
 
-	function authHeaders() {
-		const token = localStorage.getItem('auth_token');
-		return token ? { Authorization: `Bearer ${token}` } : {};
-	}
-
 	function notify(level, message) {
 		const notifications = window.__potionui?.notifications;
 		if (notifications?.toast) notifications.toast(level, message);
@@ -52,10 +47,7 @@
 	}
 
 	async function fetchJson(url, init) {
-		const response = await fetch(url, {
-			...init,
-			headers: { ...authHeaders(), ...(init?.headers || {}) }
-		});
+		const response = await window.__potionui.api.fetch(url, init);
 		const payload = await response.json().catch(() => null);
 		if (!response.ok || payload?.success === false) {
 			const message = payload?.message || payload?.error || `Request failed (${response.status})`;
@@ -200,7 +192,7 @@
 			const body = buildFetchRequestBody(model.id, formState);
 			const data = await fetchJson(`/api/plugins/${pluginId}/prompts/fetch`, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				timeout: 0,
 				body: JSON.stringify(body)
 			});
 			result = summarizeFetchResult(data);

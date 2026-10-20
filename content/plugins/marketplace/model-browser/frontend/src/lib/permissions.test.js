@@ -6,7 +6,6 @@ import {
 	isDirty,
 	optionsFor,
 	parseMaxFileGb,
-	readToken,
 	savePermissions,
 	toFormState,
 	toggleItem,
@@ -410,38 +409,9 @@ async function withGlobal(name, value, fn) {
 	}
 }
 
-function storageWith(token) {
-	return { getItem: (key) => (key === 'auth_token' ? token : null) };
+function withCall(fetchImpl, fn) {
+	return withGlobal('__potionui', { api: { fetch: fetchImpl } }, fn);
 }
-
-function withCall(fetchImpl, fn, token = 't') {
-	return withGlobal('localStorage', storageWith(token), () => withGlobal('fetch', fetchImpl, fn));
-}
-
-test('readToken reads auth_token from localStorage', async () => {
-	const asked = [];
-	const storage = {
-		getItem: (key) => {
-			asked.push(key);
-			return 'tok-123';
-		}
-	};
-	assert.equal(await withGlobal('localStorage', storage, () => readToken()), 'tok-123');
-	assert.deepEqual(asked, ['auth_token']);
-});
-
-test('readToken returns null without a token, with a storage that throws, or without a storage', async () => {
-	assert.equal(await withGlobal('localStorage', { getItem: () => null }, () => readToken()), null);
-	assert.equal(await withGlobal('localStorage', { getItem: () => '' }, () => readToken()), null);
-	const throwing = {
-		getItem: () => {
-			throw new Error('SecurityError');
-		}
-	};
-	assert.equal(await withGlobal('localStorage', throwing, () => readToken()), null);
-	assert.equal(await withGlobal('localStorage', {}, () => readToken()), null);
-	assert.equal(await withGlobal('localStorage', undefined, () => readToken()), null);
-});
 
 function fakeFetch(reply) {
 	const calls = [];
@@ -457,25 +427,22 @@ function jsonResponse(status, body) {
 	return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
-test('fetchPermissions sends a GET with the bearer token and the cookies, and returns the data', async () => {
+test('fetchPermissions sends a GET through the host api and returns the data', async () => {
 	const fetchImpl = fakeFetch(() => jsonResponse(200, payload()));
 
-	const result = await withCall(fetchImpl, () => fetchPermissions({ pluginId: 'model-browser' }), 'tok-123');
+	const result = await withCall(fetchImpl, () => fetchPermissions({ pluginId: 'model-browser' }));
 
 	assert.deepEqual(result, { ok: true, data: payload().data });
 	assert.equal(fetchImpl.calls.length, 1);
 	const { url, init } = fetchImpl.calls[0];
 	assert.equal(url, '/api/plugins/model-browser/permissions');
 	assert.equal(init.method, 'GET');
-	assert.equal(init.credentials, 'include');
-	assert.equal(init.headers.Authorization, 'Bearer tok-123');
 	assert.equal(init.body, undefined);
-	assert.ok(!url.includes('tok-123'), 'the token must stay out of the URL');
 });
 
-test('fetchPermissions asks the plugin it is given and sends no header without a token', async () => {
+test('fetchPermissions asks the plugin it is given and never sets an Authorization header itself', async () => {
 	const fetchImpl = fakeFetch(() => jsonResponse(200, payload()));
-	await withCall(fetchImpl, () => fetchPermissions({ pluginId: 'other-plugin' }), null);
+	await withCall(fetchImpl, () => fetchPermissions({ pluginId: 'other-plugin' }));
 	assert.equal(fetchImpl.calls[0].url, '/api/plugins/other-plugin/permissions');
 	assert.equal('Authorization' in fetchImpl.calls[0].init.headers, false);
 });
@@ -484,15 +451,13 @@ test('savePermissions sends a PUT with the JSON body and returns the stored data
 	const body = toPutBody(toFormState(payload()));
 	const fetchImpl = fakeFetch(() => jsonResponse(200, payload()));
 
-	const result = await withCall(fetchImpl, () => savePermissions(body, { pluginId: 'model-browser' }), 'tok-123');
+	const result = await withCall(fetchImpl, () => savePermissions(body, { pluginId: 'model-browser' }));
 
 	assert.deepEqual(result, { ok: true, data: payload().data });
 	const { url, init } = fetchImpl.calls[0];
 	assert.equal(url, '/api/plugins/model-browser/permissions');
 	assert.equal(init.method, 'PUT');
 	assert.equal(init.headers['Content-Type'], 'application/json');
-	assert.equal(init.headers.Authorization, 'Bearer tok-123');
-	assert.equal(init.credentials, 'include');
 	assert.deepEqual(JSON.parse(init.body), body);
 });
 

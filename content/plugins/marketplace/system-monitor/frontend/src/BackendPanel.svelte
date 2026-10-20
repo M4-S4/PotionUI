@@ -59,8 +59,7 @@
         inFlight = true;
         controller = new AbortController();
         try {
-            const response = await fetch(`${context.apiBaseUrl}/api/system/backends`, {
-                headers: { Authorization: `Bearer ${context.token}` },
+            const response = await window.__potionui.api.fetch('/api/system/backends', {
                 signal: controller.signal
             });
             if (!response.ok) {

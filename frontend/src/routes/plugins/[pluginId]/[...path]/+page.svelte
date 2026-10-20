@@ -8,6 +8,8 @@
 	import { getRegistry } from '$lib/plugin-api/componentRegistry';
 	import { PageHeader, PageTitle } from '$lib/components/ui';
 	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
+	import { createHostFetchApi } from '$lib/plugin-api/hostApi';
+	import { createPluginPageApi } from '$lib/plugin-api/pluginPageApi';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -26,69 +28,7 @@
 	});
 
 	function createPluginApi(pluginId: string) {
-		const baseUrl = api.getBaseURL();
-		const headers = () => ({
-			'Content-Type': 'application/json',
-			...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {})
-		});
-
-		return {
-			// The auth token, so a plugin can authenticate a WebSocket it opens
-			// itself (query-string token - a browser WebSocket cannot send an
-			// Authorization header). Null when unauthenticated.
-			getToken: () => api.getToken(),
-			get: async (path: string) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					headers: headers(),
-					credentials: 'include'
-				});
-				return res.json();
-			},
-			post: async (path: string, data: any) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					method: 'POST',
-					headers: headers(),
-					credentials: 'include',
-					body: JSON.stringify(data)
-				});
-				return res.json();
-			},
-			put: async (path: string, data: any) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					method: 'PUT',
-					headers: headers(),
-					credentials: 'include',
-					body: JSON.stringify(data)
-				});
-				return res.json();
-			},
-			delete: async (path: string) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					method: 'DELETE',
-					headers: headers(),
-					credentials: 'include'
-				});
-				return res.json();
-			},
-			uploadFile: async (path: string, formData: FormData) => {
-				const res = await fetch(`${baseUrl}/api/plugins/${pluginId}${path}`, {
-					method: 'POST',
-					headers: {
-						...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {})
-					},
-					credentials: 'include',
-					body: formData
-				});
-				return res.json();
-			},
-			fetchFromApp: async (path: string) => {
-				const res = await fetch(`${baseUrl}${path}`, {
-					headers: headers(),
-					credentials: 'include'
-				});
-				return res.json();
-			}
-		};
+		return createPluginPageApi(createHostFetchApi(api), () => api.getToken(), pluginId);
 	}
 
 	function cleanupPlugin() {
@@ -114,13 +54,7 @@
 		pageInfo = null;
 
 		try {
-			const response = await fetch(`${api.getBaseURL()}/api/plugins/pages/${id}`, {
-				credentials: 'include',
-				headers: {
-					'Content-Type': 'application/json',
-					...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {})
-				}
-			});
+			const response = await createHostFetchApi(api).fetch(`/api/plugins/pages/${id}`);
 
 			if (thisVersion !== loadVersion) return;
 

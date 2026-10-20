@@ -1968,6 +1968,18 @@ audience's fields without changing the user's own Simple/Advanced choice. `windo
 message, variant?})` opens the app's confirm dialog and resolves to a boolean, and
 `window.__potionui.notifications.toast(level, message)` shows a toast.
 
+`window.__potionui.api` makes authenticated requests to the app, so a plugin never reads the
+token from `localStorage` or builds an `Authorization` header. `api.fetch(path, init?)` takes an
+absolute app path and an init of `{method, headers, body, signal, timeout}` and resolves to a
+standard `Response`, so `ok`, `status`, `json()` and `blob()` work as with `fetch`;
+`api.json(path, init?)` resolves to the parsed body, or `null` when the body is not JSON. A 4xx
+or 5xx answer resolves with its body rather than throwing; only a network failure rejects (a
+`TypeError`, or an `AbortError` when `signal` aborts). A refreshed session token is adopted, a
+401 ends the session as it does for core pages (except on `/api/auth/login` and
+`/api/auth/register`), and cookies are sent. Calls time out after 30 seconds; pass `timeout: 0`
+for a long request. A `FormData` body is sent as multipart with no timeout, and a `Blob` body
+or a file download works through `api.fetch` the same way.
+
 Because registration is automatic, the props of every component in `ui/`, `detail/` and
 `library/` are a public contract: a plugin may pass any of them, so renaming or removing one
 breaks plugins that use it. Treat such a change as an API change and note it in the changelog;

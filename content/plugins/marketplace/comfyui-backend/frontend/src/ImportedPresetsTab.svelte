@@ -15,6 +15,7 @@
 	// fresh), the event asks the host (PluginsTab.svelte's generic
 	// `potionui:switch-plugin-tab` listener) to switch to that tab.
 	import { onMount } from 'svelte';
+	import { call, messageOf } from './api.js';
 
 	let { pluginId = 'comfyui-backend', plugin = null } = $props();
 
@@ -31,19 +32,13 @@
 	let deleteError = $state('');
 	let confirmDeleteTarget = $state(null);
 
-	function authHeaders() {
-		const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
-		return token ? { Authorization: `Bearer ${token}` } : {};
-	}
-
 	async function load() {
 		loading = true;
 		loadError = '';
 		try {
-			const res = await fetch(`${API_BASE}/presets/imported`, { credentials: 'include', headers: authHeaders() });
-			const payload = await res.json().catch(() => null);
-			if (!res.ok) {
-				loadError = payload?.detail || payload?.message || `Failed to load (${res.status})`;
+			const { ok, status, payload } = await call(`${API_BASE}/presets/imported`);
+			if (!ok) {
+				loadError = messageOf(payload, `Failed to load (${status})`);
 				return;
 			}
 			presets = payload?.presets ?? [];
@@ -81,16 +76,14 @@
 		reloadingId = p.preset_id;
 		reloadResultById = { ...reloadResultById, [p.preset_id]: null };
 		try {
-			const res = await fetch(`${API_BASE}/presets/imported/${p.preset_id}/reload`, {
+			const { ok, status, payload } = await call(`${API_BASE}/presets/imported/${p.preset_id}/reload`, {
 				method: 'POST',
-				credentials: 'include',
-				headers: authHeaders()
+				timeout: 0
 			});
-			const payload = await res.json().catch(() => null);
-			if (!res.ok) {
+			if (!ok) {
 				reloadResultById = {
 					...reloadResultById,
-					[p.preset_id]: { tone: 'danger', text: payload?.detail || payload?.message || `Reload failed (${res.status})` }
+					[p.preset_id]: { tone: 'danger', text: messageOf(payload, `Reload failed (${status})`) }
 				};
 				return;
 			}
@@ -144,14 +137,11 @@
 		deletingId = target.preset_id;
 		deleteError = '';
 		try {
-			const res = await fetch(`${API_BASE}/presets/imported/${target.preset_id}`, {
-				method: 'DELETE',
-				credentials: 'include',
-				headers: authHeaders()
+			const { ok, status, payload } = await call(`${API_BASE}/presets/imported/${target.preset_id}`, {
+				method: 'DELETE'
 			});
-			const payload = await res.json().catch(() => null);
-			if (!res.ok) {
-				deleteError = payload?.detail || payload?.message || `Delete failed (${res.status})`;
+			if (!ok) {
+				deleteError = messageOf(payload, `Delete failed (${status})`);
 				return;
 			}
 			presets = presets.filter((p) => p.preset_id !== target.preset_id);

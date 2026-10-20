@@ -21,6 +21,7 @@
 	// rather than shared module state.
 	import { onMount, onDestroy } from 'svelte';
 	import { floating } from './floating.js';
+	import { call, messageOf } from './api.js';
 
 	let { pluginId = 'comfyui-backend', plugin = null } = $props();
 
@@ -1552,17 +1553,11 @@
 		return String(raw ?? '');
 	}
 
-	function authHeaders() {
-		const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth_token') : null;
-		return token ? { Authorization: `Bearer ${token}` } : {};
-	}
-
 	onMount(() => {
 		(async () => {
 			try {
-				const res = await fetch('/api/fields/types', { credentials: 'include', headers: authHeaders() });
-				if (res.ok) {
-					const payload = await res.json();
+				const { ok, payload } = await call('/api/fields/types');
+				if (ok) {
 					const list = (payload?.data ?? []).filter((t) => !t.container);
 					fieldTypeOptions = [...new Set(list.map((t) => t.type))].sort();
 					fieldTypeManifest = Object.fromEntries(list.map((t) => [t.type, t]));
@@ -1571,9 +1566,8 @@
 				// Best-effort - the select still works with whatever the field suggests.
 			}
 			try {
-				const res = await fetch(`${API_BASE}/presets/families`, { credentials: 'include', headers: authHeaders() });
-				if (res.ok) {
-					const payload = await res.json();
+				const { ok, payload } = await call(`${API_BASE}/presets/families`);
+				if (ok) {
 					families = payload?.families ?? [];
 				}
 			} catch (e) {
@@ -1602,11 +1596,10 @@
 		editLoading = true;
 		analyzeError = '';
 		try {
-			const res = await fetch(`${API_BASE}/presets/imported/${presetId}/source`, { credentials: 'include', headers: authHeaders() });
-			const payload = await res.json().catch(() => null);
+			const { ok, status, payload } = await call(`${API_BASE}/presets/imported/${presetId}/source`);
 			if (token !== sourceToken) return;
-			if (!res.ok) {
-				analyzeError = payload?.detail || payload?.message || `Could not load this preset (${res.status})`;
+			if (!ok) {
+				analyzeError = messageOf(payload, `Could not load this preset (${status})`);
 				editPresetId = null;
 				return;
 			}
@@ -1722,16 +1715,14 @@
 		const token = sourceToken;
 		analyzing = true;
 		try {
-			const res = await fetch(`${API_BASE}/presets/import/analyze`, {
+			const { ok, status, payload } = await call(`${API_BASE}/presets/import/analyze`, {
 				method: 'POST',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json', ...authHeaders() },
+				timeout: 0,
 				body: JSON.stringify({ workflow: parsed, workflow_text: rawText })
 			});
-			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;
-			if (!res.ok) {
-				analyzeError = payload?.detail || payload?.message || `Analyze failed (${res.status})`;
+			if (!ok) {
+				analyzeError = messageOf(payload, `Analyze failed (${status})`);
 				return;
 			}
 			workflowJson = parsed;
@@ -1774,16 +1765,14 @@
 		requirementsLoading = true;
 		requirementsError = '';
 		try {
-			const res = await fetch(`${API_BASE}/presets/import/requirements`, {
+			const { ok, status, payload } = await call(`${API_BASE}/presets/import/requirements`, {
 				method: 'POST',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json', ...authHeaders() },
+				timeout: 0,
 				body: JSON.stringify({ workflow: workflowJson, workflow_text: workflowText, form: dehydrateForm() })
 			});
-			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;
-			if (!res.ok) {
-				requirementsError = payload?.detail || payload?.message || `Requirements check failed (${res.status})`;
+			if (!ok) {
+				requirementsError = messageOf(payload, `Requirements check failed (${status})`);
 				return;
 			}
 			requirementsResults = payload.results ?? [];
@@ -1811,10 +1800,9 @@
 		createError = '';
 		creating = true;
 		try {
-			const res = await fetch(`${API_BASE}/presets/import`, {
+			const { ok, status, payload } = await call(`${API_BASE}/presets/import`, {
 				method: 'POST',
-				credentials: 'include',
-				headers: { 'Content-Type': 'application/json', ...authHeaders() },
+				timeout: 0,
 				body: JSON.stringify({
 					workflow: workflowJson,
 					workflow_text: workflowText,
@@ -1832,10 +1820,9 @@
 					schema_object_info_used: analysis.object_info_used
 				})
 			});
-			const payload = await res.json().catch(() => null);
 			if (token !== sourceToken) return;
-			if (!res.ok) {
-				createError = payload?.detail || payload?.message || `Import failed (${res.status})`;
+			if (!ok) {
+				createError = messageOf(payload, `Import failed (${status})`);
 				return;
 			}
 			createResult = payload;

@@ -26,6 +26,7 @@ import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContex
 import overlayLayer from '$lib/actions/overlayLayer';
 import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
+import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
 import { createImageEditorApi, type PluginImageEditorApi } from '$lib/components/imageEditor/registries';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
@@ -106,6 +107,7 @@ export interface PotionUIHostApi {
 	};
 	/** User notification surface: local toasts and persisted notifications. */
 	notifications: PluginNotificationsApi;
+	api: PluginHostFetchApi;
 	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
 	chat: PluginChatApi;
 	layers: PluginLayersApi;
@@ -156,6 +158,7 @@ export function initHostApi(): void {
 			modelView: { register: registerModelView },
 			chatTool: chatToolRendererRegistry
 		},
+		api: createHostFetchApi(api),
 		notifications: {
 			toast(level, message, duration) {
 				toasts.show(toToastType(level), message, { duration });

@@ -13,11 +13,6 @@
 		generations.reduce((total, generation) => total + (generation.files || []).filter(isImageFile).length, 0)
 	);
 
-	function authHeaders() {
-		const token = localStorage.getItem('auth_token');
-		return token ? { Authorization: `Bearer ${token}` } : {};
-	}
-
 	function notify(level, message) {
 		window.__potionui?.notifications?.toast(level, message);
 	}
@@ -39,9 +34,9 @@
 		exporting = true;
 		errorMessage = '';
 		try {
-			const response = await fetch('/api/plugins/a1111-metadata-export/export-zip', {
+			const response = await window.__potionui.api.fetch('/api/plugins/a1111-metadata-export/export-zip', {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json', ...authHeaders() },
+				timeout: 0,
 				body: JSON.stringify({ generation_ids: generationIds })
 			});
 			if (!response.ok) throw new Error(await errorFromResponse(response));
