@@ -16,12 +16,14 @@ from src.platform.runtime.native.arch.image_to_splat import (
 )
 from src.platform.runtime.native.arch.image_to_splat import config
 from src.platform.runtime.native.arch.image_to_splat.lift import (
+    background_thresholds,
     depth_jumps,
     foreground_mask,
     hidden_bands,
     inpaint_background,
     normalize_depth,
     pixel_gaussians,
+    pull_push,
 )
 
 H, W = 48, 64
@@ -34,6 +36,20 @@ def _square_scene(near=2.0, far=6.0):
     rgb = np.zeros((H, W, 3), dtype=np.uint8)
     rgb[...] = (200, 30, 30)
     rgb[16:32, 24:40] = (20, 200, 40)
+    return rgb, depth, np.ones((H, W), dtype=bool)
+
+
+SEA, HULL, ROPE = (90, 140, 200), (120, 70, 30), (230, 210, 60)
+
+
+def _rope_hull_sea():
+    depth = np.full((H, W), 12.0, dtype=np.float32)
+    rgb = np.zeros((H, W, 3), dtype=np.uint8)
+    rgb[...] = SEA
+    depth[6:44, 10:54] = 6.0
+    rgb[6:44, 10:54] = HULL
+    depth[14:38, 28:36] = 3.0
+    rgb[14:38, 28:36] = ROPE
     return rgb, depth, np.ones((H, W), dtype=bool)
 
 
@@ -93,24 +109,81 @@ def test_an_occluder_joined_to_its_ground_still_gets_a_hidden_band_behind_its_ou
     present = np.ones((H, W), dtype=bool)
     sky = np.zeros_like(present)
     cuts = depth_jumps(depth, present, 0.35, 5)
-    hidden, fill = hidden_bands(cuts, depth, present, sky, FOCAL)
+    hidden, outline = hidden_bands(cuts, depth, present, sky, FOCAL)
     assert hidden[10:20, 24:40].any()
     assert hidden[12, 26] and hidden[12, 37]
     assert not hidden[:, :20].any() and not hidden[2:6].any()
-    assert (fill | ~hidden).all()
+    assert outline[hidden] == pytest.approx(math.log(2.0), abs=1e-5)
     reach = FOCAL * config.DISOCCLUSION_BASELINE * MEDIAN_DEPTH * (1 / 2.0 - 1 / 8.0)
     assert hidden[12, 24:40].sum() <= 2 * min(reach, config.HIDDEN_MAX_FRACTION * W) + 2
+
+
+def test_without_any_cut_there_is_no_band_and_no_outline():
+    depth = np.full((H, W), 5.0, dtype=np.float32)
+    present = np.ones((H, W), dtype=bool)
+    hidden, outline = hidden_bands(depth_jumps(depth, present), depth, present, np.zeros_like(present), FOCAL)
+    assert not hidden.any() and np.isneginf(outline).all()
 
 
 def test_the_background_behind_the_square_is_inpainted_from_its_surroundings():
     rgb, depth, present = _square_scene()
     cuts = depth_jumps(depth, present, 0.35, 5)
     foreground = foreground_mask(cuts.cuts, cuts.near_side, present, np.zeros_like(present))
-    background_rgb, background_depth = inpaint_background(rgb, depth, foreground, present)
+    background_rgb, background_depth = inpaint_background(rgb, depth, foreground, present & ~cuts.cuts)
     centre = background_rgb[22:26, 30:34].reshape(-1, 3)
     assert np.abs(centre.astype(int) - [200, 30, 30]).max() <= 12
     assert background_depth[22:26, 30:34] == pytest.approx(6.0, rel=0.05)
     assert (background_depth >= depth * (1 + config.BACKGROUND_DEPTH_MARGIN) - 1e-5).all()
+
+
+def test_behind_a_rope_on_a_hull_the_background_is_the_hull_and_behind_the_hull_it_is_the_sea():
+    rgb, depth, valid = _rope_hull_sea()
+    layers = build_layers(rgb, depth, valid, FOCAL, FOCAL)
+    scale = layers.depth[0, 0] / 12.0
+    rope = layers.hidden.copy()
+    rope[:, :28] = rope[:, 36:] = False
+    rope[:14] = rope[38:] = False
+    assert rope.sum() > 100
+    behind_rope = layers.background_rgb[rope].astype(int)
+    assert np.abs(np.median(behind_rope, axis=0) - HULL).max() <= 12
+    assert np.median(layers.background_depth[rope]) == pytest.approx(6.0 * scale, rel=0.1)
+    hull = layers.hidden[8:42, 12:20]
+    assert hull.any()
+    assert np.abs(np.median(layers.background_rgb[8:42, 12:20][hull].astype(int), axis=0) - SEA).max() <= 12
+    assert np.median(layers.background_depth[8:42, 12:20][hull]) == pytest.approx(12.0 * scale, rel=0.1)
+
+
+def test_pull_push_keeps_known_pixels_and_fills_from_the_nearest_ones():
+    values = np.zeros((32, 32, 2), dtype=np.float32)
+    values[:, :10] = (1.0, 5.0)
+    values[:, 22:] = (3.0, 7.0)
+    known = np.zeros((32, 32), dtype=bool)
+    known[:, :10] = known[:, 22:] = True
+    filled = pull_push(values, known)
+    assert filled[known] == pytest.approx(values[known], abs=1e-5)
+    assert filled[16, 10, 0] < filled[16, 16, 0] < filled[16, 21, 0]
+    assert filled[16, 10, 0] < 2.0 < filled[16, 21, 0]
+    assert pull_push(values[..., 1], known).shape == (32, 32)
+
+
+def test_an_occluder_takes_the_depth_of_its_own_outline_but_not_of_a_farther_one():
+    depth = np.array([[2.0, 2.0, 5.0]], dtype=np.float32)
+    outline = np.log(np.array([[2.4, 9.0, 5.5]], dtype=np.float32))
+    threshold = background_thresholds(depth, outline)
+    margin = config.BACKGROUND_BEHIND_LOG
+    assert threshold[0, 0] == pytest.approx(math.log(2.4) + margin, abs=1e-5)
+    assert threshold[0, 1] == pytest.approx(math.log(2.0) + margin, abs=1e-5)
+    assert threshold[0, 2] == pytest.approx(math.log(5.5) + margin, abs=1e-5)
+    assert background_thresholds(depth)[0, 1] == pytest.approx(math.log(2.0) + margin, abs=1e-5)
+
+
+def test_without_any_usable_sample_the_background_copies_the_foreground_just_behind_it():
+    rgb, depth, _ = _square_scene()
+    hidden = np.zeros((H, W), dtype=bool)
+    hidden[16:32, 24:40] = True
+    background_rgb, background_depth = inpaint_background(rgb, depth, hidden, np.zeros((H, W), dtype=bool))
+    assert (background_rgb == rgb).all()
+    assert background_depth == pytest.approx(depth * (1 + config.BACKGROUND_DEPTH_MARGIN))
 
 
 def test_one_gaussian_per_selected_pixel_on_its_ray_with_colour_and_opacity():

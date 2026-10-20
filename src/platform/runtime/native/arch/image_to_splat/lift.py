@@ -9,8 +9,12 @@ import numpy as np
 from src.platform.filesystem.splat_formats import SplatView
 
 from .config import (
+    BACKGROUND_BEHIND_LOG,
     BACKGROUND_DEPTH_MARGIN,
+    BACKGROUND_LEVEL_STEP,
+    BACKGROUND_MAX_LEVELS,
     BACKGROUND_OPACITY,
+    BACKGROUND_OUTLINE_REACH,
     DISOCCLUSION_BASELINE,
     EDGE_DROP,
     EDGE_JUMP_LOG_RATIO,
@@ -20,14 +24,13 @@ from .config import (
     FOREGROUND_VOTE_RATIO,
     HIDDEN_MAX_FRACTION,
     HIDDEN_MIN_PX,
-    INPAINT_DILATE_PX,
-    INPAINT_RADIUS_PX,
     INPAINT_SCALE,
     KEEP_SKY,
     MEDIAN_DEPTH,
     MIN_DEPTH,
     NORMAL_THICKNESS,
     OPACITY,
+    PULL_PUSH_GAIN,
     SKY_BEYOND_FARTHEST,
     SKY_DEPTH_MIN,
     SKY_FARTHEST_PERCENTILE,
@@ -41,6 +44,7 @@ __all__ = [
     "DepthCuts",
     "DepthLayers",
     "LiftedSplat",
+    "background_thresholds",
     "build_layers",
     "depth_jumps",
     "foreground_mask",
@@ -50,6 +54,7 @@ __all__ = [
     "matrix_quaternions",
     "normalize_depth",
     "pixel_gaussians",
+    "pull_push",
     "sky_depth",
     "surface_tangents",
     "tangent_frames",
@@ -122,40 +127,88 @@ def foreground_mask(cuts: np.ndarray, near: np.ndarray, present: np.ndarray, sky
     return (chosen[labels] | near) & ~sky
 
 
+def pull_push(values: np.ndarray, known: np.ndarray, gain: float = PULL_PUSH_GAIN) -> np.ndarray:
+    import cv2
+
+    values = np.asarray(values, dtype=np.float32)
+    flat = values.ndim == 2
+    values = values[..., None] if flat else values
+    pyramid = [(values, known.astype(np.float32))]
+    while max(pyramid[-1][1].shape) > 1:
+        level, weight = pyramid[-1]
+        size = (max(1, (weight.shape[1] + 1) // 2), max(1, (weight.shape[0] + 1) // 2))
+        weighted = cv2.resize(level * weight[..., None], size, interpolation=cv2.INTER_AREA).reshape(size[1], size[0], -1)
+        cover = cv2.resize(weight, size, interpolation=cv2.INTER_AREA).reshape(size[1], size[0])
+        pyramid.append((weighted / np.maximum(cover, 1e-12)[..., None], np.minimum(1.0, gain * cover)))
+    filled = pyramid[-1][0]
+    for level, weight in reversed(pyramid[:-1]):
+        coarse = cv2.resize(filled, (weight.shape[1], weight.shape[0]), interpolation=cv2.INTER_LINEAR).reshape(level.shape)
+        filled = weight[..., None] * level + (1.0 - weight[..., None]) * coarse
+    return filled[..., 0] if flat else filled
+
+
+def background_thresholds(depth: np.ndarray, outline: Optional[np.ndarray] = None) -> np.ndarray:
+    log_depth = np.log(np.maximum(depth, MIN_DEPTH)).astype(np.float32)
+    if outline is None:
+        return log_depth + BACKGROUND_BEHIND_LOG
+    rise = outline - log_depth
+    own_outline = (rise > 0) & (rise < BACKGROUND_OUTLINE_REACH)
+    return (np.where(own_outline, outline, log_depth) + BACKGROUND_BEHIND_LOG).astype(np.float32)
+
+
+def _shrink(values: np.ndarray, samples: np.ndarray, scale: float) -> Tuple[np.ndarray, np.ndarray]:
+    import cv2
+
+    if scale >= 1.0:
+        return values, samples
+    height, width = samples.shape
+    small = (max(1, round(width * scale)), max(1, round(height * scale)))
+    weight = samples.astype(np.float32)
+    cover = cv2.resize(weight, small, interpolation=cv2.INTER_AREA).reshape(small[1], small[0])
+    mean = cv2.resize(values * weight[..., None], small, interpolation=cv2.INTER_AREA).reshape(small[1], small[0], -1)
+    return mean / np.maximum(cover, 1e-6)[..., None], cover > 0.99
+
+
 def inpaint_background(
-    rgb: np.ndarray, depth: np.ndarray, fill: np.ndarray, present: np.ndarray
+    rgb: np.ndarray,
+    depth: np.ndarray,
+    hidden: np.ndarray,
+    samples: np.ndarray,
+    outline: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     import cv2
 
     height, width = depth.shape
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * INPAINT_DILATE_PX + 1, 2 * INPAINT_DILATE_PX + 1))
-    region = (cv2.dilate(fill.astype(np.uint8), kernel) > 0) | ~present
-    small = (max(1, round(width * INPAINT_SCALE)), max(1, round(height * INPAINT_SCALE)))
-    mask_small = (cv2.resize(region.astype(np.uint8) * 255, small, interpolation=cv2.INTER_AREA) > 0).astype(np.uint8)
     log_depth = np.log(np.maximum(depth, MIN_DEPTH)).astype(np.float32)
-    radius = max(1, round(INPAINT_RADIUS_PX * INPAINT_SCALE))
-    rgb_fill = cv2.inpaint(
-        cv2.resize(np.ascontiguousarray(rgb), small, interpolation=cv2.INTER_AREA), mask_small, radius, cv2.INPAINT_TELEA
-    )
-    depth_fill = _inpaint_telea_float(cv2.resize(log_depth, small, interpolation=cv2.INTER_AREA), mask_small, radius)
-    background_rgb = cv2.resize(rgb_fill, (width, height), interpolation=cv2.INTER_LINEAR)
-    background_depth = np.exp(cv2.resize(depth_fill, (width, height), interpolation=cv2.INTER_LINEAR))
-    background_depth = np.maximum(background_depth, depth * (1.0 + BACKGROUND_DEPTH_MARGIN))
-    return background_rgb.astype(np.uint8), background_depth.astype(np.float32)
-
-
-def _inpaint_telea_float(values: np.ndarray, mask: np.ndarray, radius: int) -> np.ndarray:
-    import cv2
-
-    known = values[mask == 0]
-    if known.size == 0:
-        return values
-    low, high = float(known.min()), float(known.max())
-    span = max(high - low, 1e-6)
-    # OpenCV's Telea returns noise for float32 input, so it runs on a 16-bit quantisation of the range.
-    quantised = np.round((np.clip(values, low, high) - low) / span * 65535.0).astype(np.uint16)
-    filled = cv2.inpaint(quantised, mask, radius, cv2.INPAINT_TELEA)
-    return (filled.astype(np.float32) / 65535.0 * span + low).astype(np.float32)
+    floor = depth * (1.0 + BACKGROUND_DEPTH_MARGIN)
+    if not (samples.any() and hidden.any()):
+        return np.asarray(rgb, dtype=np.uint8).copy(), floor.astype(np.float32)
+    values = np.concatenate([np.asarray(rgb, dtype=np.float32), log_depth[..., None]], axis=-1)
+    small_values, small_samples = _shrink(values, samples, INPAINT_SCALE)
+    if not small_samples.any():
+        small_values, small_samples = values, samples
+    sample_depth = small_values[..., 3]
+    threshold = background_thresholds(depth, outline)
+    lowest, highest = float(threshold[hidden].min()), float(threshold[hidden].max())
+    step = max(BACKGROUND_LEVEL_STEP, (highest - lowest) / BACKGROUND_MAX_LEVELS)
+    position = np.where(hidden, (threshold - lowest) / step, 0.0)
+    level = np.floor(position).astype(np.int64)
+    upper = (position - level).astype(np.float32)[..., None]
+    farthest = small_samples & (sample_depth >= sample_depth[small_samples].max())
+    out = np.zeros_like(values)
+    for k in range(int(level[hidden].min()), int(level[hidden].max()) + 2):
+        below, above = hidden & (level == k), hidden & (level == k - 1)
+        if not (below.any() or above.any()):
+            continue
+        known = small_samples & (sample_depth > lowest + k * step)
+        filled = pull_push(small_values, known if known.any() else farthest)
+        if filled.shape[:2] != (height, width):
+            filled = cv2.resize(filled, (width, height), interpolation=cv2.INTER_LINEAR).reshape(values.shape)
+        out[below] += ((1.0 - upper) * filled)[below]
+        out[above] += (upper * filled)[above]
+    background_rgb = np.clip(np.rint(out[..., :3]), 0, 255).astype(np.uint8)
+    background_depth = np.maximum(np.exp(out[..., 3]), floor)
+    return background_rgb, background_depth.astype(np.float32)
 
 
 def depth_jumps(
@@ -183,8 +236,7 @@ def hidden_bands(
 
     seeds = cuts.near_side & ~sky
     if not seeds.any():
-        empty = np.zeros(depth.shape, dtype=bool)
-        return empty, empty
+        return np.zeros(depth.shape, dtype=bool), np.full(depth.shape, -np.inf, dtype=np.float32)
     baseline = DISOCCLUSION_BASELINE * MEDIAN_DEPTH
     rows, cols = np.nonzero(seeds)
     near, far = cuts.near_log[rows, cols], cuts.far_log[rows, cols]
@@ -195,11 +247,12 @@ def hidden_bands(
     )
     by_label = np.zeros(labels.max() + 1)
     middle = np.zeros(labels.max() + 1)
+    outline = np.zeros(labels.max() + 1, dtype=np.float32)
     by_label[labels[rows, cols]] = width
     middle[labels[rows, cols]] = 0.5 * (near + far)
+    outline[labels[rows, cols]] = near
     occluder_side = present & ~sky & (np.log(np.maximum(depth, MIN_DEPTH)) <= middle[labels])
-    reach = by_label[labels]
-    return occluder_side & (distance <= reach), occluder_side & (distance <= 2.0 * reach)
+    return occluder_side & (distance <= by_label[labels]), outline[labels]
 
 
 def unproject(depth: np.ndarray, fx: float, fy: float) -> np.ndarray:
@@ -334,18 +387,17 @@ def build_layers(rgb: np.ndarray, depth: np.ndarray, valid: np.ndarray, fx: floa
         depth = np.where(sky, sky_depth(depth, usable), depth).astype(np.float32)
     present = usable | sky
     cuts = depth_jumps(depth, present, EDGE_JUMP_LOG_RATIO, EDGE_SNAP_WINDOW_PX)
-    hidden, fill = hidden_bands(cuts, depth, present, sky, 0.5 * (fx + fy))
-    segments = foreground_mask(cuts.cuts, cuts.near_side, present, sky)
-    hidden, fill = hidden | segments, fill | segments
+    hidden, outline = hidden_bands(cuts, depth, present, sky, 0.5 * (fx + fy))
+    hidden = hidden | foreground_mask(cuts.cuts, cuts.near_side, present, sky)
     if EDGE_PIXELS == EDGE_DROP:
-        hidden, fill = hidden | cuts.cuts, fill | cuts.cuts
+        hidden = hidden | cuts.cuts
         visible = present & ~cuts.cuts
     else:
         depth = cuts.snapped
         visible = present
     background_rgb = background_depth = None
     if hidden.any():
-        background_rgb, background_depth = inpaint_background(rgb, depth, fill, present)
+        background_rgb, background_depth = inpaint_background(rgb, depth, hidden, present & ~cuts.cuts, outline)
     return DepthLayers(
         depth=depth,
         present=visible,
