@@ -110,7 +110,9 @@ from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput
 from src.pipelines.outputs import Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
-from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import (
+    guard_sampling_oom, ltx_reserve_terms, place_dit_for_sequence,
+)
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.loader_helpers import (
@@ -783,15 +785,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             noise_a = torch.randn((1, c.audio_tokens, 128), generator=gen, device=c.device, dtype=c.dtype)
             x = torch.cat([x, noise_a], dim=1)
 
-        # Sequence-length-aware placement -- see
-        # dit_placement.py's module docstring. video_tokens covers base +
-        # appended conditioning tokens (media keyframes / IC-LoRA references);
-        # audio_tokens covers the appended audio stream when audio generation
-        # is on -- both ride the same packed sampler state ``x``.
-        placement = place_dit_for_sequence(
-            c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
-            own_models=tuple(m for m in (c.bundle.dit, c.bundle.vae, c.bundle.audio_vae, c.bundle.vocoder) if m is not None),
-        )
         # `replace(c, prepared=prepared)`, NOT `c` itself: `c` (ctx.extra) is
         # SHARED across every seed of this process() call (BaseGeneratorPipe's
         # seed loop calls generate_one once per seed against the same ctx) --
@@ -840,11 +833,21 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         # (project rule: refinement shares the generation LoRA chain, this
         # only ADDS to it). Empty stack (no stage2_loras, or not a refine
         # call) -> no-op, byte-identical to before this feature existed.
-        sample_forward = guard_sampling_oom(
-            forward, dit=c.bundle.dit, device=c.device, decision=placement,
-        )
         with temporarily_applied_loras(
                 c.bundle.dit.module, [*c.scoped_lora_stack, *c.stage2_lora_stack], runtime_only=True):
+            # Sequence-length-aware placement -- see
+            # dit_placement.py's module docstring. video_tokens covers base +
+            # appended conditioning tokens (media keyframes / IC-LoRA references);
+            # audio_tokens covers the appended audio stream when audio generation
+            # is on -- both ride the same packed sampler state ``x``.
+            placement = place_dit_for_sequence(
+                c.bundle.dit, c.device, video_tokens=s_video, audio_tokens=c.audio_tokens,
+                own_models=tuple(m for m in (c.bundle.dit, c.bundle.vae, c.bundle.audio_vae, c.bundle.vocoder) if m is not None),
+                **ltx_reserve_terms(c.bundle.dit.module, per_token_timestep=True),
+            )
+            sample_forward = guard_sampling_oom(
+                forward, dit=c.bundle.dit, device=c.device, decision=placement,
+            )
             x = denoise_prenoised(
                 sample_forward, x, cond, uncond,
                 steps=c.steps, sampler_name=c.sampler,

@@ -93,7 +93,9 @@ from src.pipelines.pipes._shared.generation.dfr_layout import (
     round_output_frames,
     tile_local_placements,
 )
-from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import (
+    guard_sampling_oom, ltx_reserve_terms, place_dit_for_sequence,
+)
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
@@ -662,6 +664,7 @@ class GeneratorDfrLtxPipe(BasePipe):
             bundle.dit, device, video_tokens=s_video, audio_tokens=0,
             own_models=tuple(m for m in (bundle.dit, bundle.vae, bundle.temporal_upsampler)
                              if m is not None),
+            **ltx_reserve_terms(bundle.dit.module, per_token_timestep=True),
         )
         forward = ConditionedAVForward(bundle.dit.module, ctx)
 

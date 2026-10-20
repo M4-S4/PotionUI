@@ -46,9 +46,12 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     SamplingOutOfMemory,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
+    ltx_reserve_terms,
     place_dit_for_sequence,
 )
 from src.platform.runtime.native.errors import is_cuda_oom
+from src.platform.runtime.native.lora import temporarily_applied_loras
+from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
 _MOD = "src.pipelines.pipes._shared.generation.dit_placement"
 
@@ -2072,3 +2075,147 @@ def test_the_t8_orbit_at_512_on_a_12gb_card_streams_with_the_logged_budget():
         _T8_VIDEO_TOKENS, _T8_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
     )
     assert decision.activation_reserve_gb - without_transient == pytest.approx(0.66, abs=0.01)
+
+
+_GIB = 1024 ** 3
+_LTX25_FFN = (4096, 16384)
+_LTX25_FFN_DEQUANT_BYTES = 2 * 4096 * 16384 * 2
+_LTX25_PROMPT_ADALN = SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=True))
+_LTX25_TRACED_PEAKS_GB = [
+    (3_080, False, 0.588), (7_410, False, 1.035), (12_480, False, 1.690), (14_080, False, 1.904),
+    (3_080, True, 0.753), (7_410, True, 1.432), (12_480, True, 2.359), (14_080, True, 2.657),
+]
+
+
+def _ltx25_reserve(tokens, *, per_token, audio_tokens=0):
+    return estimate_activation_reserve_gb(
+        tokens, audio_tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES,
+        **ltx_reserve_terms(_LTX25_PROMPT_ADALN, per_token_timestep=per_token),
+    )
+
+
+def test_ltx_reserve_terms_charge_the_modulation_rows_a_block_keeps_alive():
+    plain = SimpleNamespace(config=SimpleNamespace(has_prompt_adaln=False))
+    assert ltx_reserve_terms(_LTX25_PROMPT_ADALN, per_token_timestep=True) == {
+        "gelu_ffn_dim": 16384, "modulation_rows": 7}
+    assert ltx_reserve_terms(plain, per_token_timestep=True) == {"gelu_ffn_dim": 16384, "modulation_rows": 5}
+    assert ltx_reserve_terms(_LTX25_PROMPT_ADALN, per_token_timestep=False) == {
+        "gelu_ffn_dim": 16384, "modulation_rows": 0}
+    assert ltx_reserve_terms(SimpleNamespace(), per_token_timestep=True)["modulation_rows"] == 5
+
+
+def test_the_gelu_and_modulation_terms_default_to_no_ops():
+    base = estimate_activation_reserve_gb(7_410, 25, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES)
+    assert base == estimate_activation_reserve_gb(
+        7_410, 25, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES, gelu_ffn_dim=None, modulation_rows=0,
+    )
+
+
+def test_below_the_crossover_the_gelu_output_rides_beside_the_dequantised_fc2_weight():
+    tokens = 4_000
+    with_gelu = estimate_activation_reserve_gb(
+        tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES, gelu_ffn_dim=16384)
+    without = estimate_activation_reserve_gb(tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES)
+    assert with_gelu - without == pytest.approx(tokens * 16384 * 2 * 1.15 / _GIB)
+
+
+def test_past_the_crossover_the_fc1_output_beside_its_gelu_replaces_the_dequant_transient():
+    tokens = 20_000
+    with_gelu = estimate_activation_reserve_gb(
+        tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES, gelu_ffn_dim=16384)
+    without = estimate_activation_reserve_gb(tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES)
+    expected = (2 * tokens * 16384 * 2 - _LTX25_FFN_DEQUANT_BYTES) * 1.15 / _GIB
+    assert with_gelu - without == pytest.approx(expected)
+
+
+def test_modulation_is_charged_on_video_tokens_only():
+    video_only = estimate_activation_reserve_gb(7_410, 0, modulation_rows=7)
+    with_audio = estimate_activation_reserve_gb(7_410, 100, modulation_rows=7)
+    assert with_audio - video_only == pytest.approx(
+        estimate_activation_reserve_gb(7_410, 100) - estimate_activation_reserve_gb(7_410, 0))
+    assert video_only - estimate_activation_reserve_gb(7_410) == pytest.approx(7_410 * 7 * 4096 * 2 * 1.15 / _GIB)
+
+
+@pytest.mark.parametrize("tokens,per_token,traced_peak_gb", _LTX25_TRACED_PEAKS_GB)
+def test_the_ltx_reserve_covers_the_traced_forward_peak_with_room_for_the_allocator(
+        tokens, per_token, traced_peak_gb):
+    reserve = _ltx25_reserve(tokens, per_token=per_token)
+    assert 1.15 * traced_peak_gb <= reserve <= 1.3 * traced_peak_gb
+
+
+@pytest.mark.parametrize(
+    "tokens,traced_peak_gb", [(t, p) for t, per_token, p in _LTX25_TRACED_PEAKS_GB if per_token])
+def test_bite_check_without_the_ltx_terms_a_conditioned_forward_overruns_its_reserve(tokens, traced_peak_gb):
+    assert estimate_activation_reserve_gb(tokens, dequant_transient_bytes=_LTX25_FFN_DEQUANT_BYTES) < traced_peak_gb
+
+
+_TAKE_A_FREE_GB = 9.49
+_TAKE_A_TOKENS = 7_410
+_TAKE_A_TRACED_PEAK_GB = 1.432
+_TAKE_A2_TOKENS = 3_080
+_TAKE_A2_TRACED_PEAK_GB = 0.753
+_LTX25_DIT_GB = 20.03
+
+
+def _ltx25_dit_with_layout_lora():
+    calls = []
+    linears = []
+    for _ in range(48):
+        for in_features, out_features in [(4096, 4096)] * 8 + [_LTX25_FFN, _LTX25_FFN[::-1]]:
+            linear = _Int8Linear(in_features, out_features)
+            linear.lora_deltas = [LoraDelta(
+                down=torch.empty((128, in_features), dtype=torch.bfloat16, device="meta"),
+                up=torch.empty((out_features, 128), dtype=torch.bfloat16, device="meta"),
+                alpha=128.0)]
+            linears.append(linear)
+    dit = SimpleNamespace(
+        module=nn.Sequential(*linears), estimated_vram_gb=_LTX25_DIT_GB, device="cpu",
+        move_to=lambda d: calls.append(("resident", d)),
+        stream_to=lambda d, budget: calls.append(("partial", d, budget)),
+    )
+    return dit, calls
+
+
+@pytest.mark.parametrize("tokens,traced_peak_gb", [
+    (_TAKE_A_TOKENS, _TAKE_A_TRACED_PEAK_GB), (_TAKE_A2_TOKENS, _TAKE_A2_TRACED_PEAK_GB)])
+def test_the_12gb_layout_to_render_takes_leave_the_traced_peak_room_beside_the_streamed_dit(
+        tokens, traced_peak_gb):
+    dit, calls = _ltx25_dit_with_layout_lora()
+    patches, manager = _patched(free_gb=_TAKE_A_FREE_GB)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(
+            dit, "cuda", video_tokens=tokens,
+            **ltx_reserve_terms(_LTX25_PROMPT_ADALN, per_token_timestep=True),
+        )
+    assert decision.mode == "partial"
+    assert decision.lora_active
+    assert decision.lora_weight_gb == pytest.approx(1.22, abs=0.01)
+    assert decision.activation_reserve_gb == pytest.approx(_ltx25_reserve(tokens, per_token=True))
+    assert decision.weight_budget_gb + traced_peak_gb < _TAKE_A_FREE_GB
+    assert calls == [("partial", "cuda", pytest.approx(decision.weight_budget_gb))]
+
+
+def test_bite_check_the_take_a_budget_without_the_ltx_terms_overruns_the_card():
+    dit, calls = _ltx25_dit_with_layout_lora()
+    patches, manager = _patched(free_gb=_TAKE_A_FREE_GB)
+    with patches[0], patches[1], patches[2]:
+        decision = place_dit_for_sequence(dit, "cuda", video_tokens=_TAKE_A_TOKENS)
+    assert decision.activation_reserve_gb == pytest.approx(1.00, abs=0.01)
+    assert decision.weight_budget_gb == pytest.approx(8.49, abs=0.01)
+    assert decision.weight_budget_gb + _TAKE_A_TRACED_PEAK_GB > _TAKE_A_FREE_GB
+
+
+def test_a_scoped_stack_applied_around_placement_is_counted_then_dropped():
+    module = nn.Module()
+    module.proj = comfy_ops.manual_cast.Linear(64, 32)
+    dit, calls = _dit(estimated_vram_gb=1.0)
+    dit.module = module
+    lora = {"diffusion_model.proj.lora_A.weight": torch.zeros(4, 64),
+            "diffusion_model.proj.lora_B.weight": torch.zeros(32, 4)}
+    with temporarily_applied_loras(module, [(lora, 1.0)], runtime_only=True):
+        during = place_dit_for_sequence(dit, "cpu", video_tokens=10)
+    after = place_dit_for_sequence(dit, "cpu", video_tokens=10)
+    assert during.lora_active
+    assert during.lora_weight_gb == pytest.approx((4 * 64 + 32 * 4) * 4 / _GIB)
+    assert not after.lora_active
+    assert after.lora_weight_gb == 0.0
