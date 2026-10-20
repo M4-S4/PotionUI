@@ -27,9 +27,7 @@ def mock_gpu():
         # Create mock instance
         mock_instance = MagicMock()
         mock_instance.get_free_vram.return_value = 0
-        mock_instance.get_used_vram.return_value = 0
         mock_instance.get_total_vram.return_value = 0
-        mock_instance.get_temperature.return_value = 0
 
         # Return the mock instance when GpuMonitor is instantiated
         mock_manager_class.return_value = mock_instance

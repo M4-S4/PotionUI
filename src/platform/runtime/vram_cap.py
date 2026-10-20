@@ -98,18 +98,6 @@ def apply_vram_cap_bytes(free_bytes: int, total_bytes: int) -> Tuple[int, int]:
     return capped_free, capped_total
 
 
-def apply_vram_cap_gb(free_gb: float, total_gb: float) -> Tuple[float, float]:
-    """Same as :func:`apply_vram_cap_bytes` but in GB (float) units."""
-    cap_gb = get_vram_cap_gb()
-    if cap_gb is None:
-        return free_gb, total_gb
-
-    used_gb = max(0.0, total_gb - free_gb)
-    capped_total = min(total_gb, cap_gb)
-    capped_free = max(0.0, capped_total - used_gb)
-    return capped_free, capped_total
-
-
 def reset_for_tests() -> None:
     """Clear the module-level cache. Test-only — production never needs to
     re-read the env var mid-process."""

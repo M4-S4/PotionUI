@@ -72,15 +72,6 @@ class MeshFormatRegistry:
 mesh_format_registry = MeshFormatRegistry()
 
 
-# --- glTF binary (.glb) ---------------------------------------------------
-#
-# Reading the container needs no third-party library: a .glb is a 12-byte
-# header followed by length-prefixed chunks, the first of which is the glTF
-# JSON document. `trimesh` is not a dependency of this project and is not
-# worth becoming one to read two integers out of a JSON blob.
-#
-# Spec: https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html#glb-file-format-specification
-
 GLB_MAGIC = b'glTF'
 _GLB_HEADER_SIZE = 12
 _GLB_CHUNK_HEADER_SIZE = 8

@@ -145,7 +145,6 @@ def test_ensure_free_offloads_lru_first():
     old, new = _FakeModel(), _FakeModel()
     mgr.note_resident(old, "cuda:0", 10.0)   # registered first -> older
     mgr.note_resident(new, "cuda:0", 10.0)
-    mgr.touch(new)                            # make `new` most-recently-used
     # Need 8GB, have 2 free -> must free >= 6GB: evict the LRU (old) only.
     offloaded = mgr.ensure_free("cuda:0", need_gb=8.0, current_free_gb=2.0)
     assert offloaded == [old]

@@ -16,9 +16,7 @@ class TestGpuMocks:
         """Test that GPU operations are mocked"""
         # GPU manager returns CPU device
         assert mock_gpu.get_free_vram() == 0
-        assert mock_gpu.get_used_vram() == 0
         assert mock_gpu.get_total_vram() == 0
-        assert mock_gpu.get_temperature() == 0
 
     def test_mock_torch_cuda(self, mock_torch_cuda):
         """Test that PyTorch CUDA is mocked"""

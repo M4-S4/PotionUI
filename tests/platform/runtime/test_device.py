@@ -4,11 +4,8 @@ import gc
 import logging
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.platform.runtime.device import (
     clear_gpu_memory,
-    gpu_memory_scope,
     log_memory_usage,
 )
 
@@ -59,50 +56,6 @@ class TestClearGpuMemory:
             importlib.reload(mod)
             mod.clear_gpu_memory()  # should not raise
         mock_gc_collect.assert_called_once()
-
-
-# ---- gpu_memory_scope ----
-
-class TestGpuMemoryScope:
-    @patch("src.platform.runtime.device.log_memory_usage")
-    @patch("src.platform.runtime.device.clear_gpu_memory")
-    def test_clears_gpu_memory_on_exit(self, mock_clear, mock_log):
-        """clear_gpu_memory() should be called when exiting the context."""
-        with gpu_memory_scope():
-            mock_clear.assert_not_called()
-        mock_clear.assert_called_once()
-
-    @patch("src.platform.runtime.device.log_memory_usage")
-    @patch("src.platform.runtime.device.clear_gpu_memory")
-    def test_logs_memory_when_prefix_given(self, mock_clear, mock_log):
-        """log_memory_usage() should be called when log_prefix is provided."""
-        with gpu_memory_scope(log_prefix="test_stage"):
-            pass
-        mock_log.assert_called_once_with("test_stage")
-
-    @patch("src.platform.runtime.device.log_memory_usage")
-    @patch("src.platform.runtime.device.clear_gpu_memory")
-    def test_no_log_when_no_prefix(self, mock_clear, mock_log):
-        """log_memory_usage() should NOT be called when no log_prefix."""
-        with gpu_memory_scope():
-            pass
-        mock_log.assert_not_called()
-
-    @patch("src.platform.runtime.device.log_memory_usage")
-    @patch("src.platform.runtime.device.clear_gpu_memory")
-    def test_cleanup_on_exception(self, mock_clear, mock_log):
-        """clear_gpu_memory() should still be called even if an exception occurs."""
-        with pytest.raises(RuntimeError):
-            with gpu_memory_scope():
-                raise RuntimeError("test error")
-        mock_clear.assert_called_once()
-
-    @patch("src.platform.runtime.device.log_memory_usage")
-    @patch("src.platform.runtime.device.clear_gpu_memory")
-    def test_yields_none(self, mock_clear, mock_log):
-        """The context manager should yield None."""
-        with gpu_memory_scope() as value:
-            assert value is None
 
 
 # ---- log_memory_usage ----

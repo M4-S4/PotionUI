@@ -7,7 +7,6 @@ and context managers used across pipeline pipes.
 
 import gc
 import logging
-from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +21,6 @@ def clear_gpu_memory():
             torch.cuda.empty_cache()
     except ImportError:
         pass
-
-
-@contextmanager
-def gpu_memory_scope(log_prefix=None):
-    """Context manager that clears GPU memory on exit.
-
-    Args:
-        log_prefix: Optional prefix for memory logging on exit.
-    """
-    try:
-        yield
-    finally:
-        clear_gpu_memory()
-        if log_prefix:
-            log_memory_usage(log_prefix)
 
 
 def log_memory_usage(stage: str, prefix: str = ""):

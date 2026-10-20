@@ -528,14 +528,6 @@ class LayerPrefetcher:
     the prefetcher for the rest of the session, and degrades to the exact
     on-demand behaviour (the leaf just copies its own weight as before). Never
     crashes a generation.
-
-    **Staging budget.** At most ``prefetch_depth`` (default 1) staged weights beyond
-    the executing one — a hard cap enforced before every stage. With depth=1 the
-    transient VRAM is a single streamed-leaf weight (hundreds of MB for a DiT
-    linear), comfortably inside the resolution-scaled *sampling* activation
-    headroom the residency planner already reserves (multiple GB at ≥1024²), so it
-    does not shrink the resident weight set. :meth:`staging_reserve_bytes` exposes
-    the figure if an explicit budget carve-out is ever wanted.
     """
 
     def __init__(
@@ -575,16 +567,6 @@ class LayerPrefetcher:
     @property
     def max_staged(self) -> int:
         return self._max_staged
-
-    def staging_reserve_bytes(self) -> int:
-        """VRAM a full staging budget can transiently hold: ``depth`` × the largest
-        streamed-leaf weight. For an explicit budget carve-out if ever wired."""
-        largest = 0
-        for leaf in self._leaves:
-            w = getattr(leaf, "weight", None)
-            if w is not None:
-                largest = max(largest, w.numel() * w.element_size())
-        return self._depth * largest
 
     # -- hook installation / teardown --------------------------------------
 

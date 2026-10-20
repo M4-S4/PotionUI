@@ -58,10 +58,8 @@ class TestSystemMonitorCoordinator:
     def mock_gpu_monitor(self):
         """Create a mock GpuMonitor."""
         manager = Mock()
-        manager.get_used_vram.return_value = 4096
         manager.get_free_vram.return_value = 8192
         manager.get_total_vram.return_value = 12288
-        manager.get_temperature.return_value = 55
         return manager
 
     @pytest.fixture
