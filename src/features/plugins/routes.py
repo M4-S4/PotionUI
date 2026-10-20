@@ -2,6 +2,7 @@ from typing import Any, List, Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from src.platform.http.errors import NotFoundError
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
@@ -26,27 +27,11 @@ if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
 
-_NOT_FOUND = {ValueError: Fail("plugin_not_found", status=404)}
+def _refused(failed_code: str) -> dict:
+    return {ValueError: Fail(failed_code, status=400)}
 
 
-def _missing(e: Exception) -> bool:
-    return "not found" in str(e).lower()
-
-
-def _toggle(failed_code: str) -> dict:
-    return {ValueError: Fail(
-        lambda e: "plugin_not_found" if _missing(e) else failed_code,
-        status=lambda e: 404 if _missing(e) else 400,
-    )}
-
-
-_DELETE = {ValueError: Fail(
-    lambda e: "plugin_not_found" if _missing(e) else "plugin_delete_failed", status=400
-)}
-_SETTINGS_UPDATE = {
-    PluginManifestUnavailableError: Fail("plugin_manifest_unavailable", status=409),
-    **_NOT_FOUND,
-}
+_SETTINGS_UPDATE = {PluginManifestUnavailableError: Fail("plugin_manifest_unavailable", status=409)}
 
 
 class PluginController(BaseController):
@@ -151,12 +136,12 @@ class PluginController(BaseController):
         responses = [plugin_to_response(p, self.registry) for p in plugins]
         return self.success_response(data=[p.model_dump() for p in responses])
 
-    @guarded(_NOT_FOUND, Fail("plugin_get_failed", "Failed to get plugin", 500))
+    @guarded(fallback=Fail("plugin_get_failed", "Failed to get plugin", 500))
     async def get_plugin(self, plugin_id: str) -> APIResponse:
         """Get single plugin details"""
         plugin = self.repository.get_plugin_by_id(plugin_id)
         if not plugin:
-            raise ValueError(f"Plugin '{plugin_id}' not found")
+            raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
 
         base = plugin_to_response(plugin, self.registry)
 
@@ -186,7 +171,7 @@ class PluginController(BaseController):
         except Exception as e:
             self.logger.warning(f"Provider re-discovery after plugin toggle failed: {e}")
 
-    @guarded(_toggle("plugin_enable_failed"), Fail("plugin_enable_failed", "Failed to enable plugin", 500))
+    @guarded(_refused("plugin_enable_failed"), Fail("plugin_enable_failed", "Failed to enable plugin", 500))
     async def enable_plugin(self, plugin_id: str) -> APIResponse:
         plugin = operations.enable_plugin(
             self.repository,
@@ -205,7 +190,7 @@ class PluginController(BaseController):
             message=f"Plugin '{plugin.name}' enabled successfully"
         )
 
-    @guarded(_toggle("plugin_disable_failed"), Fail("plugin_disable_failed", "Failed to disable plugin", 500))
+    @guarded(_refused("plugin_disable_failed"), Fail("plugin_disable_failed", "Failed to disable plugin", 500))
     async def disable_plugin(self, plugin_id: str) -> APIResponse:
         plugin = operations.disable_plugin(
             self.repository,
@@ -224,7 +209,7 @@ class PluginController(BaseController):
             message=f"Plugin '{plugin.name}' disabled successfully"
         )
 
-    @guarded(_DELETE, Fail("plugin_delete_failed", "Failed to delete plugin", 500))
+    @guarded(_refused("plugin_delete_failed"), Fail("plugin_delete_failed", "Failed to delete plugin", 500))
     async def delete_plugin(self, plugin_id: str) -> APIResponse:
         plugin_name = operations.delete_plugin(
             self.repository,
@@ -258,7 +243,7 @@ class PluginController(BaseController):
 
     # ========== Plugin Settings ==========
 
-    @guarded(_NOT_FOUND, Fail("plugin_settings_get_failed", "Failed to get plugin settings", 500))
+    @guarded(fallback=Fail("plugin_settings_get_failed", "Failed to get plugin settings", 500))
     async def get_plugin_settings(
         self,
         plugin_id: str,
@@ -267,7 +252,7 @@ class PluginController(BaseController):
         """Get all settings for a plugin"""
         plugin = self.repository.get_plugin_by_id(plugin_id)
         if not plugin:
-            raise ValueError(f"Plugin '{plugin_id}' not found")
+            raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
 
         settings = self.repository.get_plugin_settings(plugin_id, user_id)
         responses = [setting_to_response(s) for s in settings]

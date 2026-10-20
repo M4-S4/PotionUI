@@ -11,6 +11,7 @@ from typing import Optional
 from src.features.collections.operations.reads import get_collection
 from src.features.collections.records import Collection
 from src.features.collections.repository import CollectionRepository
+from src.platform.http.errors import NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def rename_collection(collection_repository: CollectionRepository, collection_id
 
     success = collection_repository.rename(collection_id, name, user_id, scope)
     if not success:
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("collection_not_found", "Collection not found or access denied")
 
     return get_collection(collection_repository, collection_id, user_id, scope)
 
@@ -64,7 +65,7 @@ def delete_collection(collection_repository: CollectionRepository, collection_id
     """
     success = collection_repository.delete(collection_id, user_id, scope)
     if not success:
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("collection_not_found", "Collection not found or access denied")
 
     logger.info(f"Collection deleted (id: {collection_id}, scope: {scope})")
     return True

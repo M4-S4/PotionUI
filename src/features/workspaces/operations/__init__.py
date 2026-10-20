@@ -13,6 +13,7 @@ before it outgrows ~200 lines rather than let a second concern move in here.
 """
 import logging
 
+from src.platform.http.errors import AccessDeniedError, NotFoundError
 from src.platform.util.ids import generate_ulid
 from src.features.workspaces.dto import (
     SaveWorkspaceRequest,
@@ -51,18 +52,13 @@ def update_workspace(
     user_id: str,
     request: UpdateWorkspaceRequest,
 ) -> WorkspaceResponse:
-    """Update an existing workspace by ID.
-
-    Raises:
-        ValueError: If workspace not found or access denied
-    """
     workspace = workspace_repository.get_by_id(workspace_id)
 
     if not workspace:
-        raise ValueError("Workspace not found")
+        raise NotFoundError("workspace_not_found", "Workspace not found")
 
     if workspace.user_id != user_id:
-        raise ValueError("Access denied to this workspace")
+        raise AccessDeniedError("workspace_access_denied", "Access denied to this workspace")
 
     updated_name = request.name if request.name is not None else workspace.name
     updated_data = request.data if request.data is not None else workspace.data
@@ -86,18 +82,13 @@ def delete_workspace(
     workspace_id: str,
     user_id: str,
 ) -> str:
-    """Delete a workspace.
-
-    Raises:
-        ValueError: If workspace not found or access denied
-    """
     workspace = workspace_repository.get_by_id(workspace_id)
 
     if not workspace:
-        raise ValueError("Workspace not found")
+        raise NotFoundError("workspace_not_found", "Workspace not found")
 
     if workspace.user_id != user_id:
-        raise ValueError("Access denied to this workspace")
+        raise AccessDeniedError("workspace_access_denied", "Access denied to this workspace")
 
     workspace_name = workspace.name
     success = workspace_repository.delete(workspace_id)

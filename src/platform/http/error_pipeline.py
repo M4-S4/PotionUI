@@ -6,6 +6,7 @@ from typing import Callable, Mapping, Optional, Tuple, Type, Union
 from fastapi import HTTPException
 
 from src.platform.http.base_controller import APIError, APIResponse, PassThrough
+from src.platform.http.errors import domain_failure
 from src.platform.security.user import AccountType
 
 Detail = Callable[[Exception, bool], str]
@@ -40,6 +41,10 @@ def _message(fail: Fail, exc: Exception, admin: Callable[[], bool]) -> str:
 
 
 def translate(controller, exc: Exception, table: ErrorTable, fallback: Optional[Fail], admin: Callable[[], bool]):
+    failure = domain_failure(exc)
+    if failure is not None:
+        controller.logger.info(f"Request refused: {failure.code}")
+        raise HTTPException(status_code=failure.status_code, detail=failure.detail)
     fail = next((entry for kinds, entry in table.items() if isinstance(exc, kinds)), None)
     if fail is None:
         if fallback is None:

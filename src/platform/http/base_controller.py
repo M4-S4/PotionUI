@@ -1,9 +1,13 @@
-from typing import Any, NoReturn, Optional
+from typing import Any, Callable, NoReturn, Optional
 from fastapi import HTTPException
 from pydantic import BaseModel
+import asyncio
 import sys
 import traceback
 import logging
+
+from src.platform.http.errors import domain_failure
+from src.platform.security.failure_text import failure_detail
 
 
 class PassThrough(Exception):
@@ -32,6 +36,8 @@ class APIError(BaseModel):
 
 class BaseController:
     """Base controller class with common functionality"""
+
+    failure_message: Optional[str] = None
 
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -87,3 +93,30 @@ class BaseController:
         )
 
         raise HTTPException(status_code=status_code, detail=error_data.model_dump())
+
+    def refuse(self, exc: Exception, error: str, message: Optional[str] = None, soft: bool = False,
+               admin: bool = False) -> APIResponse:
+        reraise_in_flight()
+        failure = domain_failure(exc)
+        if failure is not None:
+            self.logger.info(f"Request refused: {failure.code}")
+            if soft:
+                return APIResponse(success=False, error=failure.code, message=failure.message)
+            raise HTTPException(status_code=failure.status_code, detail=failure.detail)
+        if not soft:
+            self.handle_exception(exc, error_code=error, message=message)
+        if isinstance(exc, ValueError):
+            self.logger.error(f"API Error: {error} - {exc}")
+            return APIResponse(success=False, error=error, message=str(exc))
+        self.logger.exception(f"Exception in {self.__class__.__name__} ({error}): {exc}")
+        detail = failure_detail(exc, admin)
+        return APIResponse(success=False, error=error, message=detail if message is None else f"{message}: {detail}")
+
+    async def run(self, error: str, func: Callable[..., Any], *args: Any, message: Optional[str] = None,
+                  soft: bool = False, admin: bool = False) -> APIResponse:
+        try:
+            return self.success_response(data=await asyncio.to_thread(func, *args))
+        except HTTPException:
+            raise
+        except Exception as exc:
+            return self.refuse(exc, error, self.failure_message if message is None else message, soft, admin)

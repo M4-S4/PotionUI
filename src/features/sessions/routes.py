@@ -4,11 +4,11 @@ Session Controller
 Handles CRUD operations for user sessions (saved preset configurations).
 Delegates mutations to `src.features.sessions.operations`.
 """
-import asyncio
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.base_controller import APIError, APIResponse, BaseController
+from src.platform.http.errors import AccessDeniedError, NotFoundError
 from src.platform.security.current_user import get_current_active_user
 from src.features.sessions.dto import PinSessionRequest, SaveSessionRequest, UpdateSessionRequest
 from src.features.sessions import operations
@@ -24,9 +24,11 @@ from src.platform.plugins import PluginRegistry
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
+MISSING_CODES = frozenset({"session_not_found", "session_version_not_found"})
+
+
 
 class SessionController(BaseController):
-    """Controller for managing user sessions."""
 
     def __init__(
         self,
@@ -38,86 +40,50 @@ class SessionController(BaseController):
         super().__init__()
         self.repository = session_repository
         self.plugins = plugin_registry
-        # Optional - version history is a no-op (empty list / "not found")
-        # when these aren't wired.
         self.version_repository = session_version_repository
         self.file_preset_repository = file_preset_repository
 
-    async def get_sessions_for_preset(self, user_id: str, preset_id: str) -> APIResponse:
-        """Get all sessions for a user and preset."""
-        try:
-            sessions = await asyncio.to_thread(self.repository.get_by_user_and_preset, user_id, preset_id)
-            return self.success_response(data=[session_to_response_dict(s) for s in sessions])
-        except ValueError as e:
-            return self.error_api_response(error="get_sessions_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(
-                error="get_sessions_failed",
-                message=f"Failed to get sessions: {str(e)}"
-            )
-
     def _get_owned_session_record(self, user_id: str, session_id: str):
-        """Look up a session by id and enforce ownership, raising distinct
-        errors for "missing" vs "belongs to someone else". Pure DB read."""
         session = self.repository.get_by_id(session_id)
-
         if not session:
-            raise ValueError("Session not found")
-
+            raise NotFoundError("session_not_found", "Session not found")
         if session.user_id != user_id:
-            raise ValueError("Access denied to this session")
-
+            raise AccessDeniedError("session_access_denied", "Access denied to this session")
         return session
 
     def _get_session_or_404(self, user_id: str, session_id: str):
-        """Look up a session by id and enforce ownership, collapsing "missing"
-        and "belongs to someone else" into a single "Session not found" -
-        the house 404-not-403 idiom, so the response can't be used to probe
-        which session ids exist. Pure DB read."""
         session = self.repository.get_by_id(session_id)
         if not session or session.user_id != user_id:
-            raise ValueError("Session not found")
+            raise NotFoundError("session_not_found", "Session not found")
         return session
 
-    async def get_session_by_id(self, user_id: str, session_id: str) -> APIResponse:
-        """Get a specific session by ID."""
-        try:
-            session = await asyncio.to_thread(self._get_owned_session_record, user_id, session_id)
-            return self.success_response(data=session_to_response_dict(session))
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_api_response(
-                    error="session_not_found",
-                    message=error_msg
-                )
-            elif "access denied" in error_msg.lower():
-                return self.error_api_response(
-                    error="session_access_denied",
-                    message=error_msg
-                )
-            return self.error_api_response(error="get_session_failed", message=error_msg)
-        except Exception as e:
-            return self.error_api_response(
-                error="get_session_failed",
-                message=f"Failed to get session: {str(e)}"
+    def _missing_as_404(self, response: APIResponse) -> APIResponse:
+        if not response.success and response.error in MISSING_CODES:
+            raise HTTPException(
+                status_code=404,
+                detail=APIError(error=response.error, message=response.message).model_dump(),
             )
+        return response
+
+    async def get_sessions_for_preset(self, user_id: str, preset_id: str) -> APIResponse:
+        def load():
+            return [session_to_response_dict(s) for s in self.repository.get_by_user_and_preset(user_id, preset_id)]
+        return await self.run("get_sessions_failed", load, soft=True, message="Failed to get sessions")
+
+    async def get_session_by_id(self, user_id: str, session_id: str) -> APIResponse:
+        def load():
+            return session_to_response_dict(self._get_owned_session_record(user_id, session_id))
+        return await self.run("get_session_failed", load, soft=True, message="Failed to get session")
 
     async def save_session(self, user_id: str, request: SaveSessionRequest) -> APIResponse:
-        """Save a new session or update existing one with same name."""
-        try:
-            session_data, message = await asyncio.to_thread(
-                operations.save_session,
-                self.repository, self.plugins, self.version_repository, self.file_preset_repository, user_id, request
-            )
-            return self.success_response(data=session_data, message=message)
-        except ValueError as e:
-            return self.error_api_response(error="save_session_failed", message=str(e))
-        except Exception as e:
-            return self.error_api_response(
-                error="save_session_failed",
-                message=f"Failed to save session: {str(e)}"
-            )
+        response = await self.run(
+            "save_session_failed", operations.save_session,
+            self.repository, self.plugins, self.version_repository, self.file_preset_repository, user_id, request,
+            soft=True, message="Failed to save session",
+        )
+        if response.success:
+            response.data, response.message = response.data
+        return response
 
     async def update_session(
         self,
@@ -125,55 +91,26 @@ class SessionController(BaseController):
         session_id: str,
         request: UpdateSessionRequest
     ) -> APIResponse:
-        """Update an existing session."""
-        try:
-            session_data = await asyncio.to_thread(
-                operations.update_session,
-                self.repository, self.plugins, self.version_repository, self.file_preset_repository,
-                user_id, session_id, request
-            )
-            return self.success_response(data=session_data, message="Session updated successfully")
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_api_response(
-                    error="session_not_found",
-                    message=error_msg
-                )
-            elif "access denied" in error_msg.lower():
-                return self.error_api_response(
-                    error="session_access_denied",
-                    message=error_msg
-                )
-            elif "already exists" in error_msg.lower():
-                return self.error_api_response(
-                    error="session_name_exists",
-                    message=error_msg
-                )
-            return self.error_api_response(error="update_session_failed", message=error_msg)
-        except Exception as e:
-            return self.error_api_response(
-                error="update_session_failed",
-                message=f"Failed to update session: {str(e)}"
-            )
+        response = await self.run(
+            "update_session_failed", operations.update_session,
+            self.repository, self.plugins, self.version_repository, self.file_preset_repository,
+            user_id, session_id, request,
+            soft=True, message="Failed to update session",
+        )
+        if response.success:
+            response.message = "Session updated successfully"
+        return response
 
     async def set_session_pinned(self, user_id: str, session_id: str, request: PinSessionRequest) -> APIResponse:
-        def _pin():
+        def pin():
             self._get_session_or_404(user_id, session_id)
-            return self.repository.set_pinned(session_id, request.pinned)
-
-        try:
-            session = await asyncio.to_thread(_pin)
+            session = self.repository.set_pinned(session_id, request.pinned)
             if session is None:
-                raise ValueError("Session not found")
-            return self.success_response(data=session_to_response_dict(session))
-        except ValueError as e:
-            return self.error_response(error="session_not_found", message=str(e), status_code=404)
-        except Exception as e:
-            return self.error_api_response(
-                error="pin_session_failed",
-                message=f"Failed to pin session: {str(e)}"
-            )
+                raise NotFoundError("session_not_found", "Session not found")
+            return session_to_response_dict(session)
+        return self._missing_as_404(
+            await self.run("pin_session_failed", pin, soft=True, message="Failed to pin session")
+        )
 
     async def list_session_versions(
         self,
@@ -182,8 +119,7 @@ class SessionController(BaseController):
         limit: Optional[int] = None,
         before: Optional[int] = None,
     ) -> APIResponse:
-        """List a session's version history (newest first, no payloads)."""
-        def _list_versions() -> List[Dict[str, Any]]:
+        def list_versions() -> List[Dict[str, Any]]:
             self._get_session_or_404(user_id, session_id)
             if not self.version_repository:
                 return []
@@ -191,69 +127,31 @@ class SessionController(BaseController):
                 session_id, limit=limit, before=before
             )
             return session_version_list_to_dicts(page, predecessor)
-
-        try:
-            versions = await asyncio.to_thread(_list_versions)
-            return self.success_response(data=versions)
-        except ValueError as e:
-            # House 404-not-403 idiom: missing session and "belongs to someone
-            # else" both raise "Session not found", so this single 404 branch
-            # can't be used to probe which session ids exist.
-            return self.error_response(error="session_not_found", message=str(e), status_code=404)
-        except Exception as e:
-            return self.error_api_response(
-                error="list_session_versions_failed",
-                message=f"Failed to list session versions: {str(e)}"
-            )
+        return self._missing_as_404(
+            await self.run("list_session_versions_failed", list_versions, soft=True,
+                           message="Failed to list session versions")
+        )
 
     async def get_session_version(self, user_id: str, session_id: str, version_number: int) -> APIResponse:
-        """Get a single version's full payload."""
-        def _get_version():
+        def get_version():
             self._get_session_or_404(user_id, session_id)
-            if not self.version_repository:
-                raise ValueError("Version not found")
-            version = self.version_repository.get(session_id, version_number)
+            version = self.version_repository.get(session_id, version_number) if self.version_repository else None
             if not version:
-                raise ValueError("Version not found")
-            return version
-
-        try:
-            version = await asyncio.to_thread(_get_version)
-            return self.success_response(data=session_version_to_dict(version))
-        except ValueError as e:
-            error_msg = str(e)
-            error_code = "session_not_found" if error_msg == "Session not found" else "session_version_not_found"
-            return self.error_response(error=error_code, message=error_msg, status_code=404)
-        except Exception as e:
-            return self.error_api_response(
-                error="get_session_version_failed",
-                message=f"Failed to get session version: {str(e)}"
-            )
+                raise NotFoundError("session_version_not_found", "Version not found")
+            return session_version_to_dict(version)
+        return self._missing_as_404(
+            await self.run("get_session_version_failed", get_version, soft=True,
+                           message="Failed to get session version")
+        )
 
     async def delete_session(self, user_id: str, session_id: str) -> APIResponse:
-        """Delete a session."""
-        try:
-            message = await asyncio.to_thread(operations.delete_session, self.repository, self.plugins, user_id, session_id)
-            return self.success_response(message=message)
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_api_response(
-                    error="session_not_found",
-                    message=error_msg
-                )
-            elif "access denied" in error_msg.lower():
-                return self.error_api_response(
-                    error="session_access_denied",
-                    message=error_msg
-                )
-            return self.error_api_response(error="delete_session_failed", message=error_msg)
-        except Exception as e:
-            return self.error_api_response(
-                error="delete_session_failed",
-                message=f"Failed to delete session: {str(e)}"
-            )
-
+        response = await self.run(
+            "delete_session_failed", operations.delete_session, self.repository, self.plugins, user_id, session_id,
+            soft=True, message="Failed to delete session",
+        )
+        if response.success:
+            response.message, response.data = response.data, None
+        return response
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.session_controller

@@ -1,18 +1,11 @@
 from typing import Any, Dict, List, Optional
 
 from src.platform.http.base_controller import PassThrough
+from src.platform.http.errors import DomainError
 
 
-class PlanError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = 400, **extra: Any):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
-        self.extra = extra
-
-    def payload(self) -> Dict[str, Any]:
-        return {"success": False, "error": self.code, "message": self.message, **self.extra}
+class PlanError(DomainError):
+    pass
 
 
 class LimitExceeded(PassThrough):

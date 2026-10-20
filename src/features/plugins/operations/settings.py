@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 from src.features.plugins.dto import PluginSettingResponse
 from src.features.plugins.mappers import setting_to_response
 from src.features.plugins.repository import PluginRepository
+from src.platform.http.errors import NotFoundError
 from src.platform.plugins.registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ def update_plugin_settings(
     """
     plugin = repo.get_plugin_by_id(plugin_id)
     if not plugin:
-        raise ValueError(f"Plugin '{plugin_id}' not found")
+        raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
 
     secret_keys = _secret_setting_keys(registry, plugin_id)
     if secret_keys is None:

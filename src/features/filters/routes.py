@@ -7,7 +7,6 @@ from fastapi.responses import FileResponse
 from src.features.filters import operations
 from src.features.filters.collaborators import FilterCollaborators
 from src.features.filters.dto import CreateFilterRequest, UpdateFilterRequest
-from src.features.filters.errors import FilterError
 from src.features.filters.payload import PAYLOAD_SCHEMA, USER_ID_PREFIX, file_item, user_item
 from src.features.filters.schema import FILTER_JSON_SCHEMA, SOURCE_MINE
 from src.platform.http.base_controller import APIResponse, BaseController
@@ -18,6 +17,7 @@ if TYPE_CHECKING:
 
 
 class FilterController(BaseController):
+    failure_message = "Filter request failed"
 
     def __init__(self, collaborators: FilterCollaborators):
         super().__init__()
@@ -57,14 +57,6 @@ class FilterController(BaseController):
         except Exception as exc:
             self.handle_exception(exc, error_code="list_filters_failed", message="Filter request failed")
 
-    async def _run(self, error: str, func, *args) -> APIResponse:
-        try:
-            return self.success_response(data=await asyncio.to_thread(func, *args))
-        except FilterError as exc:
-            self.error_response(error=exc.code, message=exc.message, status_code=exc.status_code)
-        except Exception as exc:
-            self.handle_exception(exc, error_code=error, message="Filter request failed")
-
     def _item(self, record) -> Dict[str, Any]:
         catalog = self.collaborators.catalog
         return user_item(record, catalog.known_ops(), catalog.enabled_ops())
@@ -72,23 +64,23 @@ class FilterController(BaseController):
     async def list_mine(self, owner_id: str) -> APIResponse:
         def run():
             return [self._item(row) for row in operations.list_mine(self.collaborators, owner_id)]
-        return await self._run("list_filters_failed", run)
+        return await self.run("list_filters_failed", run)
 
     async def create_mine(self, owner_id: str, request: CreateFilterRequest) -> APIResponse:
         def run():
             return self._item(operations.create_filter(self.collaborators, owner_id, request))
-        return await self._run("create_filter_failed", run)
+        return await self.run("create_filter_failed", run)
 
     async def update_mine(self, owner_id: str, filter_id: str, request: UpdateFilterRequest) -> APIResponse:
         def run():
             return self._item(operations.update_filter(self.collaborators, owner_id, filter_id, request))
-        return await self._run("update_filter_failed", run)
+        return await self.run("update_filter_failed", run)
 
     async def delete_mine(self, owner_id: str, filter_id: str) -> APIResponse:
         def run():
             operations.delete_filter(self.collaborators, owner_id, filter_id)
             return None
-        return await self._run("delete_filter_failed", run)
+        return await self.run("delete_filter_failed", run)
 
     def lut_response(self, filter_id: str, request: Request):
         definition = None if filter_id.startswith(USER_ID_PREFIX) else self.collaborators.catalog.get_filter(filter_id)

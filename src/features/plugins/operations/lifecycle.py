@@ -11,6 +11,7 @@ from typing import Any, Optional
 from src.features.plugins.dto import PluginResponse
 from src.features.plugins.mappers import plugin_to_response
 from src.features.plugins.repository import PluginRepository
+from src.platform.http.errors import NotFoundError
 from src.platform.plugins.registry import PluginRegistry
 from src.platform.plugins.hooks import hooks_registry
 from src.platform.plugins.lifecycle_hooks import PLUGIN_LIFECYCLE_HOOKS
@@ -116,7 +117,7 @@ def enable_plugin(
     """
     plugin = repo.get_plugin_by_id(plugin_id)
     if not plugin:
-        raise ValueError(f"Plugin '{plugin_id}' not found")
+        raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
 
     # Enable in database
     if not repo.enable_plugin(plugin_id):
@@ -201,7 +202,7 @@ def disable_plugin(
     """
     plugin = repo.get_plugin_by_id(plugin_id)
     if not plugin:
-        raise ValueError(f"Plugin '{plugin_id}' not found")
+        raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
 
     success = registry.disable_plugin(plugin_id)
     if not success:
@@ -248,7 +249,7 @@ def delete_plugin(
     """
     plugin = repo.get_plugin_by_id(plugin_id)
     if not plugin:
-        raise ValueError(f"Plugin '{plugin_id}' not found")
+        raise NotFoundError("plugin_not_found", f"Plugin '{plugin_id}' not found")
 
     plugin_name = plugin.name
 

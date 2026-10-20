@@ -15,6 +15,7 @@ from unittest.mock import Mock, MagicMock, AsyncMock
 from datetime import datetime
 
 from src.features.plugins import routes as routes_module
+from src.platform.http.errors import NotFoundError
 from src.features.plugins.routes import PluginController
 from src.features.plugins.dto import (
     PluginResponse,
@@ -305,7 +306,7 @@ async def test_enable_plugin_not_found(controller, mock_operations):
     from fastapi import HTTPException
 
     # Arrange
-    mock_operations.enable_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.enable_plugin.side_effect = NotFoundError("plugin_not_found", "Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -360,7 +361,7 @@ async def test_disable_plugin_not_found(controller, mock_operations):
     from fastapi import HTTPException
 
     # Arrange
-    mock_operations.disable_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.disable_plugin.side_effect = NotFoundError("plugin_not_found", "Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -394,13 +395,13 @@ async def test_delete_plugin_not_found(controller, mock_operations):
     from fastapi import HTTPException
 
     # Arrange
-    mock_operations.delete_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.delete_plugin.side_effect = NotFoundError("plugin_not_found", "Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
         await controller.delete_plugin("non-existent")
 
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 404
     assert exc_info.value.detail["error"] == "plugin_not_found"
 
 
@@ -632,7 +633,7 @@ async def test_update_plugin_settings_plugin_not_found(controller, mock_operatio
     from fastapi import HTTPException
 
     # Arrange
-    mock_operations.update_plugin_settings.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.update_plugin_settings.side_effect = NotFoundError("plugin_not_found", "Plugin 'non-existent' not found")
 
     settings_request = PluginSettingsUpdateRequest(
         settings={"key": "value"}

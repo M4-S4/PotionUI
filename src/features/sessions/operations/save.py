@@ -13,6 +13,7 @@ from src.features.sessions.dto import Session, SaveSessionRequest, UpdateSession
 from src.features.sessions.mappers import session_to_response_dict
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import SessionVersionRepository
+from src.platform.http.errors import AccessDeniedError, ConflictError, NotFoundError
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
 from src.features.sessions.hooks import SESSION_HOOKS
@@ -275,17 +276,17 @@ def update_session(
     session = session_repository.get_by_id(session_id)
 
     if not session:
-        raise ValueError("Session not found")
+        raise NotFoundError("session_not_found", "Session not found")
 
     if session.user_id != user_id:
-        raise ValueError("Access denied to this session")
+        raise AccessDeniedError("session_access_denied", "Access denied to this session")
 
     if request.name != session.name:
         existing_with_name = session_repository.get_by_user_preset_and_name(
             user_id, session.preset_id, request.name
         )
         if existing_with_name:
-            raise ValueError(f"Session with name '{request.name}' already exists for this preset")
+            raise ConflictError("session_name_exists", f"Session with name '{request.name}' already exists for this preset")
 
     hook_data, blocked = execute_hook(
         plugin_registry,

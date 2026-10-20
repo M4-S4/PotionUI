@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Query, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.errors import NotFoundError
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.repository import DatabasePresetRepository
@@ -86,9 +87,9 @@ class TagController(BaseController):
         `delete_tag` also make before mutating)."""
         tag = self.repository.get_tag_by_id(tag_id)
         if not tag:
-            raise ValueError("Tag not found")
+            raise NotFoundError("tag_not_found", "Tag not found")
         if tag.type in USER_SCOPED_TAG_TYPES and tag.user_id != user_id:
-            raise ValueError("Tag not found or access denied")
+            raise NotFoundError("tag_not_found", "Tag not found or access denied")
         return tag
 
     # ========== CRUD Methods ==========

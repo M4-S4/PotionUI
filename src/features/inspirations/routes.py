@@ -17,6 +17,7 @@ from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 
+from src.platform.http.errors import NotFoundError
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.current_user import get_current_active_user, require_media_viewer
@@ -40,17 +41,6 @@ if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
 logger = logging.getLogger(__name__)
-
-
-_NOT_FOUND = {ValueError: Fail("not_found", status=404)}
-
-
-def _not_found_status(message: str) -> int:
-    return 404 if "not found" in message.lower() else 400
-
-
-def _by_message(code: str) -> dict:
-    return {ValueError: Fail(code, status=lambda e: _not_found_status(str(e)))}
 
 
 class InspirationController(BaseController):
@@ -103,18 +93,18 @@ class InspirationController(BaseController):
             "total": max(0, total - (len(items) - len(visible))),
         })
 
-    @guarded(_NOT_FOUND, Fail("get_failed", "Failed to get inspiration", 400))
+    @guarded(fallback=Fail("get_failed", "Failed to get inspiration", 400))
     async def get_inspiration(self, inspiration_id: str, current_user) -> APIResponse:
         insp = self.collaborators.repository.get_by_id(inspiration_id, viewer_id=current_user.id)
         if not insp or not self._viewable(current_user.id, [insp]):
-            raise ValueError("Inspiration not found")
+            raise NotFoundError("not_found", "Inspiration not found")
         return self.success_response(data={"inspiration": inspiration_to_dto(insp)})
 
-    @guarded(_NOT_FOUND, Fail("get_params_failed", "Failed to get inspiration params", 400))
+    @guarded(fallback=Fail("get_params_failed", "Failed to get inspiration params", 400))
     async def get_params(self, inspiration_id: str, current_user) -> APIResponse:
         insp = self.collaborators.repository.get_by_id(inspiration_id)
         if not insp or not self._viewable(current_user.id, [insp]):
-            raise ValueError("Inspiration not found")
+            raise NotFoundError("not_found", "Inspiration not found")
         return self.success_response(data={
             "form_data": insp.params_snapshot.get("form_data", {}),
             "preset_id": insp.preset_id,
@@ -125,7 +115,7 @@ class InspirationController(BaseController):
 
     # ========== Publish / delete ==========
 
-    @guarded(_by_message("publish_failed"), Fail("publish_failed", "Failed to publish inspiration", 400))
+    @guarded(fallback=Fail("publish_failed", "Failed to publish inspiration", 400))
     async def publish(self, request: PublishInspirationRequest, current_user) -> APIResponse:
         insp = operations.publish(
             self.collaborators,
@@ -137,7 +127,7 @@ class InspirationController(BaseController):
         )
         return self.success_response(data={"inspiration": inspiration_to_dto(insp)})
 
-    @guarded(_NOT_FOUND, Fail("delete_failed", "Failed to delete inspiration", 400))
+    @guarded(fallback=Fail("delete_failed", "Failed to delete inspiration", 400))
     async def delete_inspiration(self, inspiration_id: str, current_user) -> APIResponse:
         operations.delete(
             self.collaborators, inspiration_id, current_user.id,
@@ -147,7 +137,7 @@ class InspirationController(BaseController):
 
     # ========== Saves ==========
 
-    @guarded(_by_message("save_failed"), Fail("save_failed", "Failed to save inspiration to library", 400))
+    @guarded(fallback=Fail("save_failed", "Failed to save inspiration to library", 400))
     async def save_to_library(self, inspiration_id: str, current_user) -> APIResponse:
         save_count = await asyncio.to_thread(
             operations.save_to_library, self.collaborators, inspiration_id, current_user.id
@@ -161,20 +151,20 @@ class InspirationController(BaseController):
 
     # ========== Comments ==========
 
-    @guarded(_NOT_FOUND, Fail("list_comments_failed", "Failed to list comments", 400))
+    @guarded(fallback=Fail("list_comments_failed", "Failed to list comments", 400))
     async def list_comments(self, inspiration_id: str, current_user) -> APIResponse:
         insp = self.collaborators.repository.get_by_id(inspiration_id)
         if not insp:
-            raise ValueError("Inspiration not found")
+            raise NotFoundError("not_found", "Inspiration not found")
         comments = self.collaborators.repository.list_comments(inspiration_id)
         return self.success_response(data={"items": [comment_to_dto(c) for c in comments]})
 
-    @guarded(_by_message("comment_failed"), Fail("comment_failed", "Failed to add comment", 400))
+    @guarded(fallback=Fail("comment_failed", "Failed to add comment", 400))
     async def add_comment(self, inspiration_id: str, request: CommentCreateRequest, current_user) -> APIResponse:
         comment = operations.add_comment(self.collaborators, inspiration_id, current_user.id, request.body)
         return self.success_response(data={"comment": comment_to_dto(comment)})
 
-    @guarded(_NOT_FOUND, Fail("delete_failed", "Failed to delete comment", 400))
+    @guarded(fallback=Fail("delete_failed", "Failed to delete comment", 400))
     async def delete_comment(self, comment_id: str, current_user) -> APIResponse:
         operations.delete_comment(
             self.collaborators, comment_id, current_user.id,
@@ -193,12 +183,12 @@ class InspirationController(BaseController):
             "smart_counts": repository.smart_counts(current_user.id),
         })
 
-    @guarded(_by_message("create_collection_failed"), Fail("create_collection_failed", "Failed to create collection", 400))
+    @guarded(fallback=Fail("create_collection_failed", "Failed to create collection", 400))
     async def create_collection(self, request: CreateInspirationCollectionRequest, current_user) -> APIResponse:
         collection = operations.create_collection(self.collaborators, current_user.id, request.name, request.parent_id)
         return self.success_response(data={"collection": collection_to_dto(collection)})
 
-    @guarded(_by_message("update_collection_failed"), Fail("update_collection_failed", "Failed to update collection", 400))
+    @guarded(fallback=Fail("update_collection_failed", "Failed to update collection", 400))
     async def update_collection(
         self, collection_id: str, request: UpdateInspirationCollectionRequest, current_user
     ) -> APIResponse:
@@ -213,19 +203,19 @@ class InspirationController(BaseController):
         )
         return self.success_response(data={"collection": collection_to_dto(collection)})
 
-    @guarded(_NOT_FOUND, Fail("delete_collection_failed", "Failed to delete collection", 400))
+    @guarded(fallback=Fail("delete_collection_failed", "Failed to delete collection", 400))
     async def delete_collection(self, collection_id: str, current_user) -> APIResponse:
         operations.delete_collection(self.collaborators, collection_id, current_user.id)
         return self.success_response(data={"id": collection_id, "deleted": True})
 
-    @guarded(_NOT_FOUND, Fail("add_item_failed", "Failed to add item to collection", 400))
+    @guarded(fallback=Fail("add_item_failed", "Failed to add item to collection", 400))
     async def add_collection_item(
         self, collection_id: str, request: InspirationCollectionItemRequest, current_user
     ) -> APIResponse:
         operations.add_item(self.collaborators, collection_id, current_user.id, request.inspiration_id)
         return self.success_response(data={"added": True})
 
-    @guarded(_NOT_FOUND, Fail("remove_item_failed", "Failed to remove item from collection", 400))
+    @guarded(fallback=Fail("remove_item_failed", "Failed to remove item from collection", 400))
     async def remove_collection_item(self, collection_id: str, inspiration_id: str, current_user) -> APIResponse:
         operations.remove_item(self.collaborators, collection_id, current_user.id, inspiration_id)
         return self.success_response(data={"removed": True})

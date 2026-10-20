@@ -3,6 +3,7 @@ import logging
 import uuid
 from pathlib import Path
 
+from src.platform.http.errors import InvalidInputError, NotFoundError
 from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.storage import inspiration_media_key
 from src.features.media.records import Upload
@@ -32,7 +33,7 @@ def save_to_library(collaborators: InspirationCollaborators, inspiration_id: str
     """
     insp = collaborators.repository.get_by_id(inspiration_id)
     if not insp:
-        raise ValueError("Inspiration not found")
+        raise NotFoundError("not_found", "Inspiration not found")
 
     storage_root = Path(collaborators.file_store.base_storage_dir)
     if collaborators.limit_guard is not None:
@@ -67,7 +68,7 @@ def save_to_library(collaborators: InspirationCollaborators, inspiration_id: str
         copied += 1
 
     if copied == 0 and insp.media:
-        raise ValueError("Could not copy any files into your library")
+        raise InvalidInputError("invalid_request", "Could not copy any files into your library")
 
     collaborators.repository.create_save(user_id, inspiration_id)
     return collaborators.repository.count_saves(inspiration_id)

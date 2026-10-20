@@ -12,6 +12,7 @@ from src.features.presets.repository import DatabasePresetRepository
 from src.features.tags.dto import Tag, TagType, CreateTagRequest, UpdateTagRequest, USER_SCOPED_TAG_TYPES, effective_user_id_for_type
 from src.features.tags.errors import TagInUseByPresetError
 from src.features.tags.repository import TagRepository
+from src.platform.http.errors import AccessDeniedError, NotFoundError
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
 from src.features.tags.hooks import TAG_HOOKS
@@ -39,7 +40,7 @@ def create_tag(tag_repository: TagRepository, plugin_registry: PluginRegistry, r
 
     # MODEL tags are global (shared by every user); only an admin may author them.
     if request.type == TagType.MODEL and not is_admin:
-        raise ValueError("Tag not found or access denied")
+        raise AccessDeniedError("tag_access_denied", "Tag not found or access denied")
 
     effective_user_id = effective_user_id_for_type(request.type, user_id)
 
@@ -88,14 +89,14 @@ def update_tag(tag_repository: TagRepository, plugin_registry: PluginRegistry, t
     """
     existing = tag_repository.get_tag_by_id(tag_id)
     if not existing:
-        raise ValueError("Tag not found or access denied")
+        raise NotFoundError("tag_not_found", "Tag not found or access denied")
 
     if existing.type in USER_SCOPED_TAG_TYPES and existing.user_id != user_id:
-        raise ValueError("Tag not found or access denied")
+        raise NotFoundError("tag_not_found", "Tag not found or access denied")
 
     # MODEL tags are global; only an admin may edit them.
     if existing.type == TagType.MODEL and not is_admin:
-        raise ValueError("Tag not found or access denied")
+        raise AccessDeniedError("tag_access_denied", "Tag not found or access denied")
 
     hook_data, blocked = execute_hook(
         plugin_registry,
@@ -164,14 +165,14 @@ def delete_tag(
     """
     existing = tag_repository.get_tag_by_id(tag_id)
     if not existing:
-        raise ValueError("Tag not found or access denied")
+        raise NotFoundError("tag_not_found", "Tag not found or access denied")
 
     if existing.type in USER_SCOPED_TAG_TYPES and existing.user_id != user_id:
-        raise ValueError("Tag not found or access denied")
+        raise NotFoundError("tag_not_found", "Tag not found or access denied")
 
     # MODEL tags are global; only an admin may delete them.
     if existing.type == TagType.MODEL and not is_admin:
-        raise ValueError("Tag not found or access denied")
+        raise AccessDeniedError("tag_access_denied", "Tag not found or access denied")
 
     # Refuse to delete a tag an admin has wired into a preset's stored
     # configuration (e.g. `model_tags`) - no force flag, unset it from the
