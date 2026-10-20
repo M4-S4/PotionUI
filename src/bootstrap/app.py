@@ -25,6 +25,7 @@ from src.bootstrap.errors import register_error_handlers
 from src.bootstrap.middleware import register_middleware
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
+from src.features.providers.registry import ensure_providers_discovered
 from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
@@ -398,6 +399,11 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.app_loop = asyncio.get_running_loop()
         container.plugin_registry.run_ready_hooks()
+
+        try:
+            await ensure_providers_discovered()
+        except Exception as exc:
+            logging.error(f"Provider discovery failed at startup: {exc}")
 
         # Same idea for native.remote rows: reclaim any lease a dead process
         # left dangling, expire anything past its package deadline, fail

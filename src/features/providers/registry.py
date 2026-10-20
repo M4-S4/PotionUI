@@ -641,9 +641,31 @@ class ProviderRegistry:
         return settings
 
 
-# Global service instance
 _provider_registry: Optional[ProviderRegistry] = None
 _discovery_done: bool = False
+_discovery_task: Optional["asyncio.Future"] = None
+
+
+def _on_discovery_finished(task: "asyncio.Future") -> None:
+    global _discovery_task, _discovery_done
+    current = _discovery_task is task
+    if current:
+        _discovery_task = None
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        logger.error(f"Provider discovery failed: {error}")
+        if current:
+            _discovery_done = False
+
+
+def _start_discovery() -> "asyncio.Future":
+    global _discovery_task, _discovery_done
+    _discovery_done = True
+    _discovery_task = asyncio.ensure_future(_async_discover_and_init(_provider_registry))
+    _discovery_task.add_done_callback(_on_discovery_finished)
+    return _discovery_task
 
 
 def get_provider_registry() -> ProviderRegistry:
@@ -652,28 +674,22 @@ def get_provider_registry() -> ProviderRegistry:
     if _provider_registry is None:
         _provider_registry = ProviderRegistry()
 
-    # Lazily discover providers if not already done
     if not _discovery_done:
-        import asyncio
         try:
-            # Try to get running loop
-            loop = asyncio.get_running_loop()
-            # We're in an async context, create a task
-            asyncio.create_task(_async_discover_and_init())
+            asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop, run synchronously
-            asyncio.run(_async_discover_and_init())
-        _discovery_done = True
+            asyncio.run(_async_discover_and_init(_provider_registry))
+            _discovery_done = True
+        else:
+            _start_discovery()
 
     return _provider_registry
 
 
-async def _async_discover_and_init():
+async def _async_discover_and_init(registry: ProviderRegistry):
     """Async helper to discover and initialize providers."""
-    global _provider_registry
-    if _provider_registry:
-        await _provider_registry.discover_providers()
-        await _provider_registry.initialize_providers()
+    await registry.discover_providers()
+    await registry.initialize_providers()
 
 
 async def ensure_providers_discovered() -> ProviderRegistry:
@@ -682,16 +698,25 @@ async def ensure_providers_discovered() -> ProviderRegistry:
 
     Call this from async contexts to ensure providers are ready.
     """
-    global _provider_registry, _discovery_done
-    if _provider_registry is None:
-        _provider_registry = ProviderRegistry()
+    global _provider_registry
+    while True:
+        if _provider_registry is None:
+            _provider_registry = ProviderRegistry()
 
-    if not _discovery_done:
-        await _provider_registry.discover_providers()
-        await _provider_registry.initialize_providers()
-        _discovery_done = True
+        if not _discovery_done:
+            _start_discovery()
 
-    return _provider_registry
+        task = _discovery_task
+        if task is None:
+            return _provider_registry
+
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled() and asyncio.current_task().cancelling() == 0:
+                continue
+            raise
+        return _provider_registry
 
 
 async def refresh_provider_for_plugin(plugin_id: str) -> bool:
@@ -717,8 +742,11 @@ def reset_provider_registry():
 
     Call this when plugins are enabled/disabled to refresh providers.
     """
-    global _provider_registry, _discovery_done
+    global _provider_registry, _discovery_done, _discovery_task
     _discovery_done = False
+    if _discovery_task is not None:
+        _discovery_task.cancel()
+        _discovery_task = None
     if _provider_registry:
         # Clear existing providers
         _provider_registry._providers.clear()

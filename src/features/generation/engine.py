@@ -182,6 +182,26 @@ def _describe_step(output: ProgressGenerationOutput) -> Optional[str]:
     return " ".join(parts) or None
 
 
+def _pipe_identifier(pipe_config: Dict[str, Any]) -> str:
+    return pipe_config.get('id') or pipe_config['name']
+
+
+def _pipe_identifier_map(pipes: list) -> Dict[str, str]:
+    enabled = [p for p in pipes if p['enabled']]
+    name_counts: Dict[str, int] = {}
+    for p in enabled:
+        name_counts[p['name']] = name_counts.get(p['name'], 0) + 1
+
+    identifier_map: Dict[str, str] = {}
+    for p in enabled:
+        identifier = _pipe_identifier(p)
+        if name_counts[p['name']] == 1:
+            identifier_map[p['name']] = identifier
+        if p.get('id') and p['id'] != p['name']:
+            identifier_map[p['id']] = identifier
+    return identifier_map
+
+
 class GenerationEngine:
 
     def __init__(
@@ -371,32 +391,8 @@ class GenerationEngine:
 
     def validate_pipeline(self, pipes: list) -> None:
         """Validate that all pipe inputs are satisfied by pipeline flow"""
-        available_outputs = {}  # pipe_identifier -> {output_name -> output_spec}
-
-        # Build a mapping of pipe names/IDs to their actual identifiers for validation
-        # This allows input configs to reference pipes by either name or ID
-        pipe_identifier_map = {}
-
-        # First pass: count how many times each name appears
-        name_counts = {}
-        for p in [p for p in pipes if p['enabled']]:
-            pipe_name = p['name']
-            name_counts[pipe_name] = name_counts.get(pipe_name, 0) + 1
-
-        # Second pass: build the mapping
-        for p in [p for p in pipes if p['enabled']]:
-            # If 'id' exists but is None, use name instead
-            pipe_identifier = p.get('id') or p['name']
-            pipe_name = p['name']
-
-            # Only map the name if it's unique (appears once)
-            # If a name appears multiple times, only the IDs should be used for lookup
-            if name_counts[pipe_name] == 1:
-                pipe_identifier_map[pipe_name] = pipe_identifier
-
-            # Always map the ID (if different from name)
-            if 'id' in p and p['id'] and p['id'] != pipe_name:
-                pipe_identifier_map[p['id']] = pipe_identifier
+        available_outputs = {}
+        pipe_identifier_map = _pipe_identifier_map(pipes)
 
         for pipe_config in [p for p in pipes if p['enabled']]:
             pipe_name = pipe_config['name']
@@ -405,11 +401,7 @@ class GenerationEngine:
             if not pipe_class:
                 raise ValueError(f"Pipe '{pipe_name}' not found in pipe registry")
 
-            # Use pipe ID if available, otherwise fall back to name
-            pipe_identifier = pipe_config.get('id', None)
-
-            if pipe_identifier is None:
-                pipe_identifier = pipe_name
+            pipe_identifier = _pipe_identifier(pipe_config)
 
             # Get pipe input and output specifications.
             # BasePipe.inputs()/outputs() default to None (pipes that declare
@@ -616,31 +608,7 @@ class GenerationEngine:
             current_pipe_result = None
             pipe_outputs = []
 
-            # Build a mapping of pipe names/IDs to their actual identifiers for output lookup
-            # This allows input configs to reference pipes by either name or ID
-            pipe_identifier_map = {}  # Maps both name and ID to the actual identifier used in pipe_outputs
-
-            # First pass: count how many times each name appears
-            name_counts = {}
-            for p in [p for p in pipes if p['enabled']]:
-                pipe_name = p['name']
-                name_counts[pipe_name] = name_counts.get(pipe_name, 0) + 1
-
-            # Second pass: build the mapping
-            for p in [p for p in pipes if p['enabled']]:
-                pipe_identifier = p.get('id', p['name'])
-                pipe_name = p['name']
-
-                # Only map the name if it's unique (appears once)
-                # If a name appears multiple times, only the IDs should be used for lookup
-                if name_counts[pipe_name] == 1:
-                    pipe_identifier_map[pipe_name] = pipe_identifier
-
-                # Always map the ID (if different from name)
-                if 'id' in p and p['id'] != pipe_name:
-                    pipe_identifier_map[p['id']] = pipe_identifier
-
-                logger.debug(f"[GENERATION] Pipe mapping: name='{pipe_name}' (count={name_counts[pipe_name]}), id='{p.get('id')}', identifier='{pipe_identifier}'")
+            pipe_identifier_map = _pipe_identifier_map(pipes)
 
             for pipe_id, pipe_config in enumerate([p for p in pipes if p['enabled']]):
                 logger.debug(f"[GENERATION] Processing pipe: name='{pipe_config['name']}', id='{pipe_config.get('id')}', enabled={pipe_config.get('enabled')}")
@@ -659,7 +627,7 @@ class GenerationEngine:
                 failure_point.clear()
                 failure_point.update(
                     pipe_id=pipe_id,
-                    pipe_key=str(pipe_config.get('id', pipe_config['name'])),
+                    pipe_key=_pipe_identifier(pipe_config),
                     pipe_name=pipe_config['name'],
                     step=None,
                 )
@@ -846,8 +814,7 @@ class GenerationEngine:
                 if current_pipe_result is None:
                     raise ValueError(f"Pipe {pipe.name} returned None")
 
-                # Use pipe ID if available, otherwise fall back to name
-                pipe_identifier = pipe_config.get('id', pipe_config['name'])
+                pipe_identifier = _pipe_identifier(pipe_config)
                 for var_name, value in current_pipe_result.output.items():
                     pipe_outputs.append([pipe_identifier, var_name, value])
 
