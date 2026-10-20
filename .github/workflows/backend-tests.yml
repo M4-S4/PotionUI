@@ -72,13 +72,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - id: py
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            requirements-ci.txt
-            requirements-dev.txt
 
       # libglib2.0-0 supplies libgthread-2.0.so.0, which `import cv2` needs
       # (see docs/testing-notes.md) - without it the cv2-dependent suites
@@ -102,15 +99,31 @@ jobs:
             sleep 15
           done
 
+      - name: Resolve cache week
+        id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Python environment
+        id: venv
+        uses: actions/cache@v4
+        with:
+          path: ~/venv-ci
+          key: py-venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements-ci.txt', 'requirements-dev.txt') }}-${{ steps.week.outputs.week }}
+
       # pytest-timeout backs pytest.ini's `timeout = 300` - it is not in
       # requirements-dev.txt today, so it's installed explicitly here rather
       # than assumed present.
       - name: Install backend dependencies (CPU-only torch)
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements-dev.txt
-          pip install pytest-timeout
+          python -m venv ~/venv-ci
+          ~/venv-ci/bin/python -m pip install --upgrade pip
+          ~/venv-ci/bin/python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          ~/venv-ci/bin/python -m pip install -r requirements-dev.txt
+          ~/venv-ci/bin/python -m pip install pytest-timeout
+
+      - name: Use the Python environment
+        run: echo "$HOME/venv-ci/bin" >> "$GITHUB_PATH"
 
       # One BLAS thread per worker: without the pins, 4 workers x 4 OMP
       # threads oversubscribe the 4 cores and float reductions go
@@ -125,6 +138,7 @@ jobs:
         run: >
           python -m pytest ${{ matrix.shard.paths }} -q --durations=25 --timeout=300 -n 4
           -m "not requires_gpu and not requires_models and not gc_sensitive"
+          --junitxml=junit-linux-${{ matrix.shard.name }}.xml
 
       # timeout-method=thread: the default signal method can't interrupt a
       # hang inside native code.
@@ -143,6 +157,7 @@ jobs:
           python -m pytest ${{ matrix.shard.serial_paths }} -q --durations=25
           --timeout=300 --timeout-method=thread
           -m "not requires_gpu and not requires_models and not gc_sensitive"
+          --junitxml=junit-linux-${{ matrix.shard.name }}-serial.xml
 
       - name: pytest (marketplace plugin test suites)
         if: matrix.shard.name == 'rest'
@@ -154,6 +169,16 @@ jobs:
         run: >
           python tests/plugins/run_suites.py -q --timeout=300
           -m "not requires_gpu and not requires_models and not gc_sensitive"
+
+      - name: Upload pytest results (Linux)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-tests-linux-${{ matrix.shard.name }}
+          path: |
+            junit-linux-${{ matrix.shard.name }}.xml
+            junit-linux-${{ matrix.shard.name }}-serial.xml
+          retention-days: 14
 
   frontend-tests:
     name: frontend unit tests

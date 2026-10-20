@@ -72,14 +72,19 @@ migration seeds, so a location row against it needs no root of its own.
 `requirements-ci.txt` is a trimmed copy of `requirements.txt` for the
 CPU-only runner (see its own header for what's excluded and why);
 `constraints.txt` is not used there since it pins a
-CUDA-specific transitive closure. This is separate from
+CUDA-specific transitive closure. The Linux venv (`~/venv-ci`) is cached per
+interpreter version, requirement hashes and ISO week (requirements are floors,
+so the weekly component refreshes versions); a miss falls back to a fresh install.
+This is separate from
 `.github/workflows/onboarding-smoke.yml`, which only dry-run resolves
 dependencies and runs the architecture/setup-feature suites, not the full
 test tree.
 
-A third `plugins` shard covers marketplace plugins' own `tests/` directories
-(`content/plugins/marketplace/*/tests`, outside `pytest.ini`'s `testpaths`),
-via `tests/plugins/run_suites.py`. It runs each plugin's suite in its own
+Marketplace plugins' own `tests/` directories
+(`content/plugins/marketplace/*/tests`, outside `pytest.ini`'s `testpaths`)
+run inside the `rest` shard, as a separate step via `tests/plugins/run_suites.py`.
+At most `POTIONUI_PLUGIN_SUITE_WORKERS` suites run at once (default: the CPU
+count) and the suites with the most test files start first. `run_suites.py` runs each plugin's suite in its own
 pytest subprocess rather than one shared invocation — plugins that use the
 `api: module: "backend/api.py"` convention claim a top-level `backend` module
 name at conftest collection time, and pooling two such plugins' tests into
@@ -103,14 +108,15 @@ What it proves:
   start, `/health`, owner registration, a presets listing, `status`, `stop`,
   and that the process tree is actually gone. This is the actual proof of a
   native Windows boot, not just static checks.
-- `backend-tests` — the **full** pytest tree in the same two shards as
-  `backend-tests.yml` (`tests/platform` / the rest), `-n 2`, under the same
+- `backend-tests` — the **full** pytest tree in the same three shards as
+  `backend-tests.yml` (`platform` / `features` / `rest`), `-n 4`, under the same
   `not requires_gpu and not requires_models and not gc_sensitive` marker
   filter. A failing shard still uploads its junit/log as an artifact — the
   job is intentionally not `continue-on-error`: the failure is the signal,
-  not a green badge.
-- `plugin-suites` — `tests/plugins/run_suites.py`, one pytest subprocess per
-  marketplace plugin, as on Linux.
+  not a green badge. Linux uploads `junit-linux-<shard>[-serial].xml` per shard
+  the same way (`backend-tests-linux-<shard>` artifacts, kept 14 days).
+- the `rest` shard also runs `tests/plugins/run_suites.py`, one pytest
+  subprocess per marketplace plugin, as on Linux.
 - `release-gate` — `tests/release/release_gate.py --skip-gpu` (recipe lint,
   layering, setup/recipes suites, preset lint budget).
 - `frontend` — `npm run check`, `test:unit`, `test:component`, `build`, then
@@ -318,7 +324,7 @@ PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/e2e/ui/run.py
 invocation reliably killed the `vite preview` process partway through:
 every remaining test then failed with `net::ERR_CONNECTION_REFUSED` at
 `/login`. `run.py` now splits the requested specs into fixed-size chunks
-(default 3 — empirically safe; override with `--chunk-size`) and boots a
+(default 8 — empirically safe; override with `--chunk-size`) and boots a
 fresh throwaway backend + preview + Playwright process per chunk, so a
 caller can't hit that cliff by passing a large spec list. If the preview
 process still dies mid-chunk, `run.py` detects it, aborts that chunk instead

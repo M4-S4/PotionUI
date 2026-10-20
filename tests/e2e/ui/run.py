@@ -9,7 +9,7 @@ never settle) that an HTTP assertion can't see. Each run:
 
   1. Builds the frontend once (`npm run build`) into frontend/.e2e-build
      (never frontend/build, which the live backend serves) unless --skip-build.
-  2. Splits the requested specs into fixed-size chunks (default 3 - see
+  2. Splits the requested specs into fixed-size chunks (see
      DEFAULT_CHUNK_SIZE) and, for each chunk:
        a. Boots one throwaway backend (`ThrowawayApp`, port >= 8055, temp
           DB/storage, read-only depot mirror).
