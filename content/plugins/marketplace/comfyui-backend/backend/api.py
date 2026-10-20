@@ -36,6 +36,7 @@ from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workf
 from .preset_import.schema import ImportForm, parse_form, parse_history
 from .preset_import.suggest import AnalyzeResult, classification_fingerprint, suggest_fields
 from .requirements import ComfyUIModelChecker, ComfyUINodeChecker, _fetch_object_info
+from .comfyui_client import ComfyUiClient
 from .comfyui_config import resolve_comfyui_endpoint
 
 logger = logging.getLogger(__name__)
@@ -252,11 +253,11 @@ async def clear_vram(current_user=Depends(get_current_admin_user)):
     base_url = _get_comfyui_base_url()
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{base_url}/free",
+        async with ComfyUiClient(base_url) as client:
+            async with client.post(
+                "/free",
+                request_timeout=10,
                 json={"unload_models": True, "free_memory": True},
-                timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status == 200:
                     return {"success": True, "message": "VRAM cleared successfully"}

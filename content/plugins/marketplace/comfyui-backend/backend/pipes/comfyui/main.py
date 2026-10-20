@@ -5,6 +5,7 @@ import uuid
 import io
 import os
 import base64
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -12,6 +13,7 @@ from PIL import Image
 import websockets
 import aiohttp
 
+from src.plugin_api.providers import aiohttp_connector, certificate_failure_message, is_certificate_error
 from src.plugin_api import (
     BasePipe,
     ComfyUIWorkflowGenerationOutput,
@@ -30,6 +32,24 @@ from src.plugin_api import (
 )
 
 logger = logging.getLogger(__name__)
+
+_MEDIA_CASTS = {
+    'image': 'image', 'image_required': 'image',
+    'video': 'video', 'video_required': 'video',
+    'audio': 'audio', 'audio_required': 'audio',
+}
+_MEDIA_LABELS = {'image': 'image', 'video': 'video', 'audio': 'audio file'}
+_CONTENT_TYPES = {
+    'video': ({
+        '.mp4': 'video/mp4', '.webm': 'video/webm', '.avi': 'video/x-msvideo',
+        '.mov': 'video/quicktime', '.mkv': 'video/x-matroska',
+    }, 'video/mp4'),
+    'audio': ({
+        '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.flac': 'audio/flac',
+        '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac',
+    }, 'audio/mpeg'),
+}
+_VIDEO_EXTENSIONS = ('.mp4', '.webm', '.avi', '.mov', '.mkv')
 
 
 def _resolve_comfyui_endpoint(host: str, port: int, secure: bool) -> Tuple[str, str]:
@@ -68,7 +88,16 @@ class ComfyUIPipe(BasePipe):
         self.current_node = None
         self.total_nodes = 0
         self.executed_nodes = 0
-        self.workflow_nodes = {}  # Store workflow node information
+        self.workflow_nodes = {}
+        self.current_seed = None
+
+    def _describe(self, error: BaseException) -> str:
+        if is_certificate_error(error):
+            return certificate_failure_message(f"{self.config['host']}:{self.config['port']}")
+        return str(error)
+
+    def _session(self) -> aiohttp.ClientSession:
+        return aiohttp.ClientSession(connector=aiohttp_connector())
 
     def _comfyui_urls(self) -> Tuple[str, str]:
         return _resolve_comfyui_endpoint(
@@ -453,131 +482,135 @@ class ComfyUIPipe(BasePipe):
                 return candidate
         return None
 
-    async def upload_image_to_comfyui(self, image: Image.Image, generation_outputs: callable) -> Optional[str]:
-        """Upload image to ComfyUI and return the filename"""
+    def _resolve_timeline_media(self, media: Dict[str, Any]) -> Optional[Path]:
+        storage_dir = (self.config.get('backend_config') or {}).get('file_storage_directory')
+        for candidate in (media.get('path'), media.get('relative_path')):
+            if not candidate:
+                continue
+            path = Path(candidate)
+            if path.exists():
+                return path
+            for base in (storage_dir, 'storage'):
+                if base and (Path(base) / candidate).exists():
+                    return Path(base) / candidate
+        return None
+
+    async def _upload_media(self, kind: str, data: bytes, filename: str, content_type: str,
+                            generation_outputs: callable) -> Optional[str]:
         try:
-            # Convert PIL image to bytes
-            img_buffer = io.BytesIO()
-            image.save(img_buffer, format='PNG')
-            img_bytes = img_buffer.getvalue()
-
             http_base, _ = self._comfyui_urls()
-            url = f"{http_base}/upload/image"
+            form = aiohttp.FormData()
+            form.add_field('image', data, filename=filename, content_type=content_type)
+            form.add_field('type', 'input')
 
-            # Create form data for the upload
-            data = aiohttp.FormData()
-            data.add_field('image', img_bytes, filename='input_image.png', content_type='image/png')
-            data.add_field('type', 'input')
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data) as response:
+            async with self._session() as session:
+                async with session.post(f"{http_base}/upload/image", data=form) as response:
                     if response.status == 200:
                         result = await response.json()
-                        filename = result.get('name', 'input_image.png')
-                        logger.info(f"Uploaded image to ComfyUI: {filename}")
-                        return filename
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Failed to upload image: {response.status} - {error_text}")
-                        generation_outputs(ProgressGenerationOutput(
-                            state=f"Failed to upload image: {response.status}",
-                            icon=Icon("x-circle")
-                        ))
-                        return None
+                        uploaded = result.get('name', filename)
+                        logger.info(f"Uploaded {kind} to ComfyUI: {uploaded}")
+                        return uploaded
+                    error_text = await response.text()
+                    logger.error(f"Failed to upload {kind}: {response.status} - {error_text}")
+                    generation_outputs(ProgressGenerationOutput(
+                        state=f"Failed to upload {kind}: {response.status}",
+                        icon=Icon("x-circle")
+                    ))
+                    return None
 
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.error(f"Error uploading image to ComfyUI: {e}")
+            logger.error(f"Error uploading {kind} to ComfyUI: {e}")
             raise GenerationExecutionError(
                 f"Could not reach ComfyUI at {self.config['host']}:{self.config['port']} "
-                f"to upload the image: {e}"
+                f"to upload the {kind}: {self._describe(e)}"
             ) from e
+
+    async def upload_image_to_comfyui(self, image: Image.Image, generation_outputs: callable) -> Optional[str]:
+        buffer = io.BytesIO()
+        image.save(buffer, format='PNG')
+        return await self._upload_media(
+            'image', buffer.getvalue(), 'input_image.png', 'image/png', generation_outputs
+        )
+
+    @staticmethod
+    def _content_type(kind: str, path: Path) -> str:
+        table, default = _CONTENT_TYPES[kind]
+        return table.get(path.suffix.lower(), default)
 
     async def upload_video_to_comfyui(self, video_path: Path, generation_outputs: callable) -> Optional[str]:
-        """Upload video file to ComfyUI input directory and return the filename"""
-        try:
-            video_bytes = video_path.read_bytes()
-            suffix = video_path.suffix or '.mp4'
-            content_type = {
-                '.mp4': 'video/mp4',
-                '.webm': 'video/webm',
-                '.avi': 'video/x-msvideo',
-                '.mov': 'video/quicktime',
-                '.mkv': 'video/x-matroska',
-            }.get(suffix.lower(), 'video/mp4')
-
-            http_base, _ = self._comfyui_urls()
-            url = f"{http_base}/upload/image"
-
-            data = aiohttp.FormData()
-            data.add_field('image', video_bytes, filename=video_path.name, content_type=content_type)
-            data.add_field('type', 'input')
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        filename = result.get('name', video_path.name)
-                        logger.info(f"Uploaded video to ComfyUI: {filename}")
-                        return filename
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Failed to upload video: {response.status} - {error_text}")
-                        generation_outputs(ProgressGenerationOutput(
-                            state=f"Failed to upload video: {response.status}",
-                            icon=Icon("x-circle")
-                        ))
-                        return None
-
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.error(f"Error uploading video to ComfyUI: {e}")
-            raise GenerationExecutionError(
-                f"Could not reach ComfyUI at {self.config['host']}:{self.config['port']} "
-                f"to upload the video: {e}"
-            ) from e
+        return await self._upload_media(
+            'video', video_path.read_bytes(), video_path.name,
+            self._content_type('video', video_path), generation_outputs
+        )
 
     async def upload_audio_to_comfyui(self, audio_path: Path, generation_outputs: callable) -> Optional[str]:
-        """Upload audio file to ComfyUI input directory and return the filename"""
-        try:
-            audio_bytes = audio_path.read_bytes()
-            suffix = audio_path.suffix or '.mp3'
-            content_type = {
-                '.mp3': 'audio/mpeg',
-                '.wav': 'audio/wav',
-                '.flac': 'audio/flac',
-                '.ogg': 'audio/ogg',
-                '.m4a': 'audio/mp4',
-                '.aac': 'audio/aac',
-            }.get(suffix.lower(), 'audio/mpeg')
+        return await self._upload_media(
+            'audio', audio_path.read_bytes(), audio_path.name,
+            self._content_type('audio', audio_path), generation_outputs
+        )
 
-            http_base, _ = self._comfyui_urls()
-            url = f"{http_base}/upload/image"
+    async def _upload_media_value(self, kind: str, required: bool, value: Any, target_path: str,
+                                  mapping: Any, pipe_input: PipeInput, generation_outputs: callable) -> Optional[str]:
+        node = target_path.split('.')[0]
+        label = _MEDIA_LABELS[kind]
+        uploaders = {
+            'image': self.upload_image_to_comfyui,
+            'video': self.upload_video_to_comfyui,
+            'audio': self.upload_audio_to_comfyui,
+        }
 
-            data = aiohttp.FormData()
-            data.add_field('image', audio_bytes, filename=audio_path.name, content_type=content_type)
-            data.add_field('type', 'input')
+        if isinstance(value, str):
+            path = self._resolve_media_file(value, pipe_input)
+            if path is None:
+                logger.error(f"{kind.capitalize()} file not found: {value}")
+                if required:
+                    raise GenerationExecutionError(
+                        f"{node}: a required {label} is missing - no file was uploaded for this input"
+                    )
+                return None
+            try:
+                payload: Any = path
+                if kind == 'image':
+                    payload = Image.open(path)
+                    payload.load()
+                filename = await uploaders[kind](payload, generation_outputs)
+            except GenerationExecutionError:
+                raise
+            except Exception as e:
+                logger.error(f"Failed to upload {kind} from path {value}: {e}")
+                return None
+            if not filename and required:
+                raise GenerationExecutionError(
+                    f"{node}: ComfyUI rejected the required {kind} upload for node reference '{node}'"
+                )
+            if not filename:
+                logger.error(f"Failed to upload {kind} for mapping {mapping}")
+            return filename or None
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data) as response:
-                    if response.status == 200:
-                        result = await response.json()
-                        filename = result.get('name', audio_path.name)
-                        logger.info(f"Uploaded audio to ComfyUI: {filename}")
-                        return filename
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Failed to upload audio: {response.status} - {error_text}")
-                        generation_outputs(ProgressGenerationOutput(
-                            state=f"Failed to upload audio: {response.status}",
-                            icon=Icon("x-circle")
-                        ))
-                        return None
+        if kind != 'image':
+            logger.warning(f"Expected file path string for {kind} type mapping, got {type(value)}")
+            return None
 
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.error(f"Error uploading audio to ComfyUI: {e}")
-            raise GenerationExecutionError(
-                f"Could not reach ComfyUI at {self.config['host']}:{self.config['port']} "
-                f"to upload the audio: {e}"
-            ) from e
+        if isinstance(value, Image.Image):
+            filename = await self.upload_image_to_comfyui(value, generation_outputs)
+        elif isinstance(value, dict) and 'data' in value and isinstance(value['data'], bytes):
+            try:
+                filename = await self.upload_image_to_comfyui(
+                    Image.open(io.BytesIO(value['data'])), generation_outputs
+                )
+            except GenerationExecutionError:
+                raise
+            except Exception as e:
+                logger.error(f"Failed to process image data: {e}")
+                return None
+        else:
+            logger.warning(
+                f"Expected file path string, PIL Image or image data dict for image type mapping, got {type(value)}"
+            )
+            return None
+        if not filename:
+            logger.error(f"Failed to upload image for mapping {mapping}")
+        return filename or None
 
     async def apply_field_mappings(self, workflow: Dict[str, Any], pipe_input: PipeInput, generation_outputs: callable) -> Dict[str, Any]:
         """Apply field mappings to the workflow"""
@@ -641,144 +674,12 @@ class ComfyUIPipe(BasePipe):
                     continue
 
             try:
-                # Handle image type specially - upload to ComfyUI first. "image_required"
-                # is the same upload path as "image" - the only difference is what happens
-                # when the value doesn't resolve to a real file (see below): a required
-                # image (the importer's own primary LoadImage field) must never let the
-                # workflow's baked-in placeholder filename reach ComfyUI unnoticed.
-                if type_cast in ("image", "image_required") and value is not None:
-                    if isinstance(value, str):
-                        # Handle file path string - checked before the upload's own
-                        # try/except so a required image's failure raises past it
-                        # instead of being logged and swallowed as a generic upload error.
-                        image_path = self._resolve_media_file(value, pipe_input)
-                        if image_path is None:
-                            logger.error(f"Image file not found: {value}")
-                            if type_cast == "image_required":
-                                raise GenerationExecutionError(
-                                    f"{target_path.split('.')[0]}: a required image is missing - "
-                                    f"no file was uploaded for this input"
-                                )
-                            continue
-
-                        try:
-                            # Open as PIL Image
-                            pil_image = Image.open(image_path)
-                            pil_image.load()
-
-                            # Upload image to ComfyUI and get filename
-                            filename = await self.upload_image_to_comfyui(pil_image, generation_outputs)
-                            if filename:
-                                value = filename
-                            elif type_cast == "image_required":
-                                raise GenerationExecutionError(
-                                    f"{target_path.split('.')[0]}: ComfyUI rejected the required "
-                                    f"image upload for node reference '{target_path.split('.')[0]}'"
-                                )
-                            else:
-                                logger.error(f"Failed to upload image for mapping {mapping}")
-                                continue
-                        except GenerationExecutionError:
-                            raise
-                        except Exception as e:
-                            logger.error(f"Failed to load image from path {value}: {e}")
-                            continue
-                    elif isinstance(value, Image.Image):
-                        # Upload PIL Image to ComfyUI and get filename
-                        filename = await self.upload_image_to_comfyui(value, generation_outputs)
-                        if filename:
-                            value = filename
-                        else:
-                            logger.error(f"Failed to upload image for mapping {mapping}")
-                            continue
-                    elif isinstance(value, dict) and 'data' in value:
-                        # Handle image data from image field (contains bytes) - legacy format
-                        try:
-                            image_bytes = value['data']
-                            if isinstance(image_bytes, bytes):
-                                # Convert bytes to PIL Image
-                                pil_image = Image.open(io.BytesIO(image_bytes))
-                                # Upload image to ComfyUI and get filename
-                                filename = await self.upload_image_to_comfyui(pil_image, generation_outputs)
-                                if filename:
-                                    value = filename
-                                else:
-                                    logger.error(f"Failed to upload image for mapping {mapping}")
-                                    continue
-                            else:
-                                logger.warning(f"Expected bytes in image data, got {type(image_bytes)}")
-                                continue
-                        except GenerationExecutionError:
-                            raise
-                        except Exception as e:
-                            logger.error(f"Failed to process image data: {e}")
-                            continue
-                    else:
-                        logger.warning(f"Expected file path string, PIL Image or image data dict for image type mapping, got {type(value)}")
-                        continue
-                elif type_cast in ("video", "video_required") and value is not None:
-                    if isinstance(value, str):
-                        video_path = self._resolve_media_file(value, pipe_input)
-                        if video_path is None:
-                            logger.error(f"Video file not found: {value}")
-                            if type_cast == "video_required":
-                                raise GenerationExecutionError(
-                                    f"{target_path.split('.')[0]}: a required video is missing - "
-                                    f"no file was uploaded for this input"
-                                )
-                            continue
-
-                        try:
-                            filename = await self.upload_video_to_comfyui(video_path, generation_outputs)
-                            if filename:
-                                value = filename
-                            elif type_cast == "video_required":
-                                raise GenerationExecutionError(
-                                    f"{target_path.split('.')[0]}: ComfyUI rejected the required "
-                                    f"video upload for node reference '{target_path.split('.')[0]}'"
-                                )
-                            else:
-                                logger.error(f"Failed to upload video for mapping {mapping}")
-                                continue
-                        except GenerationExecutionError:
-                            raise
-                        except Exception as e:
-                            logger.error(f"Failed to upload video from path {value}: {e}")
-                            continue
-                    else:
-                        logger.warning(f"Expected file path string for video type mapping, got {type(value)}")
-                        continue
-                elif type_cast in ("audio", "audio_required") and value is not None:
-                    if isinstance(value, str):
-                        audio_path = self._resolve_media_file(value, pipe_input)
-                        if audio_path is None:
-                            logger.error(f"Audio file not found: {value}")
-                            if type_cast == "audio_required":
-                                raise GenerationExecutionError(
-                                    f"{target_path.split('.')[0]}: a required audio file is missing - "
-                                    f"no file was uploaded for this input"
-                                )
-                            continue
-
-                        try:
-                            filename = await self.upload_audio_to_comfyui(audio_path, generation_outputs)
-                            if filename:
-                                value = filename
-                            elif type_cast == "audio_required":
-                                raise GenerationExecutionError(
-                                    f"{target_path.split('.')[0]}: ComfyUI rejected the required "
-                                    f"audio upload for node reference '{target_path.split('.')[0]}'"
-                                )
-                            else:
-                                logger.error(f"Failed to upload audio for mapping {mapping}")
-                                continue
-                        except GenerationExecutionError:
-                            raise
-                        except Exception as e:
-                            logger.error(f"Failed to upload audio from path {value}: {e}")
-                            continue
-                    else:
-                        logger.warning(f"Expected file path string for audio type mapping, got {type(value)}")
+                if type_cast in _MEDIA_CASTS and value is not None:
+                    value = await self._upload_media_value(
+                        _MEDIA_CASTS[type_cast], type_cast.endswith('_required'), value,
+                        target_path, mapping, pipe_input, generation_outputs
+                    )
+                    if value is None:
                         continue
                 elif type_cast == "ltx_director_timeline" and value is not None:
                     # Build the LTXDirector 2.0 timeline_data JSON from a frontend
@@ -806,28 +707,6 @@ class ComfyUIPipe(BasePipe):
                     segments_out: List[Dict[str, Any]] = []
                     audio_out: List[Dict[str, Any]] = []
 
-                    # Resolve a media path that may be absolute, storage-relative
-                    # (e.g. "storage/uploads/x.png"), or storage-prefixed.
-                    def _resolve_media_path(media: Dict[str, Any]) -> Optional[Path]:
-                        for candidate in (media.get('path'), media.get('relative_path')):
-                            if not candidate:
-                                continue
-                            p = Path(candidate)
-                            if p.exists():
-                                return p
-                            # try relative_path under the configured storage dir
-                            storage_dir = None
-                            try:
-                                storage_dir = self.config.get('backend_config', {}).get('file_storage_directory')
-                            except Exception:
-                                storage_dir = None
-                            for base in (storage_dir, 'storage'):
-                                if base:
-                                    pb = Path(base) / candidate
-                                    if pb.exists():
-                                        return pb
-                        return None
-
                     # --- Image segments (main track) ---
                     # Embed as base64 (imageB64) rather than uploading a file: this works
                     # regardless of whether ComfyUI is local or remote, since the node
@@ -839,7 +718,7 @@ class ComfyUIPipe(BasePipe):
                         if not media:
                             continue
                         try:
-                            image_path = _resolve_media_path(media)
+                            image_path = self._resolve_timeline_media(media)
                             if image_path is None:
                                 logger.error(f"ltx_director_timeline: image file not found: {media.get('path') or media.get('relative_path')}")
                                 continue
@@ -869,7 +748,7 @@ class ComfyUIPipe(BasePipe):
                         if not media:
                             continue
                         try:
-                            audio_path = _resolve_media_path(media)
+                            audio_path = self._resolve_timeline_media(media)
                             if audio_path is None:
                                 logger.error(f"ltx_director_timeline: audio file not found: {media.get('path') or media.get('relative_path')}")
                                 continue
@@ -1263,7 +1142,7 @@ class ComfyUIPipe(BasePipe):
         except Exception as e:
             logger.error(f"Failed to connect to ComfyUI: {e}")
             raise GenerationExecutionError(
-                f"Could not connect to ComfyUI at {self.config['host']}:{self.config['port']}: {e}"
+                f"Could not connect to ComfyUI at {self.config['host']}:{self.config['port']}: {self._describe(e)}"
             ) from e
 
     async def submit_workflow(self, workflow: Dict[str, Any], generation_outputs: callable) -> Optional[str]:
@@ -1287,7 +1166,7 @@ class ComfyUIPipe(BasePipe):
                 progress=Progress(5, 100)
             ))
 
-            async with aiohttp.ClientSession() as session:
+            async with self._session() as session:
                 async with session.post(url, json=prompt_data) as response:
                     if response.status == 200:
                         result = await response.json()
@@ -1306,7 +1185,7 @@ class ComfyUIPipe(BasePipe):
         except Exception as e:
             logger.error(f"Error submitting workflow: {e}")
             raise GenerationExecutionError(
-                f"Could not submit workflow to ComfyUI at {self.config['host']}:{self.config['port']}: {e}"
+                f"Could not submit workflow to ComfyUI at {self.config['host']}:{self.config['port']}: {self._describe(e)}"
             ) from e
 
     @staticmethod
@@ -1433,48 +1312,14 @@ class ComfyUIPipe(BasePipe):
                     msg_data = data.get('data', {})
                     output = msg_data.get('output', {})
 
-                    # Handle videos from 'gifs' field (ComfyUI returns videos here)
-                    if output and 'gifs' in output:
-                        for video_data in output['gifs']:
-                            video_path = await self.download_file_from_comfy(video_data, 'video')
-                            if video_path:
-                                videos.append(video_path)
-                                # Extract metadata from ComfyUI response
-                                frame_rate = video_data.get('frame_rate', 30.0)
-                                format_info = video_data.get('format', 'video/mp4')
-                                logger.info(f"Processing ComfyUI video: {video_data.get('filename')} at {frame_rate}fps, format: {format_info}")
-                                generation_outputs(VideoGenerationOutput(
-                                    video_path=video_path,
-                                    temporary=True,
-                                    fps=frame_rate,
-                                    seed=self.current_seed if hasattr(self, 'current_seed') else None
-                                ))
+                    for video_data in (output or {}).get('gifs', []):
+                        await self._emit_media(video_data, generation_outputs, gifs=True, final=True, images=images, videos=videos)
 
-                    if output and 'images' in output:
-                        for image_data in output['images']:
-                            # Check if this is a video file
-                            filename = image_data.get('filename', '')
-                            if filename.lower().endswith(('.mp4', '.webm', '.avi', '.mov', '.mkv')):
-                                # Handle as video
-                                video_path = await self.download_file_from_comfy(image_data, 'video')
-                                if video_path:
-                                    videos.append(video_path)
-                                    generation_outputs(VideoGenerationOutput(
-                                        video_path=video_path,
-                                        temporary=False,
-                                        seed=self.current_seed if hasattr(self, 'current_seed') else None
-                                    ))
-                            else:
-                                # Handle as image
-                                image = await self.load_image_from_comfy(image_data)
-                                if image:
-                                    images.append(image)
-                                    # Mark as non-temporary so it gets saved
-                                    generation_outputs(ImageGenerationOutput(
-                                        image=image,
-                                        temporary=True,
-                                        seed=self.current_seed if hasattr(self, 'current_seed') else None
-                                    ))
+                    for image_data in (output or {}).get('images', []):
+                        await self._emit_media(
+                            image_data, generation_outputs, final=True, video_temporary=False,
+                            images=images, videos=videos
+                        )
 
                 elif msg_type == 'progress':
                     # Handle preview/intermediate images and videos during generation
@@ -1500,43 +1345,11 @@ class ComfyUIPipe(BasePipe):
                     ))
 
                     if msg_data and 'output' in msg_data and msg_data['output']:
-                        # Handle preview videos from 'gifs' field
-                        if 'gifs' in msg_data['output']:
-                            for video_data in msg_data['output']['gifs']:
-                                video_path = await self.download_file_from_comfy(video_data, 'video')
-                                if video_path:
-                                    # Extract metadata from ComfyUI response
-                                    frame_rate = video_data.get('frame_rate', 30.0)
-                                    format_info = video_data.get('format', 'video/mp4')
-                                    logger.info(f"Processing intermediate ComfyUI video: {video_data.get('filename')} at {frame_rate}fps, format: {format_info}")
-                                    generation_outputs(VideoGenerationOutput(
-                                        video_path=video_path,
-                                        temporary=True,  # Intermediate videos are temporary
-                                        fps=frame_rate,
-                                        seed=self.current_seed if hasattr(self, 'current_seed') else None
-                                    ))
+                        for video_data in msg_data['output'].get('gifs', []):
+                            await self._emit_media(video_data, generation_outputs, gifs=True)
 
-                        # Handle preview images and videos from 'images' field
-                        if 'images' in msg_data['output']:
-                            for image_data in msg_data['output']['images']:
-                                filename = image_data.get('filename', '')
-                                if filename.lower().endswith(('.mp4', '.webm', '.avi', '.mov', '.mkv')):
-                                    # Handle as intermediate video
-                                    video_path = await self.download_file_from_comfy(image_data, 'video')
-                                    if video_path:
-                                        generation_outputs(VideoGenerationOutput(
-                                            video_path=video_path,
-                                            temporary=True,  # Intermediate videos are temporary
-                                            seed=self.current_seed if hasattr(self, 'current_seed') else None
-                                        ))
-                                else:
-                                    # Handle as intermediate image
-                                    preview_image = await self.load_image_from_comfy(image_data)
-                                    if preview_image:
-                                        generation_outputs(ImageGenerationOutput(
-                                            image=preview_image,
-                                            temporary=True  # Preview images are temporary
-                                        ))
+                        for image_data in msg_data['output'].get('images', []):
+                            await self._emit_media(image_data, generation_outputs)
 
                 elif msg_type == 'execution_error':
                     error_data = data.get('data', {})
@@ -1578,104 +1391,61 @@ class ComfyUIPipe(BasePipe):
 
         return images, videos
 
+    async def _view_bytes(self, file_data: Dict[str, Any]) -> Optional[bytes]:
+        http_base, _ = self._comfyui_urls()
+        params = {'filename': file_data.get('filename'), 'type': file_data.get('type', 'output')}
+        if file_data.get('subfolder', ''):
+            params['subfolder'] = file_data['subfolder']
+
+        async with self._session() as session:
+            async with session.get(f"{http_base}/view", params=params) as response:
+                if response.status == 200:
+                    return await response.read()
+                logger.error(f"Failed to fetch {params['filename']} from ComfyUI: {response.status}")
+                return None
+
     async def load_image_from_comfy(self, image_data: Dict[str, Any]) -> Optional[Image.Image]:
-        """Load image from ComfyUI output"""
         try:
-            filename = image_data.get('filename')
-            subfolder = image_data.get('subfolder', '')
-            image_type = image_data.get('type', 'output')
-
-            http_base, _ = self._comfyui_urls()
-            url = f"{http_base}/view"
-
-            params = {
-                'filename': filename,
-                'type': image_type
-            }
-            if subfolder:
-                params['subfolder'] = subfolder
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        image_bytes = await response.read()
-                        return Image.open(io.BytesIO(image_bytes))
-                    else:
-                        logger.error(f"Failed to load image from ComfyUI: {response.status}")
-                        return None
-
+            image_bytes = await self._view_bytes(image_data)
+            return Image.open(io.BytesIO(image_bytes)) if image_bytes is not None else None
         except Exception as e:
             logger.error(f"Error loading image from ComfyUI: {e}")
             return None
 
+    async def _emit_media(self, entry: Dict[str, Any], generation_outputs: callable, *, final: bool = False,
+                          gifs: bool = False, video_temporary: bool = True,
+                          images: Optional[List] = None, videos: Optional[List] = None) -> None:
+        if gifs or entry.get('filename', '').lower().endswith(_VIDEO_EXTENSIONS):
+            video_path = await self.download_file_from_comfy(entry, 'video')
+            if not video_path:
+                return
+            if final:
+                videos.append(video_path)
+            extra = {'fps': entry.get('frame_rate', 30.0)} if gifs else {}
+            generation_outputs(VideoGenerationOutput(
+                video_path=video_path, temporary=video_temporary, seed=self.current_seed, **extra
+            ))
+            return
+        image = await self.load_image_from_comfy(entry)
+        if not image:
+            return
+        if final:
+            images.append(image)
+        generation_outputs(ImageGenerationOutput(
+            image=image, temporary=True, seed=self.current_seed if final else None
+        ))
+
     async def download_file_from_comfy(self, file_data: Dict[str, Any], file_type: str) -> Optional[Path]:
-        """Download file (video/image) from ComfyUI output"""
         try:
-            filename = file_data.get('filename')
-            subfolder = file_data.get('subfolder', '')
-            output_type = file_data.get('type', 'output')
-
-            http_base, _ = self._comfyui_urls()
-            url = f"{http_base}/view"
-
-            params = {
-                'filename': filename,
-                'type': output_type
-            }
-            if subfolder:
-                params['subfolder'] = subfolder
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params) as response:
-                    if response.status == 200:
-                        # Create temporary file to save the video
-                        import tempfile
-                        file_extension = Path(filename).suffix or ('.mp4' if file_type == 'video' else '.png')
-
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as temp_file:
-                            temp_path = Path(temp_file.name)
-
-                        # Download and save the file
-                        file_bytes = await response.read()
-                        with open(temp_path, 'wb') as f:
-                            f.write(file_bytes)
-                            f.flush()  # Ensure all data is written to disk
-                            os.fsync(f.fileno())  # Force write to disk
-
-                        # Verify file is completely written and accessible
-                        import time
-                        max_attempts = 5
-                        attempt = 0
-                        while attempt < max_attempts:
-                            try:
-                                actual_size = os.path.getsize(temp_path)
-                                expected_size = len(file_bytes)
-
-                                if actual_size != expected_size:
-                                    logger.warning(f"File size mismatch after download: expected {expected_size}, got {actual_size}, attempt {attempt + 1}")
-                                    time.sleep(0.1)
-                                    attempt += 1
-                                    continue
-
-                                # Try to read a small portion to verify accessibility
-                                with open(temp_path, 'rb') as verify_f:
-                                    verify_f.read(min(1024, actual_size))
-
-                                logger.info(f"Downloaded {file_type} from ComfyUI: {filename} -> {temp_path} (size: {actual_size} bytes)")
-                                return temp_path
-
-                            except (OSError, IOError) as e:
-                                logger.warning(f"File verification error: {e}, attempt {attempt + 1}")
-                                time.sleep(0.1)
-                                attempt += 1
-
-                        # If we get here, verification failed
-                        logger.error(f"Failed to verify downloaded file after {max_attempts} attempts")
-                        return temp_path  # Return anyway, might still work
-                    else:
-                        logger.error(f"Failed to download {file_type} from ComfyUI: {response.status}")
-                        return None
-
+            file_bytes = await self._view_bytes(file_data)
+            if file_bytes is None:
+                return None
+            suffix = Path(file_data.get('filename')).suffix or ('.mp4' if file_type == 'video' else '.png')
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+                temp_file.write(file_bytes)
+            temp_path = Path(temp_file.name)
+            logger.info(f"Downloaded {file_type} from ComfyUI: {file_data.get('filename')} -> {temp_path} (size: {len(file_bytes)} bytes)")
+            return temp_path
         except Exception as e:
             logger.error(f"Error downloading {file_type} from ComfyUI: {e}")
             return None
