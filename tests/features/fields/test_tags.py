@@ -189,8 +189,3 @@ class TestJoin:
         assert Tags.join(None, config) == ""
         assert Tags.join("not a dict", config) == ""
 
-
-class TestCanHandle:
-    def test_can_handle_tags(self):
-        assert Tags(None).can_handle("tags") is True
-        assert Tags(None).can_handle("checkbox_group") is False

@@ -72,32 +72,6 @@ class TestFieldsDocumenter:
         sources = documenter._get_data_sources('text')
         assert sources == ['static']
 
-    def test_get_can_handle_container(self):
-        """Test getting can_handle for container field."""
-        documenter = FieldsDocumenter(Mock())
-        field = Mock()
-
-        can_handle = documenter._get_can_handle('container', field)
-        assert 'container' in can_handle
-        assert 'accordion' in can_handle
-        assert 'tabs' in can_handle
-
-    def test_get_can_handle_default(self):
-        """Test getting can_handle for default field."""
-        documenter = FieldsDocumenter(Mock())
-        field = Mock()
-
-        can_handle = documenter._get_can_handle('default', field)
-        assert '*' in can_handle
-
-    def test_get_can_handle_standard(self):
-        """Test getting can_handle for standard fields."""
-        documenter = FieldsDocumenter(Mock())
-        field = Mock()
-
-        can_handle = documenter._get_can_handle('text', field)
-        assert 'text' in can_handle
-
     def test_document_field_basic_info(self, mock_field_impl):
         """Test documenting a field returns basic info."""
         documenter = FieldsDocumenter(Mock())
@@ -182,14 +156,12 @@ class TestFieldsDocumenter:
         assert example_doc['yaml_config'] == 'type: text'
 
     def test_document_field_includes_metadata(self, mock_field_impl):
-        """Test documented field includes data_sources and can_handle."""
         documenter = FieldsDocumenter(Mock())
         result = documenter._document_field(mock_field_impl)
 
         assert 'data_sources' in result
-        assert 'can_handle' in result
+        assert 'can_handle' not in result
         assert isinstance(result['data_sources'], list)
-        assert isinstance(result['can_handle'], list)
 
     def test_generate_documentation_empty_factory(self, mock_field_factory):
         """Test generating documentation with empty field factory."""

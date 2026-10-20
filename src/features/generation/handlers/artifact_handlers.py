@@ -25,10 +25,6 @@ logger = logging.getLogger(__name__)
 
 
 class ModelFileGenerationOutputHandler(BaseGenerationOutputHandler):
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        return isinstance(output, ModelFileGenerationOutput)
-
     def handle(self, output: ModelFileGenerationOutput) -> Dict[str, Any]:
         metadata = {
             'handler': 'ModelFileGenerationOutputHandler',

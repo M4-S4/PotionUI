@@ -16,10 +16,6 @@ class TestModelField(unittest.TestCase):
         self.preset_loader = Mock()
         self.field = Model(self.preset_loader)
 
-    def test_can_handle(self):
-        self.assertTrue(self.field.can_handle('model'))
-        self.assertFalse(self.field.can_handle('lora_picker'))
-
     def test_output_default_configuration(self):
         field = {'type': 'model', 'name': 'diffusion_model', 'configuration': {}}
         schema = self.field.output(field, preset_id='preset_1')

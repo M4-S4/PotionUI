@@ -12,6 +12,7 @@ See docs/presets.md "Configuration (admin-set)".
 
 from typing import Any, Dict, List, Optional
 
+from .form_lookups import current_form_lookups
 from .schema import CONFIGURATION_TYPES, validate_tag_categories_shape
 
 
@@ -115,11 +116,7 @@ def resolve_field_filter_tags(raw: Any, preset_id: Optional[str]) -> Optional[Li
 
     preset_configuration_values: Dict[str, Any] = {}
     if isinstance(raw, str) and raw.startswith("@config:"):
-        try:
-            from src.features.presets.repository import preset_repo
-            preset_configuration_values = preset_repo.get_preset_configuration(preset_id)
-        except Exception:
-            preset_configuration_values = {}
+        preset_configuration_values = current_form_lookups().configuration(preset_id)
 
     return resolve_filter_tags(raw, preset_configuration_values)
 
@@ -184,11 +181,7 @@ def resolve_field_tag_categories(
 
     preset_configuration_values: Dict[str, Any] = {}
     if isinstance(raw, str) and raw.startswith("@config:") and preset_id:
-        try:
-            from src.features.presets.repository import preset_repo
-            preset_configuration_values = preset_repo.get_preset_configuration(preset_id)
-        except Exception:
-            preset_configuration_values = {}
+        preset_configuration_values = current_form_lookups().configuration(preset_id)
 
     return resolve_tag_categories(raw, preset_configuration_values, declared_default, field_allow_custom)
 

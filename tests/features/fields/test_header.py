@@ -10,14 +10,6 @@ class TestHeader(unittest.TestCase):
         self.preset_loader = Mock()
         self.header_field = Header(self.preset_loader)
 
-    def test_can_handle(self):
-        """Test that header field handler correctly identifies header fields"""
-        self.assertTrue(self.header_field.can_handle('header'))
-        self.assertFalse(self.header_field.can_handle('text'))
-        self.assertFalse(self.header_field.can_handle('checkbox'))
-        self.assertFalse(self.header_field.can_handle(''))
-        self.assertFalse(self.header_field.can_handle(None))
-
     def test_output_basic_header(self):
         """Test output transformation for basic header field"""
         field = {
@@ -105,21 +97,6 @@ class TestHeader(unittest.TestCase):
         self.assertNotIn('name', result)  # Name should be removed for headers
         self.assertEqual(result['title'], 'Object Header')
         self.assertEqual(result['description'], 'An object-style header')
-
-
-    def test_map_field(self):
-        """Test that map_field delegates to output"""
-        field = {
-            'type': 'header',
-            'label': 'Test Header',
-            'configuration': {'variant': 'h2'}
-        }
-
-        # map_field should return same result as output
-        output_result = self.header_field.output(field, 'preset_id')
-        map_result = self.header_field.map_field(field, 'preset_id')
-
-        self.assertEqual(output_result, map_result)
 
     def test_configuration_specs(self):
         """Test configuration specifications"""

@@ -12,14 +12,6 @@ class TestSection(unittest.TestCase):
         self.preset_loader = Mock()
         self.section_field = Section(self.preset_loader)
 
-    def test_can_handle(self):
-        """Test that section field handler correctly identifies section fields"""
-        self.assertTrue(self.section_field.can_handle('section'))
-        self.assertFalse(self.section_field.can_handle('header'))
-        self.assertFalse(self.section_field.can_handle('text'))
-        self.assertFalse(self.section_field.can_handle(''))
-        self.assertFalse(self.section_field.can_handle(None))
-
     def test_output_basic_section(self):
         """Test output transformation for a basic section field"""
         field = {
@@ -188,20 +180,6 @@ class TestSection(unittest.TestCase):
         self.assertNotIn('name', result)
         self.assertEqual(result['title'], 'Object Section')
         self.assertEqual(result['badge'], '2 fields')
-
-
-    def test_map_field(self):
-        """Test that map_field delegates to output"""
-        field = {
-            'type': 'section',
-            'label': 'Test Section',
-            'configuration': {'badge': '1 changed'}
-        }
-
-        output_result = self.section_field.output(field, 'preset_id')
-        map_result = self.section_field.map_field(field, 'preset_id')
-
-        self.assertEqual(output_result, map_result)
 
     def test_configuration_specs(self):
         """Test configuration specifications"""

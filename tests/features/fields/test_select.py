@@ -20,12 +20,6 @@ class TestSelectField(unittest.TestCase):
         self.preset_loader.preset_files_path = '/test/presets'
         self.preset_loader.presets = [self.mock_preset]
         self.mock_preset.id = 'test_preset_id'
-    
-    def test_can_handle(self):
-        """Test that select field handles 'select' type"""
-        self.assertTrue(self.select_field.can_handle('select'))
-        self.assertFalse(self.select_field.can_handle('image'))
-        self.assertFalse(self.select_field.can_handle('slider'))
 
     def test_configuration(self):
         """Test that configuration includes all expected parameters"""

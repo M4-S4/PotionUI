@@ -167,12 +167,6 @@ class Resolution(BaseField):
 
         raise ValueError(f"Invalid resolution value type: {type(value)}, expected string")
 
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'resolution'
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
-
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:
         """Return specification of configuration parameters this field accepts"""

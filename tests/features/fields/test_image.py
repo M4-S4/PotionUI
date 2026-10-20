@@ -21,12 +21,6 @@ class TestImageField(unittest.TestCase):
             'type': 'image/png',
             'size': 95
         }
-        
-    def test_can_handle(self):
-        """Test that image field handles 'image' type"""
-        self.assertTrue(self.image_field.can_handle('image'))
-        self.assertFalse(self.image_field.can_handle('select'))
-        self.assertFalse(self.image_field.can_handle('slider'))
     
     def test_input_single_image(self):
         """Test processing single image input"""

@@ -25,13 +25,6 @@ class Slider(BaseField):
         schema['configuration'] = config
 
         return schema
-    
-    
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'slider'
-    
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
 
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:

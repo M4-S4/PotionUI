@@ -14,12 +14,6 @@ class TestResolutionField(unittest.TestCase):
         self.preset_loader = Mock()
         self.resolution_field = Resolution(self.preset_loader)
 
-    def test_can_handle(self):
-        """Test that resolution field handles 'resolution' type"""
-        self.assertTrue(self.resolution_field.can_handle('resolution'))
-        self.assertFalse(self.resolution_field.can_handle('select'))
-        self.assertFalse(self.resolution_field.can_handle('slider'))
-
     def test_configuration(self):
         """Test that configuration includes options, file, and files parameters"""
         config_specs = Resolution.configuration()

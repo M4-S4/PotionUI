@@ -320,10 +320,6 @@ def _update_video_thumbnails_in_db(
 class VideoGenerationOutputHandler(BaseGenerationOutputHandler):
     """Handler for VideoGenerationOutput - handles video saving and processing."""
 
-    def can_handle(self, output) -> bool:
-        """Check if this handler can process VideoGenerationOutput."""
-        return isinstance(output, VideoGenerationOutput)
-
     def handle(self, output: VideoGenerationOutput) -> Dict[str, Any]:
         """
         Process VideoGenerationOutput - save video to disk (to tmp if temporary).

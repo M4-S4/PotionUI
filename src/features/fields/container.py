@@ -53,13 +53,6 @@ class Container(BaseField):
 
         return schema
 
-
-    def can_handle(self, field_type: str) -> bool:
-        return field_type in ['tabs', 'tab', 'row', 'group', 'accordion']
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
-
     def _get_children(self, field, preset_id: str = None) -> List:
         """Get children from field regardless of format"""
         field_info = self.get_field_info(field)

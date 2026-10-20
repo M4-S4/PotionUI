@@ -13,9 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class CostGenerationOutputHandler(BaseGenerationOutputHandler):
-    def can_handle(self, output: Any) -> bool:
-        return isinstance(output, CostGenerationOutput)
-
     def handle(self, output: CostGenerationOutput) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {"handler": "CostGenerationOutputHandler", "processed": True}
         try:

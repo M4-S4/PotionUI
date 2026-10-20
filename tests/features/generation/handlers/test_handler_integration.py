@@ -2,7 +2,6 @@
 Comprehensive integration tests for handler system.
 
 Tests cover:
-- Handler can_handle() logic
 - Cross-handler integration
 - File saving with user_id
 - Metadata propagation
@@ -35,23 +34,6 @@ from pathlib import Path
 
 class TestImageHandlerIntegration:
     """Integration tests for image handler."""
-
-    def test_image_handler_can_handle(self):
-        """Test image handler can_handle logic."""
-        handler = ImageGenerationOutputHandler('gen_123', 'user_456')
-
-        image = Image.new('RGB', (100, 100))
-        output = ImageGenerationOutput(image=image)
-
-        assert handler.can_handle(output) is True
-
-    def test_image_handler_rejects_other_outputs(self):
-        """Test image handler rejects non-image outputs."""
-        handler = ImageGenerationOutputHandler('gen_123', 'user_456')
-
-        output = ParamGenerationOutput(name='test', values=[1, 2])
-
-        assert handler.can_handle(output) is False
 
     @patch('src.features.generation.handlers.image_handler.generation_repo')
     @patch('src.features.generation.handlers.image_handler.os')
@@ -103,16 +85,6 @@ class TestImageHandlerIntegration:
 class TestGalleryHandlerIntegration:
     """Integration tests for gallery handler."""
 
-    def test_gallery_handler_can_handle(self):
-        """Test gallery handler can_handle logic."""
-        handler = GalleryGenerationOutputHandler('gen_123', 'user_456')
-
-        image = Image.new('RGB', (50, 50))
-        image_output = ImageGenerationOutput(image=image)
-        output = GalleryGenerationOutput(images=[image_output])
-
-        assert handler.can_handle(output) is True
-
     @patch('src.features.generation.handlers.image_handler.generation_repo')
     @patch('src.features.generation.handlers.image_handler.os')
     @patch('src.platform.filesystem.file_store.FileStore')
@@ -157,14 +129,6 @@ class TestGalleryHandlerIntegration:
 
 class TestParamHandlerIntegration:
     """Integration tests for param handler."""
-
-    def test_param_handler_can_handle(self):
-        """Test param handler can_handle logic."""
-        handler = ParamGenerationOutputHandler('gen_123', 'user_456')
-
-        output = ParamGenerationOutput(name='seed', values=[12345, 67890])
-
-        assert handler.can_handle(output) is True
 
     @patch('src.features.generation.parameter_repository.generation_parameter_repo')
     def test_param_handler_processes_params(self, mock_param_repo):
@@ -229,8 +193,6 @@ class TestErrorHandling:
     def test_handler_error_returns_error_metadata(self):
         """Test that handler errors are captured in metadata."""
         class FailingHandler(BaseGenerationOutputHandler):
-            def can_handle(self, output):
-                return True
 
             def handle(self, output):
                 raise Exception("Handler processing failed")

@@ -7,10 +7,7 @@ from src.features.fields.base_field import BaseField
 class MockField(BaseField):
     """Mock implementation of BaseField for testing"""
     
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'mock'
-    
-    def map_field(self, field, preset_id: str = None):
+    def output(self, field, preset_id: str = None):
         return {'type': 'mock', 'mapped': True}
 
 
@@ -20,15 +17,18 @@ class TestBaseField(unittest.TestCase):
         self.preset_loader = Mock()
         self.mock_field = MockField(self.preset_loader)
     
-    def test_output_default_implementation(self):
-        """Test default output implementation calls map_field"""
-        field = {'type': 'mock', 'name': 'test'}
-        
-        result = self.mock_field.output(field, 'preset_id')
-        
-        # Should call map_field by default
+    def test_output_is_abstract(self):
+        class Incomplete(BaseField):
+            pass
+
+        with self.assertRaises(TypeError):
+            Incomplete(self.preset_loader)
+
+    def test_output_returns_subclass_schema(self):
+        result = self.mock_field.output({'type': 'mock', 'name': 'test'}, 'preset_id')
+
         self.assertEqual(result, {'type': 'mock', 'mapped': True})
-    
+
     def test_input_default_implementation(self):
         """Test default input implementation passes through value"""
         test_value = 'test_value'

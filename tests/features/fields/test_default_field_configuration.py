@@ -34,20 +34,20 @@ def yue2_abc_configuration():
 
 def test_configuration_reaches_the_schema_of_a_default_typed_field():
     field = DefaultField(Mock())
-    schema = field.map_field(
+    schema = field.output(
         {"type": "string", "name": "n", "configuration": {"placeholder": "p", "pattern": "^a$"}}
     )
     assert schema["configuration"] == {"placeholder": "p", "pattern": "^a$"}
 
 
 def test_a_field_without_configuration_keeps_the_old_schema():
-    schema = DefaultField(Mock()).map_field({"type": "number", "name": "n", "label": "N", "default": 3})
+    schema = DefaultField(Mock()).output({"type": "number", "name": "n", "label": "N", "default": 3})
     assert "configuration" not in schema
     assert "min" not in schema and "max" not in schema
 
 
 def test_number_bounds_are_not_moved_by_the_configuration_block():
-    schema = DefaultField(Mock()).map_field(
+    schema = DefaultField(Mock()).output(
         {"type": "number", "name": "seed", "default": "-1", "configuration": {"min": -1}}
     )
     assert schema["default"] == "-1"

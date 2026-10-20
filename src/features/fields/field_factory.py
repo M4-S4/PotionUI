@@ -10,10 +10,7 @@ from .container import Container
 class DefaultField(BaseField):
     """Default field for fields that don't have specific implementations"""
 
-    def can_handle(self, field_type: str) -> bool:
-        return True  # This is the fallback field
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
+    def output(self, field, preset_id: str = None) -> Dict[str, Any]:
         field_info = self.get_field_info(field)
         schema = self.create_base_schema(field_info)
         configuration = field_info.get('configuration')

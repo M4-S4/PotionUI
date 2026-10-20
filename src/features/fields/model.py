@@ -3,7 +3,10 @@ from typing import Dict, Any, Optional, List
 from .base_field import BaseField
 from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
 from src.features.presets.configuration import resolve_field_filter_tags, resolve_reactions_filter_tags
+from src.features.presets.form_lookups import current_form_lookups
 from src.platform.filesystem.model_types import PICKABLE_MODEL_TYPES
+
+RECOMMENDATION_EXTENSIONS = ('.safetensors', '.ckpt', '.pt', '.pth', '.bin')
 
 
 class Model(BaseField):
@@ -57,70 +60,36 @@ class Model(BaseField):
 
     @staticmethod
     def _serialize_recommendations(recommendations: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
-        """Serialize `recommendations` (v2 - provider-gated, see docs/presets.md).
-
-        A recommendation is either provider-backed (`{name, provider, ref, ...}` -
-        `ref` is opaque, provider-native) or provider-less (`{name, link, ...}`,
-        today's shape - always passes through). Provider-backed entries whose
-        provider is not installed/enabled are DROPPED - the frontend must never see
-        a gated-out entry. Every surviving entry gains `installed: bool`.
-        """
         if not recommendations:
             return recommendations
 
         from src.features.providers.registry import get_provider_registry
         provider_registry = get_provider_registry()
 
-        serialized = []
-        for rec in recommendations:
-            provider = rec.get('provider')
-            if provider and not provider_registry.is_provider_initialized(provider):
-                continue  # gated out: provider not installed/enabled
+        visible = [
+            rec for rec in recommendations
+            if not rec.get('provider') or provider_registry.is_provider_initialized(rec['provider'])
+        ]
+        existing = current_form_lookups().existing_filenames(
+            candidate
+            for rec in visible
+            if rec.get('name')
+            for candidate in Model._recommendation_filenames(rec['name'])
+        )
 
+        serialized = []
+        for rec in visible:
             entry = dict(rec)
-            entry['installed'] = Model._is_recommendation_installed(rec)
+            entry['installed'] = bool(
+                rec.get('name') and existing.intersection(Model._recommendation_filenames(rec['name']))
+            )
             serialized.append(entry)
 
         return serialized
 
     @staticmethod
-    def _is_recommendation_installed(rec: Dict[str, Any]) -> bool:
-        """Best-effort: does a local model already match this recommendation?
-
-        Matches by filename (the recommendation's `name`, since `ref` is an opaque
-        provider-native string core doesn't parse for this) against the models
-        table - a simple, documented heuristic, not a guarantee (a model
-        downloaded under a different filename won't be detected).
-        """
-        try:
-            from src.features.models.repository import model_repo
-        except Exception:
-            return False
-
-        candidates = []
-        if rec.get('name'):
-            candidates.append(rec['name'])
-
-        for candidate in candidates:
-            try:
-                if model_repo.get_by_filename(candidate):
-                    return True
-                # Recommendation names rarely include the file extension -
-                # try common ones the picker already scans for.
-                for ext in ('.safetensors', '.ckpt', '.pt', '.pth', '.bin'):
-                    if model_repo.get_by_filename(f"{candidate}{ext}"):
-                        return True
-            except Exception:
-                continue
-
-        return False
-
-
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'model'
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
+    def _recommendation_filenames(name: str) -> List[str]:
+        return [name, *(f"{name}{ext}" for ext in RECOMMENDATION_EXTENSIONS)]
 
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:

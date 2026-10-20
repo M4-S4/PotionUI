@@ -10,14 +10,6 @@ class TestCheckbox(unittest.TestCase):
         self.preset_loader = Mock()
         self.checkbox_field = Checkbox(self.preset_loader)
     
-    def test_can_handle(self):
-        """Test that checkbox field handler correctly identifies checkbox fields"""
-        self.assertTrue(self.checkbox_field.can_handle('checkbox'))
-        self.assertFalse(self.checkbox_field.can_handle('text'))
-        self.assertFalse(self.checkbox_field.can_handle('select'))
-        self.assertFalse(self.checkbox_field.can_handle(''))
-        self.assertFalse(self.checkbox_field.can_handle(None))
-    
     def test_output_basic_checkbox(self):
         """Test output transformation for basic checkbox field"""
         field = {
@@ -88,26 +80,6 @@ class TestCheckbox(unittest.TestCase):
         self.assertEqual(result['type'], 'boolean')
         self.assertEqual(result['name'], 'false_checkbox')
         self.assertEqual(result['default'], False)
-    
-    
-    
-    
-    
-    
-    
-    def test_map_field(self):
-        """Test that map_field delegates to output"""
-        field = {
-            'type': 'checkbox',
-            'name': 'test_checkbox',
-            'default': True
-        }
-        
-        # map_field should return same result as output
-        output_result = self.checkbox_field.output(field, 'preset_id')
-        map_result = self.checkbox_field.map_field(field, 'preset_id')
-        
-        self.assertEqual(output_result, map_result)
     
 
 

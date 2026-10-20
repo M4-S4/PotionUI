@@ -11,18 +11,6 @@ class TestContainerField(unittest.TestCase):
         self.field_factory = Mock()
         self.container_field = Container(self.preset_loader, self.field_factory)
     
-    def test_can_handle(self):
-        """Test that container field handles container types"""
-        container_types = ['tabs', 'tab', 'row', 'group', 'accordion']
-        
-        for container_type in container_types:
-            self.assertTrue(self.container_field.can_handle(container_type))
-        
-        # Test non-container types
-        self.assertFalse(self.container_field.can_handle('select'))
-        self.assertFalse(self.container_field.can_handle('image'))
-        self.assertFalse(self.container_field.can_handle('slider'))
-    
     
     def test_output_tabs_container(self):
         """Test output for tabs container"""

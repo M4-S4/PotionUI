@@ -23,13 +23,6 @@ class TestAudioField(unittest.TestCase):
             'size': 16
         }
 
-    def test_can_handle(self):
-        """Test that audio field handles 'audio' type only"""
-        self.assertTrue(self.audio_field.can_handle('audio'))
-        self.assertFalse(self.audio_field.can_handle('video'))
-        self.assertFalse(self.audio_field.can_handle('image'))
-        self.assertFalse(self.audio_field.can_handle('select'))
-
     def test_input_single_audio(self):
         """Test processing single audio input"""
         result = self.audio_field.input('test_audio', self.sample_audio_data)
@@ -301,19 +294,6 @@ class TestAudioField(unittest.TestCase):
         errors = self.audio_field._validate_audio(audio_data, {'max_duration': 300})
         self.assertEqual(len(errors), 1)
         self.assertIn('duration exceeds maximum', errors[0])
-
-    def test_map_field_delegates_to_output(self):
-        """Test that map_field delegates to output"""
-        field = {
-            'type': 'audio',
-            'name': 'test_audio',
-            'label': 'Test Audio',
-            'configuration': {}
-        }
-
-        schema_output = self.audio_field.output(field)
-        schema_map = self.audio_field.map_field(field)
-        self.assertEqual(schema_output, schema_map)
 
     def test_configuration_specs(self):
         """Test that configuration() returns valid specs"""

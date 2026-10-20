@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional
 
 from src.features.presets import PresetTemplateLoader
+from src.features.presets.form_lookups import form_lookups_scope
 from src.platform.templating import TemplateProcessor
 from src.features.fields.field_factory import FieldFactory
 
@@ -55,8 +56,9 @@ class PresetFormSerializer:
         }
 
         # Process all fields recursively
-        for field in fields:
-            self._process_field_recursive(field, schema, preset_id)
+        with form_lookups_scope():
+            for field in fields:
+                self._process_field_recursive(field, schema, preset_id)
 
         return schema
 

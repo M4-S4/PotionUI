@@ -47,14 +47,6 @@ class TestImageGenerationOutputHandler:
         # Create a test image
         self.test_image = Image.new('RGB', (100, 100), color='red')
 
-    def test_can_handle_image_output(self):
-        image_output = ImageGenerationOutput(image=self.test_image)
-        assert self.handler.can_handle(image_output) is True
-
-    def test_can_handle_non_image_output(self):
-        progress_output = ProgressGenerationOutput(state="test")
-        assert self.handler.can_handle(progress_output) is False
-
     def test_handle_temporary_image(self):
         output = ImageGenerationOutput(image=self.test_image, temporary=True)
 
@@ -376,14 +368,6 @@ class TestVideoGenerationOutputHandler:
         if os.path.exists(self.temp_video_path):
             os.unlink(self.temp_video_path)
 
-    def test_can_handle_video_output(self):
-        video_output = VideoGenerationOutput(video_path=self.temp_video_path)
-        assert self.handler.can_handle(video_output) is True
-
-    def test_can_handle_non_video_output(self):
-        image_output = ImageGenerationOutput(image=Image.new('RGB', (100, 100)))
-        assert self.handler.can_handle(image_output) is False
-
     @patch('src.platform.filesystem.file_store.FileStore')
     def test_handle_temporary_video(self, mock_file_service_class):
         """Test that temporary videos are saved to tmp directory."""
@@ -598,14 +582,6 @@ class TestGalleryGenerationOutputHandler:
         # Create test images
         self.image1 = Image.new('RGB', (100, 100), color='red')
         self.image2 = Image.new('RGB', (100, 100), color='blue')
-
-    def test_can_handle_gallery_output(self):
-        gallery_output = GalleryGenerationOutput(images=[])
-        assert self.handler.can_handle(gallery_output) is True
-
-    def test_can_handle_non_gallery_output(self):
-        image_output = ImageGenerationOutput(image=self.image1)
-        assert self.handler.can_handle(image_output) is False
 
     def test_handle_empty_gallery(self):
         output = GalleryGenerationOutput(images=[])

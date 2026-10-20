@@ -11,11 +11,6 @@ class TestLoraPickerField(unittest.TestCase):
         self.preset_loader = Mock()
         self.field = LoraPicker(self.preset_loader)
 
-    def test_can_handle(self):
-        self.assertTrue(self.field.can_handle('lora_picker'))
-        self.assertFalse(self.field.can_handle('model'))
-        self.assertFalse(self.field.can_handle('select'))
-
     # --- output() ---
 
     def test_output_default_configuration(self):

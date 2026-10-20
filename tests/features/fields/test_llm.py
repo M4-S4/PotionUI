@@ -9,13 +9,6 @@ class TestLLMField(unittest.TestCase):
         self.preset_loader = Mock()
         self.field = LLMField(self.preset_loader)
 
-    def test_can_handle(self):
-        """Test field type matching"""
-        self.assertTrue(self.field.can_handle('llm'))
-        self.assertFalse(self.field.can_handle('text'))
-        self.assertFalse(self.field.can_handle('select'))
-        self.assertFalse(self.field.can_handle('llm_field'))
-
     def test_output_schema_full_field(self):
         """Test output schema generation with all components enabled"""
         field_config = {
@@ -111,17 +104,6 @@ class TestLLMField(unittest.TestCase):
         titles = {ex.title for ex in examples}
         self.assertIn('Full LLM Field', titles)
         self.assertIn('Simple LLM Selector', titles)
-
-    def test_map_field_delegates_to_output(self):
-        """Test that map_field delegates to output method"""
-        with patch.object(self.field, 'output') as mock_output:
-            mock_output.return_value = {'test': 'data'}
-
-            field_config = {'type': 'llm', 'name': 'test'}
-            result = self.field.map_field(field_config, 'preset1')
-
-            mock_output.assert_called_once_with(field_config, 'preset1')
-            self.assertEqual(result, {'test': 'data'})
 
     def test_output_with_tooltip(self):
         """Test that tooltip is included in schema when provided"""

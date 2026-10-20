@@ -10,10 +10,6 @@ class TestAlertField(unittest.TestCase):
         self.preset_loader = Mock()
         self.alert_field = Alert(self.preset_loader)
 
-    def test_can_handle(self):
-        self.assertTrue(self.alert_field.can_handle('alert'))
-        self.assertFalse(self.alert_field.can_handle('markdown'))
-
     def test_variant_authored_maps_through(self):
         """A preset authoring `configuration.variant` (the declared
         FieldConfigSpec name) must map straight through to `schema['variant']`
@@ -28,7 +24,7 @@ class TestAlertField(unittest.TestCase):
             },
         }
 
-        result = self.alert_field.map_field(field)
+        result = self.alert_field.output(field)
 
         self.assertEqual(result['variant'], 'warning')
         self.assertEqual(result['content'], 'Careful with this setting.')
@@ -39,7 +35,7 @@ class TestAlertField(unittest.TestCase):
             'configuration': {'content': 'Just some info.'},
         }
 
-        result = self.alert_field.map_field(field)
+        result = self.alert_field.output(field)
 
         self.assertEqual(result['variant'], 'default')
 
@@ -54,7 +50,7 @@ class TestAlertField(unittest.TestCase):
             'configuration': {'type': 'warning', 'content': 'Careful.'},
         }
 
-        result = self.alert_field.map_field(field)
+        result = self.alert_field.output(field)
 
         self.assertEqual(result['variant'], 'default')
 
@@ -65,7 +61,7 @@ class TestAlertField(unittest.TestCase):
             'configuration': {'variant': 'success'},
         }
 
-        result = self.alert_field.map_field(field)
+        result = self.alert_field.output(field)
 
         self.assertEqual(result['content'], 'Fallback description text')
 
@@ -100,7 +96,7 @@ class TestAlertField(unittest.TestCase):
             },
         }
 
-        result = self.alert_field.map_field(field)
+        result = self.alert_field.output(field)
 
         for dead_key in ('icon', 'closable', 'startContent', 'endContent', 'radius'):
             self.assertNotIn(dead_key, result)

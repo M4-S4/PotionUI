@@ -67,13 +67,6 @@ class Audio(BaseField):
 
         return schema
 
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'audio'
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        """Map audio field to JSON schema for frontend"""
-        return self.output(field, preset_id)
-
     def _validate_audio(self, audio_data: Dict[str, Any], rules: Dict[str, Any]) -> List[str]:
         """Validate a single audio"""
         errors = []

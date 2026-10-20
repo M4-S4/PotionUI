@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, Iterable, List, Optional, Set
 from src.features.models.records import Model, ModelInfo, ModelFile, UserModel
 from src.platform.filesystem.model_types import (
     CHECKPOINT_MODEL_TYPE,
@@ -202,6 +202,20 @@ class ModelRepository:
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM models WHERE filename = ?", (filename,))
             return [Model.from_row(row) for row in cursor.fetchall()]
+
+    def existing_filenames(self, filenames: Iterable[str]) -> Set[str]:
+        unique = list(dict.fromkeys(filenames))
+        if not unique:
+            return set()
+        from src.platform.database.database import db
+        found: Set[str] = set()
+        with db.get_cursor() as cursor:
+            for start in range(0, len(unique), _SQLITE_IN_CHUNK_SIZE):
+                chunk = unique[start:start + _SQLITE_IN_CHUNK_SIZE]
+                placeholders = ','.join('?' * len(chunk))
+                cursor.execute(f"SELECT DISTINCT filename FROM models WHERE filename IN ({placeholders})", chunk)
+                found.update(row['filename'] for row in cursor.fetchall())
+        return found
 
     def get_all(self,
                 limit: Optional[int] = None,

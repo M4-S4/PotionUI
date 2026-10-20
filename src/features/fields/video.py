@@ -71,13 +71,6 @@ class Video(BaseField):
 
         return schema
 
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'video'
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        """Map video field to JSON schema for frontend"""
-        return self.output(field, preset_id)
-
     def _validate_video(self, video_data: Dict[str, Any], rules: Dict[str, Any]) -> List[str]:
         """Validate a single video"""
         errors = []

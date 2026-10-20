@@ -12,13 +12,6 @@ class TestGate(unittest.TestCase):
         self.preset_loader = Mock()
         self.gate_field = Gate(self.preset_loader)
 
-    def test_can_handle(self):
-        """Test that gate field handler correctly identifies gate fields"""
-        self.assertTrue(self.gate_field.can_handle('gate'))
-        self.assertFalse(self.gate_field.can_handle('section'))
-        self.assertFalse(self.gate_field.can_handle(''))
-        self.assertFalse(self.gate_field.can_handle(None))
-
     def test_output_keeps_name(self):
         """Unlike section, a gate carries a real boolean value and must keep
         its `name` in the emitted schema"""

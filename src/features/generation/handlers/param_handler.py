@@ -88,10 +88,6 @@ def _model_display_value(raw_value: Any, model: Optional[Any]) -> Any:
 class ParamGenerationOutputHandler(BaseGenerationOutputHandler):
     """Handler for ParamGenerationOutput - saves generation parameters to database."""
 
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process ParamGenerationOutput."""
-        return isinstance(output, ParamGenerationOutput)
-
     def handle(self, output: ParamGenerationOutput) -> Dict[str, Any]:
         """
         Process ParamGenerationOutput - save parameters to database.

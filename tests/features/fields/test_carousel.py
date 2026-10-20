@@ -22,12 +22,6 @@ class TestCarouselField(unittest.TestCase):
         self.preset_loader.preset_files_path = '/test/presets'
         self.preset_loader.presets = [self.mock_preset]
 
-    def test_can_handle(self):
-        """Test that carousel field handles 'carousel' type"""
-        self.assertTrue(self.carousel_field.can_handle('carousel'))
-        self.assertFalse(self.carousel_field.can_handle('select'))
-        self.assertFalse(self.carousel_field.can_handle('slider'))
-
     def test_configuration(self):
         """Test that configuration includes all expected parameters"""
         config_specs = CarouselField.configuration()

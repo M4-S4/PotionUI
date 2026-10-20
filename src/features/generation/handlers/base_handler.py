@@ -153,11 +153,6 @@ class BaseGenerationOutputHandler(ABC):
         self._counter_seeded = True
 
     @abstractmethod
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process the given output."""
-        pass
-
-    @abstractmethod
     def handle(self, output: GenerationOutput) -> Dict[str, Any]:
         """Process the generation output and return metadata."""
         pass
