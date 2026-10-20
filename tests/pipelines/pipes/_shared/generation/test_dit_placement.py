@@ -213,7 +213,7 @@ def _lokr_delta(in_features: int, out_features: int, *, dtype=torch.float32):
 
 
 def _linear_with_lokr_delta(in_features: int, out_features: int) -> nn.Linear:
-    linear = nn.Linear(in_features, out_features)
+    linear = nn.Linear(in_features, out_features, device="meta")
     linear.lora_deltas = [_lokr_delta(in_features, out_features)]
     return linear
 
@@ -222,7 +222,7 @@ def _quantized_linear(in_features: int, out_features: int, *, nvfp4: bool) -> nn
     """A Linear carrying the state a quantized vendored Linear's own forward
     branches on -- ``_is_nvfp4`` for the nvfp4 GEMM path, ``weight_scale``
     for the fp8 ``_scaled_mm`` one -- plus one output-side-eligible delta."""
-    linear = nn.Linear(in_features, out_features)
+    linear = nn.Linear(in_features, out_features, device="meta")
     if nvfp4:
         linear._is_nvfp4 = True
     else:
@@ -362,7 +362,7 @@ def test_a_mixed_stack_is_split_per_delta_the_way_the_forward_splits_it():
     # One Linear carrying both a LoKr and a plain adapter: the plain one
     # rides the activation, only the LoKr one pays a weight-shaped delta --
     # partition_output_branch_deltas' own per-delta contract.
-    linear = nn.Linear(5376, 28672)
+    linear = nn.Linear(5376, 28672, device="meta")
     linear._is_nvfp4 = True
     linear.lora_deltas = [_lokr_delta(5376, 28672), _plain_delta(5376, 28672)]
     dit = SimpleNamespace(module=nn.Sequential(linear))
