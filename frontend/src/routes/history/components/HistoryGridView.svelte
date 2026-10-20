@@ -3,7 +3,10 @@
 	import { goto } from '$app/navigation';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Spinner } from '$lib/components/ui';
+	import { IconButton, Spinner } from '$lib/components/ui';
+	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { gridDeleteMessage } from '$lib/utils/historyDeleteCopy';
 	import { api } from '$lib/services/api/index';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { toasts } from '$lib/stores/toast';
@@ -26,6 +29,7 @@
 	let failure = $state<string | null>(null);
 	let viewIndex = $state<number | null>(null);
 	let exporting = $state(false);
+	let confirmingDelete = $state(false);
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let stopped = false;
 
@@ -90,6 +94,17 @@
 		}
 	}
 
+	async function removeGrid() {
+		const target = gridId;
+		confirmingDelete = false;
+		close();
+		try {
+			await historyStore.deleteGrid(target);
+		} catch (error) {
+			toasts.error(getErrorMessage(error));
+		}
+	}
+
 	function close() {
 		historyStore.setSelectedGeneration(null);
 		openGridId.set(null);
@@ -97,7 +112,7 @@
 	}
 </script>
 
-<BaseModal isOpen={true} title="Compare grid" size="full" closeable={viewing === null && !exporting} on:close={close}>
+<BaseModal isOpen={true} title="Compare grid" size="full" closeable={viewing === null && !exporting && !confirmingDelete} on:close={close}>
 	<svelte:fragment slot="headerIcon">
 		<div class="flex h-[30px] w-[30px] flex-shrink-0 items-center justify-center rounded border border-line bg-surface-2">
 			<Icon name="grid" className="h-4 w-4 text-fg-muted" />
@@ -108,6 +123,14 @@
 			<span class="font-mono text-xs tabular-nums text-fg-subtle" data-testid="history-grid-dims">
 				{gridTitle(grid.config)} · {gridDimensions(grid)}
 			</span>
+			<Tooltip text="Delete compare">
+				<IconButton
+					icon="trash"
+					label="Delete compare"
+					size="sm"
+					onclick={() => (confirmingDelete = true)}
+				/>
+			</Tooltip>
 		{/if}
 	</svelte:fragment>
 
@@ -143,4 +166,16 @@
 
 {#if grid && exporting}
 	<GridExport {grid} onClose={() => (exporting = false)} />
+{/if}
+
+{#if grid && confirmingDelete}
+	<ConfirmModal
+		isOpen={true}
+		title="Delete X/Y Compare"
+		message={gridDeleteMessage(grid.cols * grid.rows)}
+		variant="danger"
+		confirmLabel="Delete"
+		on:confirm={removeGrid}
+		on:cancel={() => (confirmingDelete = false)}
+	/>
 {/if}

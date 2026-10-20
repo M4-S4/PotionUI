@@ -29,6 +29,7 @@
 	export let labelledBy: string | undefined = undefined;
 	/** Set false when the caller owns Escape itself (e.g. ConfirmModal), so it isn't handled twice. */
 	export let handleEscapeKey: boolean = true;
+	export let compact: boolean = false;
 
 	const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -53,7 +54,8 @@
 	$: hasExplicitMdHeight = /md:h-(\[|full|screen)/.test(appliedSizeClass);
 	$: dialogClasses = [
 		'relative bg-surface-1 md:rounded-xl shadow-overlay flex flex-col',
-		'w-full h-full md:max-h-[90vh]',
+		compact ? 'w-full h-auto max-h-[90vh] rounded-t-xl' : 'w-full h-full',
+		'md:max-h-[90vh]',
 		'pb-[env(safe-area-inset-bottom)] md:pb-0',
 		hasExplicitMdHeight ? '' : 'md:h-auto',
 		appliedSizeClass
@@ -104,7 +106,7 @@
 	<div
 		use:portal
 		use:overlayLayer
-		class="fixed inset-0 z-overlay flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
+		class="fixed inset-0 z-overlay flex {compact ? 'items-end' : ''} md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
 		role="button"
 		tabindex="-1"
 		aria-label="Close modal"

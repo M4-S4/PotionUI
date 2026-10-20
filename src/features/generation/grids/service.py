@@ -179,9 +179,17 @@ class GridService:
         ids = [cell.id for cell in cells]
         if ids:
             if user.id == grid.user_id:
-                self.history.bulk_delete(ids, grid.user_id)
+                outcome = self.history.bulk_delete(ids, grid.user_id)
             else:
-                self.history.admin_bulk_delete(ids, user.id)
+                outcome = self.history.admin_bulk_delete(ids, user.id)
+            failed = list((outcome or {}).get("failed_ids") or [])
+            if failed:
+                raise GridError(
+                    "grid_delete_incomplete",
+                    "Some images of this comparison could not be deleted",
+                    500,
+                    {"failed_ids": failed},
+                )
         self.grids.delete(grid.id)
 
     def load(self, grid_id: str, user) -> GridRecord:

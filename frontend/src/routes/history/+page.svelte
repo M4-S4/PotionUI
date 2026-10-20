@@ -268,14 +268,24 @@
 	}
 
 	async function confirmDelete() {
-		if (generationToDelete) {
+		const target = generationToDelete;
+		if (!target) return;
+		if (target.grid) {
+			showDeleteModal = false;
+			generationToDelete = null;
 			try {
-				await historyStore.deleteGeneration(generationToDelete.id);
-				showDeleteModal = false;
-				generationToDelete = null;
+				await historyStore.deleteGrid(target.grid.id);
 			} catch (error) {
-				logger.error('Failed to delete generation:', error);
+				toasts.error(getErrorMessage(error));
 			}
+			return;
+		}
+		try {
+			await historyStore.deleteGeneration(target.id);
+			showDeleteModal = false;
+			generationToDelete = null;
+		} catch (error) {
+			logger.error('Failed to delete generation:', error);
 		}
 	}
 

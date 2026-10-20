@@ -11,6 +11,8 @@ import type {
 	SortDir
 } from '$lib/types/history';
 import { api } from '$lib/services/api/index';
+import { planBulkDelete } from '$lib/utils/historyDeleteCopy';
+import { deleteGridById } from '$lib/generation/compare/compareApi';
 import type { BulkDeleteByCriteriaRequest } from '$lib/services/api/generations';
 
 export const HISTORY_ITEMS_PER_PAGE_OPTIONS = [6, 12, 24, 48, 96] as const;
@@ -594,6 +596,41 @@ function createHistoryStore() {
 			}
 		},
 
+		async deleteGrid(gridId: string) {
+			const before = get(store);
+			const removedIds = new Set(
+				before.generations.filter((gen) => gen.grid_id === gridId).map((gen) => gen.id)
+			);
+			update((state) => ({
+				...state,
+				generations: state.generations.filter((gen) => !removedIds.has(gen.id)),
+				totalCount: Math.max(0, state.totalCount - removedIds.size),
+				selectedGenerationIds: state.selectedGenerationIds.filter((id) => !removedIds.has(id)),
+				selectedGeneration:
+					state.selectedGeneration?.grid_id === gridId ? null : state.selectedGeneration
+			}));
+			try {
+				await deleteGridById(gridId);
+			} catch (error) {
+				logger.error('Failed to delete compare grid:', error);
+				update((state) => {
+					const present = new Set(state.generations.map((gen) => gen.id));
+					return {
+						...state,
+						generations: before.generations.filter(
+							(gen) => removedIds.has(gen.id) || present.has(gen.id)
+						),
+						totalCount: state.totalCount + removedIds.size,
+						selectedGenerationIds: before.selectedGenerationIds.filter(
+							(id) => removedIds.has(id) || state.selectedGenerationIds.includes(id)
+						)
+					};
+				});
+				throw error;
+			}
+			await this.loadGenerations();
+		},
+
 		// Toggle selection mode
 		toggleSelectionMode() {
 			update((state) => ({
@@ -676,18 +713,43 @@ function createHistoryStore() {
 					throw new Error('No generations selected');
 				}
 
-				const response = await api.bulkDeleteGenerations(state.selectedGenerationIds);
-				if (response.success) {
-					// Reload generations after deletion
-					await this.loadGenerations();
-					// Clear selections and exit selection mode
-					update((s) => ({
-						...s,
-						selectedGenerationIds: [],
-						selectionMode: false
-					}));
-					return response;
+				const plan = planBulkDelete(state.selectedGenerationIds, state.generations);
+				const gridResults = await Promise.allSettled(plan.gridIds.map((id) => this.deleteGrid(id)));
+				const failedGridIds = new Set(
+					plan.gridIds.filter((_, index) => gridResults[index].status === 'rejected')
+				);
+				let failure: unknown = null;
+				gridResults.forEach((result) => {
+					if (result.status === 'rejected' && failure === null) failure = result.reason;
+				});
+				let looseFailed = false;
+				let response: Awaited<ReturnType<typeof api.bulkDeleteGenerations>> | { success: true } = {
+					success: true
+				};
+				if (plan.looseIds.length > 0) {
+					try {
+						response = await api.bulkDeleteGenerations(plan.looseIds);
+						if (!response.success) {
+							throw new Error(response.message || 'Failed to delete generations');
+						}
+					} catch (looseError) {
+						looseFailed = true;
+						if (failure === null) failure = looseError;
+					}
 				}
+				await this.loadGenerations();
+				const byId = new Map(state.generations.map((gen) => [gen.id, gen]));
+				const remaining = state.selectedGenerationIds.filter((id) => {
+					const gridId = byId.get(id)?.grid?.id;
+					return gridId ? failedGridIds.has(gridId) : looseFailed;
+				});
+				update((s) => ({
+					...s,
+					selectedGenerationIds: remaining,
+					selectionMode: remaining.length > 0
+				}));
+				if (failure !== null) throw failure;
+				return response;
 			} catch (error) {
 				logger.error('Failed to bulk delete generations:', error);
 				throw error;

@@ -80,6 +80,7 @@
 	{isOpen}
 	title=""
 	size="md"
+	compact
 	hideCloseButton
 	closeable={!busy}
 	handleEscapeKey={false}
