@@ -1,7 +1,6 @@
 import unittest
 import tempfile
 import os
-import yaml
 from unittest.mock import Mock, patch
 from pathlib import Path
 
@@ -175,10 +174,9 @@ class TestSelectField(unittest.TestCase):
         self.assertEqual(options[2]['label'], 'string_option')
         self.assertEqual(options[3]['label'], '123')
     
-    @patch('builtins.open')
     @patch('pathlib.Path.exists')
     @patch('src.platform.templating.TemplateProcessor.process_template')
-    def test_get_file_options(self, mock_template, mock_exists, mock_open):
+    def test_get_file_options(self, mock_template, mock_exists):
         """Test file-based options loading"""
         # Setup mocks
         mock_exists.return_value = True
@@ -191,10 +189,8 @@ class TestSelectField(unittest.TestCase):
                 {'label': 'File Option 2', 'value': 'file_opt2'}
             ]
         }
-        mock_open.return_value.__enter__.return_value.read.return_value = yaml.dump(yaml_content)
-        
-        # Mock yaml.safe_load
-        with patch('yaml.safe_load', return_value=yaml_content):
+
+        with patch('src.features.fields.select.load_yaml_cached', return_value=yaml_content):
             config = {'file': {'path': '/test/path/options.yml'}}
             options = self.select_field._get_file_options(config, 'test_preset_id')
         

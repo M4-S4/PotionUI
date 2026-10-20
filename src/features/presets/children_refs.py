@@ -2,8 +2,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
+from src.platform.filesystem.yaml_io import load_yaml_file
 
-import yaml
 
 _FULL_VAR_RE = re.compile(r"^\s*\{\{\s*vars\.(\w+)\s*\}\}\s*$")
 _EMBEDDED_VAR_RE = re.compile(r"\{\{\s*vars\.(\w+)\s*\}\}")
@@ -90,6 +90,5 @@ def _apply_children_vars(data: Any, ref: ChildrenRef, source: Path) -> Any:
 
 
 def read_children_fragment(path: Path, ref: ChildrenRef) -> Dict[str, Any]:
-    with open(path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f) or {}
+    data = load_yaml_file(path) or {}
     return _apply_children_vars(data, ref, path)

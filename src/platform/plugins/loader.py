@@ -20,6 +20,7 @@ import logging
 from pydantic import ValidationError
 
 from src.platform.plugins.manifest import PluginManifestSchema
+from src.platform.filesystem.yaml_io import load_yaml
 
 EXTRA_PLUGIN_DIRS_ENV = "POTIONUI_EXTRA_PLUGIN_DIRS"
 
@@ -354,7 +355,7 @@ class PluginLoader:
         was parsed - the file is read once per discovery, never twice.
         """
         try:
-            raw = yaml.safe_load(payload)
+            raw = load_yaml(payload)
         except yaml.YAMLError as e:
             logger.error(f"YAML parsing error in {manifest_path}: {e}")
             return self._build_error_manifest(

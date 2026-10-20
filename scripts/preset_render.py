@@ -49,6 +49,7 @@ from src.platform.templating.processor import TemplateProcessor  # noqa: E402
 from src.features.presets.templates import PresetTemplate, ModeTemplate
 from src.features.presets.fixture_form import build_default_form_data
 from src.features.forms.binding import bind_form  # noqa: E402
+from src.platform.filesystem.yaml_io import load_yaml
 
 # ---------------------------------------------------------------------------
 # Deterministic stubs: snapshots must never embed Mock() reprs (memory
@@ -309,9 +310,8 @@ def _fixture_video_director_document() -> Dict[str, Any]:
 
 
 def load_fixture_form_data(fixture_path: Path) -> Dict[str, Any]:
-    import yaml
     with open(fixture_path, "r") as f:
-        data = yaml.load(f, Loader=yaml.FullLoader) or {}
+        data = load_yaml(f) or {}
     return data
 
 

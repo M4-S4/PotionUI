@@ -1,10 +1,10 @@
-import yaml
 from pathlib import Path
 from math import gcd
 from typing import Dict, Any, List, Optional
 
 from .base_field import BaseField
 from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
+from src.platform.filesystem.yaml_io import load_yaml_cached
 
 
 class Resolution(BaseField):
@@ -80,13 +80,12 @@ class Resolution(BaseField):
             if not file_path_obj.exists():
                 print(f"Warning: Resolution file not found: {file_path}")
                 return []
-            with open(file_path_obj, 'r', encoding='utf-8') as f:
-                file_data = yaml.safe_load(f)
-                if isinstance(file_data, list):
-                    return file_data
-                elif isinstance(file_data, dict) and 'options' in file_data:
-                    return file_data['options']
-                return []
+            file_data = load_yaml_cached(file_path_obj)
+            if isinstance(file_data, list):
+                return file_data
+            elif isinstance(file_data, dict) and 'options' in file_data:
+                return file_data['options']
+            return []
         except Exception as e:
             print(f"Warning: Error loading resolution file {file_path}: {e}")
             return []

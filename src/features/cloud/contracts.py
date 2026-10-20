@@ -13,6 +13,7 @@ from pydantic import Field, field_validator, model_validator
 
 from src.features.backends.backend_config import BaseBackendConfig
 from src.pipelines.cloud import CLOUD_ERROR_KINDS, CloudErrorKind, CloudRunError
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 if TYPE_CHECKING:
     from src.features.cloud.http import CloudHttp
@@ -388,7 +389,7 @@ class CloudProvider(ABC):
 
 def load_catalog_file(path: Path) -> dict[str, Any]:
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        data = load_yaml_file(path) or {}
     except (OSError, yaml.YAMLError):
         return {}
     return data if isinstance(data, dict) else {}

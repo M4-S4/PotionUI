@@ -22,6 +22,7 @@ from src.platform.plugins.sampling import (
     sampler_registry,
     schedule_registry,
 )
+from src.platform.filesystem.yaml_io import load_yaml, load_yaml_file
 from .children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from .children_refs import parse_children_ref, read_children_fragment
 from .formula_groups import FORMULA_INPUT_TYPES, iter_formula_fields
@@ -195,7 +196,7 @@ def _parse_guard_literal(expr: str) -> Tuple[bool, Any]:
     if not _GUARD_LITERAL_RE.match(text):
         return False, None
     try:
-        return True, yaml.safe_load(text)
+        return True, load_yaml(text)
     except Exception:
         return False, None
 
@@ -429,8 +430,7 @@ class PresetLinter:
         preset_str = str(preset_file)
 
         try:
-            with open(preset_file, 'r', encoding='utf-8') as f:
-                data = yaml.load(f, Loader=yaml.FullLoader) or {}
+            data = load_yaml_file(preset_file) or {}
         except Exception as e:
             issues.append(LintIssue("error", preset_str, f"preset.yml: failed to parse: {e}"))
             return issues, None
@@ -729,8 +729,7 @@ class PresetLinter:
             accepted_types: Dict[str, Optional[set]] = {}
             for _variant_name, form_dir in discover_form_variants(mode_dir):
                 try:
-                    with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
-                        form_data = yaml.safe_load(f) or {}
+                    form_data = load_yaml_file(form_dir / "form.yml") or {}
                 except Exception:
                     continue
                 self._collect_field_types(form_data.get("fields", []), preset_file.parent, field_types, accepted_types)
@@ -958,8 +957,7 @@ class PresetLinter:
             return issues
 
         try:
-            with open(tests_file, 'r', encoding='utf-8') as f:
-                data = yaml.load(f, Loader=yaml.FullLoader) or {}
+            data = load_yaml_file(tests_file) or {}
         except Exception as e:
             issues.append(LintIssue("error", preset_str, f"tests.yml: failed to parse: {e}"))
             return issues
@@ -1060,8 +1058,7 @@ class PresetLinter:
         for variant_name, form_dir in discover_form_variants(mode_dir):
             form_file = form_dir / "form.yml"
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    data = yaml.safe_load(f) or {}
+                data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
             loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
@@ -1088,8 +1085,7 @@ class PresetLinter:
                 continue
             loc = f"modes/{mode_name}"
             try:
-                with open(pipeline_file, 'r', encoding='utf-8') as f:
-                    data = yaml.safe_load(f)
+                data = load_yaml_file(pipeline_file)
             except Exception:
                 continue
             pipes = data.get("pipeline") if isinstance(data, dict) else None
@@ -1145,8 +1141,7 @@ class PresetLinter:
 
         for _, form_dir in discover_form_variants(mode_dir):
             try:
-                with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
-                    walk((yaml.safe_load(f) or {}).get("fields", []))
+                walk((load_yaml_file(form_dir / "form.yml") or {}).get("fields", []))
             except Exception:
                 continue
         return tasks
@@ -1224,8 +1219,7 @@ class PresetLinter:
             loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             form_file = form_dir / "form.yml"
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.safe_load(f) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -1290,8 +1284,7 @@ class PresetLinter:
             loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             form_file = form_dir / "form.yml"
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.safe_load(f) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -1352,8 +1345,7 @@ class PresetLinter:
             return issues
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
+            data = load_yaml_file(pipeline_file)
         except Exception:
             return issues
         if not isinstance(data, dict):
@@ -1480,8 +1472,7 @@ class PresetLinter:
             return issues
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
+            data = load_yaml_file(pipeline_file)
         except Exception:
             return issues
         if not isinstance(data, dict):
@@ -1494,8 +1485,7 @@ class PresetLinter:
             vloc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             known_fields = set(_INJECTED_FORM_KEYS)
             try:
-                with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
-                    form_data = yaml.safe_load(f) or {}
+                form_data = load_yaml_file(form_dir / "form.yml") or {}
             except Exception:
                 continue
             self._collect_field_names(form_data.get("fields", []), preset_root, known_fields)
@@ -1539,8 +1529,7 @@ class PresetLinter:
         pipeline_file = mode_dir / "pipeline.yml"
         if pipeline_file.exists():
             try:
-                with open(pipeline_file, 'r', encoding='utf-8') as f:
-                    pipeline_data = yaml.safe_load(f)
+                pipeline_data = load_yaml_file(pipeline_file)
             except Exception:
                 pipeline_data = None
         unwired = [
@@ -1554,8 +1543,7 @@ class PresetLinter:
         for variant_name, form_dir in discover_form_variants(mode_dir):
             vloc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             try:
-                with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
-                    form_data = yaml.safe_load(f) or {}
+                form_data = load_yaml_file(form_dir / "form.yml") or {}
             except Exception:
                 continue
             if not isinstance(form_data, dict):
@@ -1632,8 +1620,7 @@ class PresetLinter:
             return issues
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
+            data = load_yaml_file(pipeline_file)
         except Exception:
             return issues
         if not isinstance(data, dict):
@@ -1652,8 +1639,7 @@ class PresetLinter:
         for variant_name, form_dir in discover_form_variants(mode_dir):
             vloc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             try:
-                with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
-                    form_data = yaml.safe_load(f) or {}
+                form_data = load_yaml_file(form_dir / "form.yml") or {}
             except Exception:
                 continue
             defaults: Dict[str, Any] = {}
@@ -1699,8 +1685,7 @@ class PresetLinter:
             return issues
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
+            data = load_yaml_file(pipeline_file)
         except Exception:
             return issues
         if not isinstance(data, dict):
@@ -1754,8 +1739,7 @@ class PresetLinter:
             return issues
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
+            data = load_yaml_file(pipeline_file)
         except Exception:
             return issues
         if not isinstance(data, dict):
@@ -1840,8 +1824,7 @@ class PresetLinter:
             return issues
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
+            data = load_yaml_file(pipeline_file)
         except Exception:
             return issues
         if not isinstance(data, dict):
@@ -1974,8 +1957,7 @@ class PresetLinter:
             return issues
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
+            data = load_yaml_file(pipeline_file)
         except Exception:
             return issues
         if not isinstance(data, dict):
@@ -2216,8 +2198,7 @@ class PresetLinter:
             if not form_file.exists():
                 continue
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
             if not (form_data.get("short_description") or form_data.get("description")):
@@ -2281,8 +2262,7 @@ class PresetLinter:
             loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             form_file = form_dir / "form.yml"
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -2355,8 +2335,7 @@ class PresetLinter:
         # `@config:` refs usually live in external tab files (tabs/*.yml).
         for form_file in self._iter_form_yaml_files(mode_dir):
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -2410,8 +2389,7 @@ class PresetLinter:
 
         for form_file in self._iter_form_yaml_files(mode_dir):
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -2595,8 +2573,7 @@ class PresetLinter:
 
     def _expanded_form_fields(self, form_file: Path, preset_root: Path) -> List[dict]:
         try:
-            with open(form_file, 'r', encoding='utf-8') as f:
-                form_data = yaml.safe_load(f) or {}
+            form_data = load_yaml_file(form_file) or {}
         except Exception:
             return []
         if not isinstance(form_data, dict):
@@ -2631,8 +2608,7 @@ class PresetLinter:
 
         for form_file in self._iter_form_yaml_files(mode_dir):
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -2683,8 +2659,7 @@ class PresetLinter:
 
         for form_file in self._iter_form_yaml_files(mode_dir):
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -2733,8 +2708,7 @@ class PresetLinter:
 
         for form_file in self._iter_form_yaml_files(mode_dir):
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -2844,8 +2818,7 @@ class PresetLinter:
 
         for form_file in self._iter_form_yaml_files(mode_dir):
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -3091,8 +3064,7 @@ class PresetLinter:
         for variant_name, form_dir in discover_form_variants(mode_dir):
             loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             try:
-                with open(form_dir / "form.yml", 'r', encoding='utf-8') as f:
-                    form_data = yaml.safe_load(f) or {}
+                form_data = load_yaml_file(form_dir / "form.yml") or {}
             except Exception:
                 continue
 
@@ -3112,8 +3084,7 @@ class PresetLinter:
                     continue
                 seen.add(frag_path)
                 try:
-                    with open(frag_path, 'r', encoding='utf-8') as f:
-                        frag_data = yaml.safe_load(f) or {}
+                    frag_data = load_yaml_file(frag_path) or {}
                 except Exception:
                     continue
                 pending.extend(
@@ -3132,8 +3103,7 @@ class PresetLinter:
             loc = f"modes/{mode_name}" if form_dir == mode_dir else f"modes/{mode_name}/variants/{variant_name}"
             form_file = form_dir / "form.yml"
             try:
-                with open(form_file, 'r', encoding='utf-8') as f:
-                    form_data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception:
                 continue
 
@@ -3262,7 +3232,7 @@ class PresetLinter:
 
         try:
             with open(styles_file, "r") as f:
-                data = yaml.load(f, Loader=yaml.FullLoader) or {}
+                data = load_yaml(f) or {}
         except Exception as e:
             issues.append(LintIssue("error", preset_str, f"styles.yml: failed to parse: {e}"))
             return issues

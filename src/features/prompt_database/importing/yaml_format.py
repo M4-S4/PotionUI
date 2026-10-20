@@ -1,8 +1,8 @@
 """dynamicprompts wildcard YAML: nested mappings whose leaves are prompt strings."""
-import yaml
 from typing import List, Optional, Union
 
 from src.features.prompt_database.importing.models import ParsedPrompt
+from src.platform.filesystem.yaml_io import load_yaml
 
 
 def _walk(node, path: List[str], results: List[ParsedPrompt]) -> None:
@@ -27,7 +27,7 @@ def _walk(node, path: List[str], results: List[ParsedPrompt]) -> None:
 
 def parse_wildcard_yaml(data: Union[bytes, str], *, filename: Optional[str] = None) -> List[ParsedPrompt]:
     text = data.decode("utf-8") if isinstance(data, bytes) else data
-    payload = yaml.safe_load(text)
+    payload = load_yaml(text)
     results: List[ParsedPrompt] = []
     if payload is None:
         return results

@@ -18,6 +18,7 @@ import yaml
 
 from src.platform.plugins.hooks import execute_hook
 from src.features.forms.hooks import FORM_HOOKS
+from src.platform.filesystem.yaml_io import load_yaml_cached
 
 logger = logging.getLogger(__name__)
 
@@ -148,8 +149,7 @@ def get_select_options(template_processor, config: Dict[str, Any]) -> List[Dict[
             processed_path = template_processor.process_template(file_path, {})
 
             try:
-                with open(processed_path, 'r', encoding='utf-8') as f:
-                    file_options = yaml.safe_load(f)
+                file_options = load_yaml_cached(processed_path)
 
                 if isinstance(file_options, list):
                     for option in file_options:

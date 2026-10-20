@@ -46,8 +46,6 @@ from typing import Any, Dict, List, Tuple
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-import yaml  # noqa: E402
-
 from src.pipelines.catalog import PipeCatalog  # noqa: E402
 from src.features.developer.pipes_documenter import PipesDocumenter  # noqa: E402
 from src.features.developer.template_functions_documenter import (  # noqa: E402
@@ -57,6 +55,7 @@ from src.features.presets.linter import _INJECTED_FORM_KEYS  # noqa: E402
 from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE  # noqa: E402
 from src.platform.plugins.field_types import FieldTypeRegistry  # noqa: E402
 from src.features.fields.builtin import register_builtin_fields  # noqa: E402
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 PIPES_MD_PATH = REPO_ROOT / "docs" / "pipes.md"
 CONTEXT_MD_PATH = REPO_ROOT / "docs" / "preset-context.md"
@@ -330,7 +329,7 @@ def _shared_option_samples(repo_root: Path) -> List[Tuple[str, str]]:
     for path in sorted(shared_root.rglob("*.yml")):
         rel = path.relative_to(repo_root).as_posix()
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or []
+            data = load_yaml_file(path) or []
         except Exception as e:  # noqa: BLE001 - reported inline, not raised
             samples.append((rel, f"<failed to parse: {e}>"))
             continue

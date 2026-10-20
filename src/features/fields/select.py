@@ -1,4 +1,3 @@
-import yaml
 import glob
 import os
 from pathlib import Path
@@ -6,6 +5,7 @@ from typing import Dict, Any, List, Optional
 
 from .base_field import BaseField
 from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
+from src.platform.filesystem.yaml_io import load_yaml_cached
 
 
 class Select(BaseField):
@@ -344,9 +344,8 @@ configuration:
         try:
             file_path_obj = Path(resolved_path)
             if file_path_obj.exists():
-                with open(file_path_obj, 'r', encoding='utf-8') as f:
-                    file_data = yaml.safe_load(f)
-                    options.extend(self._parse_yaml_options(file_data))
+                file_data = load_yaml_cached(file_path_obj)
+                options.extend(self._parse_yaml_options(file_data))
         except Exception as e:
             print(f"Error loading options from file {resolved_path}: {e}")
 

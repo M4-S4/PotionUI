@@ -27,13 +27,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-import yaml
 
 from src.platform.observability.logger import logger
 from src.platform.templating import TemplateProcessor
 from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
 from src.features.presets.children_refs import ChildrenRef, parse_children_ref, read_children_fragment
 from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
+from src.platform.filesystem.yaml_io import load_yaml_file
 from .schema import (
     validate_manifest,
     validate_pipeline_file,
@@ -156,8 +156,7 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
 
 def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
     try:
-        with open(mode_dir / 'form.yml', 'r', encoding='utf-8') as ff:
-            data = yaml.safe_load(ff) or {}
+        data = load_yaml_file(mode_dir / 'form.yml') or {}
     except Exception:
         data = {}
     if not isinstance(data, dict):
@@ -274,8 +273,7 @@ class PresetTemplateLoader:
         errors: List[str] = []
 
         try:
-            with open(preset_path, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f) or {}
+            data = load_yaml_file(preset_path) or {}
         except Exception as e:
             errors.append(f"preset.yml: failed to read/parse: {e}")
             errors_out[str(preset_path)] = errors
@@ -386,8 +384,7 @@ class PresetTemplateLoader:
             return [], dict(self._NO_STYLES_PREVIEW)
 
         try:
-            with open(styles_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f) or {}
+            data = load_yaml_file(styles_file) or {}
         except Exception as e:
             logger.error(f"Error loading styles for preset {preset_path}: failed to parse styles.yml: {e}")
             return [], dict(self._NO_STYLES_PREVIEW)
@@ -418,8 +415,7 @@ class PresetTemplateLoader:
             return None, [f"modes/{mode_name}/pipeline.yml: file not found"]
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as pf:
-                pipeline_data = yaml.safe_load(pf) or {}
+            pipeline_data = load_yaml_file(pipeline_file) or {}
         except Exception as e:
             return None, [f"modes/{mode_name}/pipeline.yml: failed to parse: {e}"]
 
@@ -469,8 +465,7 @@ class PresetTemplateLoader:
             form_file = form_dir / 'form.yml'
 
             try:
-                with open(form_file, 'r', encoding='utf-8') as ff:
-                    form_data = yaml.safe_load(ff) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception as e:
                 errors.append(f"modes/{mode_name}/{loc}form.yml: failed to parse: {e}")
                 continue

@@ -21,6 +21,7 @@ from src.features.phrasebook.repository import (
     phrasebook_value_repo
 )
 from src.features.phrasebook.hooks import PHRASEBOOK_HOOKS
+from src.platform.filesystem.yaml_io import load_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ class YamlPhrasebookImporter(PhrasebookImporter):
             yaml_content = hook_data.get("yaml_content", yaml_content)
             root_category = hook_data.get("root_category", root_category)
 
-            data = yaml.safe_load(yaml_content)
+            data = load_yaml(yaml_content)
 
             if data is None:
                 return {
