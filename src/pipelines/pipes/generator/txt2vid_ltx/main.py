@@ -1,51 +1,3 @@
-"""Text-to-video generator for the native LTX-2 / 2.3 family.
-
-Consumes the bundle from ``model_loader/ltx`` and the (already DiT-projected,
-CPU-resident) conditioning list from the shared ``prompt_encoder`` pipe, and
-runs the flow-matching sampler directly (video-only: the audio track is
-engine-ready but out of scope here). Single-DiT (no expert pair, unlike Wan
-2.2) — 5D latents, true CFG, causal video-VAE decode (VAE un-normalizes
-internally, unlike Wan's separate mean/std step), then
-``encode_frames_to_mp4`` + ``emit_gallery(videos=)``.
-
-Naming: pipe discovery is two-level (``<pipe>/<variant>``), so the registered
-name is ``generator/txt2vid_ltx`` (mode + model encoded in the single variant
-segment), matching ``generator/txt2vid_wan22``.
-
-**Two-stage upscale/refine**: this same pipe class is the stage-1 AND stage-2
-of the in-flow ``upscale: 1.5x | 2.0x`` recipe -- ``content/presets/marketplace/LTX-2``'s
-pipeline.yml calls it twice. Two additive knobs, both no-ops at their defaults:
-
-* ``initial_latent`` (input, optional, one per seed): when given, the
-  denoise loop starts from THIS latent (mixed with fresh noise at
-  ``sigmas[0]``, the standard flow-matching img2img lerp -- see
-  ``denoise()``'s own docstring) instead of from a zero latent + full noise.
-  Pair with ``manual_sigmas`` set to a short tail schedule (e.g. the
-  Lightricks ``STAGE_2_DISTILLED_SIGMA_VALUES`` suffix,
-  ``preset.vars.ltx_stage2_sigma_recipe``) so ``sigmas[0] < 1.0`` and only a
-  little noise is re-injected -- a refine, not a fresh generation. Absent ->
-  ordinary txt2vid (zero latent, full schedule), unchanged.
-* ``decode`` (config, default ``true``): when ``false``, skip the VAE
-  decode + mp4 encode and instead emit the raw per-seed latent(s) via the
-  ``latent`` output (the ``video`` output is empty in that case) -- lets
-  stage 1 hand its latent straight to ``latent_upscaler/ltx`` without a
-  wasteful (and lossy) decode/re-encode round trip.
-
-TE eviction: by the time either LTX generator's ``build_context`` runs, the
-shared ``prompt_encoder`` pipe upstream has already produced every
-conditioning tensor this generation will ever need -- both
-``content/presets/marketplace/LTX-2``'s pipelines wire ONE ``prompt_encoder`` node's
-output into every downstream generator stage (stage 1, stage 2, and the
-standalone-upscale refine all read the SAME ``conditioning``), and neither
-stage re-encodes text. Audio generation decodes through the audio VAE +
-vocoder (``bundle.audio_vae``/``bundle.vocoder``), not the TE. So the
-multi-GB Gemma3-12B TE is dead weight in RAM for the rest of the generation
-the moment either generator pipe starts -- :func:`release_idle_te` releases
-it via ``bundle.te_cache_key`` + ``models.evict_dead_weight``, the same
-mechanism ``latent_upscaler/ltx/main.py``'s ``_unload_idle_te``
-(standalone-upscale mode) also uses -- this module now owns the shared
-implementation both import.
-"""
 
 from __future__ import annotations
 
@@ -53,24 +5,14 @@ import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-import numpy as np
 import torch
 
-from src.platform.observability.profiling import get_profiler
-from src.platform.runtime.native.errors import DecodeNumericsError
-from src.platform.runtime.native.memory.residency import free_vram_gb
-from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
 from src.platform.runtime.native.sampling import ANCESTRAL_NOISE_SEED_OFFSET, ProgressHook, denoise, make_preview_hook
-from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, chunked_decode_causal3d
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon
 from src.platform.runtime.device import clear_gpu_memory
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
-from src.pipelines.pipes._shared.vae.ltx_tiled_decode import (
-    DECODE_NOISE_SEED_OFFSET,
-    decode_with_oom_retry,
-)
 from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.freeinit import freeinit_blend, freeinit_config_specs, resolve_freeinit
@@ -78,7 +20,6 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     apg_settings_config_specs,
     apg_settings_overrides,
     build_multimodal_guider_params,
-    check_guider_mode_conflict,
     multimodal_guider_config_specs,
     sampler_step_cache_config_specs,
     sampler_step_cache_kwargs,
@@ -86,14 +27,21 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     schedule_settings_overrides,
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
-from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4, probe_effective_fps
-from src.pipelines.pipes.generator.txt2vid_wan22.main import (
-    _attach_nag,
-    _build_video_output,
-    _emit_video_results,
-    _to_device,
+from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
+from src.pipelines.pipes._shared.video.ltx_common import (
+    decode_ltx_video,
+    parse_explicit_sigmas,
+    snap_ltx_geometry,
+    validate_ltx_schedule_config,
 )
+from src.pipelines.pipes._shared.video.ltx_constants import (
+    LTX_LATENT_CHANNELS,
+    LTX_SPATIAL_DOWNSCALE,
+    LTX_TEMPORAL_DOWNSCALE,
+)
+from src.pipelines.pipes._shared.video.video_common import build_video_output, emit_video_results, to_device
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     nag_config_specs,
@@ -101,11 +49,6 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     seed_config_spec,
 )
 
-# LTX video VAE downscale (patch_size 4 x three halving blocks = 32 spatial;
-# compress_time + 2x compress_all = 8 temporal). 128 latent channels.
-_SPATIAL_DOWNSCALE = 32
-_TEMPORAL_DOWNSCALE = 8
-_LATENT_CHANNELS = 128
 
 # Fallback fps used only when `fps` is left unset (None -- see
 # ``get_default_config``) AND there is no ``audio_source`` to sync to. When
@@ -114,245 +57,6 @@ _LATENT_CHANNELS = 128
 # on ``_LTXCtx.audio_source`` for why a stale default here would desync
 # muxed audio.
 _DEFAULT_FPS = 25.0
-
-
-def parse_explicit_sigmas(raw: str) -> torch.Tensor:
-    """Parse a comma-separated descending sigma list VERBATIM.
-
-    Unlike ``manual_sigmas``/``build_sigmas``'s ``schedule="manual"`` mode,
-    this does NOT force ``sigmas[0] = 1.0`` / ``sigmas[-1] = 0.0`` -- a
-    stage-2 refine's starting sigma is deliberately < 1.0 (only a little
-    noise re-injected into an already-upsampled latent). Feed the result to
-    ``denoise()``/``denoise_prenoised()``'s own ``sigmas=`` override
-    parameter, which uses it as-is.
-    """
-    values = [float(v.strip()) for v in str(raw).split(",") if v.strip() != ""]
-    if len(values) < 2:
-        raise ValueError(f"refine sigma schedule needs at least 2 values, got {len(values)}: {raw!r}")
-    for a, b in zip(values, values[1:]):
-        if b > a:
-            raise ValueError(f"refine sigma schedule must be non-increasing, got {values}")
-    return torch.tensor(values, dtype=torch.float32)
-
-
-def validate_ltx_schedule_config(config: Dict[str, Any], pipe_id: str) -> None:
-    """Cross-field guard shared by both LTX generator pipes.
-
-    Each of ``sampler``/``schedule``/``manual_sigmas``/``steps`` passes its own
-    ``PipeConfigSpec`` individually (non-empty choice, steps >= 1, ...), but a
-    UI toggle reaction can leave them in a combination that is individually
-    valid yet degenerate together -- e.g. ``schedule='manual'`` with no sigma
-    values, a malformed ``manual_sigmas`` string, or ``steps=1`` with none of
-    the above set (a bare single flow-matching step, which this family has no
-    distilled/turbo recipe for). Those used to reach ``build_sigmas``
-    (``sampling/flow_schedule.py``) or the DiT connector as a cryptic
-    tensor-shape crash instead of a clean error; this raises the same
-    structured ``ValueError`` any other ``PipeConfigSpec`` check would, before
-    the pipe -- and the model it needs loaded -- ever runs. Called from each
-    pipe's ``validate_config`` classmethod (``BasePipe.validate_config``,
-    invoked by ``validate_pipe_configuration``).
-
-    Also rejects ``quality_mode``/``distilled_mode`` both being set (see
-    :func:`check_guider_mode_conflict`) -- same pre-run treatment, since it's
-    the same class of "individually valid, degenerate together" config.
-
-    ``refine_sigmas`` gets the same non-numeric/length/non-
-    increasing checks as ``manual_sigmas`` (they share :func:`parse_
-    explicit_sigmas`'s exact contract minus the head/tail forcing), and also
-    exempts ``steps`` from its own ``>= 2`` floor below -- when set, ``steps``
-    is entirely unused (``denoise()``/``denoise_prenoised()``'s ``sigmas=``
-    override replaces the schedule outright).
-    """
-    check_guider_mode_conflict(config, pipe_id=pipe_id)
-
-    sampler = config.get("sampler")
-    if not sampler or not str(sampler).strip():
-        raise ValueError(f"{pipe_id}: 'sampler' is required and cannot be empty")
-
-    schedule = str(config.get("schedule") or "").strip()
-    manual_sigmas_raw = config.get("manual_sigmas") or ""
-    schedule_options = config.get("schedule_options") or {}
-    has_manual_sigmas = bool(str(manual_sigmas_raw).strip()) or bool(schedule_options.get("sigmas"))
-
-    if schedule == "manual" and not has_manual_sigmas:
-        raise ValueError(
-            f"{pipe_id}: schedule='manual' requires 'manual_sigmas' (or "
-            f"schedule_options.sigmas) to be set -- got neither"
-        )
-
-    if manual_sigmas_raw:
-        try:
-            values = [float(v.strip()) for v in str(manual_sigmas_raw).split(",") if v.strip() != ""]
-        except ValueError:
-            raise ValueError(f"{pipe_id}: 'manual_sigmas' contains a non-numeric value: {manual_sigmas_raw!r}")
-        if len(values) < 2:
-            raise ValueError(f"{pipe_id}: 'manual_sigmas' needs at least 2 sigma values, got {len(values)}")
-        for a, b in zip(values, values[1:]):
-            if b > a:
-                raise ValueError(f"{pipe_id}: 'manual_sigmas' must be non-increasing, got {values}")
-
-    refine_sigmas_raw = str(config.get("refine_sigmas") or "").strip()
-    if refine_sigmas_raw:
-        try:
-            parse_explicit_sigmas(refine_sigmas_raw)
-        except ValueError as e:
-            raise ValueError(f"{pipe_id}: 'refine_sigmas' is invalid: {e}") from e
-
-    steps = config.get("steps")
-    if isinstance(steps, (int, float)) and int(steps) < 2 and not has_manual_sigmas and not refine_sigmas_raw:
-        raise ValueError(
-            f"{pipe_id}: 'steps' must be >= 2 for the default multi-sigma schedule (got {steps}); "
-            f"set 'manual_sigmas'/'refine_sigmas' for an explicit short/single-step recipe if intended"
-        )
-
-
-_warned_snapped_resolution: set[tuple[int, int]] = set()
-_warned_snapped_frames: set[int] = set()
-
-
-def _snap_geometry(width: int, height: int, frames: int) -> tuple[int, int, int]:
-    """Snap an LTX request to the model's spatial (32px) + temporal (1+8k) granularity."""
-    snapped_w, snapped_h = snap_resolution(width, height, _SPATIAL_DOWNSCALE, 1)
-    snapped_frames = snap_frame_count(frames, _TEMPORAL_DOWNSCALE)
-    if (snapped_w, snapped_h) != (width, height) and (width, height) not in _warned_snapped_resolution:
-        _warned_snapped_resolution.add((width, height))
-        logger.warning("[GENERATOR LTX] snapped resolution %dx%d -> %dx%d (granularity %dpx)",
-                       width, height, snapped_w, snapped_h, _SPATIAL_DOWNSCALE)
-    if snapped_frames != frames and frames not in _warned_snapped_frames:
-        _warned_snapped_frames.add(frames)
-        logger.warning("[GENERATOR LTX] snapped frames %d -> %d (1 + %d*k)",
-                       frames, snapped_frames, _TEMPORAL_DOWNSCALE)
-    return snapped_w, snapped_h, snapped_frames
-
-
-def _decode_video(c: Any, latent: torch.Tensor, seed: int) -> np.ndarray:
-    """Decode an LTX video latent to (T, H, W, 3) uint8 frames.
-
-    Unlike Wan's causal-3D VAE, the LTX video VAE un-normalizes internally —
-    no separate latent mean/std step here.
-
-    Routed through the same shared ``causal3d_chunk_frames``/
-    ``chunked_decode_causal3d`` seam as txt2vid_wan22's ``_decode_video``, for
-    consistency and to auto-pick up temporal chunking if a future LTX VAE ever
-    grows a ``new_feat_cache``. Today it's a no-op: LTX's VAE has no such
-    method, so ``causal3d_chunk_frames`` always returns ``None`` here.
-
-    The plain-decode branch goes through ``decode_with_oom_retry``, which is a
-    bare ``.decode()`` for the 2.0/2.3 conv VAE (it self-chunks internally) and
-    the whole-clip/tiled VRAM ladder for the 2.5 diffusion decoder, whose
-    stage-5 blocks run over the full pixel-token grid with no internal bound.
-
-    ``seed`` is the request seed. The 2.5 diffusion decoder SAMPLES the pixels
-    it denoises, so without a seeded stream the same seed decodes differently
-    every run; it gets its own generator offset by
-    ``DECODE_NOISE_SEED_OFFSET`` so those draws never shift the sampler's.
-    The conv VAE is deterministic and ignores it.
-    """
-    c.vae.move_to(c.device)
-    z = latent.to(device=c.device, dtype=c.vae.compute_dtype)
-    with torch.no_grad():
-        chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free_vram_gb(c.device))
-        if chunk_frames is not None:
-            # accumulate on CPU so a long clip's per-chunk pixels don't pile up on
-            # the GPU (+ cat duplicate) and OOM at assembly — frames go to CPU next.
-            pixels = chunked_decode_causal3d(
-                c.vae.module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu",
-            )
-        else:
-            pixels = decode_with_oom_retry(  # (B, 3, T, H, W) in [-1, 1]
-                c.vae, z, c.device,
-                generator=torch.Generator(device=c.device).manual_seed(
-                    int(seed) + DECODE_NOISE_SEED_OFFSET
-                ),
-                profiler_mark="ltx.decode", log_prefix="[GENERATOR LTX]",
-            )
-    c.vae.offload()
-
-    # Catch a corrupt decode HERE, before the uint8 cast below silently turns
-    # a NaN pixel into a black 0 with no error (torch.clamp leaves NaN
-    # unchanged; see DecodeNumericsError). Checked before the pixel-convert
-    # cast so this covers both the chunked and single-call decode paths above
-    # uniformly, mirroring txt2vid_wan22's identical guard.
-    if not torch.isfinite(pixels).all():
-        raise DecodeNumericsError()
-
-    # Chunked conversion: the full-tensor chain allocated several clip-sized
-    # fp32 transients on the decode device and OOM'd long high-res clips after
-    # a successful decode (see pixel_convert).
-    return pixels_3thw_to_uint8_frames(pixels[0])  # (T, H, W, 3)
-
-
-def _te_ram_gb(te_native_model: Any) -> float:
-    """Best-effort host-RAM footprint of a TE ``NativeModel``'s parameters, for
-    the log field on a TE eviction below. Single Gemma3 module (no T5/CLIP-
-    composite duck-typing needed here, unlike the more general
-    ``NativeGenerator._te_size_gb`` in engine.py -- that method is
-    private/bound to a ``NativeGenerator`` instance the callers of this
-    function don't have)."""
-    module = getattr(te_native_model, "module", None)
-    if module is None or not hasattr(module, "parameters"):
-        return 0.0
-    try:
-        return sum(p.numel() * p.element_size() for p in module.parameters()) / (1 << 30)
-    except Exception:
-        return 0.0
-
-
-def release_idle_te(bundle: Any, models: Any, log_prefix: str) -> float:
-    """Evict the TE's MODELS cache entry: by the time a generator (or the
-    standalone-upscale refine) pipe runs, ``prompt_encoder`` has already
-    produced the conditioning every downstream consumer needs -- the
-    ~22GB Gemma3-12B TE is pure dead weight in host RAM for the rest of THIS
-    generation. Both LTX-2/2.3 preset pipelines (``video`` and ``upscale``)
-    call ``prompt_encoder`` exactly once; every generator stage (including a
-    stage-2 refine) and the standalone upscale's refine pass all read that
-    SAME conditioning output, never re-encoding -- and audio generation
-    decodes through the audio VAE + vocoder, not the TE. Shared by
-    ``generator/txt2vid_ltx``, ``generator/video_ltx``, and
-    ``latent_upscaler/ltx``'s standalone-upscale ``_unload_idle_te`` (that
-    pipe runs BEFORE a generator in the standalone-upscale pipeline, so its
-    own call is the first to fire there; in the in-flow two-stage video
-    pipeline, ``generator_stage1``'s own call now fires first instead, making
-    ``latent_upscaler``'s call a harmless no-op fallback) -- one
-    implementation instead of three copies.
-
-    Safe when: the bundle carries no ``te_cache_key`` (built outside the
-    MODELS cache, e.g. isolated pipe tests -- no-op); ``models`` (the MODELS
-    service) wasn't injected -- no-op; or the TE's cache entry is already
-    gone (evicted by an earlier pipe in this same generation, or still
-    referenced elsewhere -- ``evict_dead_weight`` reports ``False`` and this
-    returns 0.0 without raising). Bypassing this generation's own lease is
-    safe because the native queue is serial per backend; the accepted cost is
-    a later pipe/generation that needs this TE again cache-missing and paying
-    a fresh reload from disk -- strictly better than an OOM/earlyoom kill
-    this avoids. See ``ModelLifecycle.evict_dead_weight``'s docstring
-    for the full argument.
-
-    Returns the estimated GB actually freed (0.0 if nothing was unloaded).
-    """
-    key = getattr(bundle, "te_cache_key", None)
-    if not key or models is None:
-        return 0.0
-    evict = getattr(models, "evict_dead_weight", None)
-    if not callable(evict):
-        return 0.0
-    te_gb = _te_ram_gb(getattr(bundle, "te", None))
-    try:
-        unloaded = evict(key)
-    except Exception:  # pragma: no cover - best-effort; never fail the pipe over this
-        logger.debug("[%s] TE eviction failed for key=%r", log_prefix, key, exc_info=True)
-        return 0.0
-    # Coarse census mark (once per call, never per-step) for host-RAM
-    # accounting: mirrors latent_upscaler/ltx's `_free_room_for_upscale`,
-    # the origin of this mechanism, so both eviction sites show up in a
-    # generation's profiler trace under the same field names.
-    get_profiler().mark(
-        "ltx_generator.te_evicted", pipe=log_prefix, key=key,
-        unloaded=bool(unloaded), te_gb=round(te_gb, 2) if unloaded else 0.0,
-    )
-    if unloaded:
-        logger.debug("[%s] evicted idle TE cache entry key=%r (~%.2fGB)", log_prefix, key, te_gb)
-    return te_gb if unloaded else 0.0
 
 
 @dataclass
@@ -513,9 +217,6 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
                 f"is not an LTX-2/2.3 checkpoint. Pick an LTX DiT for this preset."
             )
 
-        # TE eviction: this pipe never touches the TE itself (conditioning
-        # was already produced by `prompt_encoder`, upstream of every LTX
-        # preset pipeline) -- see `release_idle_te`'s docstring.
         release_idle_te(bundle, pipe_input.input.get("MODELS"), "GENERATOR LTX")
 
         steps = int(self.config.get("steps", 24))
@@ -561,13 +262,13 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
             # preset-render time, so those two config keys are simply ignored
             # on this path.
             _, _, t_lat0, h_lat0, w_lat0 = initial_latents[0].shape
-            width = int(w_lat0) * _SPATIAL_DOWNSCALE
-            height = int(h_lat0) * _SPATIAL_DOWNSCALE
-            frames = (int(t_lat0) - 1) * _TEMPORAL_DOWNSCALE + 1
+            width = int(w_lat0) * LTX_SPATIAL_DOWNSCALE
+            height = int(h_lat0) * LTX_SPATIAL_DOWNSCALE
+            frames = (int(t_lat0) - 1) * LTX_TEMPORAL_DOWNSCALE + 1
         else:
             resolution = str(self.config.get("resolution", "768x512")).split("x")
             width, height = int(resolution[0]), int(resolution[1])
-            width, height, frames = _snap_geometry(width, height, frames)
+            width, height, frames = snap_ltx_geometry(width, height, frames)
 
         spec = bundle.spec
         # APG: read straight out of sampling_settings by _make_guidance (see
@@ -604,20 +305,14 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter) -> Any:
         c: _LTXCtx = ctx.extra
         cond_model = c.conditioning[index] if index < len(c.conditioning) else c.conditioning[-1]
-        cond = _to_device(cond_model.embeds, c.device, c.dtype)
-        uncond = _to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
-        # NAG: uncond["context"] is ALREADY the negative prompt run through
-        # apply_text_conditioning (ltx_clip.py's LTXClipTextEncoder._project
-        # builds n_embeds the same way as embeds), i.e. already the
-        # [B,S,v_inner+a_inner] shape LTXAVModel.forward's nag_context expects
-        # -- no second projection call needed; _attach_nag (txt2vid_wan22)
-        # is family-agnostic (keys off "context" alone) so it's reused as-is.
-        cond = _attach_nag(cond, uncond, self.config)
+        cond = to_device(cond_model.embeds, c.device, c.dtype)
+        uncond = to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
+        cond = attach_nag(cond, uncond, self.config)
 
-        t_lat = (c.frames - 1) // _TEMPORAL_DOWNSCALE + 1
-        h_lat = c.height // _SPATIAL_DOWNSCALE
-        w_lat = c.width // _SPATIAL_DOWNSCALE
-        shape = (1, _LATENT_CHANNELS, t_lat, h_lat, w_lat)
+        t_lat = (c.frames - 1) // LTX_TEMPORAL_DOWNSCALE + 1
+        h_lat = c.height // LTX_SPATIAL_DOWNSCALE
+        w_lat = c.width // LTX_SPATIAL_DOWNSCALE
+        shape = (1, LTX_LATENT_CHANNELS, t_lat, h_lat, w_lat)
 
         gen = torch.Generator(device=c.device).manual_seed(int(seed))
         noise = torch.randn(shape, generator=gen, device=c.device, dtype=c.dtype)
@@ -687,12 +382,6 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
             if nag_context is not None:
                 extra["nag_context"] = nag_context
                 extra["nag"] = conditioning.get("nag")
-            # FBCache: read the reserved "step_cache" key (see denoise_loop.py's
-            # _CachingGuidance, which always spreads a FRESH
-            # {**conditioning, "step_cache": ...} dict rather than mutating the
-            # persistent one) only when present/non-None, mirroring
-            # _ExpertRouter's skip_layers/step_cache handling -- never pass
-            # step_cache=None when the arch forward doesn't accept it yet.
             step_cache = conditioning.get("step_cache")
             if step_cache is not None:
                 extra["step_cache"] = step_cache
@@ -793,14 +482,8 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
                 restore_dit_best_effort(c.bundle.dit, c.device)
             return latent
 
-        frames = _decode_video(c, latent, seed)
+        frames = decode_ltx_video(c.vae, c.device, latent, seed)
         if c.trim_to_frame_count is not None and 0 < c.trim_to_frame_count < frames.shape[0]:
-            # Drop latent_upscaler/ltx's repeated-last-frame temporal padding
-            # (see its `_pad_frames_to_temporal_grid`) before it reaches the
-            # mux -- this decoded array's length tracks the PADDED latent's
-            # temporal size, not the original source's. Trimming after the
-            # full array is assembled means this is correct whether or not
-            # the decode itself was chunked internally (see _decode_video).
             logger.info(
                 "[GENERATOR LTX] refine pass: trimming %d padded tail frame(s) "
                 "(decoded %d -> source %d) before mux",
@@ -812,13 +495,6 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         # for an actual audio stream and degrades to `-an` when there isn't one.
         encode_frames_to_mp4(frames, out_path, fps=c.fps, audio=c.audio_source)
 
-        # Best-effort warm-start for the NEXT generation: only after the LAST
-        # seed of THIS invocation (quantity>1 loops call generate_one multiple
-        # times per process(), offloading/reloading the DiT between each --
-        # restoring here would just be immediately undone by the next seed's
-        # own `move_to` above). Positioned after decode + mp4 encode (which
-        # already ran the VAE offload inside _decode_video) so wall-clock to
-        # this video's own visible result is unchanged; see dit_restore.py.
         if index == ctx.quantity - 1:
             restore_dit_best_effort(c.bundle.dit, c.device)
 
@@ -827,9 +503,9 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
     def emit_results(self, generation_outputs: callable, results: List[Any], used_seeds: List[int]) -> None:
         if not bool(self.config.get("decode", True)):
             return  # stage 1: an internal latent hand-off, no gallery/seed emission here
-        _emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
+        emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
 
     def build_output(self, results: List[Any]) -> Dict[str, Any]:
         if not bool(self.config.get("decode", True)):
             return {"latent": results, "video": []}
-        return {**_build_video_output(results), "latent": []}
+        return {**build_video_output(results), "latent": []}

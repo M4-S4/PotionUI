@@ -17,9 +17,9 @@ from src.platform.settings import runtime_flags
 from src.platform.runtime.native.vae.causal_3d import AutoEncoderCausal3D, LATENTS_MEAN, LATENTS_STD
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.generator.txt2vid_wan22.main import (
-    GeneratorWanTxt2VidPipe, _ExpertRouter, _WanCtx, _decode_video,
-)
+from src.pipelines.pipes.generator.txt2vid_wan22.main import _WanCtx, GeneratorWanTxt2VidPipe
+from src.pipelines.pipes._shared.video.wan_experts import ExpertRouter
+from src.pipelines.pipes._shared.video.wan_experts import decode_wan_video
 from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb
 
 
@@ -41,7 +41,7 @@ class _FakeDiT:
 
 def test_router_selects_high_above_boundary_low_below():
     high, low = _FakeDiT("high"), _FakeDiT("low")
-    router = _ExpertRouter(high, low, boundary=0.875, device="cpu")
+    router = ExpertRouter(high, low, boundary=0.875, device="cpu")
     cond = {"context": torch.zeros(1, 2, 4)}
     x = torch.zeros(1, 16, 1, 2, 2)
     router(x, torch.tensor([0.95]), cond)          # above boundary -> high
@@ -53,7 +53,7 @@ def test_router_selects_high_above_boundary_low_below():
 
 def test_router_single_expert_always_high():
     high = _FakeDiT("high")
-    router = _ExpertRouter(high, None, boundary=0.875, device="cpu")
+    router = ExpertRouter(high, None, boundary=0.875, device="cpu")
     cond = {"context": torch.zeros(1, 2, 4)}
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.1]), cond)
     assert router.active is high
@@ -63,7 +63,7 @@ def test_router_scales_timestep_by_1000():
     seen = {}
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx: seen.setdefault("t", t) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
     assert torch.allclose(seen["t"], torch.tensor([500.0]))  # 0.5 * 1000
 
@@ -94,7 +94,7 @@ class TestWanCtxReleaseGpu:
 
     def test_offloads_both_experts_and_vae(self):
         high, low, vae = _FakeDiT("high"), _FakeDiT("low"), _FakeVae()
-        router = _ExpertRouter(high, low, boundary=0.875, device="cuda")
+        router = ExpertRouter(high, low, boundary=0.875, device="cuda")
         _make_wan_ctx(router, vae).release_gpu()
 
         assert high.offloaded == 1
@@ -103,7 +103,7 @@ class TestWanCtxReleaseGpu:
 
     def test_single_expert_wan_has_no_low_to_offload(self):
         high, vae = _FakeDiT("high"), _FakeVae()
-        router = _ExpertRouter(high, None, boundary=0.875, device="cuda")
+        router = ExpertRouter(high, None, boundary=0.875, device="cuda")
         _make_wan_ctx(router, vae).release_gpu()
 
         assert high.offloaded == 1
@@ -115,7 +115,7 @@ class TestWanCtxReleaseGpu:
                 raise RuntimeError("cuda error")
 
         high, low, vae = _RaisingDit("high"), _FakeDiT("low"), _FakeVae()
-        router = _ExpertRouter(high, low, boundary=0.875, device="cuda")
+        router = ExpertRouter(high, low, boundary=0.875, device="cuda")
         _make_wan_ctx(router, vae).release_gpu()  # must not raise
 
         assert low.offloaded == 1
@@ -330,7 +330,7 @@ def test_router_skip_layers_absent_by_default():
     seen = {}
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen.update(kw) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
     assert "skip_layers" not in seen
     assert "riflex" not in seen
@@ -340,7 +340,7 @@ def test_router_pops_skip_layers_from_conditioning_and_forwards_as_kwarg():
     seen = {}
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen.update(kw) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
     conditioning = {"context": torch.zeros(1, 2, 4), "skip_layers": {0, 2}}
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.5]), conditioning)
     assert seen["skip_layers"] == {0, 2}
@@ -353,7 +353,7 @@ def test_router_empty_skip_layers_set_is_not_forwarded():
     seen = {}
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen.update(kw) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
     conditioning = {"context": torch.zeros(1, 2, 4), "skip_layers": set()}
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.5]), conditioning)
     assert "skip_layers" not in seen
@@ -368,7 +368,7 @@ def test_router_skip_layers_does_not_leak_into_persistent_conditioning_dict():
     seen_calls = []
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen_calls.append(dict(kw)) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
 
     persistent_cond = {"context": torch.zeros(1, 2, 4)}
     degraded_cond = {**persistent_cond, "skip_layers": {0, 2}}  # SLG's own fresh spread
@@ -383,7 +383,7 @@ def test_router_step_cache_does_not_leak_into_persistent_conditioning_dict():
     seen_calls = []
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen_calls.append(dict(kw)) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
 
     persistent_cond = {"context": torch.zeros(1, 2, 4)}
     cached_cond = {**persistent_cond, "step_cache": object()}  # denoise_loop's own fresh spread
@@ -399,7 +399,7 @@ def test_router_forwards_riflex_kwarg_when_set():
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen.update(kw) or torch.zeros_like(x)
     riflex = {"enabled": True, "latent_frames_trained": 8}
-    router = _ExpertRouter(high, None, 0.875, "cpu", riflex=riflex)
+    router = ExpertRouter(high, None, 0.875, "cpu", riflex=riflex)
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
     assert seen["riflex"] == riflex
 
@@ -697,7 +697,7 @@ def test_router_step_cache_absent_by_default():
     seen = {}
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen.update(kw) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
     assert "step_cache" not in seen
 
@@ -706,7 +706,7 @@ def test_router_pops_step_cache_from_conditioning_and_forwards_as_kwarg():
     seen = {}
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen.update(kw) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
     sentinel_cache = object()  # stand-in for a FirstBlockCache instance
     conditioning = {"context": torch.zeros(1, 2, 4), "step_cache": sentinel_cache}
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.5]), conditioning)
@@ -720,7 +720,7 @@ def test_router_none_step_cache_is_not_forwarded():
     seen = {}
     high = _FakeDiT("high")
     high.module = lambda x, t, ctx, **kw: seen.update(kw) or torch.zeros_like(x)
-    router = _ExpertRouter(high, None, 0.875, "cpu")
+    router = ExpertRouter(high, None, 0.875, "cpu")
     conditioning = {"context": torch.zeros(1, 2, 4), "step_cache": None}
     router(torch.zeros(1, 16, 1, 2, 2), torch.tensor([0.5]), conditioning)
     assert "step_cache" not in seen
@@ -768,8 +768,8 @@ def test_decode_video_small_clip_no_vram_query_uses_single_decode_call():
 
     c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
     latent = torch.randn(1, 16, 9, 4, 4)
-    with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.chunked_decode_causal3d") as mock_chunked:
-        out = _decode_video(c, latent)
+    with patch("src.pipelines.pipes._shared.video.wan_experts.chunked_decode_causal3d") as mock_chunked:
+        out = decode_wan_video(c, latent)
     assert calls["decode"] == 1
     mock_chunked.assert_not_called()
     assert out.dtype == np.uint8
@@ -786,11 +786,11 @@ def test_decode_video_forced_chunking_matches_single_decode_output():
     latent = torch.randn(1, 16, 9, 4, 4)
 
     c1 = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
-    baseline = _decode_video(c1, latent.clone())
+    baseline = decode_wan_video(c1, latent.clone())
 
     c2 = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
-    with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.causal3d_chunk_frames", return_value=3):
-        chunked_out = _decode_video(c2, latent.clone())
+    with patch("src.pipelines.pipes._shared.video.wan_experts.causal3d_chunk_frames", return_value=3):
+        chunked_out = decode_wan_video(c2, latent.clone())
 
     assert np.array_equal(baseline, chunked_out)
 
@@ -808,9 +808,9 @@ def test_decode_video_chunked_path_receives_denormalized_latent():
 
     latent = torch.randn(1, 16, 5, 4, 4)
     c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
-    with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.causal3d_chunk_frames", return_value=2), \
-         patch("src.pipelines.pipes.generator.txt2vid_wan22.main.chunked_decode_causal3d", side_effect=fake_chunked):
-        _decode_video(c, latent.clone())
+    with patch("src.pipelines.pipes._shared.video.wan_experts.causal3d_chunk_frames", return_value=2), \
+         patch("src.pipelines.pipes._shared.video.wan_experts.chunked_decode_causal3d", side_effect=fake_chunked):
+        decode_wan_video(c, latent.clone())
 
     mean = torch.tensor(LATENTS_MEAN).view(1, -1, 1, 1, 1)
     std = torch.tensor(LATENTS_STD).view(1, -1, 1, 1, 1)
@@ -825,17 +825,17 @@ def test_decode_video_raises_on_nan_pixels_instead_of_silent_black_frame():
     vae_module = _tiny_wan_vae()
     c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
     latent = torch.randn(1, 16, 5, 4, 4)
-    with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.causal3d_chunk_frames", return_value=None), \
+    with patch("src.pipelines.pipes._shared.video.wan_experts.causal3d_chunk_frames", return_value=None), \
          patch.object(vae_module, "decode", return_value=torch.full((1, 3, 5, 4, 4), float("nan"))):
         with pytest.raises(DecodeNumericsError):
-            _decode_video(c, latent)
+            decode_wan_video(c, latent)
 
 
 def test_decode_video_finite_pixels_pass_through_unaffected():
     vae_module = _tiny_wan_vae()
     c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=16)
     latent = torch.randn(1, 16, 5, 4, 4)
-    out = _decode_video(c, latent)
+    out = decode_wan_video(c, latent)
     assert out.dtype == np.uint8
 
 
@@ -853,9 +853,9 @@ def test_decode_video_wan22_5b_48ch_skips_normalization_in_both_paths():
 
     latent = torch.randn(1, 48, 5, 4, 4)
     c = SimpleNamespace(vae=_FakeVaeWrapper(vae_module), device="cpu", latent_channels=48)
-    with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.causal3d_chunk_frames", return_value=2), \
-         patch("src.pipelines.pipes.generator.txt2vid_wan22.main.chunked_decode_causal3d", side_effect=fake_chunked):
-        _decode_video(c, latent.clone())
+    with patch("src.pipelines.pipes._shared.video.wan_experts.causal3d_chunk_frames", return_value=2), \
+         patch("src.pipelines.pipes._shared.video.wan_experts.chunked_decode_causal3d", side_effect=fake_chunked):
+        decode_wan_video(c, latent.clone())
 
     assert torch.equal(seen["z"], latent)
 
@@ -869,7 +869,7 @@ def test_decode_video_wan22_5b_48ch_skips_normalization_in_both_paths():
 # drive the decision on CPU by mocking the free-VRAM read + residency manager;
 # sampling_headroom_gb runs for real.
 
-import src.pipelines.pipes.generator.txt2vid_wan22.main as _wan_mod
+import src.pipelines.pipes._shared.video.wan_experts as _wan_mod
 
 
 class _PlaceDiT:
@@ -918,7 +918,7 @@ _HIRES_5S = (1, 16, 21, 160, 90)   # 720x1280 @ 81 frames -> ~29.5GB activation 
 def test_router_streams_expert_when_it_wont_cofit_activations(monkeypatch):
     _patch_placement(monkeypatch, free_gb=30.0)
     high = _PlaceDiT("high", est_gb=27.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
     router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     # budget = 30 - ~29.5 = ~0.5GB << 27GB expert -> streamed, never full-moved.
     assert high.streamed and high.streamed[0][0] == "cuda:0"
@@ -929,7 +929,7 @@ def test_router_streams_expert_when_it_wont_cofit_activations(monkeypatch):
 def test_router_full_moves_expert_when_it_fits(monkeypatch):
     _patch_placement(monkeypatch, free_gb=60.0)     # huge card, tiny clip
     high = _PlaceDiT("high", est_gb=14.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0",
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0",
                            latents_shape=(1, 16, 5, 30, 30))
     router(torch.zeros(1, 16, 5, 30, 30), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     assert high.moved == ["cuda:0"]
@@ -942,7 +942,7 @@ def test_router_without_latents_shape_is_backward_compatible_full_move(monkeypat
     monkeypatch.setattr(_wan_mod, "free_vram_gb",
                         lambda device: (_ for _ in ()).throw(AssertionError("must not query VRAM")))
     high = _PlaceDiT("high", est_gb=27.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0")
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0")
     router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     assert high.moved == ["cuda:0"]
     assert high.streamed == []
@@ -951,7 +951,7 @@ def test_router_without_latents_shape_is_backward_compatible_full_move(monkeypat
 def test_router_evicts_foreign_residents_but_not_own_experts(monkeypatch):
     res = _patch_placement(monkeypatch, free_gb=30.0)
     high, low = _PlaceDiT("high", 27.0), _PlaceDiT("low", 27.0)
-    router = _ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router = ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
     router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     # ensure_free was asked to make room, excluding BOTH our experts.
     assert res.ensure_free_calls
@@ -962,7 +962,7 @@ def test_router_evicts_foreign_residents_but_not_own_experts(monkeypatch):
 def test_router_offloads_previous_expert_before_streaming_next(monkeypatch):
     _patch_placement(monkeypatch, free_gb=30.0)
     high, low = _PlaceDiT("high", 27.0), _PlaceDiT("low", 27.0)
-    router = _ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router = ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
     cond = {"context": torch.zeros(1, 2, 4)}
     router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), cond)   # high (streamed)
     router(torch.zeros(_HIRES_5S), torch.tensor([0.5]), cond)    # transition -> low
@@ -980,7 +980,7 @@ def test_router_stream_oom_falls_back_to_zero_budget(monkeypatch):
                 raise torch.cuda.OutOfMemoryError("boom")
 
     high = _OOMOnceDiT("high", est_gb=27.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
     router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     assert len(high.streamed) == 2      # first OOM'd, retried
     assert high.streamed[1][1] == 0.0   # zero-budget backstop (every leaf streamed)
@@ -1057,7 +1057,7 @@ def test_router_compiles_a_resident_expert_when_enabled(monkeypatch):
     tc = _enable_compile(monkeypatch)
     _patch_placement(monkeypatch, free_gb=60.0)
     high = _CompilablePlaceDiT("high", est_gb=14.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0",
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0",
                            latents_shape=(1, 16, 5, 30, 30))
     router(torch.zeros(1, 16, 5, 30, 30), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     assert high.moved == ["cuda:0"]
@@ -1069,7 +1069,7 @@ def test_router_never_compiles_a_streamed_expert(monkeypatch):
     _enable_compile(monkeypatch)
     _patch_placement(monkeypatch, free_gb=30.0)
     high = _CompilablePlaceDiT("high", est_gb=27.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
     router(torch.zeros(_HIRES_5S), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     assert high.streamed  # confirms this hit the partial-residency branch
     assert getattr(high, "_compiled", None) is None
@@ -1079,7 +1079,7 @@ def test_router_compile_disabled_by_default_leaves_expert_untouched(monkeypatch)
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_torch_compile", False)
     _patch_placement(monkeypatch, free_gb=60.0)
     high = _CompilablePlaceDiT("high", est_gb=14.0)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0",
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0",
                            latents_shape=(1, 16, 5, 30, 30))
     router(torch.zeros(1, 16, 5, 30, 30), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
     assert high.moved == ["cuda:0"]
@@ -1103,7 +1103,7 @@ def test_router_weights_budget_credits_resident_lora_delta(monkeypatch):
     expected_delta_gb = _dit_lora_delta_gb(high)
     assert expected_delta_gb > 0.0
 
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0", latents_shape=_HIRES_5S)
     router._weights_budget_gb(high)
 
     assert res.ensure_free_calls
@@ -1121,7 +1121,7 @@ def test_router_resident_placement_routes_through_guarded_move(monkeypatch):
         return "resident"
 
     monkeypatch.setattr(_wan_mod, "_move_resident", _fake_move_resident)
-    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0",
+    router = ExpertRouter(high, None, boundary=0.875, device="cuda:0",
                            latents_shape=(1, 16, 5, 30, 30))
     router(torch.zeros(1, 16, 5, 30, 30), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
 

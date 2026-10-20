@@ -155,57 +155,6 @@ class TestPipeInstaller:
         assert not result
         assert self.catalog.pipe_status['mock_pipe'] == PipeStatus.ERROR
 
-    @pytest.mark.asyncio
-    async def test_uninstall_pipe_success(self):
-        """Test successful pipe uninstallation"""
-        self.catalog.pipes['mock_pipe'] = MockPipe
-
-        with patch('asyncio.to_thread') as mock_to_thread:
-            mock_to_thread.return_value = AsyncMock()()
-
-            result = await self.installer.uninstall_pipe('mock_pipe')
-
-        assert result
-        assert self.catalog.pipe_status['mock_pipe'] == PipeStatus.NOT_INSTALLED
-
-    @pytest.mark.asyncio
-    async def test_uninstall_pipe_not_found(self):
-        """Test uninstalling non-existent pipe"""
-        result = await self.installer.uninstall_pipe('nonexistent')
-        assert not result
-
-    @pytest.mark.asyncio
-    async def test_uninstall_pipe_error(self):
-        """Test pipe uninstallation error handling"""
-        existing_repo = self.temp_dir
-
-        class PipeWithGitReq(MockPipe):
-            @classmethod
-            def get_requirements(cls):
-                return {'pip': [], 'git': [{'path': existing_repo}], 'models': []}
-
-        self.catalog.pipes['mock_pipe'] = PipeWithGitReq
-
-        with patch('asyncio.to_thread') as mock_to_thread:
-            mock_to_thread.side_effect = Exception("Uninstallation failed")
-
-            result = await self.installer.uninstall_pipe('mock_pipe')
-
-        assert not result
-
-    def test_remove_directory(self):
-        """Test directory removal utility"""
-        test_dir = os.path.join(self.temp_dir, 'test_remove')
-        os.makedirs(test_dir)
-
-        test_file = os.path.join(test_dir, 'test.txt')
-        with open(test_file, 'w') as f:
-            f.write('test')
-
-        assert os.path.exists(test_dir)
-        self.installer._remove_directory(test_dir)
-        assert not os.path.exists(test_dir)
-
 
 @pytest.mark.asyncio
 async def test_install_pipe_pip_nonzero_exit_is_failure():

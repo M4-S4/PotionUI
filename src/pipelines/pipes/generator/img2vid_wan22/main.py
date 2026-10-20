@@ -17,7 +17,6 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-import numpy as np
 import torch
 
 from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
@@ -43,16 +42,15 @@ from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_conc
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
-from src.pipelines.pipes.generator.txt2vid_wan22.main import (
-    _attach_nag,
-    _build_video_output,
-    _decode_video,
-    _emit_video_results,
-    _ExpertRouter,
-    _TEMPORAL_DOWNSCALE,
-    _snap_geometry,
-    _to_device,
+from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
+from src.pipelines.pipes._shared.video.frames import prep_start_frame
+from src.pipelines.pipes._shared.video.video_common import build_video_output, emit_video_results, to_device
+from src.pipelines.pipes._shared.video.wan_experts import (
+    decode_wan_video,
+    ExpertRouter,
     resolve_expert_boundary,
+    snap_wan_geometry,
+    WAN_TEMPORAL_DOWNSCALE,
 )
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
@@ -65,7 +63,7 @@ from src.pipelines.pipes._shared.generation.config_specs import (
 class _I2VForward:
     """Wraps the expert router to prepend the constant i2v concat to the latent."""
 
-    def __init__(self, router: _ExpertRouter, concat: torch.Tensor) -> None:
+    def __init__(self, router: ExpertRouter, concat: torch.Tensor) -> None:
         self.router = router
         self.concat = concat
 
@@ -119,28 +117,6 @@ class _Ctx:
             self.vae.offload()
         except Exception:
             pass
-
-
-def _prep_start_frame(image: Any, height: int, width: int, device: str, dtype: torch.dtype) -> torch.Tensor:
-    """Normalize a PIL image / HWC tensor to ``(1, H, W, 3)`` float [0,1], resized
-    to cover the target and centre-cropped (ComfyUI ``common_upscale`` 'center')."""
-    if hasattr(image, "convert"):  # PIL
-        arr = torch.from_numpy(np.asarray(image.convert("RGB"))).to(dtype) / 255.0
-    else:
-        arr = torch.as_tensor(image, dtype=dtype)
-        if arr.max() > 1.5:
-            arr = arr / 255.0
-    if arr.ndim == 4:
-        arr = arr[0]
-    chw = arr.permute(2, 0, 1).unsqueeze(0).to(device)  # (1,3,H0,W0)
-    _, _, h0, w0 = chw.shape
-    scale = max(width / w0, height / h0)
-    chw = torch.nn.functional.interpolate(chw, size=(round(h0 * scale), round(w0 * scale)),
-                                          mode="bilinear", align_corners=False)
-    _, _, h1, w1 = chw.shape
-    top, left = (h1 - height) // 2, (w1 - width) // 2
-    chw = chw[:, :, top:top + height, left:left + width]
-    return chw.squeeze(0).permute(1, 2, 0).unsqueeze(0)  # (1, H, W, 3)
 
 
 class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
@@ -257,21 +233,21 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         boundary = resolve_expert_boundary(spec, self.config, sampling_settings, steps,
                                            default=0.900, log_tag="GENERATOR WAN-I2V")
         riflex = build_riflex(self.config)
-        router = _ExpertRouter(bundle.high_dit, bundle.low_dit, boundary, device, riflex=riflex)
+        router = ExpertRouter(bundle.high_dit, bundle.low_dit, boundary, device, riflex=riflex)
         lf = spec.latent_format
         dtype = bundle.high_dit.compute_dtype
 
         # Snap to the model's granularity BEFORE the start frame is resized/encoded
         # into the concat (spatial to spatial_downscale*patch, frames to 1+4k).
-        width, height, frames = _snap_geometry(bundle, lf, width, height, frames)
+        width, height, frames = snap_wan_geometry(bundle, lf, width, height, frames)
 
         # Build the i2v concat ONCE (constant across seeds): VAE-encode the start frame.
         # The causal-3D VAE encode is the memory-heavy step (~2x decode); at 480p+ the
         # untiled encode OOMs, so fall back to a spatially-tiled encode on OOM (mirrors
         # the engine's decode OOM safety net -- temporal chunking is unchanged, tiling
         # is spatial only).
-        start = _prep_start_frame(images[0], height, width, device, dtype)
-        end = _prep_start_frame(end_images[0], height, width, device, dtype) if end_images else None
+        start = prep_start_frame(images[0], height, width, device, dtype)
+        end = prep_start_frame(end_images[0], height, width, device, dtype) if end_images else None
         bundle.vae.move_to(device)
         # try/finally: build_context runs OUTSIDE process()'s own try (it's
         # called before that try opens -- see BaseGeneratorPipe.process), so
@@ -312,11 +288,11 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter) -> str:
         c: _Ctx = ctx.extra
         cond_model = c.conditioning[index] if index < len(c.conditioning) else c.conditioning[-1]
-        cond = _to_device(cond_model.embeds, c.device, c.dtype)
-        uncond = _to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
-        cond = _attach_nag(cond, uncond, self.config)
+        cond = to_device(cond_model.embeds, c.device, c.dtype)
+        uncond = to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
+        cond = attach_nag(cond, uncond, self.config)
 
-        t_lat = (c.frames - 1) // _TEMPORAL_DOWNSCALE + 1
+        t_lat = (c.frames - 1) // WAN_TEMPORAL_DOWNSCALE + 1
         shape = (1, c.latent_channels, t_lat, c.height // c.spatial_downscale, c.width // c.spatial_downscale)
         # Activation-aware partial residency for each expert — the i2v
         # concat rides the same forward, so the DiT still full-pinned OOMs at 720p/5s.
@@ -356,13 +332,13 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
             if c.forward.router.active is not None:
                 c.forward.router.active.offload()
 
-        frames = _decode_video(c, latent)
+        frames = decode_wan_video(c, latent)
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(frames, out_path, fps=c.fps)
         return out_path
 
     def emit_results(self, generation_outputs: callable, results: List[str], used_seeds: List[int]) -> None:
-        _emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
+        emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
 
     def build_output(self, results: List[str]) -> Dict[str, Any]:
-        return _build_video_output(results)
+        return build_video_output(results)

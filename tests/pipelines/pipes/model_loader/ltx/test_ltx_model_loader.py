@@ -14,7 +14,7 @@ from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.model_loader.ltx.main import ModelLoaderLtxPipe
 from src.pipelines.pipes.model_loader.ltx.bundle import LTXModelBundle
 from src.pipelines.pipes.model_loader.ltx.ltx_clip import LTXClipTextEncoder
-from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 
 
 class _FakeModels:

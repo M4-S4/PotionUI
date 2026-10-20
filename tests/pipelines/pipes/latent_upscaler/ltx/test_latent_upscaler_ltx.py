@@ -12,7 +12,7 @@ import torch
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.platform.runtime.native.vae.ltx_tiling import LtxTilingConfig
-from src.pipelines.pipes.generator.txt2vid_ltx.main import _te_ram_gb
+from src.pipelines.pipes._shared.video.idle_encoder import te_ram_gb
 from src.pipelines.pipes.latent_upscaler.ltx.main import (
     LatentUpscalerLtxPipe,
     _free_room_for_upscale,
@@ -168,7 +168,7 @@ def test_offload_happens_even_if_upsampler_raises():
 def test_video_input_encodes_then_upsamples():
     bundle = _bundle()
     frames = torch.rand(9, 64, 96, 3)  # (n, H, W, 3) already-valid granularity
-    with patch("src.pipelines.pipes.latent_upscaler.ltx.main._load_video_frames", return_value=frames) as mock_load:
+    with patch("src.pipelines.pipes.latent_upscaler.ltx.main.load_video_frames", return_value=frames) as mock_load:
         out = _pipe(device="cpu").process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
     mock_load.assert_called_once_with("fake.mp4", 1001)
@@ -178,7 +178,7 @@ def test_video_input_encodes_then_upsamples():
 def test_latent_input_takes_priority_over_video():
     bundle = _bundle()
     latent = torch.randn(1, 8, 3, 4, 4)
-    with patch("src.pipelines.pipes.latent_upscaler.ltx.main._load_video_frames") as mock_load:
+    with patch("src.pipelines.pipes.latent_upscaler.ltx.main.load_video_frames") as mock_load:
         _pipe(device="cpu").process(
             PipeInput(input={"model": bundle, "latent": latent, "video": ["fake.mp4"]}), lambda o: None)
     mock_load.assert_not_called()
@@ -202,7 +202,7 @@ def test_source_frame_count_reports_pre_padding_count_on_video_path():
     the padding back out of its own decoded output."""
     bundle = _bundle()
     frames = torch.rand(120, 64, 96, 3)  # already-valid spatial dims, invalid temporal count
-    with patch("src.pipelines.pipes.latent_upscaler.ltx.main._load_video_frames", return_value=frames):
+    with patch("src.pipelines.pipes.latent_upscaler.ltx.main.load_video_frames", return_value=frames):
         out = _pipe(device="cpu").process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
     assert out.output["source_frame_count"] == 120
@@ -211,7 +211,7 @@ def test_source_frame_count_reports_pre_padding_count_on_video_path():
 def test_source_frame_count_matches_source_when_already_on_temporal_grid():
     bundle = _bundle()
     frames = torch.rand(9, 64, 96, 3)  # 9 == 1 + 1*8, already valid -- no padding needed
-    with patch("src.pipelines.pipes.latent_upscaler.ltx.main._load_video_frames", return_value=frames):
+    with patch("src.pipelines.pipes.latent_upscaler.ltx.main.load_video_frames", return_value=frames):
         out = _pipe(device="cpu").process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
     assert out.output["source_frame_count"] == 9
@@ -261,7 +261,7 @@ def test_encode_video_pads_odd_frame_count_before_vae_encode():
     bundle = SimpleNamespace(vae=vae, upsampler=upsampler)
 
     frames = torch.rand(120, 64, 96, 3)  # 120 raw frames, already-valid spatial dims
-    with patch("src.pipelines.pipes.latent_upscaler.ltx.main._load_video_frames", return_value=frames):
+    with patch("src.pipelines.pipes.latent_upscaler.ltx.main.load_video_frames", return_value=frames):
         _pipe(device="cpu").process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
 
@@ -305,7 +305,7 @@ def test_encode_video_frees_source_frames_before_vae_encode():
     upsampler = _RecordingComponent(_UpsamplerModule())
     bundle = SimpleNamespace(vae=vae, upsampler=upsampler)
 
-    with patch("src.pipelines.pipes.latent_upscaler.ltx.main._load_video_frames", side_effect=fake_load):
+    with patch("src.pipelines.pipes.latent_upscaler.ltx.main.load_video_frames", side_effect=fake_load):
         _pipe(device="cpu").process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
 
@@ -327,7 +327,7 @@ def test_encode_video_snaps_arbitrary_resolution_to_32px_grid():
     bundle = SimpleNamespace(vae=vae, upsampler=upsampler)
 
     frames = torch.rand(9, 455, 811, 3)  # (n, H0, W0, 3), 9 already a valid frame count
-    with patch("src.pipelines.pipes.latent_upscaler.ltx.main._load_video_frames", return_value=frames):
+    with patch("src.pipelines.pipes.latent_upscaler.ltx.main.load_video_frames", return_value=frames):
         _pipe(device="cpu").process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
 
@@ -437,7 +437,7 @@ def test_process_offloads_resident_dit_before_video_encode_runs():
     def cpu_upsample(bundle, upsampler, latent, device):
         return orig_upsample(bundle, upsampler, latent, "cpu")
 
-    with patch(f"{_MOD}._load_video_frames", return_value=frames), \
+    with patch(f"{_MOD}.load_video_frames", return_value=frames), \
          patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_SHARED_MOD}.free_vram_gb", return_value=10.0), \
@@ -638,12 +638,12 @@ def _te(dim=8, n=4):
 
 def test_te_ram_gb_sums_parameter_bytes():
     te = _te(dim=8, n=4)  # 4 * 8*8 * 4 bytes (float32) = 1024 bytes
-    assert _te_ram_gb(te) == pytest.approx(1024 / (1 << 30))
+    assert te_ram_gb(te) == pytest.approx(1024 / (1 << 30))
 
 
 def test_te_ram_gb_handles_missing_module():
-    assert _te_ram_gb(None) == 0.0
-    assert _te_ram_gb(SimpleNamespace(module=None)) == 0.0
+    assert te_ram_gb(None) == 0.0
+    assert te_ram_gb(SimpleNamespace(module=None)) == 0.0
 
 
 def test_unload_idle_te_noop_when_bundle_has_no_cache_key():
@@ -666,7 +666,7 @@ def test_unload_idle_te_evicts_by_cache_key_and_returns_freed_gb():
     freed = _unload_idle_te(bundle, models)
 
     assert models.evict_calls == ["native/te/foo.safetensors"]
-    assert freed == pytest.approx(_te_ram_gb(te))
+    assert freed == pytest.approx(te_ram_gb(te))
     assert freed > 0.0
 
 
@@ -751,7 +751,7 @@ def test_free_room_for_upscale_reports_te_and_pinned_fields_on_profiler_mark():
     marks = {call.args[0]: call.kwargs for call in fake_profiler.mark.call_args_list}
     assert "ltx_upscale.free_room" in marks
     fields = marks["ltx_upscale.free_room"]
-    assert fields["te_unloaded_gb"] == pytest.approx(_te_ram_gb(te), abs=1e-6)
+    assert fields["te_unloaded_gb"] == pytest.approx(te_ram_gb(te), abs=1e-6)
     assert fields["pinned_emptied"] is True
     assert fields["dit_was_resident"] is True
 
@@ -942,7 +942,7 @@ class TestModeSelection:
         content now spans 2*9-1 = 17 frames after the temporal round."""
         bundle = _dual_bundle()
         frames = torch.rand(9, 64, 96, 3)
-        with patch(f"{_MOD}._load_video_frames", return_value=frames):
+        with patch(f"{_MOD}.load_video_frames", return_value=frames):
             out = _pipe(device="cpu", mode="temporal").process(
                 PipeInput(input={"model": bundle, "video": ["v.mp4"]}), lambda o: None)
         assert out.output["source_frame_count"] == 17
@@ -950,7 +950,7 @@ class TestModeSelection:
     def test_spatial_mode_leaves_source_frame_count_alone(self):
         bundle = _dual_bundle()
         frames = torch.rand(9, 64, 96, 3)
-        with patch(f"{_MOD}._load_video_frames", return_value=frames):
+        with patch(f"{_MOD}.load_video_frames", return_value=frames):
             out = _pipe(device="cpu", mode="spatial").process(
                 PipeInput(input={"model": bundle, "video": ["v.mp4"]}), lambda o: None)
         assert out.output["source_frame_count"] == 9

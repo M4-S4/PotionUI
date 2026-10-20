@@ -12,7 +12,7 @@ import torch
 from src.pipelines.outputs import GalleryGenerationOutput
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.generator.img2vid_wan22.main import GeneratorWanImg2VidPipe, _Ctx, _ExpertRouter, _I2VForward
+from src.pipelines.pipes.generator.img2vid_wan22.main import GeneratorWanImg2VidPipe, _Ctx, ExpertRouter, _I2VForward
 
 
 # -- i2v forward: prepend concat to the noisy latent ----------------------
@@ -73,7 +73,7 @@ class TestCtxReleaseGpu:
 
     def test_offloads_both_experts_and_vae(self):
         high, low, vae = _FakeDiT(), _FakeDiT(), _FakeVae()
-        router = _ExpertRouter(high, low, boundary=0.875, device="cuda")
+        router = ExpertRouter(high, low, boundary=0.875, device="cuda")
         _make_i2v_ctx(router, vae).release_gpu()
 
         assert high.offloaded == 1
@@ -82,7 +82,7 @@ class TestCtxReleaseGpu:
 
     def test_single_expert_wan_has_no_low_to_offload(self):
         high, vae = _FakeDiT(), _FakeVae()
-        router = _ExpertRouter(high, None, boundary=0.875, device="cuda")
+        router = ExpertRouter(high, None, boundary=0.875, device="cuda")
         _make_i2v_ctx(router, vae).release_gpu()
 
         assert high.offloaded == 1
@@ -94,7 +94,7 @@ class TestCtxReleaseGpu:
                 raise RuntimeError("cuda error")
 
         high, low, vae = _RaisingDit(), _FakeDiT(), _FakeVae()
-        router = _ExpertRouter(high, low, boundary=0.875, device="cuda")
+        router = ExpertRouter(high, low, boundary=0.875, device="cuda")
         _make_i2v_ctx(router, vae).release_gpu()  # must not raise
 
         assert low.offloaded == 1

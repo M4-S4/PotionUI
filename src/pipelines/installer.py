@@ -24,7 +24,6 @@ import asyncio
 import importlib
 import logging
 import os
-import shutil
 import sys
 from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
@@ -148,32 +147,3 @@ class PipeInstaller:
             self.errors[pipe_name] = str(e)
             self.catalog.pipe_status[pipe_name] = PipeStatus.ERROR
             return False
-
-    async def uninstall_pipe(self, pipe_name: str) -> bool:
-        """Uninstall a pipe"""
-        if pipe_name not in self.catalog.pipes:
-            return False
-
-        try:
-            pipe_class = self.catalog.pipes[pipe_name]
-            requirements = pipe_class.get_requirements()
-
-            # Remove git repositories
-            if requirements.get('git'):
-                for repo in requirements['git']:
-                    if os.path.exists(repo['path']):
-                        await asyncio.to_thread(self._remove_directory, repo['path'])
-
-            # Models can be kept as they might be used by other pipes
-            # Update status
-            self.catalog.pipe_status[pipe_name] = PipeStatus.NOT_INSTALLED
-            return True
-
-        except Exception as e:
-            logger.error(f"Error uninstalling pipe {pipe_name}: {e}")
-            return False
-
-    def _remove_directory(self, path: str):
-        """Safely remove a directory"""
-        if os.path.exists(path):
-            shutil.rmtree(path)

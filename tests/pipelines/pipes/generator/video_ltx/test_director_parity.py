@@ -66,7 +66,7 @@ def _fwd(model, mask=None, clean=None):
     return ConditionedAVForward(model, ctx), prepared
 
 
-def _pack(x5d):
+def pack_tokens(x5d):
     b, c = x5d.shape[0], x5d.shape[1]
     return x5d.permute(0, 2, 3, 4, 1).reshape(b, _S, c)
 
@@ -79,7 +79,7 @@ def test_single_forward_matches_legacy_call(model, context):
     fwd, _ = _fwd(model)
     with torch.inference_mode():
         legacy = model([x5d], sigma, context, attention_mask=None, frame_rate=_FPS)
-        director = fwd.unpack_base(fwd(_pack(x5d), sigma, {"context": context}))
+        director = fwd.unpack_base(fwd(pack_tokens(x5d), sigma, {"context": context}))
     assert (legacy - director).abs().max().item() < 1e-5
 
 
@@ -100,7 +100,7 @@ def test_full_trajectory_matches_legacy_denoise(model, context):
             guidance_scale=1.0, seed_noise=seed_noise,
         )
         sigmas = conditioned_sigmas(6, _SETTINGS)
-        x0 = mix_initial_noise(prepared, _pack(seed_noise), float(sigmas[0]))
+        x0 = mix_initial_noise(prepared, pack_tokens(seed_noise), float(sigmas[0]))
         out_director = fwd.unpack_base(denoise_prenoised(
             fwd, x0, cond, None, steps=6, sampler_name="euler",
             sampling_settings=dict(_SETTINGS), guidance_scale=1.0, sigmas=sigmas,

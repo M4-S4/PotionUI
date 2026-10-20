@@ -29,23 +29,6 @@ _H3_REFMOD_PIXEL_STD = (0.229, 0.224, 0.225)
 
 
 def _decode_refmod_media(mod: RefMod, *, vae: Any) -> Any:
-    """One image/video RefMod's own stored latent -> the pixels
-    `MiniMaxH3ClipTextEncoder`'s `_to_hwc_float01`/`_to_fhwc_float01` accept:
-    an image's first frame `(H, W, 3)`, a video's full decoded frame stack
-    `(F, H, W, 3)` -- both uint8, already on MiniMax-H3's own 24 fps/canvas
-    (the video VAE's own temporal upsampling rate), so the video case needs
-    no further truncation or resample: the generator's own `ref2va` layout
-    for a RefMod likewise takes the mod's latent (and hence its decoded
-    frame count) as-is, never trimming it to the generated clip's length
-    (`conditioning.normalize_references`'s pass-through for a `latent`-
-    carrying reference) -- the two sides have to agree on the SAME frame
-    count, and neither truncates.
-
-    The stored latent is already in the VAE's RAW (un-normalized) space
-    (`refmods.py`'s module docstring), so unlike `main.py`'s own
-    `_decode_video` this skips the `* latents_std + latents_mean`
-    denormalize -- there is no mean/std-normalized latent here to invert.
-    """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     vae_module = vae.module
     vae.move_to(device)

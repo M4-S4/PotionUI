@@ -163,7 +163,7 @@ from src.pipelines.pipes._shared.media.video_encode import (
 )
 from src.platform.util.video_stream import FFmpegNotFoundError, require_ffmpeg
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
-from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.audio import (
     AUDIO_CHANNELS,
     AUDIO_SAMPLE_RATE,
@@ -1321,11 +1321,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 f"is not a MiniMax-H3 checkpoint. Pick a MiniMax-H3 DiT for this preset."
             )
 
-        # This pipe never touches the TE itself (conditioning was already
-        # produced by prompt_encoder) -- same eviction idiom LTX established
-        # (release_idle_te's docstring), reused verbatim: it is duck-typed on
-        # bundle.te_cache_key/bundle.te, both of which MiniMaxH3ModelBundle
-        # carries.
         release_idle_te(bundle, pipe_input.input.get("MODELS"), "GENERATOR MINIMAX-H3")
 
         mode = str(self.config.get("mode", "video"))

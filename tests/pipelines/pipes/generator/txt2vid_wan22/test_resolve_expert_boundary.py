@@ -2,7 +2,7 @@
 expert switch-point resolver (picker sigma vs. 'switch at step' vs. spec
 default). Pure CPU: build_sigmas is schedule math, no GPU involved."""
 
-from src.pipelines.pipes.generator.txt2vid_wan22.main import resolve_expert_boundary
+from src.pipelines.pipes._shared.video.wan_experts import resolve_expert_boundary
 from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
 
 

@@ -36,21 +36,18 @@ anyway — ``_edit_target_size`` below hardcodes the area target instead).
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List
 
-import numpy as np
-from PIL import Image
 
-from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec, logger
-from src.pipelines.outputs import GenerationExecutionError, ImageGenerationOutput, Icon
+from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.pipes._shared.generation.flow_generator_pipe import FlowMatchGeneratorPipe, iterate_mode_config_specs
 from src.pipelines.pipes._shared.generation.generator_base import GeneratorContext
+from src.pipelines.pipes._shared.generation.qwen_edit import QwenEditMixin
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apply_schedule_settings,
     schedule_settings_config_specs,
 )
-from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
-from src.platform.runtime.native.engine import Conditioning, NativeGenerator
+from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
     preview_config_spec,
@@ -58,15 +55,10 @@ from src.pipelines.pipes._shared.generation.config_specs import (
 )
 
 
-class GeneratorQwenPipe(FlowMatchGeneratorPipe):
+class GeneratorQwenPipe(QwenEditMixin, FlowMatchGeneratorPipe):
     name = "generator"
     description = "Native Qwen-Image generator (flow matching, true CFG)"
     family_tag = "GENERATOR QWEN"
-
-    # ComfyUI TextEncodeQwenImageEdit's fixed resize target for the VAE-encoded
-    # reference latent (aspect preserved, scaled up OR down to hit this area —
-    # NOT a downscale-only cap). Independent of the shared "resolution" config.
-    EDIT_AREA_TARGET = 1024 * 1024
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -112,103 +104,8 @@ class GeneratorQwenPipe(FlowMatchGeneratorPipe):
         apply_schedule_settings(ctx, self.config)
         return ctx
 
-    # -- edit mode -----------------------------------------
-
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter):
         edit = self.maybe_edit(ctx, index, seed, progress)
         if edit is not None:
             return edit
         return super().generate_one(ctx, index, seed, progress)
-
-    def maybe_edit(
-        self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter,
-    ) -> Optional[ImageGenerationOutput]:
-        """Run a Qwen-Image-Edit generation for image ``index`` when in ``edit``
-        mode with 1-3 source images; return ``None`` to fall through to the
-        txt2img/img2img path.
-
-        The ``conditioning`` handed in must already be vision-grounded on the
-        SAME reference set (the edit preset wires ``media_loader``'s ``image``
-        into ``prompt_encoder`` too, and ``QwenClipTextEncoder.forwards_full_
-        image_batch`` forwards the whole list rather than picking one per
-        index) — this method does not re-encode text, it only adds the
-        ``ref_latents`` half of the conditioning and runs the full
-        (from-noise) sample.
-
-        Every output in the batch is conditioned on the FULL reference list —
-        not one reference picked per ``index`` — matching how the vision tower
-        and the DiT's ``ref_latents`` loop (``QwenImageDiT.forward``) both
-        already treat the set as shared. ``images[0]`` is the primary: it
-        alone drives the output's size; every image (including it) is
-        VAE-encoded in upload order into its own ``ref_latents`` entry, each
-        independently resized to its own area-target aspect (the DiT packs
-        each ref at its own ``pack_latents(ref, index=...)`` offset, so a
-        reference's own aspect need not match the output canvas).
-        """
-        if ctx.extra.get("mode") != "edit":
-            return None
-        images = ctx.extra.get("images") or []
-        if not images:
-            raise GenerationExecutionError("Qwen-Image Edit requires a source image")
-
-        gen: NativeGenerator = ctx.extra["generator"]
-        conditioning = ctx.extra["conditioning"]
-        steps = ctx.extra["steps"]
-        guidance = ctx.extra["guidance"]
-        sampler = ctx.extra["sampler"]
-
-        cond_model = conditioning[index] if index < len(conditioning) else conditioning[-1]
-        cond = dict(cond_model.embeds)
-        uncond = dict(cond_model.n_embeds) if cond_model.n_embeds else None
-
-        primary = images[0].convert("RGB")
-        width, height = self._edit_target_size(gen, primary.size)
-
-        ref_latents = []
-        for i, image in enumerate(images):
-            src = primary if i == 0 else image.convert("RGB")
-            target = (width, height) if i == 0 else self._edit_target_size(gen, src.size)
-            if target != src.size:
-                src = src.resize(target, Image.LANCZOS)
-            ref_latents.append(gen.encode_image(np.asarray(src)))
-
-        cond["ref_latents"] = ref_latents
-        if uncond is not None:
-            uncond["ref_latents"] = ref_latents
-        conditioning_obj = Conditioning(cond=cond, uncond=uncond)
-
-        latents_shape = gen.latent_shape_for(width, height)
-
-        def on_progress(_fraction: float, step_index: int, total: int) -> None:
-            progress.step(step_index + 1, total, state="EDIT", icon=Icon(name="bolt", effect="pulse"))
-
-        logger.debug("[%s] edit image %d/%d, seed %d", self.family_tag, index + 1, ctx.quantity, seed)
-        latent = gen.sample(
-            conditioning_obj,
-            latents_shape,
-            steps=steps,
-            seed=seed,
-            cfg_scale=guidance,
-            sampler=sampler,
-            guidance_options=ctx.extra.get("guidance_options"),
-            sampler_options=ctx.extra.get("sampler_options"),
-            step_cache_options=ctx.extra.get("step_cache_options"),
-            schedule_settings=ctx.extra.get("schedule_settings"),
-            hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True)),
-            is_cancelled=ctx.is_cancelled,
-        )
-        pixels = gen.decode(latent)
-        image = Image.fromarray(pixels[0])
-        return ImageGenerationOutput(
-            image=image, temporary=True, seed=seed,
-            resolution=(width, height), cfg=guidance, step=steps,
-        )
-
-    def _edit_target_size(self, gen: NativeGenerator, src_size: tuple) -> tuple:
-        """The ``(w, h)`` to VAE-encode the source at: its own aspect scaled to
-        hit ``EDIT_AREA_TARGET`` exactly (up OR down), then snapped to the
-        DiT's patch granularity. Independent of the shared ``resolution``
-        config on purpose — see the module docstring."""
-        sw, sh = src_size
-        scale = (self.EDIT_AREA_TARGET / max(1, sw * sh)) ** 0.5
-        return gen.snap_resolution(max(1, round(sw * scale)), max(1, round(sh * scale)))

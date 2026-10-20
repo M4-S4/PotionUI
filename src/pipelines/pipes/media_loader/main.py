@@ -167,33 +167,6 @@ class MediaLoaderPipe(BasePipe):
             return "unknown"
 
     def _decode_image(self, file_path: str) -> Image.Image:
-        """Open the image and force a full pixel decode (PIL is lazy on `Image.open`:
-        it only reads the header, and the actual pixel decode happens on first use,
-        against a still-open file object).
-
-        This eager `image.load()` is a CORRECTNESS requirement, not just better error
-        attribution - do not remove it as an "optimization". This pipe runs inside the
-        generation pipeline on a worker thread (`InProcessBackend` drives pipes via
-        `asyncio.to_thread`), but the image this method returns is also handed to
-        `generation_outputs(ImageGenerationOutput(...))`, which the event loop consumes
-        via `OutputBridge` and encodes as a base64 preview
-        (`src/features/generation/handlers/image_handler.py::create_base64_image`) on the
-        EVENT-LOOP thread, concurrently with this pipe (and later pipes, e.g.
-        `_prep_start_frame`'s `.convert("RGB")`) continuing to run on the worker thread.
-        A lazily-opened `Image` still holds an open file handle (`image.fp`) and no
-        decoded pixel buffer (`image.im`); if two threads both trigger PIL's decoder on
-        that same file object, the decode is corrupted mid-stream and raises errors like
-        "unrecognized data stream contents when reading image file" - on a perfectly
-        valid file. Forcing the decode here, before the image is ever handed off,
-        guarantees `image.im` is populated and `image.fp` is cleared (see
-        `PIL.Image.Image.load`), so every later consumer - on any thread - only ever
-        reads an already-decoded, file-independent image.
-
-        If the strict decode raises OSError (PIL's IMAGING_CODEC_UNKNOWN / truncated data
-        - i.e. the file genuinely is truncated/corrupt, unlike the race above), retry once
-        with `ImageFile.LOAD_TRUNCATED_IMAGES = True` and log a loud warning on success.
-        That flag is global PIL state, so it is always restored afterwards.
-        """
         image = Image.open(file_path)
         try:
             image.load()

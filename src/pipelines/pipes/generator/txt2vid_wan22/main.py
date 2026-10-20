@@ -18,23 +18,13 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-import numpy as np
 import torch
 
-from src.platform.runtime.native.errors import DecodeNumericsError
-from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
-from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
-from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
-from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
 from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
-from src.platform.runtime.native.sampling.denoise_loop import schedule_from_settings
-from src.platform.runtime.native.vae.causal_3d import LATENTS_MEAN, LATENTS_STD
-from src.platform.runtime.native.vae.tiling import causal3d_chunk_frames, chunked_decode_causal3d
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import Icon
-from src.pipelines.pipes._shared.generation.dit_placement import _dit_lora_delta_gb, _move_resident
-from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext, emit_gallery
+from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.freeinit import freeinit_blend, freeinit_config_specs, resolve_freeinit
 from src.pipelines.pipes._shared.generation.guidance_options import (
     apg_settings_config_specs,
@@ -49,7 +39,6 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     slg_settings_overrides,
 )
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
-from src.pipelines.pipes._shared.media.pixel_convert import pixels_3thw_to_uint8_frames
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
@@ -57,340 +46,20 @@ from src.pipelines.pipes._shared.generation.config_specs import (
     preview_config_spec,
     seed_config_spec,
 )
-
-# Wan's causal VAE downsamples time by 4 (1 + 4*(n-1) frame chunking).
-_TEMPORAL_DOWNSCALE = 4
-
-
-_warned_snapped_resolution: set[tuple[int, int]] = set()
-_warned_snapped_frames: set[int] = set()
-
-
-def _snap_geometry(bundle, lf: dict, width: int, height: int, frames: int,
-                   *, patch_size=None) -> tuple[int, int, int]:
-    """Snap a Wan request to the model's spatial + temporal granularity.
-
-    Spatial: ``spatial_downscale * DiT-spatial-patch`` (16px for Wan21, 32px for
-    Wan22-5B). Temporal: the causal VAE chunks frames as ``1 + 4k``. Warns (once
-    each) when the request was changed. Shared by the txt2vid and img2vid pipes.
-    """
-    spatial_downscale = int(lf.get("spatial_downscale", 8))
-    patch = patch_size if patch_size is not None else bundle.high_dit.module.patch_size
-    spatial_patch = int(patch[-1] if isinstance(patch, (tuple, list)) else patch)
-    snapped_w, snapped_h = snap_resolution(width, height, spatial_downscale, spatial_patch)
-    snapped_frames = snap_frame_count(frames, _TEMPORAL_DOWNSCALE)
-    if (snapped_w, snapped_h) != (width, height) and (width, height) not in _warned_snapped_resolution:
-        _warned_snapped_resolution.add((width, height))
-        logger.warning("[GENERATOR WAN] snapped resolution %dx%d -> %dx%d (granularity %dpx)",
-                       width, height, snapped_w, snapped_h, spatial_downscale * spatial_patch)
-    if snapped_frames != frames and frames not in _warned_snapped_frames:
-        _warned_snapped_frames.add(frames)
-        logger.warning("[GENERATOR WAN] snapped frames %d -> %d (1 + %d*k)",
-                       frames, snapped_frames, _TEMPORAL_DOWNSCALE)
-    return snapped_w, snapped_h, snapped_frames
-# Wan timestep == flow sigma * 1000 (ModelSamplingDiscreteFlow multiplier); the
-# DiT's sinusoidal_embedding_1d has no internal factor, unlike Flux.
-_TIMESTEP_SCALE = 1000.0
-
-
-class _ExpertRouter:
-    """model_forward that dispatches to the high/low-noise expert by sigma.
-
-    Wan 2.2 14B ships two experts; the high-noise one runs while the flow sigma
-    is above ``boundary`` (timestep > boundary*1000), the low-noise one below.
-    Single-DiT Wan (2.1 / 5B) has ``low=None`` and always uses ``high``. Experts
-    are moved on-device on transition and the previous one offloaded, so at most
-    one 14B expert is resident at a time.
-
-    Placement: a Wan 2.2 14B expert is 14-27GB, and the 720p/5s video
-    activation working set is tens of GB (``sampling_headroom_gb`` scales with
-    the full T*H*W token count) -- the two do NOT co-fit a 32GB card, which is
-    why a plain ``move_to`` full-pin OOMs where ComfyUI's block-swap fits. When
-    ``latents_shape`` is set, the router places each expert with PARTIAL
-    residency (stream the DiT from pinned CPU RAM, keep only what fits the
-    activation-aware weights budget resident) -- the identical fit logic
-    ``NativeGenerator._stream_dit_to_gpu`` uses for the image path. ``None``
-    (unset) keeps the pre-partial-residency full ``move_to`` (single-DiT / low-res / callers
-    not yet wired), so this is additive.
-    """
-
-    def __init__(self, high, low, boundary: float, device: str, riflex: dict | None = None,
-                 latents_shape: tuple | None = None) -> None:
-        self.high = high
-        self.low = low
-        self.boundary = boundary
-        self.device = device
-        self.active = None
-        # 5D ``(1, C, T, H, W)`` latent shape the experts sample, set by the
-        # generator's generate_one before denoise. Drives the partial-residency
-        # weights budget; ``None`` -> full ``move_to`` (pre-partial-residency behavior).
-        self.latents_shape = latents_shape
-        # RIFLEx (roadmap 3.8): None (the default) means the ``riflex=`` kwarg
-        # is never even passed to ``dit.module(...)`` below — byte-identical
-        # to the pre-RIFLEx call shape. Fixed per generation (built once from
-        # pipe config), unlike ``skip_layers`` which rides the per-step
-        # conditioning dict.
-        self.riflex = riflex
-
-    def _select(self, sigma_val: float):
-        if self.low is None or sigma_val > self.boundary:
-            return self.high
-        return self.low
-
-    def cache_identity(self, sigma_val: float) -> tuple:
-        """Which network a step at ``sigma_val`` will run, as a cache key.
-
-        Read by ``denoise()``'s FBCache wiring (``_CachingGuidance``) so the two
-        experts never share a step cache: the cached value is one network's
-        output, and block-0 probes either side of the boundary can be close
-        enough to pass the skip gate. ``effective_revision`` (not
-        ``weight_revision``) is the live-weights identity a value cache must key
-        on — see ``NativeModel``; ``id(module)`` alone is not enough because
-        loaders reconcile adapter stacks in place on a cached module.
-        """
-        dit = self._select(sigma_val)
-        return (id(dit.module), getattr(dit, "effective_revision", None))
-
-    def _own_experts(self) -> list:
-        """Our own experts -- never evicted to make room for ourselves."""
-        return [e for e in (self.high, self.low) if e is not None]
-
-    def _weights_budget_gb(self, dit) -> float:
-        """VRAM (GB) for RESIDENT expert weights under partial residency: live
-        free VRAM (after evicting FOREIGN residents, e.g. a prior image gen's
-        DiT) minus the video activation headroom. Mirrors
-        ``NativeGenerator._dit_weights_budget_gb`` -- streamed leaves only transit
-        VRAM one at a time per forward, so they don't count here."""
-        need = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + _dit_lora_delta_gb(dit)
-        free = free_vram_gb(self.device)
-        if free is None:
-            return need
-        get_residency_registry().ensure_free(self.device, need, free, exclude=self._own_experts())
-        free = free_vram_gb(self.device) or 0.0
-        shape = self.latents_shape
-        frames = shape[2] if len(shape) == 5 else 1
-        headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
-        return max(0.0, free - headroom)
-
-    def _place_expert(self, dit) -> None:
-        """Bring ``dit`` on-device for its sampling phase, offloading the
-        previously-active expert first. Full ``move_to`` when the expert fits the
-        activation-aware weights budget (or ``latents_shape`` is unset / CPU);
-        otherwise PARTIAL residency (``stream_to``) with the same zero-budget
-        eviction backstop ``_stream_dit_to_gpu`` uses. See the class docstring.
-
-        A resident placement is also offered to ``maybe_compile_dit`` -- the
-        same gated, reversible regional ``torch.compile`` the image path gets
-        from ``NativeGenerator._maybe_compile``, which this router (no
-        ``NativeGenerator`` instance to call that private method on) has no
-        other way to reach. Each expert compiles independently and only once
-        per resident placement (the handle lives on the expert's own
-        ``NativeModel``, so re-selecting an already-compiled expert is a
-        no-op); streamed placements are never offered."""
-        if self.active is not None:
-            self.active.offload()
-        self.active = dit
-        if self.latents_shape is None or not str(self.device).startswith("cuda"):
-            dit.move_to(self.device)
-            maybe_compile_dit(dit, resident=True, is_cuda=str(self.device).startswith("cuda"))
-            return
-        budget = self._weights_budget_gb(dit)
-        need = float(getattr(dit, "estimated_vram_gb", None) or 0.0) + _dit_lora_delta_gb(dit)
-        if need and need <= budget:
-            mode = _move_resident(dit, self.device, self._own_experts())
-            if mode == "resident":
-                maybe_compile_dit(dit, resident=True, is_cuda=True)
-            return
-        try:
-            dit.stream_to(self.device, budget)
-        except torch.cuda.OutOfMemoryError:
-            logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
-                           "(budget %.1fGB); evicting foreign residents and streaming fully", budget)
-            dit.offload()
-            get_residency_registry().offload_all(self.device, exclude=self._own_experts())
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            dit.stream_to(self.device, 0.0)
-
-    def __call__(self, x: torch.Tensor, sigma: torch.Tensor, conditioning: dict) -> torch.Tensor:
-        dit = self._select(float(sigma.reshape(-1)[0]))
-        if dit is not self.active:
-            self._place_expert(dit)
-        # NAG (see src/platform/runtime/native/nag.py): the negative context + params ride in
-        # the cond dict under reserved keys (EmbeddedGuidance's "guidance" idiom).
-        # Both experts share this cond dict, so NAG applies to whichever one runs.
-        extra = {}
-        nag_context = conditioning.get("nag_context")
-        if nag_context is not None:
-            extra["nag_context"] = nag_context
-            extra["nag"] = conditioning.get("nag")
-        # SLG (see src/platform/runtime/native/sampling/cfg.py::SkipLayerGuidance): the
-        # degraded-pass conditioning dict carries a reserved "skip_layers" key
-        # (the SAME "inject into the conditioning dict" seam NAG/EmbeddedGuidance
-        # already use) -- read it here and route it to the arch's own kwarg. We
-        # only ever .get() it: SkipLayerGuidance always spreads a FRESH
-        # {**cond, "skip_layers": ...} dict for its degraded pass and never
-        # mutates/reuses `cond` itself, so there is nothing to pop/clear here --
-        # the persistent cond/uncond dicts this router sees on every other call
-        # never carry the key. Absent on every normal-pass call, so this is a
-        # no-op unless SLG's wrapper is actually active for this step.
-        skip_layers = conditioning.get("skip_layers")
-        if skip_layers:
-            extra["skip_layers"] = skip_layers
-        # FBCache (see src/platform/runtime/native/sampling/step_cache.py): same seam --
-        # denoise()'s _CachingGuidance injects a reserved "step_cache" key
-        # (a FirstBlockCache instance) into a fresh conditioning dict per call
-        # the same way; read it and forward it ONLY when present/non-None so a
-        # module whose forward doesn't yet accept step_cache (until the arch
-        # side lands) never sees the kwarg at all -- never pass
-        # step_cache=None explicitly.
-        step_cache = conditioning.get("step_cache")
-        if step_cache is not None:
-            extra["step_cache"] = step_cache
-        if self.riflex:
-            extra["riflex"] = self.riflex
-        return dit.module(x, sigma * _TIMESTEP_SCALE, conditioning["context"], **extra)
-
-
-def resolve_expert_boundary(spec, config: dict, sampling_settings: dict, steps: int,
-                            *, default: float = 0.900, log_tag: str = "GENERATOR WAN") -> float:
-    """Resolve the high/low-noise expert switch boundary (a flow sigma in [0,1]).
-
-    Precedence: an explicit ``expert_switch_step`` wins -- converted to that
-    step's flow sigma via the SAME ``build_sigmas`` schedule the denoise loop
-    builds from ``sampling_settings`` + ``steps``, so it can't drift from the
-    run's actual sigmas; then a numeric ``expert_boundary`` override; then the
-    model spec's per-family default. Shared by all three Wan generators.
-    """
-    boundary = spec.sampling_settings.get("expert_boundary", default)
-
-    switch_step = config.get("expert_switch_step")
-    if switch_step not in (None, "", "None"):
-        try:
-            step_idx = int(switch_step)
-        except (TypeError, ValueError):
-            logger.warning("[%s] ignoring non-integer expert_switch_step %r", log_tag, switch_step)
-            step_idx = None
-        if step_idx is not None and step_idx > 0:
-            sigmas = schedule_from_settings(int(steps), sampling_settings)
-            # sigmas descend 1->0 over steps+1 entries; the sigma AT step_idx is
-            # the threshold that makes steps 0..step_idx-1 run the high expert and
-            # step_idx.. the low one. Clamp past-the-end to the final (0.0) sigma.
-            return float(sigmas[min(step_idx, len(sigmas) - 1)])
-        # An invalid / non-positive step is not a real switch point -- fall
-        # through to the boundary picker rather than forcing the spec default.
-
-    override = config.get("expert_boundary")
-    if override not in (None, "", "None"):
-        try:
-            return float(override)
-        except (TypeError, ValueError):
-            logger.warning("[%s] ignoring non-numeric expert_boundary %r", log_tag, override)
-    return boundary
-
-
-def _attach_nag(cond: dict, uncond: dict | None, config: dict) -> dict:
-    """Attach NAG's negative context + params to the cond dict, read back by
-    ``_ExpertRouter`` above (see ``src/platform/runtime/native/nag.py``). No-op (returns
-    ``cond`` unchanged) when ``nag_scale <= 1.0`` or there's no negative
-    conditioning — keeps the disabled path byte-identical / free of the extra
-    negative-attention pass. Shared by both the txt2vid and img2vid generators.
-    """
-    nag_scale = float(config.get("nag_scale", 1.0))
-    if nag_scale <= 1.0 or uncond is None:
-        return cond
-    return {
-        **cond,
-        "nag_context": uncond["context"],
-        "nag": {
-            "scale": nag_scale,
-            "tau": float(config.get("nag_tau", 3.5)),
-            "alpha": float(config.get("nag_alpha", 0.5)),
-        },
-    }
-
-
-def _emit_video_results(
-        generation_outputs: callable,
-        results: List[str],
-        used_seeds: List[int],
-        resolution: "tuple[int, int] | None" = None,
-) -> None:
-    """Shared by every pipe that imports this helper (txt2vid_ltx, video_ltx,
-    img2vid_wan22 as well as this file). `resolution` is optional and defaults
-    to None so callers that haven't been wired to pass their own (width,
-    height) yet keep their prior no-live-dimensions behavior."""
-    emit_gallery(generation_outputs, images=[], seeds=used_seeds, videos=results, video_resolution=resolution)
-
-
-def _build_video_output(results: List[str]) -> Dict[str, Any]:
-    return {"video": results}
-
-
-def _to_device(cond: dict, device, dtype) -> dict:
-    return {
-        k: (v.to(device=device, dtype=dtype) if torch.is_floating_point(v) else v.to(device=device))
-        for k, v in cond.items()
-    }
-
-
-def _decode_video(c: Any, latent: torch.Tensor) -> np.ndarray:
-    """Un-normalize the Wan21 latent and decode to (T, H, W, 3) uint8 frames.
-
-    ``c`` is duck-typed on ``.vae``/``.device``/``.latent_channels`` — shared by
-    both the txt2vid (``_WanCtx``) and img2vid (``_Ctx``) generation contexts.
-
-    Long clips route through the SAME temporal-chunked decode primitive the
-    engine's image-family path uses (:func:`~src.platform.runtime.native.vae.tiling.
-    causal3d_chunk_frames` sizes it, :func:`~src.platform.runtime.native.vae.tiling.
-    chunked_decode_causal3d` does the actual chunked decode with a carried
-    ``feat_cache`` -- mathematically identical to one whole-clip decode, see
-    that function's docstring). Whole-clip-fits (or VRAM can't be queried,
-    e.g. CPU) is a byte-identical single ``.decode()`` call, unchanged from
-    before chunking existed; a clip whose single FRAME doesn't even fit falls
-    back to that same single call too (no spatial tiling here -- out of scope,
-    matches this pipe's pre-existing OOM behavior).
-    """
-    c.vae.move_to(c.device)
-    z = latent.to(device=c.device, dtype=c.vae.compute_dtype)
-    # Wan21 (16ch) latent format un-normalizes per-channel (z*std + mean). The
-    # Wan22 (5B, 48ch) format is a no-op BY DESIGN — ComfyUI's Wan22 latent
-    # format sets scale_factor=1.0 with NO per-channel mean/std, so the skip is
-    # correct; do not add invented 48ch constants here.
-    if c.latent_channels == len(LATENTS_MEAN):
-        mean = torch.tensor(LATENTS_MEAN, device=z.device, dtype=z.dtype).view(1, -1, 1, 1, 1)
-        std = torch.tensor(LATENTS_STD, device=z.device, dtype=z.dtype).view(1, -1, 1, 1, 1)
-        z = z * std + mean
-
-    with torch.no_grad():
-        chunk_frames = causal3d_chunk_frames(c.vae.module, z, free_vram_gb_value=free_vram_gb(c.device))
-        if chunk_frames is not None:
-            # accumulate on CPU so a long clip's per-chunk pixels don't pile up on
-            # the GPU (+ cat duplicate) and OOM at assembly — the frames go to CPU
-            # for encoding anyway.
-            pixels = chunked_decode_causal3d(
-                c.vae.module, z, chunk_latent_frames=chunk_frames, accumulate_device="cpu",
-            )
-        else:
-            pixels = c.vae.module.decode(z)  # (B, 3, T, H, W) in [-1, 1]
-    c.vae.offload()
-
-    # Catch a corrupt decode HERE, before the uint8 cast below silently turns
-    # a NaN pixel into a black 0 with no error (torch.clamp leaves NaN
-    # unchanged; see DecodeNumericsError). Checked pre-chunking-cast so this
-    # covers both the chunked and single-call decode paths above uniformly.
-    if not torch.isfinite(pixels).all():
-        raise DecodeNumericsError()
-
-    # Chunked conversion: the full-tensor chain allocated several clip-sized
-    # fp32 transients on the decode device and OOM'd long high-res clips after
-    # a successful decode (see pixel_convert).
-    return pixels_3thw_to_uint8_frames(pixels[0])  # (T, H, W, 3)
+from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
+from src.pipelines.pipes._shared.video.video_common import build_video_output, emit_video_results, to_device
+from src.pipelines.pipes._shared.video.wan_experts import (
+    decode_wan_video,
+    ExpertRouter,
+    resolve_expert_boundary,
+    snap_wan_geometry,
+    WAN_TEMPORAL_DOWNSCALE,
+)
 
 
 @dataclass
 class _WanCtx:
-    router: _ExpertRouter
+    router: ExpertRouter
     vae: Any
     sampling_settings: dict
     conditioning: list
@@ -518,12 +187,12 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
         }
         boundary = resolve_expert_boundary(spec, self.config, sampling_settings, steps, default=0.875)
         riflex = build_riflex(self.config)
-        router = _ExpertRouter(bundle.high_dit, bundle.low_dit, boundary, device, riflex=riflex)
+        router = ExpertRouter(bundle.high_dit, bundle.low_dit, boundary, device, riflex=riflex)
         lf = spec.latent_format
 
         # Snap to the model's granularity: spatial to spatial_downscale*patch (16px
         # for Wan21, 32px for Wan22-5B), frames to the causal VAE's 1+4k lattice.
-        width, height, frames = _snap_geometry(bundle, lf, width, height, frames)
+        width, height, frames = snap_wan_geometry(bundle, lf, width, height, frames)
 
         logger.info("[GENERATOR WAN] %s: %d frame(s) @ %dx%d, %d steps, cfg %.1f, sampler %s, dual_expert=%s",
                     spec.variant, frames, width, height, steps, cfg, sampler, bundle.is_dual_expert)
@@ -549,11 +218,11 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter) -> str:
         c: _WanCtx = ctx.extra
         cond_model = c.conditioning[index] if index < len(c.conditioning) else c.conditioning[-1]
-        cond = _to_device(cond_model.embeds, c.device, c.dtype)
-        uncond = _to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
-        cond = _attach_nag(cond, uncond, self.config)
+        cond = to_device(cond_model.embeds, c.device, c.dtype)
+        uncond = to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
+        cond = attach_nag(cond, uncond, self.config)
 
-        t_lat = (c.frames - 1) // _TEMPORAL_DOWNSCALE + 1
+        t_lat = (c.frames - 1) // WAN_TEMPORAL_DOWNSCALE + 1
         shape = (1, c.latent_channels, t_lat, c.height // c.spatial_downscale, c.width // c.spatial_downscale)
         # Give the router the sampling shape so it places each expert with
         # activation-aware partial residency instead of a full-pin OOM.
@@ -629,13 +298,13 @@ class GeneratorWanTxt2VidPipe(BaseGeneratorPipe):
             if c.router.active is not None:
                 c.router.active.offload()
 
-        frames = _decode_video(c, latent)
+        frames = decode_wan_video(c, latent)
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(frames, out_path, fps=c.fps)
         return out_path
 
     def emit_results(self, generation_outputs: callable, results: List[str], used_seeds: List[int]) -> None:
-        _emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
+        emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
 
     def build_output(self, results: List[str]) -> Dict[str, Any]:
-        return _build_video_output(results)
+        return build_video_output(results)

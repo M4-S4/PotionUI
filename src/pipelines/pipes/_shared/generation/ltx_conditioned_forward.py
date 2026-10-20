@@ -110,19 +110,11 @@ class ConditionedAVForward:
         v_ts = sigma_b.unsqueeze(-1) * (1.0 - self.mask.expand(b, -1))
         a_ts = sigma_b
 
-        # NAG (mirrors txt2vid_ltx's model_forward / Wan's _ExpertRouter): the
-        # reserved "nag_context"/"nag" keys ride the cond dict, injected by
-        # _attach_nag in generate_one; absent -> no-op, same call shape as
-        # before NAG existed.
         extra = {}
         nag_context = conditioning.get("nag_context")
         if nag_context is not None:
             extra["nag_context"] = nag_context
             extra["nag"] = conditioning.get("nag")
-        # FBCache: same reserved-key read as txt2vid_ltx's model_forward /
-        # _ExpertRouter (denoise_loop.py's _CachingGuidance always spreads a
-        # fresh dict, never mutates the persistent conditioning) -- only
-        # forward "step_cache" when present/non-None.
         step_cache = conditioning.get("step_cache")
         if step_cache is not None:
             extra["step_cache"] = step_cache

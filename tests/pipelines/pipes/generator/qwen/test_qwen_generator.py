@@ -387,6 +387,16 @@ def test_edit_mode_multi_reference_encodes_each_in_upload_order_anchored_to_firs
 
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_edit_mode_does_not_cap_the_reference_count():
+    images = [Image.new("RGB", (64, 64), color=(i, i, i)) for i in range(12)]
+    pipe = _make_pipe(mode="edit")
+    pipe.process(_edit_pipe_input(images=images), lambda o: None)
+
+    assert len(_FakeGenerator.instances[-1].encode_image_calls) == 12
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
 def test_edit_mode_multi_reference_shared_across_batch_not_indexed():
     """Every output in a batch is conditioned on the FULL reference set --
     the retired per-index pick would instead give output 0 only image 0,

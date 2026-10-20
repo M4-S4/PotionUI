@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 class IOType(Enum):
     # Number types
     INT = "INT"
-    FLOAT = "FLOAT"
     BOOL = "BOOL"
 
     # Media types
@@ -50,9 +49,6 @@ class IOType(Enum):
 
     # Prompts
     P_PROMPT = "P_PROMPT"
-    N_PROMPT = "N_PROMPT"
-    P_PROMPT_EMBED = "P_PROMPT_EMBED"
-    N_PROMPT_EMBED = "N_PROMPT_EMBED"
     CONDITIONING = "CONDITIONING"
     EMBEDDING = "EMBEDDING"
 
@@ -63,26 +59,16 @@ class IOType(Enum):
     SCHEDULER = "SCHEDULER"
     CLIP_SKIP = "CLIP_SKIP"
     CFG = "CFG"
-    TRUE_CFG_SCALE = "TRUE_CFG_SCALE"  # QwenImage's CFG parameter
     GUIDANCE_RESCALE = "GUIDANCE_RESCALE"
-    PAG_SCALE = "PAG_SCALE"
     DENOISE = "DENOISE"
     STEP = "STEP"
-    MODE = "MODE"
 
     # Misc
     TEXT = "TEXT"
-    DEVICE = "DEVICE"
-    ANNOTATION = "ANNOTATION"
-    PIPE = "PIPE"  # [(name, enabled, configuration, inputs)]
-    FORM = "FORM"
     DICT = "DICT"
 
     # Built-in Services (injected by GenerationEngine)
     SERVICE = "SERVICE"  # System services (ASSETS, GPU, LLM, MEMORY, MODELS, SETTINGS) - uppercase names
-
-    # Model Types
-    LORA = "LORA"  # [(Path(model_path), weight)]
 
 
 @dataclass

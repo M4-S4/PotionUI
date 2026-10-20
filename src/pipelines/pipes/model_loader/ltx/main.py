@@ -247,13 +247,6 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
         ))
         _emit_lora_diagnostics(dit_model, generation_outputs, "MODEL LOADER LTX")
 
-        # The TE is NOT acquired here when a lifecycle service is available:
-        # it is deferred into `clip`'s own `te_factory`, run at most once and
-        # only when `prompt_encoder` actually misses the projected-conditioning
-        # cache (see ltx_clip.py's "Deferred TE acquisition"). Acquiring the
-        # ~22GB Gemma3/Gemma4 encoder up front means a cache-hit generation
-        # pays a full from-disk load for a component `release_idle_te` then
-        # evicts, a few pipes later, without a single encode having run.
         te_key = f"native/te/{te_path}"
         te = _component("text encoder", te_key, "text_encoder", te_path)
 

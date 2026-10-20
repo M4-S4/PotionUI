@@ -146,7 +146,7 @@ def test_offload_happens_even_if_upsampler_raises():
 def test_video_input_encodes_then_upsamples():
     bundle = _bundle()
     frames = torch.rand(5, 32, 32, 3)
-    with patch(f"{_MOD}._load_video_frames", return_value=frames):
+    with patch(f"{_MOD}.load_video_frames", return_value=frames):
         out = _pipe(device="cpu", target_mode="scale", scale=2.0).process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
     assert out.output["latent"].shape[0] == 1
@@ -156,7 +156,7 @@ def test_video_input_encodes_then_upsamples():
 def test_latent_input_takes_priority_over_video():
     bundle = _bundle()
     latent = torch.randn(1, 24, 3, 4, 4)
-    with patch(f"{_MOD}._load_video_frames") as mock_load:
+    with patch(f"{_MOD}.load_video_frames") as mock_load:
         _pipe(device="cpu", target_mode="scale", scale=2.0).process(
             PipeInput(input={"model": bundle, "latent": latent, "video": ["fake.mp4"]}), lambda o: None)
     mock_load.assert_not_called()
@@ -173,7 +173,7 @@ def test_source_frame_count_is_none_on_direct_latent_path():
 def test_source_frame_count_reports_pre_padding_count_on_video_path():
     bundle = _bundle()
     frames = torch.rand(100, 32, 32, 3)
-    with patch(f"{_MOD}._load_video_frames", return_value=frames):
+    with patch(f"{_MOD}.load_video_frames", return_value=frames):
         out = _pipe(device="cpu", target_mode="scale", scale=2.0).process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
     assert out.output["source_frame_count"] == 100
@@ -187,7 +187,7 @@ def test_encode_video_raises_a_clear_message_on_oom():
 
     bundle.video_vae.module.encode = oom_encode
     frames = torch.rand(5, 32, 32, 3)
-    with patch(f"{_MOD}._load_video_frames", return_value=frames):
+    with patch(f"{_MOD}.load_video_frames", return_value=frames):
         with pytest.raises(torch.cuda.OutOfMemoryError, match="no tiled encode fallback"):
             _pipe(device="cpu", target_mode="scale", scale=2.0).process(
                 PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)

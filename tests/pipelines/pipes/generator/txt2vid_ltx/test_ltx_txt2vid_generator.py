@@ -14,28 +14,25 @@ from src.pipelines.outputs import GalleryGenerationOutput
 from src.platform.runtime.native.errors import DecodeNumericsError
 from src.platform.runtime.native.sampling.registry import sampler_registry
 from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes.generator.txt2vid_ltx.main import (
-    GeneratorLtxTxt2VidPipe,
-    _decode_video,
-    _snap_geometry,
-    _LTXCtx,
-    _SPATIAL_DOWNSCALE,
-    _TEMPORAL_DOWNSCALE,
-    _LATENT_CHANNELS,
-)
+from src.pipelines.pipes.generator.txt2vid_ltx.main import _LTXCtx, GeneratorLtxTxt2VidPipe
+from src.pipelines.pipes._shared.video.ltx_common import decode_ltx_video
+from src.pipelines.pipes._shared.video.ltx_common import snap_ltx_geometry
+from src.pipelines.pipes._shared.video.ltx_constants import LTX_SPATIAL_DOWNSCALE
+from src.pipelines.pipes._shared.video.ltx_constants import LTX_TEMPORAL_DOWNSCALE
+from src.pipelines.pipes._shared.video.ltx_constants import LTX_LATENT_CHANNELS
 
 
 # -- geometry snapping -------------------------------------------------------
 
 def test_snap_geometry_resolution_and_frames():
     # 1000x540 -> 32px grid; frames 50 -> nearest 1+8k.
-    w, h, f = _snap_geometry(1000, 540, 50)
-    assert w % _SPATIAL_DOWNSCALE == 0 and h % _SPATIAL_DOWNSCALE == 0
-    assert (f - 1) % _TEMPORAL_DOWNSCALE == 0
+    w, h, f = snap_ltx_geometry(1000, 540, 50)
+    assert w % LTX_SPATIAL_DOWNSCALE == 0 and h % LTX_SPATIAL_DOWNSCALE == 0
+    assert (f - 1) % LTX_TEMPORAL_DOWNSCALE == 0
 
 
 def test_snap_geometry_already_valid_is_unchanged():
-    w, h, f = _snap_geometry(768, 512, 49)
+    w, h, f = snap_ltx_geometry(768, 512, 49)
     assert (w, h, f) == (768, 512, 49)
 
 
@@ -170,7 +167,7 @@ def test_latent_shape_is_5d_and_128_channels(mock_denoise):
     mock_denoise.side_effect = fake_denoise
     # frames 49 -> t_lat = (49-1)//8 + 1 = 7; 768x512 /32 = 24x16
     _pipe(device="cpu", resolution="768x512", frames=49).process(_pipe_input(), lambda o: None)
-    assert captured["shape"] == (1, _LATENT_CHANNELS, 7, 16, 24)
+    assert captured["shape"] == (1, LTX_LATENT_CHANNELS, 7, 16, 24)
 
 
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
@@ -179,7 +176,7 @@ def test_model_forward_wraps_single_element_list_with_frame_rate(mock_denoise):
     seen = {}
 
     def fake_denoise(model_forward, latents, cond, uncond, **kw):
-        x = torch.zeros(1, _LATENT_CHANNELS, 7, 16, 24)
+        x = torch.zeros(1, LTX_LATENT_CHANNELS, 7, 16, 24)
         model_forward(x, torch.tensor([0.5]), cond)
         return latents
 
@@ -367,7 +364,7 @@ def test_step_cache_absent_no_kwarg_reaches_dit_module_forward(mock_denoise):
     seen = {}
 
     def fake_denoise(model_forward, latents, cond, uncond, **kw):
-        x = torch.zeros(1, _LATENT_CHANNELS, 7, 16, 24)
+        x = torch.zeros(1, LTX_LATENT_CHANNELS, 7, 16, 24)
         model_forward(x, torch.tensor([0.5]), cond)
         return latents
 
@@ -396,7 +393,7 @@ def test_step_cache_present_in_conditioning_reaches_dit_module_forward(mock_deno
     sentinel_cache = object()
 
     def fake_denoise(model_forward, latents, cond, uncond, **kw):
-        x = torch.zeros(1, _LATENT_CHANNELS, 7, 16, 24)
+        x = torch.zeros(1, LTX_LATENT_CHANNELS, 7, 16, 24)
         model_forward(x, torch.tensor([0.5]), {**cond, "step_cache": sentinel_cache})
         return latents
 
@@ -510,7 +507,7 @@ def test_nag_context_and_params_reach_dit_module_forward(mock_denoise):
     seen = {}
 
     def fake_denoise(model_forward, latents, cond, uncond, **kw):
-        x = torch.zeros(1, _LATENT_CHANNELS, 7, 16, 24)
+        x = torch.zeros(1, LTX_LATENT_CHANNELS, 7, 16, 24)
         model_forward(x, torch.tensor([0.5]), cond)
         return latents
 
@@ -539,7 +536,7 @@ def test_nag_off_no_extra_kwargs_reach_dit_module_forward(mock_denoise):
     seen = {}
 
     def fake_denoise(model_forward, latents, cond, uncond, **kw):
-        x = torch.zeros(1, _LATENT_CHANNELS, 7, 16, 24)
+        x = torch.zeros(1, LTX_LATENT_CHANNELS, 7, 16, 24)
         model_forward(x, torch.tensor([0.5]), cond)
         return latents
 
@@ -613,8 +610,8 @@ def test_decode_video_no_mean_std_unnormalization():
     )
     c = _LTXCtx(bundle=None, vae=vae, sampling_settings={}, conditioning=[], steps=1, cfg=1.0,
                 sampler="euler", width=64, height=64, frames=1, fps=25.0, device="cpu", dtype=torch.float32)
-    latent = torch.zeros(1, _LATENT_CHANNELS, 1, 2, 2)
-    frames = _decode_video(c, latent, seed=1234)
+    latent = torch.zeros(1, LTX_LATENT_CHANNELS, 1, 2, 2)
+    frames = decode_ltx_video(c.vae, c.device, latent, seed=1234)
     assert frames.shape == (1, 64, 64, 3)
     assert frames.dtype.name == "uint8"
     assert (frames == 0).all()  # decode returns -1.0 -> pixel value 0
@@ -639,8 +636,8 @@ def test_decode_video_seeds_the_decode_noise_generator_from_the_request_seed():
     c = _LTXCtx(bundle=None, vae=vae, sampling_settings={}, conditioning=[], steps=1, cfg=1.0,
                 sampler="euler", width=64, height=64, frames=1, fps=25.0, device="cpu", dtype=torch.float32)
 
-    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.decode_with_oom_retry", fake_ladder):
-        _decode_video(c, torch.zeros(1, _LATENT_CHANNELS, 1, 2, 2), seed=1234)
+    with patch("src.pipelines.pipes._shared.video.ltx_common.decode_with_oom_retry", fake_ladder):
+        decode_ltx_video(c.vae, c.device, torch.zeros(1, LTX_LATENT_CHANNELS, 1, 2, 2), seed=1234)
 
     assert seen["generator"] is not None
     expected = torch.Generator(device="cpu").manual_seed(1234 + DECODE_NOISE_SEED_OFFSET)
@@ -657,9 +654,9 @@ def test_decode_video_raises_on_nan_pixels_instead_of_silent_black_frame():
     )
     c = _LTXCtx(bundle=None, vae=vae, sampling_settings={}, conditioning=[], steps=1, cfg=1.0,
                 sampler="euler", width=64, height=64, frames=1, fps=25.0, device="cpu", dtype=torch.float32)
-    latent = torch.zeros(1, _LATENT_CHANNELS, 1, 2, 2)
+    latent = torch.zeros(1, LTX_LATENT_CHANNELS, 1, 2, 2)
     with pytest.raises(DecodeNumericsError):
-        _decode_video(c, latent, seed=1234)
+        decode_ltx_video(c.vae, c.device, latent, seed=1234)
 
 
 def test_decode_video_finite_pixels_pass_through_unaffected():
@@ -670,8 +667,8 @@ def test_decode_video_finite_pixels_pass_through_unaffected():
     )
     c = _LTXCtx(bundle=None, vae=vae, sampling_settings={}, conditioning=[], steps=1, cfg=1.0,
                 sampler="euler", width=64, height=64, frames=1, fps=25.0, device="cpu", dtype=torch.float32)
-    latent = torch.zeros(1, _LATENT_CHANNELS, 1, 2, 2)
-    frames = _decode_video(c, latent, seed=1234)
+    latent = torch.zeros(1, LTX_LATENT_CHANNELS, 1, 2, 2)
+    frames = decode_ltx_video(c.vae, c.device, latent, seed=1234)
     assert frames.shape == (1, 64, 64, 3)
 
 
@@ -695,11 +692,11 @@ def test_decode_video_never_chunks_ltx_vae_has_no_feat_cache():
     )
     c = _LTXCtx(bundle=None, vae=vae, sampling_settings={}, conditioning=[], steps=1, cfg=1.0,
                 sampler="euler", width=64, height=64, frames=49, fps=25.0, device="cpu", dtype=torch.float32)
-    latent = torch.zeros(1, _LATENT_CHANNELS, 20, 2, 2)  # long clip
+    latent = torch.zeros(1, LTX_LATENT_CHANNELS, 20, 2, 2)
 
-    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.free_vram_gb", return_value=1000.0), \
-         patch("src.pipelines.pipes.generator.txt2vid_ltx.main.chunked_decode_causal3d") as mock_chunked:
-        _decode_video(c, latent, seed=1234)
+    with patch("src.pipelines.pipes._shared.video.ltx_common.free_vram_gb", return_value=1000.0), \
+         patch("src.pipelines.pipes._shared.video.ltx_common.chunked_decode_causal3d") as mock_chunked:
+        decode_ltx_video(c.vae, c.device, latent, seed=1234)
 
     assert calls["decode"] == 1
     mock_chunked.assert_not_called()
@@ -906,14 +903,14 @@ def test_generate_one_trims_padded_tail_frames_before_mux():
     padding, so the padded tail never reaches the mux."""
     captured = {}
 
-    def fake_decode(c, latent, seed):
+    def fake_decode(vae, device, latent, seed):
         return torch.zeros(10, 4, 4, 3, dtype=torch.uint8)  # 10 decoded frames (padded)
 
     def fake_encode(frames, path, fps, audio=None):
         captured["frame_count"] = frames.shape[0]
         return path
 
-    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main._decode_video", fake_decode), \
+    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.decode_ltx_video", fake_decode), \
          patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", fake_encode):
         pipe_input = _pipe_input()
         pipe_input.input["audio_source"] = "/tmp/source.mp4"
@@ -929,14 +926,14 @@ def test_generate_one_no_source_frame_count_does_not_trim():
     already exactly on-grid) -- decoded output passes through unchanged."""
     captured = {}
 
-    def fake_decode(c, latent, seed):
+    def fake_decode(vae, device, latent, seed):
         return torch.zeros(10, 4, 4, 3, dtype=torch.uint8)
 
     def fake_encode(frames, path, fps, audio=None):
         captured["frame_count"] = frames.shape[0]
         return path
 
-    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main._decode_video", fake_decode), \
+    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.decode_ltx_video", fake_decode), \
          patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", fake_encode):
         _pipe(device="cpu").process(_pipe_input(), lambda o: None)
 
@@ -951,14 +948,14 @@ def test_generate_one_source_frame_count_equal_to_decoded_is_a_noop():
     not crop anything (and must not raise)."""
     captured = {}
 
-    def fake_decode(c, latent, seed):
+    def fake_decode(vae, device, latent, seed):
         return torch.zeros(9, 4, 4, 3, dtype=torch.uint8)
 
     def fake_encode(frames, path, fps, audio=None):
         captured["frame_count"] = frames.shape[0]
         return path
 
-    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main._decode_video", fake_decode), \
+    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.decode_ltx_video", fake_decode), \
          patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", fake_encode):
         pipe_input = _pipe_input()
         pipe_input.input["audio_source"] = "/tmp/source.mp4"
@@ -975,14 +972,14 @@ def test_generate_one_source_frame_count_larger_than_decoded_is_ignored():
     never grow the output -- the guard only ever trims, never pads."""
     captured = {}
 
-    def fake_decode(c, latent, seed):
+    def fake_decode(vae, device, latent, seed):
         return torch.zeros(9, 4, 4, 3, dtype=torch.uint8)
 
     def fake_encode(frames, path, fps, audio=None):
         captured["frame_count"] = frames.shape[0]
         return path
 
-    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main._decode_video", fake_decode), \
+    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.decode_ltx_video", fake_decode), \
          patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", fake_encode):
         pipe_input = _pipe_input()
         pipe_input.input["audio_source"] = "/tmp/source.mp4"
@@ -1004,7 +1001,7 @@ def test_initial_latent_absent_seeds_zero_latent_unchanged(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
     _pipe(device="cpu").process(_pipe_input(), lambda o: None)
-    assert torch.equal(captured["latents"], torch.zeros(1, _LATENT_CHANNELS, 7, 16, 24))
+    assert torch.equal(captured["latents"], torch.zeros(1, LTX_LATENT_CHANNELS, 7, 16, 24))
 
 
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
@@ -1017,7 +1014,7 @@ def test_initial_latent_present_seeds_denoise_latents(mock_denoise):
         return latents
 
     mock_denoise.side_effect = fake_denoise
-    seed_latent = torch.full((1, _LATENT_CHANNELS, 7, 16, 24), 0.5)
+    seed_latent = torch.full((1, LTX_LATENT_CHANNELS, 7, 16, 24), 0.5)
     pipe_input = _pipe_input()
     pipe_input.input["initial_latent"] = [seed_latent]
     _pipe(device="cpu", refine_sigmas="0.9, 0.0").process(pipe_input, lambda o: None)
@@ -1036,7 +1033,7 @@ def test_initial_latent_bare_tensor_from_upscaler_pipe(mock_denoise):
         return latents
 
     mock_denoise.side_effect = fake_denoise
-    seed_latent = torch.full((1, _LATENT_CHANNELS, 7, 16, 24), 0.5)
+    seed_latent = torch.full((1, LTX_LATENT_CHANNELS, 7, 16, 24), 0.5)
     pipe_input = _pipe_input()
     pipe_input.input["initial_latent"] = seed_latent
     _pipe(device="cpu", refine_sigmas="0.9, 0.0").process(pipe_input, lambda o: None)
@@ -1048,7 +1045,7 @@ def test_initial_latent_bare_tensor_from_upscaler_pipe(mock_denoise):
 def test_initial_latent_without_refine_sigmas_raises_clear_error():
     import pytest
 
-    seed_latent = torch.full((1, _LATENT_CHANNELS, 7, 16, 24), 0.5)
+    seed_latent = torch.full((1, LTX_LATENT_CHANNELS, 7, 16, 24), 0.5)
     pipe_input = _pipe_input()
     pipe_input.input["initial_latent"] = [seed_latent]
     with pytest.raises(ValueError, match="refine_sigmas' is empty"):
@@ -1065,7 +1062,7 @@ def test_refine_sigmas_parsed_verbatim_and_passed_to_denoise_sigmas_kwarg(mock_d
         return latents
 
     mock_denoise.side_effect = fake_denoise
-    seed_latent = torch.full((1, _LATENT_CHANNELS, 7, 16, 24), 0.5)
+    seed_latent = torch.full((1, LTX_LATENT_CHANNELS, 7, 16, 24), 0.5)
     pipe_input = _pipe_input()
     pipe_input.input["initial_latent"] = [seed_latent]
     recipe = "0.909375, 0.725, 0.421875, 0.0"
@@ -1090,7 +1087,7 @@ def test_initial_latent_shape_derives_resolution_frames_ignoring_config():
     shape (never known at preset-render time for an upstream/standalone
     latent), NOT from `resolution`/`frames` config -- a config left at the
     unrelated default must not raise or get silently ignored-then-mismatched."""
-    seed_latent = torch.full((1, _LATENT_CHANNELS, 3, 4, 4), 0.5)  # arbitrary, unrelated to config resolution
+    seed_latent = torch.full((1, LTX_LATENT_CHANNELS, 3, 4, 4), 0.5)
     pipe_input = _pipe_input()
     pipe_input.input["initial_latent"] = [seed_latent]
     ctx = _pipe(resolution="768x512", frames=49).build_context(pipe_input)
@@ -1103,8 +1100,8 @@ def test_initial_latent_shape_derives_resolution_frames_ignoring_config():
 def test_initial_latents_inconsistent_shape_across_seeds_raises_clear_error():
     import pytest
 
-    first = torch.zeros(1, _LATENT_CHANNELS, 3, 4, 4)
-    mismatched = torch.zeros(1, _LATENT_CHANNELS, 3, 4, 5)  # different w_lat
+    first = torch.zeros(1, LTX_LATENT_CHANNELS, 3, 4, 4)
+    mismatched = torch.zeros(1, LTX_LATENT_CHANNELS, 3, 4, 5)
     pipe_input = _pipe_input(quantity=2, seeds=(1, 2))
     pipe_input.input["initial_latent"] = [first, mismatched]
     with pytest.raises(ValueError, match=r"initial_latent\[1\] shape .* does not match"):
@@ -1121,7 +1118,7 @@ def test_initial_latent_falls_back_to_last_when_fewer_than_quantity(mock_denoise
         return latents
 
     mock_denoise.side_effect = fake_denoise
-    only_latent = torch.full((1, _LATENT_CHANNELS, 7, 16, 24), 0.7)
+    only_latent = torch.full((1, LTX_LATENT_CHANNELS, 7, 16, 24), 0.7)
     pipe_input = _pipe_input(quantity=2, seeds=(1, 2))
     pipe_input.input["initial_latent"] = [only_latent]  # only one, quantity=2
     _pipe(quantity=2, device="cpu", refine_sigmas="0.9, 0.0").process(pipe_input, lambda o: None)
@@ -1132,14 +1129,14 @@ def test_initial_latent_falls_back_to_last_when_fewer_than_quantity(mock_denoise
 
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise", lambda mf, latents, c, u, **k: latents)
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4")
-@patch("src.pipelines.pipes.generator.txt2vid_ltx.main._decode_video")
+@patch("src.pipelines.pipes.generator.txt2vid_ltx.main.decode_ltx_video")
 def test_decode_false_skips_decode_and_emits_latent_output(mock_decode, mock_encode):
     result = _pipe(decode=False, device="cpu").process(_pipe_input(), lambda o: None)
     mock_decode.assert_not_called()
     mock_encode.assert_not_called()
     assert result.output["video"] == []
     assert len(result.output["latent"]) == 1
-    assert torch.equal(result.output["latent"][0], torch.zeros(1, _LATENT_CHANNELS, 7, 16, 24))
+    assert torch.equal(result.output["latent"][0], torch.zeros(1, LTX_LATENT_CHANNELS, 7, 16, 24))
 
 
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise", lambda mf, latents, c, u, **k: latents)
@@ -1184,11 +1181,11 @@ def test_decode_video_chunked_path_would_be_used_if_forced():
     )
     c = _LTXCtx(bundle=None, vae=vae, sampling_settings={}, conditioning=[], steps=1, cfg=1.0,
                 sampler="euler", width=64, height=64, frames=49, fps=25.0, device="cpu", dtype=torch.float32)
-    latent = torch.randn(1, _LATENT_CHANNELS, 7, 2, 2)
+    latent = torch.randn(1, LTX_LATENT_CHANNELS, 7, 2, 2)
 
-    with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.causal3d_chunk_frames", return_value=3), \
-         patch("src.pipelines.pipes.generator.txt2vid_ltx.main.chunked_decode_causal3d", side_effect=fake_chunked):
-        _decode_video(c, latent.clone(), seed=1234)
+    with patch("src.pipelines.pipes._shared.video.ltx_common.causal3d_chunk_frames", return_value=3), \
+         patch("src.pipelines.pipes._shared.video.ltx_common.chunked_decode_causal3d", side_effect=fake_chunked):
+        decode_ltx_video(c.vae, c.device, latent.clone(), seed=1234)
 
     assert calls["decode"] == 0
     assert seen["chunk_latent_frames"] == 3
@@ -1216,6 +1213,6 @@ def test_te_eviction_also_wired_for_the_standalone_upscale_refine_call():
     models = _FakeModelsService(evict_result=False)  # already evicted upstream
     bundle = _bundle(te_cache_key="native/te/gemma3.safetensors")
     pipe_input = _pipe_input(bundle=bundle, models=models)
-    pipe_input.input["initial_latent"] = [torch.zeros(1, _LATENT_CHANNELS, 3, 2, 2)]
+    pipe_input.input["initial_latent"] = [torch.zeros(1, LTX_LATENT_CHANNELS, 3, 2, 2)]
     _pipe(refine_sigmas="0.9, 0.0").build_context(pipe_input)
     assert models.evict_calls == ["native/te/gemma3.safetensors"]

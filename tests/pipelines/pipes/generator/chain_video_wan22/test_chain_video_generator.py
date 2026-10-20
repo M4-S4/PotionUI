@@ -189,7 +189,7 @@ def _patches(fake_decode=None, fake_build=None, denoise_side_effect=None):
         patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4",
               lambda frames, path, fps: Path(path).write_bytes(b"fake")),
         patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise", side_effect=fake_denoise),
-        patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video", side_effect=fake_decode),
+        patch("src.pipelines.pipes.generator.chain_video_wan22.main.decode_wan_video", side_effect=fake_decode),
         patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat", side_effect=fake_build),
     )
 
@@ -249,7 +249,7 @@ def test_i2v_set_classic_i2v_without_flf_raises_before_any_work():
 
     with patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat") as mock_build, \
          patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise") as mock_denoise, \
-         patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video") as mock_decode, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.decode_wan_video") as mock_decode, \
          patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4") as mock_encode_mp4, \
          _no_stitch():
         with pytest.raises(ValueError, match="i2v"):
@@ -269,7 +269,7 @@ def test_i2v_set_classic_flf2v_raises_before_any_work():
 
     with patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat") as mock_build, \
          patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise") as mock_denoise, \
-         patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video") as mock_decode, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.decode_wan_video") as mock_decode, \
          patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4") as mock_encode_mp4, \
          _no_stitch():
         with pytest.raises(ValueError, match="i2v"):
@@ -316,7 +316,7 @@ def test_chain_continuation_needing_incompatible_i2v_set_raises_before_any_segme
 
     with patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat") as mock_build, \
          patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise") as mock_denoise, \
-         patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video") as mock_decode, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.decode_wan_video") as mock_decode, \
          patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4") as mock_encode_mp4, \
          _no_stitch():
         with pytest.raises(ValueError, match="i2v"):
@@ -633,7 +633,7 @@ def test_tail_latent_carries_this_segments_own_sampled_latent_not_stale():
     with patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4",
                lambda frames, path, fps: Path(path).write_bytes(b"fake")), \
          patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise", side_effect=fake_denoise), \
-         patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video", side_effect=decode), \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.decode_wan_video", side_effect=decode), \
          patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat", side_effect=build), \
          _no_stitch():
         pipe.process(pi, lambda o: None)
@@ -1417,7 +1417,7 @@ def test_expert_boundary_rebinds_to_each_segments_own_steps():
     assert boundaries[0] != boundaries[1]
     # Recomputed directly for cross-check: each segment's boundary must match
     # ITS OWN step count's schedule, not the other segment's.
-    from src.pipelines.pipes.generator.txt2vid_wan22.main import resolve_expert_boundary
+    from src.pipelines.pipes._shared.video.wan_experts import resolve_expert_boundary
     spec = _bundle(in_dim=36).spec
     sampling_settings = spec.sampling_settings
     expected_30 = resolve_expert_boundary(spec, {"expert_switch_step": 2}, sampling_settings, 30)

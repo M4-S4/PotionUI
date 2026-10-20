@@ -63,12 +63,6 @@ class BaseDetector(ABC):
         """
         return tuple(self.config.get("box_color", [0, 0, 0]))
 
-    def get_box_thickness(self) -> int:
-        """
-        Get the thickness for visualization boxes.
-        """
-        return int(self.config.get("box_thickness", 8))
-
     def filter_boxes(self, boxes: List[np.ndarray], image_size: tuple) -> List[np.ndarray]:
         """
         Filter bounding boxes based on size ratios and other criteria.

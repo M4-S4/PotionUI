@@ -154,7 +154,7 @@ def _patches(fake_decode=None, fake_build=None):
 
     return (
         patch("src.pipelines.pipes.generator.chain_video_wan22.main.denoise", side_effect=fake_denoise),
-        patch("src.pipelines.pipes.generator.chain_video_wan22.main._decode_video", side_effect=fake_decode),
+        patch("src.pipelines.pipes.generator.chain_video_wan22.main.decode_wan_video", side_effect=fake_decode),
         patch("src.pipelines.pipes.generator.chain_video_wan22.main.build_i2v_concat", side_effect=fake_build),
     )
 

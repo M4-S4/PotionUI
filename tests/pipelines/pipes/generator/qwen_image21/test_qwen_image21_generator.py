@@ -315,6 +315,20 @@ def test_edit_mode_image_slots_forced_identical_on_cond_and_uncond():
 
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_edit_mode_copies_image_slots_onto_an_uncond_that_lacks_them():
+    src = Image.new("RGB", (64, 64), color=(1, 2, 3))
+    pipe = _make_pipe(mode="edit")
+    pipe_input = _edit_pipe_input(image=src, with_negative=True, image_slots=[2])
+    for cond_model in pipe_input.input["conditioning"]:
+        cond_model.n_embeds.pop("image_slots")
+    pipe.process(pipe_input, lambda o: None)
+
+    conditioning = _FakeGenerator.instances[-1].sample_calls[0]["conditioning"]
+    assert conditioning.uncond["image_slots"] == [2]
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
 def test_edit_mode_no_uncond_when_cfg_off_still_has_cond_ref_latents():
     src = Image.new("RGB", (64, 64), color=(1, 2, 3))
     pipe = _make_pipe(mode="edit")

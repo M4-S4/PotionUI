@@ -224,9 +224,9 @@ def _run_generate_one(pipe, bundle, order, is_cancelled=None, ar_kwargs=None, na
 
     with patch(f"{MODULE}.ar_loop.generate", side_effect=ar_fn), \
          patch(f"{MODULE}.nar.synthesize", side_effect=nar_fn):
-        pipe._models = _FakeModels(order)
-        ctx = pipe.build_context(PipeInput(input={"model": bundle}))
-        result = pipe.generate_one(ctx, 0, 12345, progress, is_cancelled)
+        ctx = pipe.build_context(PipeInput(input={"model": bundle, "MODELS": _FakeModels(order)}))
+        ctx.is_cancelled = is_cancelled or (lambda: False)
+        result = pipe.generate_one(ctx, 0, 12345, progress)
     return result, order, outputs
 
 

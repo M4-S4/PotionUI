@@ -21,8 +21,6 @@ from tests.pipelines.pipes.generator.video_minimax_h3.vae_stub import StubVideoV
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     ReferenceConditioning,
     ReferenceMedia,
-    normalize_reference_image,
-    prepare_reference_conditioning,
     visual_latent_cache_key,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.layout import (
@@ -3561,43 +3559,6 @@ def test_reordering_the_reference_list_reorders_every_traversal(tmp_path):
     blocks, condition_latents, _ = captured["args"][1:4]
     assert [b.kind for b in blocks] == ["video", "image"]
     assert [tuple(latent.shape[2:5]) for latent in condition_latents] == [(7, 8, 8), (1, 4, 4)]
-
-
-def test_the_image_only_reference_path_is_unchanged(tmp_path):
-    """The image-only request now runs `prepare_reference_conditioning`
-    instead of `prepare_reference_condition_rows`. The two must produce
-    byte-identical condition rows off the same generator, or every existing
-    ref2va seed silently changes what it renders."""
-    from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
-        normalize_references,
-        prepare_reference_condition_rows,
-    )
-    from src.pipelines.pipes.generator.video_minimax_h3.geometry import CANVAS_MULTIPLE
-
-    SMALL_EDGE = 64
-    images = [_ref_image((64, 48)), _ref_image((48, 64))]
-    canvases = [normalize_reference_image(image, canvas_multiple=CANVAS_MULTIPLE, short_edge=SMALL_EDGE).size
-                for image in images]
-    assert canvases == [(96, 64), (64, 96)]
-    kwargs = dict(patch_size=PATCH, device="cpu", dtype=torch.float32,
-                  latents_mean=[0.0] * 24, latents_std=[1.0] * 24)
-
-    legacy_latents, legacy_rows = prepare_reference_condition_rows(
-        [normalize_reference_image(image, canvas_multiple=CANVAS_MULTIPLE, short_edge=SMALL_EDGE)
-         for image in images],
-        vae_module=_RefVideoVae(), canvas_multiple=CANVAS_MULTIPLE, short_edge=SMALL_EDGE,
-        generator=torch.Generator().manual_seed(11), **kwargs,
-    )
-    current = prepare_reference_conditioning(
-        normalize_references([ReferenceMedia(kind="image", image=image) for image in images],
-                             num_frames=22, reference_short_edge=SMALL_EDGE),
-        vae_module=_RefVideoVae(), generator=torch.Generator().manual_seed(11), **kwargs,
-    )
-
-    assert torch.equal(current.condition_rows, legacy_rows)
-    assert [tuple(l.shape) for l in current.condition_latents] == [tuple(l.shape) for l in legacy_latents]
-    assert all(torch.equal(a, b) for a, b in zip(current.condition_latents, legacy_latents))
-    assert current.condition_audio_rows is None
 
 
 # -- _build_ref2va_layout: VAE placement follows what the reference set needs --

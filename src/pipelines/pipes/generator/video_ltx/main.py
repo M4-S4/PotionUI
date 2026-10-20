@@ -94,7 +94,6 @@ import tempfile
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
 import torch
 
 from src.platform.runtime.native.lora import temporarily_applied_loras
@@ -129,31 +128,30 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
 )
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.ltx_tiled_encode import encode_with_oom_retry
-from src.pipelines.pipes.generator.txt2vid_ltx.main import (
-    _LATENT_CHANNELS,
-    _SPATIAL_DOWNSCALE,
-    _TEMPORAL_DOWNSCALE,
-    _decode_video,
-    _snap_geometry,
+from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
+from src.pipelines.pipes._shared.video.frames import load_video_frames, to_frames_tensor
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
+from src.pipelines.pipes._shared.video.ltx_common import (
+    decode_ltx_video,
     parse_explicit_sigmas,
-    release_idle_te,
+    snap_ltx_geometry,
     validate_ltx_schedule_config,
 )
-from src.pipelines.pipes.generator.txt2vid_wan22.main import (
-    _attach_nag,
-    _build_video_output,
-    _emit_video_results,
-    _to_device,
+from src.pipelines.pipes._shared.video.ltx_constants import (
+    LTX_LATENT_CHANNELS,
+    LTX_SPATIAL_DOWNSCALE,
+    LTX_TEMPORAL_DOWNSCALE,
 )
+from src.pipelines.pipes._shared.video.video_common import build_video_output, emit_video_results, to_device
 from src.pipelines.pipes.generator.video_ltx.audio import audio_token_count, decode_generated_audio
 from src.pipelines.pipes.generator.video_ltx.ic_lora import resolve_reference_scales
 from src.pipelines.pipes.generator.video_ltx.conditioning import (
+    pack_tokens,
     LTXMediaCondition,
-    PreparedConditioning,
-    _pack,
     merge_initial_latent_tokens,
     mix_initial_noise,
     prepare_ltx_conditions,
+    PreparedConditioning,
 )
 from src.pipelines.pipes._shared.generation.config_specs import (
     device_config_spec,
@@ -163,47 +161,6 @@ from src.pipelines.pipes._shared.generation.config_specs import (
 )
 
 Tensor = torch.Tensor
-
-
-def _to_frames_tensor(image: Any) -> Tensor:
-    """PIL image / HWC array -> ``(1, H0, W0, 3)`` float32 in [0, 1]."""
-    if hasattr(image, "convert"):  # PIL
-        arr = torch.from_numpy(np.array(image.convert("RGB"))).float() / 255.0
-    else:
-        arr = torch.as_tensor(image, dtype=torch.float32)
-        if arr.max() > 1.5:
-            arr = arr / 255.0
-    if arr.ndim == 3:
-        arr = arr.unsqueeze(0)
-    return arr
-
-
-def _load_video_frames(path: str, max_frames: int) -> Tensor:
-    """Read up to ``max_frames`` frames from a video file -> ``(n, H, W, 3)``
-    float32 in [0, 1]."""
-    import cv2  # local import: cv2 is heavyweight and test environments stub it
-
-    cap = cv2.VideoCapture(str(path))
-    if not cap.isOpened():
-        raise ValueError(f"generator/video_ltx: cannot open video file {path!r}")
-    frames: List[np.ndarray] = []
-    try:
-        while len(frames) < max_frames:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    finally:
-        cap.release()
-    if not frames:
-        raise ValueError(f"generator/video_ltx: no frames decoded from {path!r}")
-    # `.float().div_(255.0)` (in-place divide), NOT `.float() / 255.0`: the
-    # non-in-place `/` allocates a SECOND full-size fp32 buffer before the
-    # first one is freed (transient 2x peak) -- for a long/high-res source
-    # (the standalone upscale mode reads up to 1001 frames) that doubling is
-    # multiple GB of avoidable host-RAM pressure. `div_` mutates
-    # the tensor `.float()` just allocated, so only ONE fp32 buffer ever exists.
-    return torch.from_numpy(np.stack(frames)).float().div_(255.0)
 
 
 def _resolve_latent_index(frame: Any, frames: int) -> int:
@@ -225,7 +182,7 @@ def _resolve_latent_index(frame: Any, frames: int) -> int:
     if f < 0:
         return f  # negative latent indices resolve modulo t_lat downstream
     f = min(f, frames - 1)
-    return (f - 1) // _TEMPORAL_DOWNSCALE + 1
+    return (f - 1) // LTX_TEMPORAL_DOWNSCALE + 1
 
 
 @dataclass
@@ -412,11 +369,11 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             if source == "image":
                 if idx >= len(images):
                     raise ValueError(f"media placement references image[{idx}] but only {len(images)} provided")
-                media_frames = _to_frames_tensor(images[idx])
+                media_frames = to_frames_tensor(images[idx])
             elif source == "video":
                 if idx >= len(videos):
                     raise ValueError(f"media placement references video[{idx}] but only {len(videos)} provided")
-                media_frames = _load_video_frames(videos[idx], frames)
+                media_frames = load_video_frames(videos[idx], frames)
             else:
                 raise ValueError(f"unknown media placement source {source!r}")
             if role == "reference":
@@ -471,15 +428,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 f"is not an LTX-2/2.3 checkpoint. Pick an LTX DiT for this preset."
             )
 
-        # TE eviction: this pipe's own media-conditioning VAE-encode below
-        # (`_build_conditions` -> `prepare_ltx_conditions`) uses `bundle.vae`,
-        # never the TE -- conditioning text was already produced by
-        # `prompt_encoder`, upstream of every LTX preset pipeline. Safe on
-        # BOTH generator_stage1 and generator_stage2 (same pipe class, two
-        # node instances reading the same `model` bundle in the in-flow
-        # two-stage pipeline): stage 2 never re-encodes text either, so a
-        # second call here is a harmless no-op (already evicted by stage 1).
-        # See `release_idle_te`'s docstring.
         release_idle_te(bundle, pipe_input.input.get("MODELS"), "GENERATOR VIDEO-LTX")
 
         steps = int(self.config.get("steps", 24))
@@ -493,7 +441,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
 
         resolution = str(self.config.get("resolution", "768x512")).split("x")
         width, height = int(resolution[0]), int(resolution[1])
-        width, height, frames = _snap_geometry(width, height, frames)
+        width, height, frames = snap_ltx_geometry(width, height, frames)
 
         # A stage-2 refine's temporal geometry comes from the latent it was
         # actually handed, not from re-snapping `duration*fps` again --
@@ -517,7 +465,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                         f"seed in one stage-2 refine call must share the same latent "
                         f"temporal geometry (they came from the same upstream stage)"
                     )
-            frames = (t_lat_from_latent - 1) * _TEMPORAL_DOWNSCALE + 1
+            frames = (t_lat_from_latent - 1) * LTX_TEMPORAL_DOWNSCALE + 1
 
         audio_mode = "none"
         audio_file: Optional[Any] = None
@@ -562,9 +510,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         # pin directly from the latent's own shape anyway, rather than lean
         # on that arithmetic identity, so this stays correct even if the
         # reconciliation above is ever changed independently.
-        t_lat = t_lat_from_latent if t_lat_from_latent is not None else (frames - 1) // _TEMPORAL_DOWNSCALE + 1
-        h_lat = height // _SPATIAL_DOWNSCALE
-        w_lat = width // _SPATIAL_DOWNSCALE
+        t_lat = t_lat_from_latent if t_lat_from_latent is not None else (frames - 1) // LTX_TEMPORAL_DOWNSCALE + 1
+        h_lat = height // LTX_SPATIAL_DOWNSCALE
+        w_lat = width // LTX_SPATIAL_DOWNSCALE
 
         if conditions:
             bundle.vae.move_to(device)
@@ -580,14 +528,14 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 else bool(getattr(bundle.dit.module.config, "causal_temporal_positioning", True))
             prepared = prepare_ltx_conditions(
                 conditions, vae_encode, frames=frames, height=height, width=width,
-                device=device, dtype=dtype, latent_channels=_LATENT_CHANNELS, causal_fix=causal_fix)
+                device=device, dtype=dtype, latent_channels=LTX_LATENT_CHANNELS, causal_fix=causal_fix)
             bundle.vae.offload()
         else:
             s_base = t_lat * h_lat * w_lat
             prepared = PreparedConditioning(
-                tokens=torch.zeros((1, s_base, _LATENT_CHANNELS), device=device, dtype=dtype),
+                tokens=torch.zeros((1, s_base, LTX_LATENT_CHANNELS), device=device, dtype=dtype),
                 mask=torch.zeros((1, s_base), device=device, dtype=dtype),
-                clean=torch.zeros((1, s_base, _LATENT_CHANNELS), device=device, dtype=dtype),
+                clean=torch.zeros((1, s_base, LTX_LATENT_CHANNELS), device=device, dtype=dtype),
                 extra_coords=None, n_extra=0, base_tokens=s_base,
             )
 
@@ -649,19 +597,16 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress) -> Any:
         c: _VideoLtxCtx = ctx.extra
         cond_model = c.conditioning[index] if index < len(c.conditioning) else c.conditioning[-1]
-        cond = _to_device(cond_model.embeds, c.device, c.dtype)
-        uncond = _to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
-        # NAG: see txt2vid_ltx's generate_one -- uncond["context"] is already
-        # the post-apply_text_conditioning negative context, so _attach_nag
-        # (family-agnostic, keys off "context" alone) is reused unmodified.
-        cond = _attach_nag(cond, uncond, self.config)
+        cond = to_device(cond_model.embeds, c.device, c.dtype)
+        uncond = to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
+        cond = attach_nag(cond, uncond, self.config)
 
         # A stage-2 refine pass seeds the base-token slice of `prepared` from
         # an upstream (upsampled) latent -- see module docstring for the two
         # cases (wholesale replace vs. mask-weighted merge).
         if c.initial_latents:
             init_latent_5d = c.initial_latents[index] if index < len(c.initial_latents) else c.initial_latents[-1]
-            packed = _pack(init_latent_5d.to(device=c.device, dtype=c.dtype))
+            packed = pack_tokens(init_latent_5d.to(device=c.device, dtype=c.dtype))
             if packed.shape[1] != c.prepared.base_tokens:
                 # Temporal geometry (t_lat) is derived from this very latent
                 # (build_context), so it can no longer be the source of a
@@ -725,7 +670,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
         sampler_gen = gen
         if c.sampler == "euler_ancestral":
             sampler_gen = torch.Generator(device=c.device).manual_seed(int(seed) + ANCESTRAL_NOISE_SEED_OFFSET)
-        noise_v = torch.randn((1, s_video, _LATENT_CHANNELS), generator=gen, device=c.device, dtype=c.dtype)
+        noise_v = torch.randn((1, s_video, LTX_LATENT_CHANNELS), generator=gen, device=c.device, dtype=c.dtype)
         x = mix_initial_noise(prepared, noise_v, sigma0)
         if c.audio_tokens:
             noise_a = torch.randn((1, c.audio_tokens, 128), generator=gen, device=c.device, dtype=c.dtype)
@@ -839,7 +784,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                 restore_dit_best_effort(c.bundle.dit, c.device)
             return video_latent
 
-        frames_np = _decode_video(_DecodeShim(c), video_latent, seed)
+        frames_np = decode_ltx_video(c.bundle.vae, c.device, video_latent, seed)
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(frames_np, out_path, fps=c.fps, audio=audio_track)
 
@@ -855,26 +800,10 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
     def emit_results(self, generation_outputs: callable, results: List[Any], used_seeds: List[int]) -> None:
         if not bool(self.config.get("decode", True)):
             return  # an internal latent hand-off, no gallery/seed emission here
-        _emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
+        emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
 
     def build_output(self, results: List[Any]) -> Dict[str, Any]:
         audio = list(getattr(self, "_audio_results", []))
         if not bool(self.config.get("decode", True)):
             return {"latent": results, "video": [], "audio": audio}
-        return {**_build_video_output(results), "latent": [], "audio": audio}
-
-
-@dataclass
-class _DecodeShim:
-    """Adapter for ``txt2vid_ltx._decode_video`` which expects a ctx exposing
-    ``vae`` and ``device``."""
-
-    _src: _VideoLtxCtx
-
-    @property
-    def vae(self):
-        return self._src.bundle.vae
-
-    @property
-    def device(self):
-        return self._src.device
+        return {**build_video_output(results), "latent": [], "audio": audio}
