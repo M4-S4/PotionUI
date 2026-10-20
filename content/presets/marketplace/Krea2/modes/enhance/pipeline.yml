@@ -124,7 +124,7 @@ pipeline:
         # Form-facing name for the generator's `refine_tail` config (the pipe
         # itself also emits a "refine_tail" + "refine_tail_sigmas" param with
         # the exact sigma values it ran — see generator/krea2's emit_results).
-        - ["detail_change", "{{ form.detail_change | default('balanced') }}"]
+        - ["detail_change", "{{ form.enhance_detail | default('balanced') }}"]
         # Denoise-mode: fixed positive-but-inert value (see pipeline comment above).
         - ["denoise", 1.0]
 
@@ -137,7 +137,7 @@ pipeline:
     enabled: true
     configuration:
       mode: "img2img"
-      refine_tail: "{{ form.detail_change | default('balanced') }}"
+      refine_tail: "{{ 'balanced' if (form.upscale_by == '4x' and (form.enhance_detail | default('balanced')) == 'subtle') else (form.enhance_detail | default('balanced')) }}"
       # Inert once refine_tail's sigmas are set (see pipeline comment above);
       # must stay > 0 or img2img_denoise() no-ops the whole refine pass.
       denoise: 1.0

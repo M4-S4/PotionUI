@@ -68,6 +68,10 @@ from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
 # refine_tail -> how many trailing sigmas of the official 8-step grid to walk.
 _REFINE_TAIL_STEPS = {"subtle": 2, "balanced": 3, "strong": 4}
 _REFINE_TAIL_GRID_STEPS = 8
+_REFINE_BASE_GRID_STEPS = 24
+_REFINE_BASE_MIN_STEPS = 2
+_REFINE_BASE_MAX_START_SIGMA = 0.8
+_LATENT_TOKEN_PX = 16
 
 # mu_schedule="dynamic" anchors (upstream krea-ai/krea-2 sampling.py
 # `timesteps()`): mu = slope*seq_len + intercept through (x1, y1)/(x2, y2),
@@ -87,9 +91,38 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
         # Before _apply_mu_schedule, so that method's fixed_mu/dynamic_shift
         # override still lands on top for mu_schedule="dynamic".
         apply_schedule_settings(ctx, self.config)
+        self._refine_tail_base_start = None
         self._refine_tail_sigmas = self._apply_refine_tail(ctx)
         self._apply_mu_schedule(ctx)
         return ctx
+
+    def maybe_img2img(self, gen, conditioning, ctx, index, seed, progress):
+        if ctx.extra.get("mode") == "img2img" and self._refine_tail_base_start is not None:
+            source = self._select_source(ctx.extra.get("images") or [], index)
+            if source is not None:
+                width, height = self._img2img_target_size(gen, ctx, source.size)
+                tail = self._base_refine_tail(self._refine_tail_base_start, width, height)
+                ctx.extra["sigmas"] = tail
+                self._refine_tail_sigmas = [round(float(v), 6) for v in tail.tolist()]
+        return super().maybe_img2img(gen, conditioning, ctx, index, seed, progress)
+
+    def _base_refine_tail(self, start_sigma: float, width: int, height: int):
+        seq_len = max(1, (width // _LATENT_TOKEN_PX) * (height // _LATENT_TOKEN_PX))
+        full = build_sigmas(
+            _REFINE_BASE_GRID_STEPS,
+            dynamic_shift=_BASE_DYNAMIC_SHIFT,
+            image_seq_len=seq_len,
+        )
+        first = min(range(len(full)), key=lambda i: abs(float(full[i]) - start_sigma))
+        first = min(first, _REFINE_BASE_GRID_STEPS - _REFINE_BASE_MIN_STEPS)
+        tail = full[first:]
+        if float(tail[0]) > _REFINE_BASE_MAX_START_SIGMA:
+            raise ValueError(
+                f"[{self.family_tag}] Enhance cannot keep the image intact on the Base profile at "
+                f"{width}x{height}: its resolution-dependent schedule would re-noise it almost "
+                f"completely. Use the Turbo profile or a smaller 'Upscale by'."
+            )
+        return tail
 
     def _apply_mu_schedule(self, ctx: GeneratorContext) -> None:
         """``mu_schedule="dynamic"``: override the ModelSpec's fixed_mu=1.15 with
@@ -138,13 +171,21 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
         tail_len = _REFINE_TAIL_STEPS[refine_tail]
         full = build_sigmas(_REFINE_TAIL_GRID_STEPS, fixed_mu=float(fixed_mu))
         tail = full[-tail_len:]
-        ctx.extra["sigmas"] = tail
+        if self.config.get("mu_schedule", "fixed") == "dynamic":
+            self._refine_tail_base_start = float(tail[0])
+            tail = None
+        else:
+            ctx.extra["guidance"] = 1.0
+            ctx.extra["sampler"] = "euler"
+            ctx.extra["sigmas"] = tail
         # img2img_denoise() early-returns the source unchanged when denoise<=0,
         # regardless of an explicit sigmas list -- denoise is otherwise fully
         # inert once sigmas is set (sigmas[0] fixes the noise blend), so a
         # non-positive value here would silently skip the whole refine pass.
         if ctx.extra.get("denoise", 0.0) <= 0.0:
             ctx.extra["denoise"] = 1.0
+        if tail is None:
+            return None
         return [round(float(v), 6) for v in tail.tolist()]
 
     def emit_results(self, generation_outputs, results, used_seeds) -> None:

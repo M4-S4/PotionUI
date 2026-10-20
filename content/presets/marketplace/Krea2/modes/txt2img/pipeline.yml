@@ -227,7 +227,8 @@ pipeline:
       - ["image", "generator", "image"]
     configuration:
       mode: "img2img"
-      refine_tail: "{{ form.enhance_detail }}"
+      refine_tail: "{{ 'balanced' if (form.upscale_by == '4x' and form.enhance_detail == 'subtle') else form.enhance_detail }}"
+      mu_schedule: "{{ 'dynamic' if (form.speed_profile) == 'base' else 'fixed' }}"
       denoise: 1.0
       steps: 8
       # Tracks the base generation's cfg (same expression as the base
