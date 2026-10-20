@@ -258,9 +258,12 @@ for (const viewport of VIEWPORTS) {
 		await page.goto('/history');
 		await page.waitForLoadState('networkidle');
 
-		const actions = page.locator('[data-generation-card]').getByRole('button', { name: 'Item actions' });
-		await expect(actions.first()).toBeVisible({ timeout: 15000 });
-		await actions.first().click({ force: true });
+		const card = page.locator('[data-generation-card]').first();
+		await expect(card).toBeVisible({ timeout: 15000 });
+		await card.hover();
+		const actions = card.getByRole('button', { name: 'Item actions' });
+		await expect(actions).toHaveCSS('opacity', '1');
+		await actions.click();
 		await page.getByRole('menuitem', { name: 'Open details' }).click();
 		await expect(page.getByText('Generation Details')).toBeVisible({ timeout: 15000 });
 

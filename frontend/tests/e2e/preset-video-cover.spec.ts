@@ -85,6 +85,9 @@ test.describe('desktop', () => {
 			await expect(video).toHaveJSProperty('muted', true);
 			await expect(video).toHaveAttribute('poster', /cover\.webm\?size=small/);
 			await expect.poll(() => isPaused(video)).toBe(true);
+			await expect
+				.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState), { timeout: 15000 })
+				.toBeGreaterThanOrEqual(3);
 
 			const scaleOf = () => video.evaluate((el) => getComputedStyle(el).transform);
 			expect(await scaleOf()).toBe('none');
