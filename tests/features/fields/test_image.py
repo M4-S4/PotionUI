@@ -306,7 +306,7 @@ class TestImageField(unittest.TestCase):
         image_data.update({'width': 2000, 'height': 1500})
         
         rules = {'max_width': 1024, 'max_height': 1024}
-        errors = self.image_field._validate_image(image_data, rules)
+        errors = self.image_field._validate_legacy(image_data, rules)
         
         self.assertEqual(len(errors), 2)  # Both width and height exceed limits
         self.assertTrue(any('width exceeds maximum' in error for error in errors))

@@ -226,20 +226,6 @@ def _media_category(type_value: Any) -> Optional[str]:
 
 
 def _media_item_metrics(item: Dict[str, Any]) -> Tuple[Optional[str], Optional[float], Optional[float], Optional[float]]:
-    """Best-effort `(category, width, height, duration_seconds)` for one
-    media item.
-
-    Reads the modern passthrough shape's `metadata` sub-dict when present
-    (`{width, height, duration_seconds, fps, size}` - see
-    `mediaLoaderUpload.ts`'s `UploadedMediaItem`), else falls back to the
-    item's own top-level keys (the legacy base64 shape, which never nests
-    metadata and spells duration `duration` - see `Video._validate_video`/
-    `Audio._validate_audio`). A missing or non-numeric field reads as
-    `None`, never `0`: `media_probe` is explicitly best-effort, and coercing
-    "unknown" to `0` would make every downstream `max_*` check pass on the
-    way down and fail as soon as anything real is known, which is backwards
-    from the fail-open policy `_check_media_constraints` documents.
-    """
     category = _media_category(item.get("type"))
     metadata = item.get("metadata")
     source: Dict[str, Any] = metadata if isinstance(metadata, dict) else item

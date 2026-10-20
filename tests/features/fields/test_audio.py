@@ -281,17 +281,15 @@ class TestAudioField(unittest.TestCase):
         self.assertEqual(accept_string, 'audio/*')
 
     def test_validate_audio_invalid_format(self):
-        """Test _validate_audio directly with non-dict input"""
-        errors = self.audio_field._validate_audio("not a dict", {})
+        errors = self.audio_field._validate_legacy("not a dict", {})
         self.assertEqual(len(errors), 1)
         self.assertIn('Invalid audio data format', errors[0])
 
     def test_validate_audio_duration(self):
-        """Test _validate_audio duration check"""
         audio_data = self.sample_audio_data.copy()
         audio_data['duration'] = 600
 
-        errors = self.audio_field._validate_audio(audio_data, {'max_duration': 300})
+        errors = self.audio_field._validate_legacy(audio_data, {'max_duration': 300})
         self.assertEqual(len(errors), 1)
         self.assertIn('duration exceeds maximum', errors[0])
 

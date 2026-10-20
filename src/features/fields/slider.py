@@ -6,7 +6,13 @@ from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
 
 class Slider(BaseField):
     """Slider field for numeric input with min/max ranges"""
-    
+
+    WIDGET = 'slider'
+    MIN_EXAMPLE = 0
+    MAX_EXAMPLE = 100
+    STEP_EXAMPLE = 0.1
+    TOOLTIP_EXAMPLE = "Adjust the strength of the effect"
+
     def output(self, field, preset_id: str = None) -> Dict[str, Any]:
         """Transform slider field data to frontend format"""
         field_info = self.get_field_info(field)
@@ -34,29 +40,29 @@ class Slider(BaseField):
                 name="min",
                 param_type=float,
                 default=0,
-                description="Minimum value for the slider",
-                example=0
+                description=f"Minimum value for the {cls.WIDGET}",
+                example=cls.MIN_EXAMPLE
             ),
             FieldConfigSpec(
                 name="max",
                 param_type=float,
                 default=100,
-                description="Maximum value for the slider",
-                example=100
+                description=f"Maximum value for the {cls.WIDGET}",
+                example=cls.MAX_EXAMPLE
             ),
             FieldConfigSpec(
                 name="step",
                 param_type=float,
                 default=1,
-                description="Step increment for the slider",
-                example=0.1
+                description=f"Step increment for the {cls.WIDGET}",
+                example=cls.STEP_EXAMPLE
             ),
             FieldConfigSpec(
                 name="tooltip",
                 param_type=str,
                 default="",
-                description="Tooltip text displayed next to the slider value",
-                example="Adjust the strength of the effect"
+                description=f"Tooltip text displayed next to the {cls.WIDGET} value",
+                example=cls.TOOLTIP_EXAMPLE
             ),
         ]
 
@@ -69,13 +75,13 @@ class Slider(BaseField):
                 rule_name="min",
                 description="Minimum allowed value",
                 param_type=float,
-                example=0
+                example=cls.MIN_EXAMPLE
             ),
             FieldValidationSpec(
                 rule_name="max",
                 description="Maximum allowed value",
                 param_type=float,
-                example=100
+                example=cls.MAX_EXAMPLE
             ),
         ]
         return base_rules + slider_rules
