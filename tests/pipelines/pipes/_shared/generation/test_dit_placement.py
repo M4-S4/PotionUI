@@ -46,9 +46,9 @@ from src.pipelines.pipes._shared.generation.dit_placement import (
     SamplingOutOfMemory,
     estimate_activation_reserve_gb,
     guard_sampling_oom,
-    is_cuda_oom,
     place_dit_for_sequence,
 )
+from src.platform.runtime.native.errors import is_cuda_oom
 
 _MOD = "src.pipelines.pipes._shared.generation.dit_placement"
 
