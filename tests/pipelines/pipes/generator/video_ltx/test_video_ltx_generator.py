@@ -20,6 +20,7 @@ from src.pipelines.pipes.generator.video_ltx.conditioning import (
     mix_initial_noise,
     prepare_ltx_conditions,
 )
+from src.pipelines.pipes._shared.generation.dit_placement import DitPlacementDecision
 from src.pipelines.pipes._shared.generation.ltx_conditioned_forward import ConditionedAVForward
 from src.pipelines.pipes.generator.video_ltx.main import (
     GeneratorLtxVideoPipe,
@@ -1698,6 +1699,32 @@ def test_stage2_loras_wraps_with_empty_stack_on_a_plain_generation(caplog):
             ).process(_pipe_input(), lambda o: None)
 
     assert calls == [[]]
+
+
+@patch("src.pipelines.pipes.generator.video_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
+def test_the_dit_is_placed_inside_the_scoped_lora_block_with_the_conditioned_reserve_terms():
+    calls = []
+
+    @contextmanager
+    def fake_ctx(module, stack, runtime_only=False):
+        calls.append(("enter", runtime_only))
+        yield
+        calls.append(("exit",))
+
+    def fake_place(dit, device, *, video_tokens, audio_tokens=0, own_models=(), **terms):
+        calls.append(("place", terms["gelu_ffn_dim"], terms["modulation_rows"]))
+        return DitPlacementDecision("cpu", 0.0, 0.0, 0.0, video_tokens, audio_tokens)
+
+    def fake_denoise(fwd, x, cond, uncond, **kw):
+        calls.append(("denoise",))
+        return x
+
+    with patch("src.pipelines.pipes.generator.video_ltx.main.temporarily_applied_loras", fake_ctx), \
+         patch("src.pipelines.pipes.generator.video_ltx.main.place_dit_for_sequence", fake_place), \
+         patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", fake_denoise):
+        _pipe(resolution="64x64", frames=17).process(_pipe_input(), lambda o: None)
+
+    assert calls == [("enter", True), ("place", 16384, 5), ("denoise",), ("exit",)]
 
 
 # -- TE eviction --------------------------------------------------------------

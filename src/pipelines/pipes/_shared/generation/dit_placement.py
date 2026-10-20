@@ -249,6 +249,28 @@ _ACTIVATION_RESERVE_BYTES_PER_TOKEN = _activation_reserve_bytes_per_token(_LTX_I
 def _ffn_transient_bytes_per_token(ffn_dim: int) -> int:
     return 4 * ffn_dim * 2
 
+
+_LTX_FFN_DIM = 4 * _LTX_INNER_DIM
+_LTX_PROMPT_ADALN_MODULATION_ROWS = 7
+_LTX_MODULATION_ROWS = 5
+
+
+def _gelu_ffn_bytes_per_token(gelu_ffn_dim: int | None) -> int:
+    return int(gelu_ffn_dim or 0) * _COMPUTE_DTYPE_BYTES
+
+
+def _modulation_bytes_per_token(inner_dim: int, modulation_rows: int) -> int:
+    return max(0, int(modulation_rows)) * inner_dim * _COMPUTE_DTYPE_BYTES
+
+
+def ltx_reserve_terms(dit_module: Any, *, per_token_timestep: bool) -> dict[str, int]:
+    rows = 0
+    if per_token_timestep:
+        prompt_adaln = bool(getattr(getattr(dit_module, "config", None), "has_prompt_adaln", False))
+        rows = _LTX_PROMPT_ADALN_MODULATION_ROWS if prompt_adaln else _LTX_MODULATION_ROWS
+    return {"gelu_ffn_dim": _LTX_FFN_DIM, "modulation_rows": rows}
+
+
 # LoRA cost terms. A resident runtime LoRA delta (quantized-storage Linears
 # -- lora/apply.py's ``_needs_runtime_deltas``) is applied per forward by
 # ``vendor/gpl/comfyui/ops.py`` on one of two sides, and the two cost
@@ -348,6 +370,7 @@ def estimate_activation_reserve_gb(
     video_tokens: int, audio_tokens: int = 0, *, lora: DitLoraProfile = _NO_LORA,
     inner_dim: int = _LTX_INNER_DIM, ffn_dim: int | None = None,
     quant_activation_bytes_per_token: int = 0, dequant_transient_bytes: int = 0,
+    gelu_ffn_dim: int | None = None, modulation_rows: int = 0,
 ) -> float:
     """Estimate the DiT-forward activation VRAM reserve for one sampling step.
 
@@ -376,12 +399,17 @@ def estimate_activation_reserve_gb(
     Every existing LTX call site never passes this, so their estimate is
     unchanged.
     """
-    s = max(0, int(video_tokens)) + max(0, int(audio_tokens))
+    v = max(0, int(video_tokens))
+    s = v + max(0, int(audio_tokens))
+    gelu_bytes = _gelu_ffn_bytes_per_token(gelu_ffn_dim)
     bytes_per_token = _activation_reserve_bytes_per_token(inner_dim, ffn_dim)
     bytes_per_token += lora.output_buffer_bytes_per_token
     bytes_per_token += max(0, int(quant_activation_bytes_per_token))
-    flat_bytes = lora.weight_side_bytes + max(0, int(dequant_transient_bytes))
-    raw_gb = (s * bytes_per_token + flat_bytes) / _BYTES_PER_GB
+    bytes_per_token += gelu_bytes
+    transient_bytes = max(max(0, int(dequant_transient_bytes)), s * gelu_bytes)
+    flat_bytes = lora.weight_side_bytes + transient_bytes
+    modulation_bytes = v * _modulation_bytes_per_token(inner_dim, modulation_rows)
+    raw_gb = (s * bytes_per_token + modulation_bytes + flat_bytes) / _BYTES_PER_GB
     return max(_ACTIVATION_RESERVE_FLOOR_GB, raw_gb * _ACTIVATION_SAFETY_MARGIN)
 
 
@@ -561,6 +589,8 @@ def place_dit_for_sequence(
     inner_dim: int = _LTX_INNER_DIM,
     ffn_dim: int | None = None,
     fit_hint: "FitHint | None" = None,
+    gelu_ffn_dim: int | None = None,
+    modulation_rows: int = 0,
 ) -> DitPlacementDecision:
     """Place ``dit`` on ``device`` for sampling, sized to THIS generation's
     token count instead of an unconditional full-pin ``move_to``.
@@ -627,6 +657,7 @@ def place_dit_for_sequence(
         video_tokens, audio_tokens, lora=lora, inner_dim=inner_dim, ffn_dim=ffn_dim,
         quant_activation_bytes_per_token=_dit_quant_activation_bytes_per_token(dit),
         dequant_transient_bytes=_dit_dequant_transient_bytes(dit),
+        gelu_ffn_dim=gelu_ffn_dim, modulation_rows=modulation_rows,
     )
     extra_reserve = max(0.0, float(reserve_gb))
     total_reserve = activation_reserve + extra_reserve

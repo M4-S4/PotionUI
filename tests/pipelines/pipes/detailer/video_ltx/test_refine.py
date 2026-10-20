@@ -174,7 +174,7 @@ def test_refine_tube_pixels_places_dit_for_the_tube(monkeypatch):
     cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})
     placed = {}
 
-    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0):
+    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0, **_terms):
         placed["video_tokens"] = video_tokens
         placed["reserve_gb"] = reserve_gb
         return _fake_placement()
@@ -288,7 +288,7 @@ def test_refine_tube_pixels_passes_the_estimated_decode_reserve_to_placement(mon
     cond_model = SimpleNamespace(embeds={"context": torch.zeros(1, 1, 8)})
     placed = {}
 
-    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0):
+    def fake_place(dit, device, *, video_tokens, own_models, reserve_gb=0.0, **_terms):
         placed["reserve_gb"] = reserve_gb
         return _fake_placement()
 

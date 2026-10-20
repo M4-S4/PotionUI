@@ -71,7 +71,9 @@ from src.pipelines.pipes._shared.vae.ltx_tiled_decode import (
     DECODE_NOISE_SEED_OFFSET,
     decode_with_oom_retry,
 )
-from src.pipelines.pipes._shared.generation.dit_placement import guard_sampling_oom, place_dit_for_sequence
+from src.pipelines.pipes._shared.generation.dit_placement import (
+    guard_sampling_oom, ltx_reserve_terms, place_dit_for_sequence,
+)
 from src.pipelines.pipes._shared.generation.dit_restore import restore_dit_best_effort
 from src.pipelines.pipes._shared.generation.freeinit import freeinit_blend, freeinit_config_specs, resolve_freeinit
 from src.pipelines.pipes._shared.generation.guidance_options import (
@@ -731,6 +733,7 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
         placement = place_dit_for_sequence(
             c.bundle.dit, c.device, video_tokens=t_lat * h_lat * w_lat,
             own_models=(c.bundle.dit, c.vae),
+            **ltx_reserve_terms(c.bundle.dit.module, per_token_timestep=False),
         )
         dit_module = c.bundle.dit.module
         fps = c.fps
