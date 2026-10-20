@@ -192,9 +192,8 @@ class TestInjectToolAvailabilityBlock:
         )
         assert len(history) == 1
         block = history[0]["content"]
-        assert "get_active_models" in block
-        assert "disabled for this mode" in block
-        assert "enable it in this mode's Tools panel" in block
+        assert "get_active_models" not in block
+        assert "Some tools are unavailable this turn" in block
         # A partially-withheld block must not claim no tools can be called at all.
         assert "You cannot call any tool" not in block
 

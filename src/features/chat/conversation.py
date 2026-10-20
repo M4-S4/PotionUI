@@ -225,8 +225,13 @@ class ConversationRunner:
         await self._m._context.inject_contributor_block(conversation_history, session, context_metadata, user_id)
         self._m._context.inject_resource_block(conversation_history, resolved_resources)
 
-        workspace_result = self._m._context.inject_workspace_block(conversation_history, context_metadata)
-        self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
+        offered_tool_names = set(allowed_tools or ()).union(*(deferred_tools or {}).values())
+        workspace_result = self._m._context.inject_workspace_block(
+            conversation_history, context_metadata, offered_tools=offered_tool_names,
+        )
+        self._m._context.inject_prompt_state_block(
+            conversation_history, context_metadata, offered_tools=offered_tool_names,
+        )
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
@@ -588,8 +593,13 @@ class ConversationRunner:
         await self._m._context.inject_contributor_block(conversation_history, session, context_metadata, user_id)
         self._m._context.inject_resource_block(conversation_history, resolved_resources)
 
-        workspace_result = self._m._context.inject_workspace_block(conversation_history, context_metadata)
-        self._m._context.inject_prompt_state_block(conversation_history, context_metadata)
+        offered_tool_names = set(allowed_tools or ()).union(*(deferred_tools or {}).values())
+        workspace_result = self._m._context.inject_workspace_block(
+            conversation_history, context_metadata, offered_tools=offered_tool_names,
+        )
+        self._m._context.inject_prompt_state_block(
+            conversation_history, context_metadata, offered_tools=offered_tool_names,
+        )
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
         if continuation is not None:

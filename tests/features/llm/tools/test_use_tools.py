@@ -219,4 +219,4 @@ class TestUseToolsInTheLoop:
         )
 
         assert not executions[0].result.success
-        assert "not enabled" in executions[0].result.error
+        assert "do not call it again" in executions[0].result.error

@@ -9,11 +9,11 @@ module names that shape so a new call site reaches for it instead of
 reinventing a bare `f"Failed: {e}"`.
 """
 
-from typing import Optional, Union
+from typing import Iterable, Optional, Union
 
 from src.platform.security.failure_text import scrub_paths
 
-__all__ = ["scrub_paths", "teach", "unexpected"]
+__all__ = ["scrub_paths", "teach", "unavailable_tool_error", "unexpected"]
 
 
 def teach(problem: str, expected: str, next_step: Optional[str] = None) -> str:
@@ -34,3 +34,13 @@ def unexpected(tool: str, operation: str, error: Union[Exception, str], is_admin
     if is_admin:
         return f"{tool}'s {operation} failed unexpectedly: {scrub_paths(str(error)).rstrip('.')}. {advice}"
     return f"{tool}'s {operation} failed unexpectedly on the server. {advice}"
+
+
+def unavailable_tool_error(tool: str, allowed: Optional[Iterable[str]]) -> str:
+    base = f"Tool '{tool}' is unavailable; do not call it again."
+    if allowed is None:
+        return base
+    names = sorted(allowed)
+    if not names:
+        return "No tools are available in this conversation; answer without calling tools."
+    return f"{base} Use: {', '.join(names)}."

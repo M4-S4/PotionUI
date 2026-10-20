@@ -14,7 +14,7 @@ import inspect
 import logging
 import re
 import traceback
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Collection, Dict, Iterable, List, Optional, Tuple
 
 from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
@@ -60,7 +60,8 @@ _CONDITION_END = "<<end>>"
 _CONDITION_ELIDED = "<<if …>>"
 _CONDITION_EXTEND_FACTOR = 4
 _PROMPT_STATE_MAX_BLOCK_CHARS = 4000
-_PROMPT_STATE_HEADER = (
+_PROMPT_STATE_HEADER = "PROMPT STATE (current editor contents; truncated):"
+_PROMPT_STATE_HEADER_WITH_TOOL = (
     "PROMPT STATE (current editor contents; truncated — "
     "get_current_segments returns full text):"
 )
@@ -86,6 +87,11 @@ _TOOL_UNAVAILABLE_LABELS = {
 }
 
 
+PARTIAL_TOOLS_BLOCK = (
+    "Some tools are unavailable this turn; use only the tools you were given. "
+    "Never announce an action you can't perform."
+)
+
 def _cap_text(text: str, limit: int, suffix: str = "…") -> str:
     text = (text or "").strip()
     if len(text) <= limit:
@@ -93,8 +99,14 @@ def _cap_text(text: str, limit: int, suffix: str = "…") -> str:
     return text[:limit].rstrip() + suffix
 
 
-def _cap_guidance(text: str, limit: int = _WORKSPACE_MAX_GUIDANCE_CHARS) -> str:
-    return _cap_text(text, limit, "… (call get_model_info for the full guidance)")
+def _cap_guidance(
+    text: str, limit: int = _WORKSPACE_MAX_GUIDANCE_CHARS, full_available: bool = True,
+) -> str:
+    suffix = "… (call get_model_info for the full guidance)" if full_available else "…"
+    return _cap_text(text, limit, suffix)
+
+def _tool_offered(offered_tools: Optional[Collection[str]], name: str) -> bool:
+    return offered_tools is None or name in offered_tools
 
 
 def _condition_straddle_end(compact: str, limit: int) -> Optional[int]:
@@ -534,15 +546,7 @@ class ChatContextBuilder:
                 + ". Never announce an action you cannot perform."
             )
         else:
-            lines = []
-            for name, reason in sorted(withheld.items()):
-                label = _TOOL_UNAVAILABLE_LABELS.get(reason, reason)
-                hint = TOOL_WITHHELD_HINTS.get(reason)
-                lines.append(f"- {name}: {label}" + (f" ({hint})" if hint else ""))
-            text = (
-                "Some tools your instructions describe are unavailable this turn — "
-                "do not call them or tell the user you did:\n" + "\n".join(lines)
-            )
+            text = PARTIAL_TOOLS_BLOCK
         context_budget.attach_context_block(conversation_history, text)
 
     def inject_memory_block(
@@ -695,6 +699,7 @@ class ChatContextBuilder:
         self,
         conversation_history: List[Dict[str, Any]],
         context_metadata: Optional[Dict[str, Any]],
+        offered_tools: Optional[Collection[str]] = None,
     ) -> Dict[str, Any]:
         """Fold a snapshot of the active Generate-form workspace into the current user turn.
 
@@ -792,6 +797,7 @@ class ChatContextBuilder:
                 return empty
 
             guidance_included = False
+            model_info_offered = _tool_offered(offered_tools, "get_model_info")
             lines = [
                 "Your Generate workspace this turn (use it; do not re-ask what it already tells you):"
             ]
@@ -828,10 +834,18 @@ class ChatContextBuilder:
                     form_data, preset_id, mode, variant,
                 ))
             else:
-                lines.append("Video Director: no document active — form changes go through update_form_settings.")
+                lines.append(
+                    "Video Director: no document active — form changes go through update_form_settings."
+                    if _tool_offered(offered_tools, "update_form_settings")
+                    else "Video Director: no document active."
+                )
 
             if music_director and music_director.get("active"):
-                lines.append("Music Director: active — form changes go through update_music_director.")
+                lines.append(
+                    "Music Director: active — form changes go through update_music_director."
+                    if _tool_offered(offered_tools, "update_music_director")
+                    else "Music Director: active."
+                )
                 lines.extend(self._render_music_director_summary(music_director.get("doc") or {}))
 
             if checkpoint is not None:
@@ -839,7 +853,7 @@ class ChatContextBuilder:
                 guidance = checkpoint["info"].get("prompting_guidance")
                 guidance_allowed = allowed_guidance_fields is None or checkpoint["field_name"] in allowed_guidance_fields
                 if guidance and guidance_allowed:
-                    lines.append(f"  Guidance: {_cap_guidance(guidance, guidance_chars)}")
+                    lines.append(f"  Guidance: {_cap_guidance(guidance, guidance_chars, model_info_offered)}")
                     guidance_included = True
 
             if loras:
@@ -856,7 +870,7 @@ class ChatContextBuilder:
                     guidance_allowed = allowed_guidance_fields is None or lora["field_name"] in allowed_guidance_fields
                     detail = info.get("prompting_guidance") or info.get("description")
                     if detail and guidance_allowed:
-                        lines.append(f"    {_cap_guidance(detail, guidance_chars)}")
+                        lines.append(f"    {_cap_guidance(detail, guidance_chars, model_info_offered)}")
                         if info.get("prompting_guidance"):
                             guidance_included = True
 
@@ -1038,6 +1052,7 @@ class ChatContextBuilder:
     def inject_prompt_state_block(
         conversation_history: List[Dict[str, Any]],
         context_metadata: Optional[Dict[str, Any]],
+        offered_tools: Optional[Collection[str]] = None,
     ) -> None:
         """Fold a compact structural snapshot of the current prompt editor into the current user turn.
 
@@ -1080,7 +1095,8 @@ class ChatContextBuilder:
                     seen.add(nm)
                     template_names.append(str(nm))
 
-        lines = [_PROMPT_STATE_HEADER]
+        segments_offered = _tool_offered(offered_tools, "get_current_segments")
+        lines = [_PROMPT_STATE_HEADER_WITH_TOOL if segments_offered else _PROMPT_STATE_HEADER]
         if len(template_names) == 1:
             lines.append(f'Template: "{template_names[0]}"')
         elif template_names:
@@ -1102,16 +1118,21 @@ class ChatContextBuilder:
                 lines.append(title)
                 lines.extend(section)
         if overflow:
-            lines.append(f"…and {overflow} more segments — call get_current_segments.")
+            lines.append(
+                f"…and {overflow} more segments — call get_current_segments."
+                if segments_offered
+                else f"…and {overflow} more segments."
+            )
 
         block = "\n".join(lines)
         if len(block) > _PROMPT_STATE_MAX_BLOCK_CHARS:
             head = block[:_PROMPT_STATE_MAX_BLOCK_CHARS]
             if "\n" in head:
                 head = head.rsplit("\n", 1)[0]
-            block = (
-                head.rstrip()
-                + "\n…(truncated — call get_current_segments for full segment text)"
+            block = head.rstrip() + (
+                "\n…(truncated — call get_current_segments for full segment text)"
+                if segments_offered
+                else "\n…(truncated)"
             )
         context_budget.attach_context_block(conversation_history, block)
 

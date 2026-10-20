@@ -347,7 +347,7 @@ behind, and the next run takes it over as stale. `--list` never takes the lock.
 The chat opens on `/models`, so the session runs in the Models assistant mode,
 and the scripted tool call has to be one that mode enables *and* that requires
 approval. `create_phrasebook_category` is not enabled there (it fails with
-"Tool '…' is not enabled for this session" and the fake LLM then runs out of
+"Tool '…' is unavailable; do not call it again" and the fake LLM then runs out of
 scripted turns), and `write_memory` saves without approval. Each test seeds its
 own global memory note through `POST /api/chat/memory`, scripts
 `delete_memory` for that note id, and checks the side effect through

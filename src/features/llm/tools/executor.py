@@ -24,7 +24,7 @@ from src.features.llm.tools.base import (
 )
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools import tool_call_rescue
-from src.features.llm.tools.errors import unexpected
+from src.features.llm.tools.errors import unavailable_tool_error, unexpected
 from src.features.llm.tools.use_tools import USE_TOOLS_NAME, deferred_group_of, load_tool_group, use_tools_schema
 from src.features.llm.tools.workflow import (
     AssistantDelta,
@@ -929,20 +929,9 @@ class ToolExecutor:
             if group is not None:
                 load_tool_group(group, allowed_tools, deferred_tools)
 
-        # Defense in depth: reject tools not in the allowed set. Name the tools
-        # that ARE available so a small model can recover in one step instead of
-        # retrying the same disabled tool.
         if allowed_tools is not None and tool_name not in allowed_tools:
             logger.warning(f"[ToolExecutor] Tool '{tool_name}' not in allowed_tools, rejecting")
-            available = ", ".join(sorted(allowed_tools)) if allowed_tools else "none"
-            return ToolResult(
-                success=False,
-                data="",
-                error=(
-                    f"Tool '{tool_name}' is not enabled for this session. "
-                    f"Available tools: {available}. Use one of these instead."
-                ),
-            ), False
+            return ToolResult(success=False, data="", error=unavailable_tool_error(tool_name, allowed_tools)), False
 
         tool = self.tool_registry.get(tool_name)
         if not tool:

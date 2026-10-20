@@ -513,7 +513,7 @@ class TestToolExecutorAllowedTools:
             "echo", make_context(), {"message": "hi"}, allowed_tools=["fail"]
         )
         assert result.success is False
-        assert "not enabled" in result.error
+        assert "do not call it again" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_tool_allows_enabled_tool(self):
@@ -534,7 +534,7 @@ class TestToolExecutorAllowedTools:
         )
         assert result.success is False
         # The recoverable list is sorted and present so a small model can retry.
-        assert "Available tools: fail, other" in result.error
+        assert result.error == "Tool 'echo' is unavailable; do not call it again. Use: fail, other."
 
     @pytest.mark.asyncio
     async def test_rejection_message_when_no_tools_available(self):
@@ -543,7 +543,7 @@ class TestToolExecutorAllowedTools:
             "echo", make_context(), {"message": "hi"}, allowed_tools=[]
         )
         assert result.success is False
-        assert "Available tools: none" in result.error
+        assert result.error == "No tools are available in this conversation; answer without calling tools."
 
     @pytest.mark.asyncio
     async def test_execute_tool_none_allows_all(self):
@@ -596,7 +596,7 @@ class TestToolExecutorAllowedTools:
 
         assert len(executions) == 1
         assert executions[0].result.success is False
-        assert "not enabled" in executions[0].result.error
+        assert "do not call it again" in executions[0].result.error
 
 
 # ---------------------------------------------------------------------------
@@ -2373,7 +2373,7 @@ class TestForcedToolCall:
         # Guard rejects the un-listed forced tool with a recoverable error result.
         assert executions[0].tool_name == "echo"
         assert executions[0].result.success is False
-        assert "not enabled" in executions[0].result.error
+        assert "do not call it again" in executions[0].result.error
 
     @pytest.mark.asyncio
     async def test_native_stream_emits_forced_tool_events_then_presents(self):
