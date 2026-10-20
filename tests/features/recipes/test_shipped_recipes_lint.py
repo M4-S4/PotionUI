@@ -7,8 +7,11 @@ from pathlib import Path
 
 import pytest
 
+import yaml
+
 from scripts import recipe_lint
 from src.features.recipes.catalog import plugin_recipe_roots
+from src.features.recipes.schema import parse_recipe
 from src.platform.plugins.loader import PluginLoader
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -42,3 +45,10 @@ def test_every_shipped_recipe_passes_the_recipe_lint(manifests):
     }
 
     assert failures == {}
+
+
+def test_the_ltx25_starter_smoke_waits_ten_minutes():
+    path = CORE_RECIPES / "ltx25-starter.yml"
+    recipe = parse_recipe(yaml.safe_load(path.read_text(encoding="utf-8")), source_path=str(path))
+
+    assert recipe.smoke.timeout_seconds == 600
