@@ -11,7 +11,7 @@ fields:
       max: 1
       step: 0.01
 
-  - name: "dtype"
+  - name: "lora_dtype"
     type: "select"
     formula: "merge"
     label: "Precision"

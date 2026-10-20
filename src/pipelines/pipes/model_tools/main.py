@@ -105,7 +105,7 @@ class ModelToolsPipe(BasePipe):
             "merge_method": "concat",
             "target_rank": 32,
             "min_energy": 0.9,
-            "dtype": "F32",
+            "lora_dtype": "F32",
             "output_name": "",
             "overwrite": False,
             "family": "",
@@ -132,7 +132,7 @@ class ModelToolsPipe(BasePipe):
             PipeConfigSpec("min_energy", float, 0.9,
                            "Refuse when a reduced layer keeps less than this share of the delta energy",
                            required=False, min_value=0.0, max_value=1.0),
-            PipeConfigSpec("dtype", str, "F32", "Precision of a merged LoRA file", required=False,
+            PipeConfigSpec("lora_dtype", str, "F32", "Precision of a merged LoRA file", required=False,
                            choices=OUTPUT_DTYPES),
             PipeConfigSpec("output_name", str, "",
                            "Output file name without folders; empty derives it from the inputs", required=False),
@@ -218,7 +218,7 @@ class ModelToolsPipe(BasePipe):
         merge_method = str(self.config.get("merge_method") or "concat")
         if merge_method not in MERGE_METHODS:
             raise ModelToolsRefused(f"Unknown merge method {merge_method!r}")
-        dtype = str(self.config.get("dtype") or "F32")
+        dtype = str(self.config.get("lora_dtype") or "F32")
         if dtype not in OUTPUT_DTYPES:
             raise ModelToolsRefused(f"Unsupported output precision {dtype!r}")
         min_energy = float(self.config.get("min_energy") if self.config.get("min_energy") is not None else 0.9)

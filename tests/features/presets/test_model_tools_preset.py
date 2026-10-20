@@ -60,7 +60,7 @@ FORMS = {
     "quantize": {"model": "/m/diffusion_models/dit.safetensors", "keep_patterns": "blocks.0.*", "output_name": "x", "overwrite": True},
     "merge_into_model": {"model": "/m/diffusion_models/dit.safetensors", "loras": LORA_ROWS},
     "merge_and_quantize": {"model": "/m/diffusion_models/dit.safetensors", "loras": LORA_ROWS},
-    "merge_loras": {"loras": LORA_ROWS, "merge_method": "reduce", "target_rank": 16, "min_energy": 0.8, "dtype": "BF16"},
+    "merge_loras": {"loras": LORA_ROWS, "merge_method": "reduce", "target_rank": 16, "min_energy": 0.8, "lora_dtype": "BF16"},
 }
 
 
@@ -104,7 +104,7 @@ def test_form_values_reach_the_pipe(template):
     assert quantize["overwrite"] is True
     merged = render(template, "merge_loras", FORMS["merge_loras"])
     assert merged["loras"] == LORA_ROWS
-    assert (merged["merge_method"], merged["target_rank"], merged["min_energy"], merged["dtype"]) == ("reduce", 16, 0.8, "BF16")
+    assert (merged["merge_method"], merged["target_rank"], merged["min_energy"], merged["lora_dtype"]) == ("reduce", 16, 0.8, "BF16")
 
 
 def test_optional_fields_fall_back_to_safe_values(template):
@@ -163,3 +163,15 @@ def test_merge_loras_exposes_method_rank_and_energy():
     fields = fields_of("merge_loras")
     assert [o["value"] for o in fields["merge_method"]["configuration"]["options"]] == ["concat", "reduce"]
     assert {"target_rank", "min_energy"} <= set(fields)
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_backend_injected_keys_do_not_break_pipe_validation(template, mode):
+    from src.features.generation.engine import validate_pipe_configuration
+
+    pipe = PipeCatalog("src/pipelines/pipes", "pipes/custom").get_pipe("model_tools")
+    config = render(template, mode, FORMS[mode])
+    for key, value in {"device": "cuda:0", "dtype": "bfloat16", "vram_limit_gb": 24}.items():
+        config.setdefault(key, value)
+    validated = validate_pipe_configuration(pipe, config)
+    assert validated["mode"] == mode

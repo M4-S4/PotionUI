@@ -2451,7 +2451,7 @@ Quantizes a model file to scaled fp8, bakes LoRAs into it, or merges LoRAs into 
 | `merge_method` | `str` | `"concat"` | no | `concat`, `reduce` | — | — | 'concat' stacks the LoRAs exactly; 'reduce' compresses them to target_rank |
 | `target_rank` | `int` | `32` | no | — | 1 | 4096 | Rank of the merged LoRA when reducing, and for LoKr conversion |
 | `min_energy` | `float` | `0.9` | no | — | 0.0 | 1.0 | Refuse when a reduced layer keeps less than this share of the delta energy |
-| `dtype` | `str` | `"F32"` | no | `F32`, `BF16`, `F16` | — | — | Precision of a merged LoRA file |
+| `lora_dtype` | `str` | `"F32"` | no | `F32`, `BF16`, `F16` | — | — | Precision of a merged LoRA file |
 | `output_name` | `str` | `""` | no | — | — | — | Output file name without folders; empty derives it from the inputs |
 | `overwrite` | `bool` | `false` | no | — | — | — | Replace the output file when it already exists |
 | `family` | `str` | `""` | no | — | — | — | Force the model family instead of detecting it |

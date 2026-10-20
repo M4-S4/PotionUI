@@ -30,13 +30,13 @@
     },
     {
       "config": {
-        "dtype": {
-          "type": "str",
-          "value": "F32"
-        },
         "is_admin": {
           "type": "bool",
           "value": false
+        },
+        "lora_dtype": {
+          "type": "str",
+          "value": "F32"
         },
         "loras": {
           "type": "list",
