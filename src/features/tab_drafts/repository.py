@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 from src.features.tab_drafts.errors import TabDraftLimitReached
 from src.features.tab_drafts.records import TabDraft, TabDraftSummary
 from src.platform.database.rows import dt_column, dt_iso, now_utc
+from src.platform.database import get_cursor
 
 Mutation = Callable[[Dict[str, Any]], Dict[str, Any]]
 
@@ -22,9 +23,7 @@ def _to_draft(row) -> TabDraft:
 
 class TabDraftRepository:
     def get(self, user_id: str, tab_id: str) -> Optional[TabDraft]:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT user_id, tab_id, doc, rev, created_at, updated_at "
                 "FROM tab_drafts WHERE user_id = ? AND tab_id = ?",
@@ -34,9 +33,7 @@ class TabDraftRepository:
         return _to_draft(row) if row else None
 
     def list_summaries(self, user_id: str) -> List[TabDraftSummary]:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT tab_id, rev, updated_at, variable_count "
                 "FROM tab_drafts WHERE user_id = ? ORDER BY updated_at DESC, tab_id",
@@ -129,17 +126,13 @@ class TabDraftRepository:
         )
 
     def delete(self, user_id: str, tab_id: str) -> bool:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM tab_drafts WHERE user_id = ? AND tab_id = ?", (user_id, tab_id)
             )
             return cursor.rowcount > 0
 
     def delete_not_updated_since(self, cutoff: datetime) -> int:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM tab_drafts WHERE updated_at < ?", (dt_iso(cutoff),))
             return cursor.rowcount

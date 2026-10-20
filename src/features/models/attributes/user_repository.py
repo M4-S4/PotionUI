@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, List
+from src.platform.database import get_cursor
 
 
 class UserModelAttributeRepository:
@@ -8,8 +9,7 @@ class UserModelAttributeRepository:
     `UserModelMetaRepository`)."""
 
     def get_map(self, user_id: str, model_id: str) -> Dict[str, Any]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT key, value FROM user_model_attributes WHERE user_id = ? AND model_id = ?",
                 (user_id, model_id),
@@ -23,8 +23,7 @@ class UserModelAttributeRepository:
         if not model_ids:
             return {}
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             placeholders = ','.join('?' * len(model_ids))
             cursor.execute(
                 f"SELECT model_id, key, value FROM user_model_attributes "
@@ -39,8 +38,7 @@ class UserModelAttributeRepository:
             return maps
 
     def upsert(self, user_id: str, model_id: str, key: str, value: Any) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO user_model_attributes (user_id, model_id, key, value, created_at, updated_at)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)

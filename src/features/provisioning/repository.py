@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from src.platform.util.ids import generate_ulid
 from src.features.provisioning.records import ProvisionedCompute
+from src.platform.database import get_cursor
 
 #: Oldest progress entries are dropped past this many - a provisioner that
 #: reports every poll of a slow bring-up must not grow the row without bound.
@@ -28,8 +29,7 @@ class ProvisionedComputeRepository:
         status_detail: Optional[str] = None,
     ) -> ProvisionedCompute:
         row_id = generate_ulid()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO provisioned_compute (
@@ -45,15 +45,13 @@ class ProvisionedComputeRepository:
         return self.get_by_id(row_id)
 
     def get_by_id(self, row_id: str) -> Optional[ProvisionedCompute]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM provisioned_compute WHERE id = ?", (row_id,))
             row = cursor.fetchone()
             return ProvisionedCompute.from_row(row) if row else None
 
     def get_by_backend_id(self, backend_id: str) -> Optional[ProvisionedCompute]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM provisioned_compute WHERE backend_id = ?", (backend_id,))
             row = cursor.fetchone()
             return ProvisionedCompute.from_row(row) if row else None
@@ -63,8 +61,7 @@ class ProvisionedComputeRepository:
         # CURRENT_TIMESTAMP has one-second resolution, and a ULID sorts
         # lexicographically by its own embedded creation time, so two rows
         # created within the same second still land newest-first.
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM provisioned_compute ORDER BY created_at DESC, id DESC")
             return [ProvisionedCompute.from_row(row) for row in cursor.fetchall()]
 
@@ -79,8 +76,7 @@ class ProvisionedComputeRepository:
         must not keep the previous state's). `checked_at` is only written when
         given: the bring-up job sets a status without having asked the
         provider, the monitor sets both."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if checked_at is None:
                 cursor.execute(
                     "UPDATE provisioned_compute SET status = ?, status_detail = ?, "
@@ -98,8 +94,7 @@ class ProvisionedComputeRepository:
     def update_handle(self, row_id: str, handle: str, resource_ref: Optional[str] = None) -> bool:
         """Written once, when the bring-up job's `provision()` returns and the
         provisioner's own identifier for the resource is finally known."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE provisioned_compute SET handle = ?, resource_ref = ?, updated_at = CURRENT_TIMESTAMP "
                 "WHERE id = ?",
@@ -111,8 +106,7 @@ class ProvisionedComputeRepository:
         """Append one bring-up step (keeping the newest `PROGRESS_CAP`) and
         mirror its message into `status_detail`, so the row's one-line detail
         is always the latest thing that happened."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT progress FROM provisioned_compute WHERE id = ?", (row_id,))
             row = cursor.fetchone()
             if row is None:
@@ -130,8 +124,7 @@ class ProvisionedComputeRepository:
     def clear_progress(self, row_id: str) -> bool:
         """Empty the timeline so a fresh bring-up (a `start()` of a stopped
         resource) starts clean instead of appending to the original one."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE provisioned_compute SET progress = '[]', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (row_id,),
@@ -139,7 +132,6 @@ class ProvisionedComputeRepository:
             return cursor.rowcount > 0
 
     def delete(self, row_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM provisioned_compute WHERE id = ?", (row_id,))
             return cursor.rowcount > 0

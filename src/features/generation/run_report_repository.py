@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, Iterable, List, Optional, Set
+from src.platform.database import get_cursor
 
 
 class GenerationRunReportRepository:
@@ -13,8 +14,7 @@ class GenerationRunReportRepository:
         retried completion signal) overwrite rather than raise on the
         primary-key collision.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT OR REPLACE INTO generation_run_reports (generation_id, report)
@@ -24,8 +24,7 @@ class GenerationRunReportRepository:
             )
 
     def get(self, generation_id: str) -> Optional[Dict[str, Any]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT report FROM generation_run_reports WHERE generation_id = ?",
                 (generation_id,),
@@ -36,8 +35,7 @@ class GenerationRunReportRepository:
     def delete(self, generation_id: str) -> bool:
         """Drop one report row. The files it references are owned by
         `RunReportRecorder`, which removes them alongside this call."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM generation_run_reports WHERE generation_id = ?",
                 (generation_id,),
@@ -50,8 +48,7 @@ class GenerationRunReportRepository:
         The cutoff is computed by SQLite so it is compared against
         `created_at` in the format `CURRENT_TIMESTAMP` wrote it.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT generation_id FROM generation_run_reports "
                 "WHERE created_at < datetime('now', ?)",
@@ -61,8 +58,7 @@ class GenerationRunReportRepository:
 
     def count_older_than(self, days: int) -> int:
         """How many reports `list_older_than` would return."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) AS n FROM generation_run_reports "
                 "WHERE created_at < datetime('now', ?)",
@@ -80,8 +76,7 @@ class GenerationRunReportRepository:
         if not ids:
             return set()
         placeholders = ",".join("?" * len(ids))
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT generation_id FROM generation_run_reports "
                 f"WHERE generation_id IN ({placeholders})",

@@ -3,36 +3,33 @@ import json
 
 from src.features.presets.records import Preset, UserPreset
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 class DatabasePresetRepository:
     # ===== Preset Management (Admin Operations) =====
     
     def get_installed_preset_by_id(self, preset_db_id: str) -> Optional[Preset]:
         """Get installed preset by database ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM presets WHERE id = ?", (preset_db_id,))
             row = cursor.fetchone()
             return Preset.from_row(row) if row else None
     
     def get_installed_preset_by_preset_id(self, preset_id: str) -> Optional[Preset]:
         """Get installed preset by YAML preset_id"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM presets WHERE preset_id = ?", (preset_id,))
             row = cursor.fetchone()
             return Preset.from_row(row) if row else None
     
     def get_all_installed_presets(self) -> List[Preset]:
         """Get all installed presets"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM presets ORDER BY installed_at DESC")
             return [Preset.from_row(row) for row in cursor.fetchall()]
 
     def get_installed_preset_summaries(self) -> Dict[str, Tuple[str, int, int]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT p.preset_id, p.id, "
                 "COALESCE(u.assignment_count, 0) AS assignment_count, "
@@ -50,8 +47,7 @@ class DatabasePresetRepository:
     
     def is_preset_installed(self, preset_id: str) -> bool:
         """Check if preset is installed (exists in presets table)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT 1 FROM presets WHERE preset_id = ? LIMIT 1", (preset_id,))
             return cursor.fetchone() is not None
     
@@ -59,8 +55,7 @@ class DatabasePresetRepository:
         """Install a preset (admin operation)"""
         preset_db_id = generate_ulid()
         
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO presets (id, preset_id)
                 VALUES (?, ?)
@@ -70,8 +65,7 @@ class DatabasePresetRepository:
     
     def uninstall_preset(self, preset_id: str) -> bool:
         """Uninstall a preset (admin operation) - removes all user assignments too"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM presets WHERE preset_id = ?", (preset_id,))
             return cursor.rowcount > 0
 
@@ -97,8 +91,7 @@ class DatabasePresetRepository:
         if not installed:
             return None
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE presets SET configuration = ? WHERE preset_id = ?",
                 (json.dumps(values), preset_id),
@@ -129,8 +122,7 @@ class DatabasePresetRepository:
         if not installed:
             return None
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE presets SET form_overrides = ? WHERE preset_id = ?",
                 (json.dumps(overrides), preset_id),
@@ -160,23 +152,20 @@ class DatabasePresetRepository:
     
     def get_user_preset_by_id(self, user_preset_id: str) -> Optional[UserPreset]:
         """Get user preset assignment by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_presets WHERE id = ?", (user_preset_id,))
             row = cursor.fetchone()
             return UserPreset.from_row(row) if row else None
     
     def get_preset_users(self, preset_db_id: str) -> List[UserPreset]:
         """Get all users assigned to a preset"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_presets WHERE preset_id = ? ORDER BY assigned_at DESC", (preset_db_id,))
             return [UserPreset.from_row(row) for row in cursor.fetchall()]
     
     def get_available_preset_ids_for_user(self, user_id: str) -> List[str]:
         """Get list of YAML preset_ids that are available to a user (direct + group assignments)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT DISTINCT p.preset_id
                 FROM presets p
@@ -192,8 +181,7 @@ class DatabasePresetRepository:
 
     def is_preset_directly_assigned_to_user(self, preset_id: str, user_id: str) -> bool:
         """Check for a removable direct assignment, excluding inherited access."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT 1
                 FROM user_presets up
@@ -212,8 +200,7 @@ class DatabasePresetRepository:
         
         user_preset_id = generate_ulid()
         
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO user_presets (id, user_id, preset_id)
                 VALUES (?, ?, ?)
@@ -223,8 +210,7 @@ class DatabasePresetRepository:
     
     def unassign_preset_from_user(self, preset_id: str, user_id: str) -> bool:
         """Unassign a preset from a user"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM user_presets 
                 WHERE user_id = ? AND preset_id IN (

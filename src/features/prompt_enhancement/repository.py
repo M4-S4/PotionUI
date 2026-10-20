@@ -3,6 +3,7 @@ from typing import List, Optional
 from src.platform.util.ids import generate_ulid
 
 from src.features.prompt_enhancement.records import EnhancementFeedback
+from src.platform.database import get_cursor
 
 
 class EnhancementFeedbackRepository:
@@ -20,8 +21,7 @@ class EnhancementFeedbackRepository:
     ) -> EnhancementFeedback:
         """Persist a feedback verdict for an enhancement-proposed prompt."""
         feedback_id = generate_ulid()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO enhancement_feedback
                     (id, user_id, session_id, message_id, prompt_text, verdict, model_id, reason, prompt_id, mode)
@@ -34,8 +34,7 @@ class EnhancementFeedbackRepository:
 
     def get_by_id(self, id: str, user_id: str) -> Optional[EnhancementFeedback]:
         """Get a feedback row by ID scoped to user."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM enhancement_feedback WHERE id = ? AND user_id = ?",
                 (id, user_id)
@@ -69,8 +68,7 @@ class EnhancementFeedbackRepository:
             f" ORDER BY created_at DESC LIMIT ?"
         )
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [EnhancementFeedback.from_row(row) for row in cursor.fetchall()]
 

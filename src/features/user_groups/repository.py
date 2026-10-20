@@ -2,6 +2,7 @@ import logging
 from typing import List, Optional
 from src.features.user_groups.records import UserGroup, UserGroupMember, UserGroupPreset, UserGroupLLM, UserGroupModel
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,7 @@ class UserGroupRepository:
         translation here gives every caller the same safe contract and avoids
         leaking the storage ID into assignment commands.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT COALESCE(
@@ -36,8 +36,7 @@ class UserGroupRepository:
     ) -> UserGroup:
         """Create a new user group"""
         group_id = generate_ulid()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO user_groups (id, name, description, content_policy) VALUES (?, ?, ?, ?)",
                 (group_id, name, description, content_policy or None)
@@ -46,24 +45,21 @@ class UserGroupRepository:
 
     def get_group_by_id(self, group_id: str) -> Optional[UserGroup]:
         """Get a group by its ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_groups WHERE id = ?", (group_id,))
             row = cursor.fetchone()
             return UserGroup.from_row(row) if row else None
 
     def get_group_by_name(self, name: str) -> Optional[UserGroup]:
         """Get a group by its name"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_groups WHERE name = ?", (name,))
             row = cursor.fetchone()
             return UserGroup.from_row(row) if row else None
 
     def get_all_groups(self) -> List[UserGroup]:
         """Get all groups"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_groups ORDER BY name")
             return [UserGroup.from_row(row) for row in cursor.fetchall()]
 
@@ -95,8 +91,7 @@ class UserGroupRepository:
             return group
 
         params.append(group_id)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"UPDATE user_groups SET {', '.join(updates)} WHERE id = ?",
                 tuple(params)
@@ -105,8 +100,7 @@ class UserGroupRepository:
 
     def delete_group(self, group_id: str) -> bool:
         """Delete a group (cascades to memberships and assignments)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM user_groups WHERE id = ?", (group_id,))
             return cursor.rowcount > 0
 
@@ -115,9 +109,8 @@ class UserGroupRepository:
     def add_user_to_group(self, group_id: str, user_id: str) -> Optional[UserGroupMember]:
         """Add a user to a group"""
         member_id = generate_ulid()
-        from src.platform.database.database import db
         try:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO user_group_members (id, group_id, user_id) VALUES (?, ?, ?)",
                     (member_id, group_id, user_id)
@@ -128,16 +121,14 @@ class UserGroupRepository:
 
     def get_member(self, member_id: str) -> Optional[UserGroupMember]:
         """Get a member record by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_group_members WHERE id = ?", (member_id,))
             row = cursor.fetchone()
             return UserGroupMember.from_row(row) if row else None
 
     def remove_user_from_group(self, group_id: str, user_id: str) -> bool:
         """Remove a user from a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM user_group_members WHERE group_id = ? AND user_id = ?",
                 (group_id, user_id)
@@ -146,8 +137,7 @@ class UserGroupRepository:
 
     def get_group_members(self, group_id: str) -> List[UserGroupMember]:
         """Get all members of a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_group_members WHERE group_id = ? ORDER BY assigned_at DESC",
                 (group_id,)
@@ -156,8 +146,7 @@ class UserGroupRepository:
 
     def get_user_groups(self, user_id: str) -> List[UserGroup]:
         """Get all groups a user belongs to"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT ug.* FROM user_groups ug
                 JOIN user_group_members ugm ON ug.id = ugm.group_id
@@ -168,8 +157,7 @@ class UserGroupRepository:
 
     def is_user_in_group(self, group_id: str, user_id: str) -> bool:
         """Check if a user is in a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT 1 FROM user_group_members WHERE group_id = ? AND user_id = ? LIMIT 1",
                 (group_id, user_id)
@@ -185,9 +173,8 @@ class UserGroupRepository:
             return None
 
         assignment_id = generate_ulid()
-        from src.platform.database.database import db
         try:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO user_group_presets (id, group_id, preset_id) VALUES (?, ?, ?)",
                     (assignment_id, group_id, preset_db_id)
@@ -198,8 +185,7 @@ class UserGroupRepository:
 
     def get_group_preset(self, assignment_id: str) -> Optional[UserGroupPreset]:
         """Get a group preset assignment by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_group_presets WHERE id = ?", (assignment_id,))
             row = cursor.fetchone()
             return UserGroupPreset.from_row(row) if row else None
@@ -210,8 +196,7 @@ class UserGroupRepository:
         if not preset_db_id:
             return False
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM user_group_presets WHERE group_id = ? AND preset_id = ?",
                 (group_id, preset_db_id)
@@ -220,8 +205,7 @@ class UserGroupRepository:
 
     def get_group_presets(self, group_id: str) -> List[UserGroupPreset]:
         """Get all presets assigned to a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_group_presets WHERE group_id = ? ORDER BY assigned_at DESC",
                 (group_id,)
@@ -233,9 +217,8 @@ class UserGroupRepository:
     def assign_llm_to_group(self, group_id: str, llm_config_id: str) -> Optional[UserGroupLLM]:
         """Assign an LLM configuration to a group"""
         assignment_id = generate_ulid()
-        from src.platform.database.database import db
         try:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO user_group_llms (id, group_id, llm_config_id) VALUES (?, ?, ?)",
                     (assignment_id, group_id, llm_config_id)
@@ -246,16 +229,14 @@ class UserGroupRepository:
 
     def get_group_llm(self, assignment_id: str) -> Optional[UserGroupLLM]:
         """Get a group LLM assignment by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_group_llms WHERE id = ?", (assignment_id,))
             row = cursor.fetchone()
             return UserGroupLLM.from_row(row) if row else None
 
     def unassign_llm_from_group(self, group_id: str, llm_config_id: str) -> bool:
         """Unassign an LLM configuration from a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM user_group_llms WHERE group_id = ? AND llm_config_id = ?",
                 (group_id, llm_config_id)
@@ -264,8 +245,7 @@ class UserGroupRepository:
 
     def get_group_llms(self, group_id: str) -> List[UserGroupLLM]:
         """Get all LLM configurations assigned to a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_group_llms WHERE group_id = ? ORDER BY assigned_at DESC",
                 (group_id,)
@@ -276,16 +256,14 @@ class UserGroupRepository:
 
     def get_group_member_count(self, group_id: str) -> int:
         """Get the number of members in a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) as count FROM user_group_members WHERE group_id = ?", (group_id,))
             row = cursor.fetchone()
             return row['count'] if row else 0
 
     def get_group_preset_count(self, group_id: str) -> int:
         """Get the number of presets assigned to a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) as count FROM user_group_presets WHERE group_id = ?", (group_id,))
             row = cursor.fetchone()
             return row['count'] if row else 0
@@ -296,8 +274,7 @@ class UserGroupRepository:
         if not preset_db_id:
             return 0
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) as count FROM user_group_presets WHERE preset_id = ?",
                 (preset_db_id,)
@@ -307,8 +284,7 @@ class UserGroupRepository:
 
     def get_group_llm_count(self, group_id: str) -> int:
         """Get the number of LLMs assigned to a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) as count FROM user_group_llms WHERE group_id = ?", (group_id,))
             row = cursor.fetchone()
             return row['count'] if row else 0
@@ -318,9 +294,8 @@ class UserGroupRepository:
     def assign_model_to_group(self, group_id: str, model_id: str) -> Optional[UserGroupModel]:
         """Assign a model to a group"""
         assignment_id = generate_ulid()
-        from src.platform.database.database import db
         try:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO user_group_models (id, group_id, model_id) VALUES (?, ?, ?)",
                     (assignment_id, group_id, model_id)
@@ -334,16 +309,14 @@ class UserGroupRepository:
 
     def get_group_model(self, assignment_id: str) -> Optional[UserGroupModel]:
         """Get a group model assignment by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_group_models WHERE id = ?", (assignment_id,))
             row = cursor.fetchone()
             return UserGroupModel.from_row(row) if row else None
 
     def unassign_model_from_group(self, group_id: str, model_id: str) -> bool:
         """Unassign a model from a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM user_group_models WHERE group_id = ? AND model_id = ?",
                 (group_id, model_id)
@@ -352,8 +325,7 @@ class UserGroupRepository:
 
     def get_group_models(self, group_id: str) -> List[UserGroupModel]:
         """Get all models assigned to a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_group_models WHERE group_id = ? ORDER BY assigned_at DESC",
                 (group_id,)
@@ -362,8 +334,7 @@ class UserGroupRepository:
 
     def get_group_model_count(self, group_id: str) -> int:
         """Get the number of models assigned to a group"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) as count FROM user_group_models WHERE group_id = ?", (group_id,))
             row = cursor.fetchone()
             return row['count'] if row else 0

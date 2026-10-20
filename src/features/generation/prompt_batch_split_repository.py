@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from src.features.generation.history_revision_repository import bump_history_revision
 from src.features.generation.prompt_batch import PromptBatch, prompt_state_for
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,7 @@ class PromptBatchSplitRepository:
         if not later or batch.base_seed is None:
             return []
 
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM generations WHERE id = ?", (generation_id,))
             row = cursor.fetchone()
             if row is None:

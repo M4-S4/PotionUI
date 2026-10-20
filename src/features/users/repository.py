@@ -6,6 +6,7 @@ from src.platform.security.user import User, AccountType
 from src.platform.util.ids import generate_ulid
 from src.features.segments.repository import DEFAULT_SEGMENT_CATEGORIES
 from src.features.user_groups.constants import ALL_ADMINS_GROUP_ID, ALL_USERS_GROUP_ID
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -13,31 +14,27 @@ logger = logging.getLogger(__name__)
 class UserRepository:
     def get_by_id(self, user_id: str) -> Optional[User]:
         """Get user by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
             row = cursor.fetchone()
             return User.from_row(row) if row else None
     
     def get_by_username(self, username: str) -> Optional[User]:
         """Get user by username"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,))
             row = cursor.fetchone()
             return User.from_row(row) if row else None
     
     def get_by_email(self, email: str) -> Optional[User]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM users WHERE email = ? COLLATE NOCASE", (email,))
             row = cursor.fetchone()
             return User.from_row(row) if row else None
 
     def get_all(self) -> List[User]:
         """Get all users"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
             return [User.from_row(row) for row in cursor.fetchall()]
     
@@ -104,8 +101,7 @@ class UserRepository:
         """Create a new user"""
         user_id = generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             self._insert_user(cursor, user_id, username, email, password_hash, account_type, has_local_password)
 
         return self.get_by_id(user_id)
@@ -129,8 +125,7 @@ class UserRepository:
         """
         user_id = generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             try:
                 # id/username/claimed_at only; no FK, since the user row does
                 # not exist yet. The insert either wins (first claim) or raises.
@@ -166,8 +161,7 @@ class UserRepository:
         set_clause = ", ".join([f"{k} = ?" for k in update_fields])
         values = list(update_fields.values()) + [user_id]
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
             if cursor.rowcount == 0:
                 return None
@@ -184,8 +178,7 @@ class UserRepository:
     
     def delete(self, user_id: str) -> bool:
         """Delete user by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
             return cursor.rowcount > 0
     
@@ -198,8 +191,7 @@ class UserRepository:
         return self._exists("email", email, exclude_user_id)
 
     def _exists(self, column: str, value: str, exclude_user_id: Optional[str]) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT 1 FROM users WHERE {column} = ? COLLATE NOCASE AND id IS NOT ? LIMIT 1",
                 (value, exclude_user_id),

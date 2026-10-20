@@ -8,6 +8,7 @@ name. One row per (user_id, model_id), upserted via SQLite's
 from typing import Dict, List, Optional
 from src.features.model_library.records.user_model_meta import UserModelMeta
 import logging
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,7 @@ class UserModelMetaRepository:
 
     def get(self, user_id: str, model_id: str) -> Optional[UserModelMeta]:
         """Get the metadata row for a user/model pair, if any."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM user_model_meta WHERE user_id = ? AND model_id = ?
             """, (user_id, model_id))
@@ -27,8 +27,7 @@ class UserModelMetaRepository:
 
     def set_favorite(self, user_id: str, model_id: str, is_favorite: bool) -> UserModelMeta:
         """Set (or clear) the favorite flag for a user/model pair."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO user_model_meta (user_id, model_id, is_favorite, created_at, updated_at)
                 VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -41,8 +40,7 @@ class UserModelMetaRepository:
 
     def set_custom_name(self, user_id: str, model_id: str, name: Optional[str]) -> UserModelMeta:
         """Set (or clear, when name is None) the custom display name for a user/model pair."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO user_model_meta (user_id, model_id, custom_name, created_at, updated_at)
                 VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -58,8 +56,7 @@ class UserModelMetaRepository:
         if not model_ids:
             return {}
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             placeholders = ','.join('?' * len(model_ids))
             cursor.execute(f"""
                 SELECT * FROM user_model_meta

@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any
 import json
 from src.features.generation.records import GenerationParameter
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 class GenerationParameterRepository:
     def create(self, parameter: GenerationParameter) -> GenerationParameter:
@@ -9,8 +10,7 @@ class GenerationParameterRepository:
         if not parameter.id:
             parameter.id = generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO generation_parameters (
                     id, generation_id, parameter_name, 
@@ -36,8 +36,7 @@ class GenerationParameterRepository:
         """Create multiple parameters for a generation"""
         parameters = []
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for index, value in enumerate(values):
                 # Check if parameter already exists
                 cursor.execute("""
@@ -77,8 +76,7 @@ class GenerationParameterRepository:
     
     def get_by_generation(self, generation_id: str) -> List[GenerationParameter]:
         """Get all parameters for a generation"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM generation_parameters 
                 WHERE generation_id = ?
@@ -89,8 +87,7 @@ class GenerationParameterRepository:
     
     def get_by_generation_and_index(self, generation_id: str, parameter_index: int) -> List[GenerationParameter]:
         """Get all parameters for a specific generation and index"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM generation_parameters 
                 WHERE generation_id = ? AND parameter_index = ?
@@ -101,8 +98,7 @@ class GenerationParameterRepository:
     
     def get_by_name(self, generation_id: str, parameter_name: str) -> List[GenerationParameter]:
         """Get all values for a specific parameter name"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM generation_parameters 
                 WHERE generation_id = ? AND parameter_name = ?

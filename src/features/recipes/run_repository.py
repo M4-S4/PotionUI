@@ -22,6 +22,7 @@ from src.features.recipes.records import (
     RecipeStepAttempt,
     RecipeStepStatus,
 )
+from src.platform.database import get_cursor
 
 # Raised so the manager can turn a lost create race into "return the existing
 # active run" without importing sqlite3 itself.
@@ -58,8 +59,7 @@ class RecipeRunRepository:
         run_id = generate_ulid()
         stored_input = dict(safe_input or {})
         stored_input[MODE_KEY] = mode
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO setup_runs (
@@ -80,16 +80,14 @@ class RecipeRunRepository:
         return self.get_run(run_id)
 
     def get_run(self, run_id: str) -> Optional[RecipeRun]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM setup_runs WHERE id = ?", (run_id,))
             row = cursor.fetchone()
             return RecipeRun.from_row(row) if row else None
 
     def get_active_run(self) -> Optional[RecipeRun]:
         """The one non-terminal run, if any (active_marker = 1)."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM setup_runs WHERE active_marker = 1")
             row = cursor.fetchone()
             return RecipeRun.from_row(row) if row else None
@@ -98,8 +96,7 @@ class RecipeRunRepository:
         """The most recent COMPLETED run for `recipe_id`, if any - lets the
         recipe catalog mark a recipe "Installed" instead of re-offering
         "Start" on one a run already finished."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM setup_runs WHERE recipe_id = ? AND status = ? "
                 "ORDER BY completed_at DESC LIMIT 1",
@@ -120,8 +117,7 @@ class RecipeRunRepository:
             params.append(recipe_id)
         sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
         params.append(max(1, limit))
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(sql, params)
             return [RecipeRun.from_row(r) for r in cursor.fetchall()]
 
@@ -142,7 +138,6 @@ class RecipeRunRepository:
         ever moved forward)."""
         sets: List[str] = ["updated_at = ?"]
         params: List[Any] = [now_iso()]
-        from src.platform.database.database import db
 
         if status is not None:
             sets.append("status = ?")
@@ -173,7 +168,7 @@ class RecipeRunRepository:
                 params.append(safe_error_detail)
 
         params.append(run_id)
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"UPDATE setup_runs SET {', '.join(sets)} WHERE id = ?", params
             )
@@ -182,8 +177,7 @@ class RecipeRunRepository:
     # --- step attempts -----------------------------------------------------
 
     def next_attempt_number(self, run_id: str, step_key: str) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT COALESCE(MAX(attempt), 0) AS n FROM setup_step_attempts "
                 "WHERE run_id = ? AND step_key = ?",
@@ -211,8 +205,7 @@ class RecipeRunRepository:
             attempt = self.next_attempt_number(run_id, step_key)
         attempt_id = generate_ulid()
         finished_at = now_iso() if finished else None
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO setup_step_attempts (
@@ -294,9 +287,8 @@ class RecipeRunRepository:
             sets.append("finished_at = ?")
             params.append(now_iso())
 
-        from src.platform.database.database import db
         if not sets:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     "SELECT * FROM setup_step_attempts WHERE id = ?", (attempt_id,)
                 )
@@ -304,7 +296,7 @@ class RecipeRunRepository:
                 return RecipeStepAttempt.from_row(row) if row else None
 
         params.append(attempt_id)
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"UPDATE setup_step_attempts SET {', '.join(sets)} WHERE id = ?",
                 params,
@@ -316,8 +308,7 @@ class RecipeRunRepository:
             return RecipeStepAttempt.from_row(row) if row else None
 
     def list_attempts(self, run_id: str) -> List[RecipeStepAttempt]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM setup_step_attempts WHERE run_id = ? "
                 "ORDER BY step_key ASC, attempt ASC",

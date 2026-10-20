@@ -2,6 +2,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from src.features.generation.records import File, GenerationFile
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 # Kept under SQLite's default 999 host-parameter limit, with room left for the
 # optional trailing user_id parameter appended after the chunk's placeholders.
@@ -14,8 +15,7 @@ class FileRepository:
         if not file.id:
             file.id = generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO files (
                     id, file_path, file_type, user_id, mime_type, file_size,
@@ -54,8 +54,7 @@ class FileRepository:
             return File.from_row(row)
     
     def get_in_generation_directory(self, user_id: str, generation_id: str, filename: str) -> Optional[File]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT f.file_path FROM files f JOIN generation_files gf ON gf.file_id = f.id "
                 "WHERE gf.generation_id = ? AND f.user_id = ? LIMIT 1",
@@ -79,8 +78,7 @@ class FileRepository:
 
     def get_by_id(self, file_id: str, user_id: Optional[str] = None) -> Optional[File]:
         """Get file by ID, optionally filtered by user"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute("SELECT * FROM files WHERE id = ? AND user_id = ?", (file_id, user_id))
             else:
@@ -116,15 +114,13 @@ class FileRepository:
             query += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [File.from_row(row) for row in cursor.fetchall()]
 
     def delete(self, file_id: str) -> bool:
         """Delete file"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM files WHERE id = ?", (file_id,))
             return cursor.rowcount > 0
     
@@ -136,8 +132,7 @@ class FileRepository:
             file_id=file_id
         )
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO generation_files (id, generation_id, file_id)
                 VALUES (?, ?, ?)
@@ -178,8 +173,7 @@ class FileRepository:
         
         query += " ORDER BY f.created_at ASC, f.id ASC"
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [File.from_row(row) for row in cursor.fetchall()]
 
@@ -202,8 +196,7 @@ class FileRepository:
         if not generation_ids:
             return result
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for start in range(0, len(generation_ids), _SQLITE_IN_CHUNK_SIZE):
                 chunk = generation_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
                 placeholders = ','.join('?' * len(chunk))
@@ -236,8 +229,7 @@ class FileRepository:
         record (duplicates), so all of them are updated together or not at all.
         Returns the number of files updated.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for file_id in file_ids:
                 cursor.execute(
                     """
@@ -257,8 +249,7 @@ class FileRepository:
 
     def count_thumbnail_bearing(self) -> Dict[str, int]:
         """How many final image and video outputs exist."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT file_type, COUNT(*) AS total FROM files "
                 f"WHERE {self._THUMBNAIL_BEARING} GROUP BY file_type"
@@ -268,8 +259,7 @@ class FileRepository:
 
     def count_stale_thumbnails(self, profile_hash: str) -> int:
         """Final image/video outputs whose thumbnails predate `profile_hash`."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT COUNT(*) AS total FROM files WHERE {self._THUMBNAIL_BEARING} "
                 f"AND (thumbnail_profile IS NULL OR thumbnail_profile != ?)",
@@ -279,8 +269,7 @@ class FileRepository:
 
     def list_stale_thumbnails(self, profile_hash: str) -> List[File]:
         """Every final image/video output whose thumbnails predate `profile_hash`."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT * FROM files WHERE {self._THUMBNAIL_BEARING} "
                 f"AND (thumbnail_profile IS NULL OR thumbnail_profile != ?) "
@@ -291,8 +280,7 @@ class FileRepository:
 
     def get_generation_file_by_file_id(self, file_id: str) -> Optional[GenerationFile]:
         """Get GenerationFile junction record by file_id"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM generation_files WHERE file_id = ?",
                 (file_id,)
@@ -301,8 +289,7 @@ class FileRepository:
             return GenerationFile.from_row(row) if row else None
 
     def generation_ids_for_file(self, file_id: str) -> List[str]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT DISTINCT generation_id FROM generation_files WHERE file_id = ?",
                 (file_id,)

@@ -12,6 +12,7 @@ setup-feature collaborator that already holds a `db` handle.
 """
 
 from typing import Optional
+from src.platform.database import get_cursor
 
 
 class InstanceClaimRepository:
@@ -19,8 +20,7 @@ class InstanceClaimRepository:
 
     def is_claimed(self) -> bool:
         """True once an owner has been created (the sentinel row exists)."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='instance_claim'"
             )
@@ -31,8 +31,7 @@ class InstanceClaimRepository:
 
     def owner_user_id(self) -> Optional[str]:
         """The id of the account that claimed the instance, or None if unclaimed."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='instance_claim'"
             )
@@ -44,7 +43,6 @@ class InstanceClaimRepository:
 
     def check_connection(self) -> None:
         """Raise if the database is unreachable; a plain connectivity probe."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT 1")
             cursor.fetchone()

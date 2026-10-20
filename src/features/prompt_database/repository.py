@@ -11,6 +11,7 @@ from src.platform.database.collection_tree import membership_clause, unsorted_cl
 from src.platform.database.rows import dt_column
 from src.features.prompt_database.records import Prompt
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 
 _CHIP_MARKER = re.compile(r"#\[([^\]]+)\]|#([\w]+(?:[.-][\w]+)*)")
@@ -154,8 +155,7 @@ class PromptRepository:
             raise ValueError("a prompt must contain at least one segment")
         prompt.id = prompt.id or generate_ulid()
         prompt.flattened_text = flatten_segments(prompt.segments)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """INSERT INTO prompts (
                     id, user_id, name, flattened_text, usage_hint, source_group_id,
@@ -179,8 +179,7 @@ class PromptRepository:
             return self._from_row(cursor, cursor.fetchone())
 
     def get_by_id(self, prompt_id: str, user_id: str) -> Optional[Prompt]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM prompts WHERE id = ? AND user_id = ?", (prompt_id, user_id))
             row = cursor.fetchone()
             return self._from_row(cursor, row) if row else None
@@ -189,8 +188,7 @@ class PromptRepository:
         if not ids:
             return []
         placeholders = ",".join("?" for _ in ids)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT * FROM prompts WHERE id IN ({placeholders}) AND user_id = ?",
                 (*ids, user_id),
@@ -205,8 +203,7 @@ class PromptRepository:
         if not prompt.segments:
             raise ValueError("a prompt must contain at least one segment")
         flattened = flatten_segments(prompt.segments)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """UPDATE prompts SET name=?, flattened_text=?, usage_hint=?, source_group_id=?,
                    source_provider=?, source_id=?, source_url=?, model_id=?, model_name=?, base_model=?,
@@ -334,8 +331,7 @@ class PromptRepository:
             f"SELECT prompts.* FROM prompts {join_sql} WHERE {' AND '.join(clauses)} "
             f"ORDER BY {sort_columns.get(sort_by, 'prompts.created_at')} {order} LIMIT ? OFFSET ?"
         )
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, (*join_params, *params, limit, offset))
             rows = cursor.fetchall()
             prompt_ids = [row["id"] for row in rows]
@@ -352,8 +348,7 @@ class PromptRepository:
             f"json_each(prompts.tags) je WHERE {' AND '.join(clauses)} "
             "GROUP BY je.value ORDER BY count DESC, tag ASC"
         )
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [(row["tag"], row["count"]) for row in cursor.fetchall()]
 
@@ -365,8 +360,7 @@ class PromptRepository:
             clauses.append("model_id = ?")
             params.append(model_id)
         query = f"SELECT id, flattened_text FROM prompts WHERE {' AND '.join(clauses)} LIMIT ?"
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, (*params, limit))
             return [(row["id"], row["flattened_text"] or "") for row in cursor.fetchall()]
 
@@ -382,8 +376,7 @@ class PromptRepository:
             if value is not None:
                 clauses.append(f"{column} = ?")
                 params.append(value)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT * FROM prompts WHERE {' AND '.join(clauses)} ORDER BY updated_at DESC LIMIT ?",
                 (*params, limit),
@@ -409,14 +402,12 @@ class PromptRepository:
         join_sql = self._USAGE_JOIN_SQL if needs_usage_join else ""
         join_params = [user_id] if needs_usage_join else []
         query = f"SELECT COUNT(*) FROM prompts {join_sql} WHERE {' AND '.join(clauses)}"
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, (*join_params, *params))
             return int(cursor.fetchone()[0])
 
     def set_favorite(self, prompt_id: str, user_id: str, is_favorite: bool) -> Optional[bool]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE prompts SET is_favorite = ? WHERE id = ? AND user_id = ?",
                 (int(is_favorite), prompt_id, user_id),
@@ -431,14 +422,12 @@ class PromptRepository:
         if model_id is not None:
             clauses.append("model_id = ?")
             params.append(model_id)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(f"SELECT source_id FROM prompts WHERE {' AND '.join(clauses)}", params)
             return {row["source_id"] for row in cursor.fetchall()}
 
     def delete(self, prompt_id: str, user_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM prompts WHERE id = ? AND user_id = ?", (prompt_id, user_id))
             return cursor.rowcount > 0
 
@@ -446,14 +435,12 @@ class PromptRepository:
         if not ids:
             return 0
         placeholders = ",".join("?" for _ in ids)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(f"DELETE FROM prompts WHERE id IN ({placeholders}) AND user_id = ?", (*ids, user_id))
             return cursor.rowcount
 
     def delete_by_model(self, model_id: str, user_id: str) -> Tuple[int, List[str]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT id FROM prompts WHERE model_id = ? AND user_id = ?", (model_id, user_id))
             ids = [row[0] for row in cursor.fetchall()]
             if not ids:
@@ -463,14 +450,12 @@ class PromptRepository:
             return cursor.rowcount, ids
 
     def mark_embedded(self, prompt_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("UPDATE prompts SET embedded=1 WHERE id=?", (prompt_id,))
             return cursor.rowcount > 0
 
     def get_unembedded(self, user_id: str, limit: int = 100) -> List[Prompt]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM prompts WHERE user_id=? AND embedded=0 ORDER BY created_at LIMIT ?",
                 (user_id, limit),
@@ -479,14 +464,12 @@ class PromptRepository:
             return [self._from_row(cursor, row) for row in rows]
 
     def has_embedded(self, user_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT 1 FROM prompts WHERE user_id=? AND embedded=1 LIMIT 1", (user_id,))
             return cursor.fetchone() is not None
 
     def reset_embedded(self, user_id: str) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("UPDATE prompts SET embedded=0 WHERE user_id=? AND embedded=1", (user_id,))
             return cursor.rowcount
 

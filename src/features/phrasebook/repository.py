@@ -11,6 +11,7 @@ from src.features.phrasebook.dto import (
     PhrasebookValue,
     PhrasebookStateFilter
 )
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +81,7 @@ class PhrasebookCategoryRepository:
         state_filter: PhrasebookStateFilter = PhrasebookStateFilter.ALL
     ) -> List[PhrasebookCategory]:
         """Get all phrasebook categories for a user with optional state filtering."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             state_clause = self._build_state_filter_clause(state_filter)
             cursor.execute(
                 f"SELECT * FROM phrasebook_categories WHERE user_id = ?{state_clause} ORDER BY path",
@@ -91,8 +91,7 @@ class PhrasebookCategoryRepository:
 
     def get_by_id(self, category_id: str, user_id: Optional[str] = None) -> Optional[PhrasebookCategory]:
         """Get phrasebook category by ID."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute(
                     "SELECT * FROM phrasebook_categories WHERE id = ? AND user_id = ?",
@@ -108,8 +107,7 @@ class PhrasebookCategoryRepository:
 
     def get_by_path(self, path: str, user_id: str) -> Optional[PhrasebookCategory]:
         """Get phrasebook category by path."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM phrasebook_categories WHERE path = ? AND user_id = ?",
                 (path, user_id)
@@ -119,8 +117,7 @@ class PhrasebookCategoryRepository:
 
     def get_children(self, parent_id: Optional[str], user_id: str) -> List[PhrasebookCategory]:
         """Get child categories of a parent."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if parent_id:
                 cursor.execute(
                     "SELECT * FROM phrasebook_categories WHERE parent_id = ? AND user_id = ? ORDER BY name",
@@ -135,8 +132,7 @@ class PhrasebookCategoryRepository:
 
     def search_by_path_prefix(self, path_prefix: str, user_id: str) -> List[PhrasebookCategory]:
         """Search categories by path prefix (for phrasebook)."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM phrasebook_categories WHERE path LIKE ? AND user_id = ? ORDER BY path",
                 (f"{path_prefix}%", user_id)
@@ -157,8 +153,7 @@ class PhrasebookCategoryRepository:
             ["name", "path", "description"], "path", ["is_active"],
             substring, path_prefix, include_inactive,
         )
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT * FROM phrasebook_categories WHERE user_id = ?{scope} ORDER BY path",
                 (user_id, *params),
@@ -167,10 +162,9 @@ class PhrasebookCategoryRepository:
 
     def create(self, category: PhrasebookCategory) -> bool:
         """Create new phrasebook category."""
-        from src.platform.database.database import db
         try:
             now = now_utc()
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO phrasebook_categories
                     (id, name, path, parent_id, user_id, description, created_at, updated_at)
@@ -187,10 +181,9 @@ class PhrasebookCategoryRepository:
 
     def update(self, category_id: str, category: PhrasebookCategory) -> bool:
         """Update existing phrasebook category."""
-        from src.platform.database.database import db
         try:
             now = now_utc()
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("""
                     UPDATE phrasebook_categories
                     SET name = ?, path = ?, parent_id = ?, description = ?, updated_at = ?
@@ -206,8 +199,7 @@ class PhrasebookCategoryRepository:
 
     def delete(self, category_id: str, user_id: Optional[str] = None) -> bool:
         """Delete phrasebook category (cascades to values)."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute(
                     "DELETE FROM phrasebook_categories WHERE id = ? AND user_id = ?",
@@ -222,9 +214,8 @@ class PhrasebookCategoryRepository:
 
     def update_active_state(self, category_id: str, user_id: str, is_active: bool) -> bool:
         """Update the active state of a category."""
-        from src.platform.database.database import db
         try:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     """
                     UPDATE phrasebook_categories
@@ -240,8 +231,7 @@ class PhrasebookCategoryRepository:
 
     def exists(self, category_id: str) -> bool:
         """Check if category exists."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT 1 FROM phrasebook_categories WHERE id = ?", (category_id,))
             return cursor.fetchone() is not None
 
@@ -279,8 +269,7 @@ class PhrasebookValueRepository:
         state_filter: PhrasebookStateFilter = PhrasebookStateFilter.ALL
     ) -> List[PhrasebookValue]:
         """Get all phrasebook values for a user with optional state filtering."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             state_clause = self._build_state_filter_clause(state_filter)
             cursor.execute(
                 f"SELECT * FROM phrasebook_values WHERE user_id = ?{state_clause} ORDER BY sort_order, label",
@@ -290,8 +279,7 @@ class PhrasebookValueRepository:
 
     def get_by_id(self, value_id: str, user_id: Optional[str] = None) -> Optional[PhrasebookValue]:
         """Get phrasebook value by ID."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute(
                     "SELECT * FROM phrasebook_values WHERE id = ? AND user_id = ?",
@@ -312,8 +300,7 @@ class PhrasebookValueRepository:
         state_filter: PhrasebookStateFilter = PhrasebookStateFilter.ALL
     ) -> List[PhrasebookValue]:
         """Get all values for a category with optional state filtering."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             state_clause = self._build_state_filter_clause(state_filter)
             if user_id:
                 cursor.execute(
@@ -329,8 +316,7 @@ class PhrasebookValueRepository:
 
     def get_by_path(self, path: str, user_id: str) -> List[PhrasebookValue]:
         """Get values for a specific path."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             # First get the category by path
             cursor.execute(
                 "SELECT id FROM phrasebook_categories WHERE path = ? AND user_id = ?",
@@ -359,8 +345,7 @@ class PhrasebookValueRepository:
 
         Default is ACTIVE state to only return active values in active categories.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             # Build state clauses for both category and value
             value_state = ""
             category_state = ""
@@ -398,8 +383,7 @@ class PhrasebookValueRepository:
             ["v.label", "v.value"], "c.path", ["v.is_active", "c.is_active"],
             substring, path_prefix, include_inactive,
         )
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT v.*, c.path AS category_path, c.name AS category_name,
@@ -425,8 +409,7 @@ class PhrasebookValueRepository:
         aren't the user's are simply absent."""
         if not value_ids:
             return []
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             placeholders = ",".join("?" * len(value_ids))
             cursor.execute(
                 f"SELECT * FROM phrasebook_values WHERE user_id = ? AND id IN ({placeholders})",
@@ -436,8 +419,7 @@ class PhrasebookValueRepository:
         return [by_id[i] for i in value_ids if i in by_id]
 
     def max_sort_order(self, category_id: str, user_id: str) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT MAX(sort_order) AS m FROM phrasebook_values WHERE category_id = ? AND user_id = ?",
                 (category_id, user_id),
@@ -456,8 +438,7 @@ class PhrasebookValueRepository:
         if not rows:
             return
         now = now_iso()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for value_id, label, text in rows:
                 cursor.execute(
                     "UPDATE phrasebook_values SET label = ?, value = ?, updated_at = ? WHERE id = ? AND user_id = ?",
@@ -469,8 +450,7 @@ class PhrasebookValueRepository:
         if not value_ids:
             return
         now = now_iso()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for value_id in value_ids:
                 cursor.execute(
                     "UPDATE phrasebook_values SET is_active = ?, updated_at = ? WHERE id = ? AND user_id = ?",
@@ -483,8 +463,7 @@ class PhrasebookValueRepository:
         if not moves:
             return
         now = now_iso()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for value_id, category_id, sort_order in moves:
                 cursor.execute(
                     "UPDATE phrasebook_values SET category_id = ?, sort_order = ?, updated_at = ? WHERE id = ? AND user_id = ?",
@@ -495,8 +474,7 @@ class PhrasebookValueRepository:
     def delete_bulk(self, value_ids: List[str], user_id: str) -> None:
         if not value_ids:
             return
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for value_id in value_ids:
                 cursor.execute(
                     "DELETE FROM phrasebook_values WHERE id = ? AND user_id = ?",
@@ -506,10 +484,9 @@ class PhrasebookValueRepository:
 
     def create(self, value: PhrasebookValue) -> bool:
         """Create new phrasebook value."""
-        from src.platform.database.database import db
         try:
             now = now_utc()
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO phrasebook_values
                     (id, category_id, label, value, sort_order, user_id, created_at, updated_at)
@@ -529,10 +506,9 @@ class PhrasebookValueRepository:
         if not values:
             return 0
 
-        from src.platform.database.database import db
         try:
             now = now_utc()
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 data = [
                     (v.id, v.category_id, v.label, v.value, v.sort_order,
                      v.user_id or "system", now.isoformat(), now.isoformat())
@@ -550,10 +526,9 @@ class PhrasebookValueRepository:
 
     def update(self, value_id: str, value: PhrasebookValue) -> bool:
         """Update existing phrasebook value."""
-        from src.platform.database.database import db
         try:
             now = now_utc()
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("""
                     UPDATE phrasebook_values
                     SET category_id = ?, label = ?, value = ?, sort_order = ?, updated_at = ?
@@ -569,8 +544,7 @@ class PhrasebookValueRepository:
 
     def delete(self, value_id: str, user_id: Optional[str] = None) -> bool:
         """Delete phrasebook value."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute(
                     "DELETE FROM phrasebook_values WHERE id = ? AND user_id = ?",
@@ -585,9 +559,8 @@ class PhrasebookValueRepository:
 
     def update_active_state(self, value_id: str, user_id: str, is_active: bool) -> bool:
         """Update the active state of a value."""
-        from src.platform.database.database import db
         try:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     """
                     UPDATE phrasebook_values
@@ -609,9 +582,8 @@ class PhrasebookValueRepository:
         generation_id: Optional[str]
     ) -> bool:
         """Update the preview file ID and generation ID for a value."""
-        from src.platform.database.database import db
         try:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     """
                     UPDATE phrasebook_values

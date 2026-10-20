@@ -154,3 +154,7 @@ db = Database()
 def get_database_connection():
     """Get database connection - wrapper around global db instance"""
     return db.get_connection()
+
+
+def get_cursor():
+    return db.get_cursor()

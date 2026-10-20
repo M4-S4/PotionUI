@@ -3,6 +3,7 @@ from typing import List, Optional
 from src.features.automation.records import Automation, AutomationRun, AutomationRunNode
 from src.platform.database.rows import dt_iso
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 
 class AutomationRepository:
@@ -14,8 +15,7 @@ class AutomationRepository:
         """Create a new automation. Assigns a ULID if `automation.id` is falsy."""
         automation_id = automation.id or generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO automations (
                     id, name, description, enabled, graph, version, user_id
@@ -33,8 +33,7 @@ class AutomationRepository:
         return self.get_by_id(automation_id)
 
     def get_by_id(self, automation_id: str, user_id: Optional[str] = None) -> Optional[Automation]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute(
                     "SELECT * FROM automations WHERE id = ? AND user_id = ?",
@@ -62,15 +61,13 @@ class AutomationRepository:
 
         query += " ORDER BY created_at DESC"
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [Automation.from_row(row) for row in cursor.fetchall()]
 
     def update(self, automation: Automation, bump_version: bool = False) -> Optional[Automation]:
         """Update name/description/graph/enabled. `bump_version` increments version (graph changed)."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if bump_version:
                 cursor.execute("""
                     UPDATE automations
@@ -104,8 +101,7 @@ class AutomationRepository:
         return self.get_by_id(automation.id)
 
     def set_enabled(self, automation_id: str, enabled: bool) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE automations SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (int(enabled), automation_id),
@@ -113,8 +109,7 @@ class AutomationRepository:
             return cursor.rowcount > 0
 
     def touch_last_run(self, automation_id: str, status: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 UPDATE automations
                 SET last_run_at = CURRENT_TIMESTAMP, last_run_status = ?
@@ -123,8 +118,7 @@ class AutomationRepository:
             return cursor.rowcount > 0
 
     def delete(self, automation_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM automations WHERE id = ?", (automation_id,))
             return cursor.rowcount > 0
 
@@ -133,8 +127,7 @@ class AutomationRepository:
     def create_run(self, run: AutomationRun) -> AutomationRun:
         run_id = run.id or generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO automation_runs (
                     id, automation_id, trigger_node_id, trigger_type, status, event_payload
@@ -152,8 +145,7 @@ class AutomationRepository:
 
     def finish_run(self, run_id: str, status: str, error: Optional[str] = None,
                     duration_ms: Optional[int] = None) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 UPDATE automation_runs
                 SET status = ?, error = ?, duration_ms = ?, finished_at = CURRENT_TIMESTAMP
@@ -162,8 +154,7 @@ class AutomationRepository:
             return cursor.rowcount > 0
 
     def get_run(self, run_id: str) -> Optional[AutomationRun]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM automation_runs WHERE id = ?", (run_id,))
             row = cursor.fetchone()
             return AutomationRun.from_row(row) if row else None
@@ -183,8 +174,7 @@ class AutomationRepository:
         query += " ORDER BY started_at DESC LIMIT ?"
         params.append(limit)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [AutomationRun.from_row(row) for row in cursor.fetchall()]
 
@@ -193,8 +183,7 @@ class AutomationRepository:
     def create_run_node(self, run_node: AutomationRunNode) -> AutomationRunNode:
         run_node_id = run_node.id or generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO automation_run_nodes (
                     id, run_id, node_id, node_type, status, input, output
@@ -213,8 +202,7 @@ class AutomationRepository:
 
     def update_run_node(self, run_node_id: str, status: str, output: Optional[str] = None,
                          error: Optional[str] = None, finished: bool = False) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if finished:
                 cursor.execute("""
                     UPDATE automation_run_nodes
@@ -231,15 +219,13 @@ class AutomationRepository:
             return cursor.rowcount > 0
 
     def get_run_node(self, run_node_id: str) -> Optional[AutomationRunNode]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM automation_run_nodes WHERE id = ?", (run_node_id,))
             row = cursor.fetchone()
             return AutomationRunNode.from_row(row) if row else None
 
     def list_run_nodes(self, run_id: str) -> List[AutomationRunNode]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM automation_run_nodes WHERE run_id = ? ORDER BY started_at ASC",
                 (run_id,),

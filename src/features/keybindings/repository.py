@@ -6,6 +6,7 @@ Handles database operations for keybinding defaults and user overrides.
 from typing import List, Optional, Dict, Any
 from src.features.keybindings.records import KeybindingDefault, UserKeybinding
 import logging
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,7 @@ class KeybindingRepository:
 
     def get_all_defaults(self) -> List[KeybindingDefault]:
         """Get all default keybindings ordered by sort_order"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT id, key, modifiers, label, category, context, description, enabled, source, sort_order
                 FROM keybinding_defaults
@@ -26,8 +26,7 @@ class KeybindingRepository:
 
     def get_user_overrides(self, user_id: str) -> List[UserKeybinding]:
         """Get all user keybinding overrides for a specific user"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT id, user_id, action_id, key, modifiers, enabled
                 FROM user_keybindings
@@ -76,8 +75,7 @@ class KeybindingRepository:
     def set_user_keybinding(self, user_id: str, action_id: str, key: Optional[str],
                             modifiers: str = '', enabled: bool = True) -> None:
         """Upsert a user keybinding override"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO user_keybindings (user_id, action_id, key, modifiers, enabled)
                 VALUES (?, ?, ?, ?, ?)
@@ -89,8 +87,7 @@ class KeybindingRepository:
 
     def reset_user_keybinding(self, user_id: str, action_id: str) -> bool:
         """Reset a single user keybinding override back to default"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM user_keybindings
                 WHERE user_id = ? AND action_id = ?
@@ -99,8 +96,7 @@ class KeybindingRepository:
 
     def reset_all_user_keybindings(self, user_id: str) -> int:
         """Reset all user keybinding overrides back to defaults"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM user_keybindings
                 WHERE user_id = ?

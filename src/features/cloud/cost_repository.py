@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from src.platform.database.rows import json_column, now_iso
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 
 def _decimal(value: Any) -> Optional[Decimal]:
@@ -60,10 +61,8 @@ class GenerationCostRepository:
         source: str,
         detail: Dict[str, Any],
     ) -> str:
-        from src.platform.database.database import db
-
         cost_id = generate_ulid()
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO generation_costs "
                 "(id, generation_id, backend_id, model_id, user_id, amount_usd, source, detail, created_at) "
@@ -77,9 +76,7 @@ class GenerationCostRepository:
         return cost_id
 
     def for_generation(self, generation_id: str) -> List[Dict[str, Any]]:
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM generation_costs WHERE generation_id = ? ORDER BY created_at, id", (generation_id,)
             )
@@ -100,10 +97,9 @@ class GenerationCostRepository:
         ids = list(generation_ids)
         if not ids:
             return {}
-        from src.platform.database.database import db
 
         grouped: Dict[str, List[Any]] = {}
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT generation_id, amount_usd, source FROM generation_costs "
                 f"WHERE generation_id IN ({','.join('?' for _ in ids)})",
@@ -114,8 +110,6 @@ class GenerationCostRepository:
         return {generation_id: _summary(rows) for generation_id, rows in grouped.items()}
 
     def spend(self, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, Any]:
-        from src.platform.database.database import db
-
         where: List[str] = []
         params: List[Any] = []
         if date_from:
@@ -125,7 +119,7 @@ class GenerationCostRepository:
             where.append("c.created_at < ?")
             params.append(_day_after(date_to))
         clause = f"WHERE {' AND '.join(where)}" if where else ""
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT c.backend_id, c.model_id, c.amount_usd, c.source, b.name AS backend_name, "
                 "COALESCE(p.name, m.filename) AS model_label "

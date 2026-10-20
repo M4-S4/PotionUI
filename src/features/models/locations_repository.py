@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 _LOCATION_COLUMNS = (
     "id, model_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256, status, seen_at, binding_id"
@@ -17,8 +18,7 @@ def _pick_winner(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 class ModelLocationsRepository:
 
     def get(self, binding_id: str, rel_key: str) -> Optional[Dict[str, Any]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE binding_id = ? AND rel_key = ?",
                 (binding_id, rel_key),
@@ -27,8 +27,7 @@ class ModelLocationsRepository:
             return dict(row) if row else None
 
     def list_for_binding(self, binding_id: str) -> List[Dict[str, Any]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE binding_id = ?",
                 (binding_id,),
@@ -36,8 +35,7 @@ class ModelLocationsRepository:
             return [dict(row) for row in cursor.fetchall()]
 
     def list_for_root_type(self, root_id: str, model_type: str) -> List[Dict[str, Any]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE root_id = ? AND model_type = ?",
                 (root_id, model_type),
@@ -48,9 +46,8 @@ class ModelLocationsRepository:
         unique = sorted({path for path in rel_paths if path})
         if not unique:
             return []
-        from src.platform.database.database import db
         found: List[Dict[str, Any]] = []
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for start in range(0, len(unique), 500):
                 chunk = unique[start:start + 500]
                 placeholders = ",".join("?" for _ in chunk)
@@ -66,8 +63,7 @@ class ModelLocationsRepository:
         return found
 
     def list_for_model(self, model_id: str) -> List[Dict[str, Any]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT {_LOCATION_COLUMNS} FROM model_locations WHERE model_id = ?",
                 (model_id,),
@@ -90,8 +86,7 @@ class ModelLocationsRepository:
         seen_at: str,
     ) -> str:
         location_id = generate_ulid()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO model_locations
@@ -128,8 +123,7 @@ class ModelLocationsRepository:
     ) -> None:
         if not touched and not adopted:
             return
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.executemany(
                 "UPDATE model_locations SET status = 'present', mtime_ns = ?, seen_at = ? "
                 "WHERE binding_id = ? AND rel_key = ?",
@@ -143,8 +137,7 @@ class ModelLocationsRepository:
     def mark_missing_for_binding(
         self, binding_id: str, present_rel_keys: Iterable[str], seen_at: str
     ) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE model_locations SET status = 'missing', seen_at = ? "
                 "WHERE binding_id = ? AND status != 'missing' "
@@ -156,8 +149,7 @@ class ModelLocationsRepository:
     def delete_missing_for_roots(self, root_ids: Sequence[str]) -> int:
         if not root_ids:
             return 0
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             placeholders = ",".join("?" for _ in root_ids)
             cursor.execute(
                 f"DELETE FROM model_locations WHERE status = 'missing' AND root_id IN ({placeholders})",
@@ -166,17 +158,15 @@ class ModelLocationsRepository:
             return cursor.rowcount
 
     def delete(self, location_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM model_locations WHERE id = ?", (location_id,))
             return cursor.rowcount > 0
 
     def list_present_for_roots(self, root_ids: Sequence[str]) -> List[Dict[str, Any]]:
         if not root_ids:
             return []
-        from src.platform.database.database import db
         placeholders = ",".join("?" for _ in root_ids)
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT ml.id, ml.model_id, ml.binding_id, ml.root_id, ml.model_type, ml.rel_path, ml.rel_key,
@@ -197,8 +187,7 @@ class ModelLocationsRepository:
         return {model_id: _pick_winner(rows) for model_id, rows in by_model.items()}
 
     def list_conflicts(self, limit: int = 200) -> List[Dict[str, Any]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT ml.id, ml.model_id, ml.binding_id, ml.root_id, ml.model_type, ml.rel_path, ml.rel_key, "
                 "ml.size, ml.mtime_ns, ml.sha256, ml.status, ml.seen_at, mr.label AS root_label "
@@ -211,8 +200,7 @@ class ModelLocationsRepository:
     def list_duplicate_models(self, limit: int = 200) -> List[Dict[str, Any]]:
         from pathlib import PurePosixPath
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT ml.model_id, ml.binding_id, ml.model_type, ml.root_id, ml.rel_path, "
                 "mr.label AS root_label, mrb.position AS position "
@@ -252,8 +240,7 @@ class ModelLocationsRepository:
         return entries[:limit]
 
     def aggregate_by_binding(self) -> Dict[str, Dict[str, int]]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT binding_id, COUNT(*) AS indexed_files, COALESCE(SUM(size), 0) AS size_bytes
@@ -271,8 +258,7 @@ class ModelLocationsRepository:
             }
 
     def indexed_files_by_root(self) -> Dict[str, int]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT root_id, COUNT(*) AS indexed_files FROM model_locations "
                 "WHERE status = 'present' GROUP BY root_id"
@@ -280,8 +266,7 @@ class ModelLocationsRepository:
             return {row["root_id"]: row["indexed_files"] for row in cursor.fetchall()}
 
     def delete_for_root_and_type(self, root_id: str, model_type: str) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM model_locations WHERE root_id = ? AND model_type = ?",
                 (root_id, model_type),
@@ -290,9 +275,7 @@ class ModelLocationsRepository:
     def rehome(self, src_root_id: str, model_type: str, dst_root_id: str, dst_rel_prefix: str = "") -> int:
         from pathlib import PurePosixPath
 
-        from src.platform.database.database import db
-
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT id FROM model_root_bindings WHERE root_id = ? AND model_type = ? ORDER BY position LIMIT 1",
                 (dst_root_id, model_type),

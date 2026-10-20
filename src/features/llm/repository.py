@@ -8,6 +8,7 @@ from src.platform.database.rows import now_utc
 from src.platform.security.secrets import get_secret_cipher, SecretDecryptionError
 from src.platform.settings.repository import SettingRepository
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 # A chat turn re-reads the same LLM config 2-3x (pre-chat actions, gateway
 # calls, once per tool-loop iteration). This row rarely changes mid-turn, so a
@@ -63,8 +64,7 @@ class LLMConfigurationRepository:
 
     def get_all(self) -> Dict[str, LLMConfiguration]:
         """Get all LLM configurations as a dictionary (id -> config)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM llm_configurations ORDER BY name")
             configs = {}
             for row in cursor.fetchall():
@@ -74,16 +74,14 @@ class LLMConfigurationRepository:
     
     def get_by_id(self, config_id: str) -> Optional[LLMConfiguration]:
         """Get LLM configuration by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM llm_configurations WHERE id = ?", (config_id,))
             row = cursor.fetchone()
             return self._decrypt(LLMConfiguration.from_row(row)) if row else None
 
     def iter_encrypted_api_keys(self) -> List[Dict[str, Any]]:
         """Raw (undecrypted) api_key values, for the preflight check and rotation."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT id, api_key FROM llm_configurations "
                 "WHERE api_key IS NOT NULL AND api_key LIKE 'enc:%'"
@@ -92,8 +90,7 @@ class LLMConfigurationRepository:
 
     def replace_api_key(self, config_id: str, stored_value: str) -> None:
         """Overwrite one row's stored ciphertext verbatim."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE llm_configurations SET api_key = ? WHERE id = ?",
                 (stored_value, config_id),
@@ -105,8 +102,7 @@ class LLMConfigurationRepository:
             now = now_utc()
             # Serialize provider_options to JSON string
             provider_options_json = json.dumps(config.provider_options) if config.provider_options else None
-            from src.platform.database.database import db
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO llm_configurations
                     (id, name, type, enabled, base_url, api_key, model, system_message,
@@ -130,8 +126,7 @@ class LLMConfigurationRepository:
             now = now_utc()
             # Serialize provider_options to JSON string
             provider_options_json = json.dumps(config.provider_options) if config.provider_options else None
-            from src.platform.database.database import db
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("""
                     UPDATE llm_configurations
                     SET name = ?, type = ?, enabled = ?, base_url = ?, api_key = ?,
@@ -152,15 +147,13 @@ class LLMConfigurationRepository:
     
     def delete(self, config_id: str) -> bool:
         """Delete LLM configuration"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM llm_configurations WHERE id = ?", (config_id,))
             return cursor.rowcount > 0
     
     def exists(self, config_id: str) -> bool:
         """Check if configuration exists"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT 1 FROM llm_configurations WHERE id = ?", (config_id,))
             return cursor.fetchone() is not None
 
@@ -329,8 +322,7 @@ class LLMRepository:
             if not self.config_repo.exists(llm_config_id):
                 return False
 
-            from src.platform.database.database import db
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 # Check if assignment already exists
                 cursor.execute(
                     "SELECT id FROM user_llms WHERE user_id = ? AND llm_config_id = ?",
@@ -352,8 +344,7 @@ class LLMRepository:
     def unassign_llm_from_user(self, user_id: str, llm_config_id: str) -> bool:
         """Remove LLM configuration assignment from a user"""
         try:
-            from src.platform.database.database import db
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     "DELETE FROM user_llms WHERE user_id = ? AND llm_config_id = ?",
                     (user_id, llm_config_id)
@@ -365,8 +356,7 @@ class LLMRepository:
     def get_user_llm_assignments(self, user_id: str) -> List[str]:
         """Get all LLM configuration IDs assigned to a user (direct + group assignments)"""
         try:
-            from src.platform.database.database import db
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("""
                     SELECT DISTINCT llm_config_id FROM (
                         SELECT llm_config_id FROM user_llms WHERE user_id = ?
@@ -402,8 +392,7 @@ class LLMRepository:
     def get_llm_users(self, llm_config_id: str) -> List[str]:
         """Get all user IDs assigned to an LLM configuration"""
         try:
-            from src.platform.database.database import db
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     "SELECT user_id FROM user_llms WHERE llm_config_id = ?",
                     (llm_config_id,)
@@ -415,8 +404,7 @@ class LLMRepository:
     def get_llm_assignment_summary(self) -> Dict[str, Dict[str, int]]:
         """Direct-user and group assignment counts per LLM configuration,
         batched (two GROUP BY queries, not one per configuration)."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT llm_config_id, COUNT(*) as c FROM user_llms GROUP BY llm_config_id")
             direct = {row[0]: row[1] for row in cursor.fetchall()}
             cursor.execute("SELECT llm_config_id, COUNT(*) as c FROM user_group_llms GROUP BY llm_config_id")
@@ -432,8 +420,7 @@ class LLMRepository:
     def get_all_user_llm_assignments(self) -> Dict[str, List[str]]:
         """Get all user-LLM assignments as dict[user_id, List[llm_config_id]]"""
         try:
-            from src.platform.database.database import db
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("SELECT user_id, llm_config_id FROM user_llms ORDER BY user_id")
                 assignments = {}
                 for row in cursor.fetchall():
@@ -448,8 +435,7 @@ class LLMRepository:
     def is_llm_assigned_to_user(self, user_id: str, llm_config_id: str) -> bool:
         """Check if an LLM configuration is assigned to a user (direct + group)"""
         try:
-            from src.platform.database.database import db
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute("""
                     SELECT 1 FROM (
                         SELECT llm_config_id FROM user_llms WHERE user_id = ? AND llm_config_id = ?

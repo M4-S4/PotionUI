@@ -5,6 +5,7 @@ from src.platform.database.rows import dt_iso
 from src.platform.security.redaction import SECRET_MASK
 from src.platform.security.secrets import get_secret_cipher, SecretDecryptionError
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 
 class PluginRepository:
@@ -36,23 +37,20 @@ class PluginRepository:
 
     def get_all_plugins(self) -> List[Plugin]:
         """Get all plugins"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM plugins ORDER BY name")
             return [Plugin.from_row(row) for row in cursor.fetchall()]
 
     def get_plugin_by_id(self, plugin_id: str) -> Optional[Plugin]:
         """Get plugin by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM plugins WHERE id = ?", (plugin_id,))
             row = cursor.fetchone()
             return Plugin.from_row(row) if row else None
 
     def get_enabled_plugins(self) -> List[Plugin]:
         """Get all enabled plugins"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT * FROM plugins WHERE enabled = 1 ORDER BY name")
             return [Plugin.from_row(row) for row in cursor.fetchall()]
 
@@ -61,8 +59,7 @@ class PluginRepository:
         if not plugin.id:
             plugin.id = generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO plugins (
                     id, name, version, type, enabled, manifest_path,
@@ -86,8 +83,7 @@ class PluginRepository:
 
     def update_plugin(self, plugin_id: str, plugin: Plugin) -> Optional[Plugin]:
         """Update an existing plugin"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 UPDATE plugins
                 SET name = ?, version = ?, type = ?, enabled = ?, manifest_path = ?,
@@ -112,22 +108,19 @@ class PluginRepository:
 
     def delete_plugin(self, plugin_id: str) -> bool:
         """Delete plugin by ID (cascades to settings and hooks)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM plugins WHERE id = ?", (plugin_id,))
             return cursor.rowcount > 0
 
     def enable_plugin(self, plugin_id: str) -> bool:
         """Enable a plugin"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("UPDATE plugins SET enabled = 1 WHERE id = ?", (plugin_id,))
             return cursor.rowcount > 0
 
     def disable_plugin(self, plugin_id: str) -> bool:
         """Disable a plugin"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("UPDATE plugins SET enabled = 0 WHERE id = ?", (plugin_id,))
             return cursor.rowcount > 0
 
@@ -135,8 +128,7 @@ class PluginRepository:
 
     def get_plugin_settings(self, plugin_id: str, user_id: Optional[str] = None) -> List[PluginSetting]:
         """Get settings for a plugin (user-specific if user_id provided, otherwise global)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id is not None:
                 cursor.execute("""
                     SELECT * FROM plugin_settings
@@ -156,8 +148,7 @@ class PluginRepository:
 
     def get_plugin_setting(self, plugin_id: str, setting_key: str, user_id: Optional[str] = None) -> Optional[PluginSetting]:
         """Get a specific setting"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id is not None:
                 cursor.execute("""
                     SELECT * FROM plugin_settings
@@ -199,8 +190,7 @@ class PluginRepository:
         if is_secret and setting_value:
             stored_value = get_secret_cipher().encrypt(setting_value)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             # Check if setting exists
             if user_id is not None:
                 cursor.execute("""
@@ -236,8 +226,7 @@ class PluginRepository:
 
     def delete_plugin_setting(self, plugin_id: str, setting_key: str, user_id: Optional[str] = None) -> bool:
         """Delete a specific setting"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id is not None:
                 cursor.execute("""
                     DELETE FROM plugin_settings
@@ -268,8 +257,7 @@ class PluginRepository:
         parameter - an audit table that holds credentials is a second copy of
         the thing being protected.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO plugin_setting_audit (
                     id, plugin_id, setting_key, scope_user_id,
@@ -293,8 +281,7 @@ class PluginRepository:
         limit: int = 200,
     ) -> List[Dict[str, Any]]:
         """Read the settings audit trail, newest first."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if plugin_id:
                 cursor.execute("""
                     SELECT * FROM plugin_setting_audit
@@ -318,8 +305,7 @@ class PluginRepository:
         Raw rows, undecrypted - the preflight check and the rotation script both
         need the ciphertext itself, not a decrypted view that would raise.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT id, plugin_id, setting_key, setting_value, user_id
                 FROM plugin_settings
@@ -329,8 +315,7 @@ class PluginRepository:
 
     def replace_encrypted_value(self, setting_id: int, stored_value: str) -> None:
         """Overwrite one row's stored ciphertext, addressed by primary key."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE plugin_settings SET setting_value = ? WHERE id = ?",
                 (stored_value, setting_id),
@@ -340,8 +325,7 @@ class PluginRepository:
 
     def get_plugin_hooks(self, plugin_id: str) -> List[PluginHook]:
         """Get all hooks for a plugin"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM plugin_hooks
                 WHERE plugin_id = ?
@@ -351,8 +335,7 @@ class PluginRepository:
 
     def get_hooks_by_type(self, hook_type: str) -> List[PluginHook]:
         """Get all hooks by type (backend or frontend)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT h.* FROM plugin_hooks h
                 JOIN plugins p ON h.plugin_id = p.id
@@ -363,8 +346,7 @@ class PluginRepository:
 
     def register_hook(self, hook: PluginHook) -> PluginHook:
         """Register a new hook"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO plugin_hooks (
                     plugin_id, hook_name, hook_type, handler_path,
@@ -387,8 +369,7 @@ class PluginRepository:
 
     def clear_plugin_hooks(self, plugin_id: str) -> int:
         """Clear all hooks for a plugin, return count deleted"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM plugin_hooks WHERE plugin_id = ?", (plugin_id,))
             return cursor.rowcount
 
@@ -396,8 +377,7 @@ class PluginRepository:
 
     def get_plugin_pages(self, plugin_id: str) -> List[PluginPage]:
         """Get all pages for a plugin"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM plugin_pages
                 WHERE plugin_id = ?
@@ -407,8 +387,7 @@ class PluginRepository:
 
     def get_all_active_pages(self) -> List[PluginPage]:
         """Get pages from enabled plugins only"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT pp.* FROM plugin_pages pp
                 JOIN plugins p ON pp.plugin_id = p.id
@@ -419,8 +398,7 @@ class PluginRepository:
 
     def create_plugin_page(self, page: PluginPage) -> PluginPage:
         """Create a new plugin page record"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             # Check if require_role column exists
             cursor.execute("PRAGMA table_info(plugin_pages)")
             columns = {row['name'] for row in cursor.fetchall()}
@@ -454,8 +432,7 @@ class PluginRepository:
 
     def delete_plugin_pages(self, plugin_id: str) -> int:
         """Delete all pages for a plugin, return count deleted"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM plugin_pages WHERE plugin_id = ?", (plugin_id,))
             return cursor.rowcount
 
