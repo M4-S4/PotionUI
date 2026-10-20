@@ -41,7 +41,7 @@ The shipped **MOSS-Image** preset has `txt2img` only, with a Base speed profile 
 
 The LoRA tab takes MOSS-Image LoRAs in the ComfyUI, diffusers/PEFT, ai-toolkit and kohya layouts, on both the SFT and Base checkpoints. LoRAs trained with split `q`/`k`/`v` projections are mapped onto the DiT's fused qkv. The run log lists any LoRA keys that didn't match.
 
-The negative prompt is empty by default and only used when CFG is above 1. The Advanced tab has a Negative-branch layer skip toggle: on skips transformer block 22 on the negative pass, off runs plain CFG. The generator forces CFG-Zero\* off and never uses the step cache, because the negative pass is always degraded.
+The negative prompt is empty by default and only used when CFG is above 1. The Advanced tab has a Negative-branch layer skip toggle: on skips transformer block 22 on the negative pass, off runs plain CFG. The generator forces CFG-Zero\* off. The Advanced tab also has a Step cache (FBCache) section, off by default (threshold 0): it reuses a step's output when the first block's video tokens barely changed, and only the positive pass is cached because the layer-skipped negative pass always recomputes.
 
 ## Sampling
 

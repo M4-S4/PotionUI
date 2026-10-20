@@ -96,7 +96,7 @@ class MossImage(NativeArchModule):
         context: Tensor,
         attention_mask: Tensor | None = None,
         skip_layers: Iterable[int] | None = None,
-        **_: Any,
+        **kwargs: Any,
     ) -> Tensor:
         cfg = self.cfg
         skip = self._skip_set(skip_layers)
@@ -118,20 +118,39 @@ class MossImage(NativeArchModule):
         mod = self.shared_block_modulation(time.to(dtype)).view(batch, 6, -1)
         head = self.video_head_modulation(time.to(dtype)).view(batch, 2, -1)
 
-        outputs = []
+        step_cache = kwargs.get("step_cache")
+        video_len = height * width
+        streams = []
+        ropes = []
         for i in range(batch):
             text_in = context[i : i + 1, mask[i].bool().to(x.device)]
             if text_in.shape[1] == 0:
                 raise ValueError("every sample needs at least one valid text token")
             video = self.video_embedder(x[i : i + 1].flatten(2).transpose(1, 2).contiguous())
             rope = rope_table(height, width, text_in.shape[1], self._bands, x.device).to(video.dtype)
-            text = self.text_embedder(text_in, rope[:, height * width :])
+            text = self.text_embedder(text_in, rope[:, video_len:])
             stream = torch.cat((video, text), 1)
-            for index, layer in enumerate(self.layers):
+            if 0 not in skip:
+                stream = self.layers[0](stream, rope, mod[i : i + 1])
+            streams.append(stream)
+            ropes.append(rope)
+
+        probe = None
+        if step_cache is not None:
+            probe = torch.cat([stream[:, :video_len] for stream in streams])
+            if step_cache.should_skip(probe):
+                return step_cache.record_skip()
+
+        outputs = []
+        for i, stream in enumerate(streams):
+            for index in range(1, len(self.layers)):
                 if index not in skip:
-                    stream = layer(stream, rope, mod[i : i + 1])
-            out = self.final_norm_video(stream[:, : height * width])
+                    stream = self.layers[index](stream, ropes[i], mod[i : i + 1])
+            out = self.final_norm_video(stream[:, :video_len])
             out = out * (1 + head[i : i + 1, 1, None]) + head[i : i + 1, 0, None]
             out = self.final_linear_video(out)
             outputs.append(out.transpose(1, 2).reshape(1, -1, height, width))
-        return torch.cat(outputs)
+        result = torch.cat(outputs)
+        if probe is not None:
+            step_cache.record_compute(probe, result)
+        return result

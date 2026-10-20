@@ -94,6 +94,10 @@ pipeline:
         uncond_skip_layers: "{{ '22' if form.uncond_layer_skip | default(true) else '' }}"
       resolution: "{{ form.resolution }}"
       quantity: "{{ form.quantity }}"
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips }}"
 
   - name: "gallery"
     input:

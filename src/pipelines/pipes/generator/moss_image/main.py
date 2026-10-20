@@ -37,6 +37,7 @@ class GeneratorMossImagePipe(FlowMatchGeneratorPipe):
             "detail_start": None,
             "detail_end": None,
             "guidance_options": {},
+            "step_cache": {},
         }
 
     @classmethod
@@ -63,6 +64,15 @@ class GeneratorMossImagePipe(FlowMatchGeneratorPipe):
                 "cfg_zero_star is always off.",
                 required=False,
             ),
+            PipeConfigSpec(
+                "step_cache", dict, {},
+                "FBCache step-skipping options, forwarded to NativeGenerator.sample() "
+                "unmodified: {'rel_threshold': 0.12, 'warmup_steps': 4, "
+                "'max_consecutive_skips': 3}. rel_threshold<=0 (default/absent) is off "
+                "and never wraps the guidance strategy. The negative pass carries skip_layers "
+                "and always recomputes.",
+                required=False,
+            ),
         ]
 
     @classmethod
@@ -87,7 +97,6 @@ class GeneratorMossImagePipe(FlowMatchGeneratorPipe):
         if "uncond_skip_layers" in options:
             options["uncond_skip_layers"] = sorted(parse_int_set(options["uncond_skip_layers"]))
         ctx.extra["guidance_options"] = options
-        ctx.extra["step_cache_options"] = None
         if ctx.extra["guidance"] <= 1.0:
             logger.warning(
                 "[%s] %s is a CFG model but guidance is %.2f: it will render without CFG; "

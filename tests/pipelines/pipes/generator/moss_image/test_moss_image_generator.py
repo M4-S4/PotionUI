@@ -131,8 +131,13 @@ def test_unset_skip_layers_leave_the_checkpoint_default():
     assert "uncond_skip_layers" not in _last_call()["guidance_options"]
 
 
-def test_step_cache_is_always_off():
+def test_step_cache_options_are_forwarded():
     _pipe(step_cache={"rel_threshold": 0.2}).process(_input(), lambda o: None)
+    assert _last_call()["step_cache_options"] == {"rel_threshold": 0.2}
+
+
+def test_step_cache_is_off_when_unset():
+    _pipe().process(_input(), lambda o: None)
     assert _last_call()["step_cache_options"] is None
 
 

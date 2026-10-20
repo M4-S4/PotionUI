@@ -106,10 +106,28 @@ def test_resolution_reaches_the_generator(moss_template):
     assert cfg["resolution"] == "1344x768"
 
 
-def test_generator_has_no_step_cache_or_edit_wiring(moss_template):
+def test_generator_has_no_edit_wiring(moss_template):
     cfg = _pipe(_process(moss_template), "generator/moss_image")["config"]
-    assert "step_cache" not in cfg
     assert "mode" not in cfg
+
+
+def test_step_cache_defaults_to_off(moss_template):
+    from src.platform.runtime.native.sampling.step_cache import StepCacheSet
+
+    cfg = _pipe(_process(moss_template), "generator/moss_image")["config"]
+    assert cfg["step_cache"] == {"rel_threshold": 0.0, "warmup_steps": 4, "max_consecutive_skips": 3}
+    assert StepCacheSet(cfg["step_cache"]).enabled is False
+
+
+def test_step_cache_form_values_reach_the_generator(moss_template):
+    from src.platform.runtime.native.sampling.step_cache import StepCacheSet
+
+    form = {"step_cache_threshold": 0.12, "step_cache_warmup_steps": 6, "step_cache_max_skips": 2}
+    cfg = _pipe(_process(moss_template, form), "generator/moss_image")["config"]
+    assert cfg["step_cache"] == {"rel_threshold": 0.12, "warmup_steps": 6, "max_consecutive_skips": 2}
+    assert isinstance(cfg["step_cache"]["rel_threshold"], float)
+    assert isinstance(cfg["step_cache"]["warmup_steps"], int)
+    assert StepCacheSet(cfg["step_cache"]).enabled is True
 
 
 def test_loader_takes_the_three_models_and_the_lora_stack(moss_template):

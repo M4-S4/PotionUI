@@ -1077,6 +1077,7 @@ Native MOSS-Image text-to-image generator (true CFG with a layer-skipped negativ
 | `detail_start` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window start (trajectory fraction; unset = inherit) |
 | `detail_end` | `float` | — | no | — | 0.0 | 1.0 | Detail-daemon warp window end (trajectory fraction; unset = inherit) |
 | `guidance_options` | `dict` | `{}` | no | — | — | — | TrueCFG options. 'uncond_skip_layers' lists the DiT blocks skipped on the negative pass (comma-separated or a list; empty turns the skip off, unset keeps the checkpoint's [22]). cfg_zero_star is always off. |
+| `step_cache` | `dict` | `{}` | no | — | — | — | FBCache step-skipping options, forwarded to NativeGenerator.sample() unmodified: {'rel_threshold': 0.12, 'warmup_steps': 4, 'max_consecutive_skips': 3}. rel_threshold<=0 (default/absent) is off and never wraps the guidance strategy. The negative pass carries skip_layers and always recomputes. |
 
 ### <a id="pipe-generator-pixal3d"></a>`generator/pixal3d`
 
