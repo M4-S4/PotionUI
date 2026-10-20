@@ -112,7 +112,7 @@ class FakeRunPodClient:
         return None
 
 
-async def _always_ready(base_url, token):
+async def _always_answers(client, base_url, token):
     return True
 
 
@@ -158,7 +158,7 @@ def provisioner(resources, repo, monkeypatch):
     FakeRunPodClient.network_volumes = []
     monkeypatch.setattr(provisioner_module, "RunPodClient", FakeRunPodClient)
     import backend.provisioning as provisioning_module
-    monkeypatch.setattr(provisioning_module, "default_readiness_probe", _always_ready)
+    monkeypatch.setattr(provisioning_module, "worker_answers", _always_answers)
 
     instance = RunpodComputeProvisioner()
     instance._plugin_repository = repo
@@ -753,11 +753,11 @@ async def test_provision_cancelled_mid_bringup_terminates_the_pod_and_reraises(p
 
     hang = asyncio.Event()
 
-    async def hanging_probe(base_url, token):
+    async def hanging_probe(client, base_url, token):
         await hang.wait()
         return True
 
-    monkeypatch.setattr(provisioning_module, "default_readiness_probe", hanging_probe)
+    monkeypatch.setattr(provisioning_module, "worker_answers", hanging_probe)
 
     task = asyncio.create_task(
         provisioner.provision(

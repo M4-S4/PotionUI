@@ -31,6 +31,7 @@ from typing import Dict, Iterable, List, Optional
 import httpx
 
 from src.features.remote_execution.worker.transfers import Transfer, TransferRegistry
+from src.platform.http.tls import client_ssl_context
 from src.platform.worker_protocol import ModelBundleEntryV1, ModelBundleManifestV1
 from src.platform.worker_protocol.model_fetch import ModelFetchRequestV1
 from src.platform.worker_protocol.model_inventory import (
@@ -204,7 +205,7 @@ class ModelDepot:
         hasher = hashlib.new(algorithm)
         size = 0
         try:
-            async with httpx.AsyncClient(transport=self.http_transport, timeout=None) as client:
+            async with httpx.AsyncClient(transport=self.http_transport, timeout=None, verify=client_ssl_context()) as client:
                 async with client.stream(
                     "GET", request.url, headers=dict(request.headers or {}), follow_redirects=True,
                 ) as response:

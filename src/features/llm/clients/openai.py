@@ -6,6 +6,7 @@ import httpx
 
 from src.features.llm.clients import completion as completion_outcome
 from src.features.llm.clients.base import LLMResponse
+from src.platform.http.tls import client_ssl_context
 from src.features.llm.clients.openai_wire import (
     OpenAICompatSSEDecoder,
     ToolCallAssembler,
@@ -97,7 +98,7 @@ class OpenAIClient:
                 config, prompt_from(prompt), system_message, image_data
             )
 
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
+            async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 logging.info(f"[OpenAI] Sending to {config.base_url}/chat/completions, model: {config.model}, image: {bool(image_data)}")
 
                 response = await client.post(
@@ -140,7 +141,7 @@ class OpenAIClient:
                 tool_aware=True,
             )
 
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
+            async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 logging.info(f"[OpenAI Tools] Sending to {config.base_url}/chat/completions, model: {config.model}, messages: {len(request.messages)}, tools: {len(tools) if tools else 0}")
 
                 _trace_start = time.monotonic()
@@ -226,7 +227,7 @@ class OpenAIClient:
         finish_reason_raw = None
         full_content_parts: List[str] = []
         _trace_start = time.monotonic()
-        async with httpx.AsyncClient(timeout=stream_timeout(config)) as client:
+        async with httpx.AsyncClient(timeout=stream_timeout(config), verify=client_ssl_context()) as client:
             async with client.stream("POST", f"{config.base_url}/chat/completions", json=request.payload, headers=request.headers) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()

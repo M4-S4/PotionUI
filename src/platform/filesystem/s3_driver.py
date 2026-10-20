@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import httpx
 
 from src.platform.filesystem import aws_sigv4
+from src.platform.http.tls import client_ssl_context
 from src.platform.filesystem.storage_driver import (
     DEFAULT_CHUNK_SIZE,
     FileStorageDriver,
@@ -71,7 +72,7 @@ class S3FileStorageDriver(FileStorageDriver):
                 else f"{self.bucket}.s3.{self.region}.amazonaws.com"
             )
 
-        self._client = client or httpx.Client(timeout=timeout)
+        self._client = client or httpx.Client(timeout=timeout, verify=client_ssl_context())
 
     # ---- key/URL plumbing ----
 

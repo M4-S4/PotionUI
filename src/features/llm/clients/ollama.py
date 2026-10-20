@@ -7,6 +7,7 @@ import httpx
 
 from src.features.llm.clients import completion as completion_outcome
 from src.features.llm.clients.base import LLMResponse
+from src.platform.http.tls import client_ssl_context
 from src.features.llm.clients.ollama_wire import (
     TOOLS_AUTO,
     TOOLS_NATIVE,
@@ -135,7 +136,7 @@ class OllamaClient:
         try:
             request = build_ollama_generate_request(config, prompt, system_message, image_data)
 
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
+            async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 keep_alive = request.payload["keep_alive"]
                 think_enabled = request.payload["think"]
                 if image_data:
@@ -203,7 +204,7 @@ class OllamaClient:
                 tool_mode=TOOLS_AUTO,
             )
 
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
+            async with httpx.AsyncClient(timeout=config.timeout, verify=client_ssl_context()) as client:
                 tool_mode = "native" if request.native_tools else "prompt-injected"
                 logging.info(f"[Ollama Tools] Sending request to {config.base_url}/api/chat")
                 logging.info(f"[Ollama Tools] Model: {config.model}, tools: {len(tools) if tools else 0} ({tool_mode}), think: {request.payload['think']}")
@@ -318,7 +319,7 @@ class OllamaClient:
         tool_calls: Optional[List[Dict[str, Any]]] = None
         usage_event: Optional[Dict[str, Any]] = None
         _trace_start = time.monotonic()
-        async with httpx.AsyncClient(timeout=stream_timeout(config)) as client:
+        async with httpx.AsyncClient(timeout=stream_timeout(config), verify=client_ssl_context()) as client:
             async with client.stream("POST", f"{config.base_url}{request.endpoint}", json=request.payload) as response:
                 if response.status_code != 200:
                     error_text = await response.aread()

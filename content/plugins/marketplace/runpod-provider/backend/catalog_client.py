@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from src.plugin_api.providers import client_ssl_context
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_GRAPHQL_URL = "https://api.runpod.io/graphql"
@@ -86,7 +88,7 @@ async def fetch_catalog(
     on any network/HTTP/GraphQL-level failure - never returns a partial
     result silently."""
     try:
-        async with httpx.AsyncClient(timeout=timeout, transport=transport) as http:
+        async with httpx.AsyncClient(timeout=timeout, transport=transport, verify=client_ssl_context()) as http:
             response = await http.post(
                 url,
                 params={"api_key": api_key},

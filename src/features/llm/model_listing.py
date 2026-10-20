@@ -4,6 +4,8 @@ from urllib.parse import urlsplit
 import httpx
 from pydantic import BaseModel
 
+from src.platform.http.tls import client_ssl_context
+
 DISCOVERY_TIMEOUT_SECONDS = 8.0
 CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS = 3.0
 
@@ -45,7 +47,7 @@ async def fetch_json(
     url = normalize_base_url(base_url)
     target = f"{provider} at {url}"
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, verify=client_ssl_context()) as client:
             if body is None:
                 response = await client.get(f"{url}{path}", headers=headers or {})
             else:

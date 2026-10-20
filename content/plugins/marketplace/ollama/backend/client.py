@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 import aiohttp
 
 from src.plugin_api import PluginRepository
+from src.plugin_api.providers import aiohttp_connector
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ async def unload_models(host: str, timeout: int, model: Optional[str] = None) ->
     freed = 0
 
     try:
-        async with aiohttp.ClientSession(timeout=client_timeout) as session:
+        async with aiohttp.ClientSession(timeout=client_timeout, connector=aiohttp_connector()) as session:
             loaded = await _list_loaded(session, host)
             by_name = {m["name"]: m for m in loaded}
 
