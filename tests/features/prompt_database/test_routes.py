@@ -104,7 +104,7 @@ def restricted_flag():
 def built_router(
     collaborators, generation_repo_mock, prompt_importer_registry, collection_repository_mock, restricted_flag
 ):
-    preset_template_loader = SimpleNamespace(_ensure_loaded=lambda: None, presets=[])
+    preset_template_loader = SimpleNamespace(presets=[], all=lambda: [], get=lambda preset_id: None)
     generation_history_facade = GenerationHistoryFacade(
         generation_repo=generation_repo_mock,
         file_service=MagicMock(),
