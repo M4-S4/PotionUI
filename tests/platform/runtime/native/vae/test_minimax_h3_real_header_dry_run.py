@@ -73,9 +73,8 @@ from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
 from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
 from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED, _convrot_unrotate_weight, disable_weight_init
 
+from .._header_listings import load_header
 from .._quant_layouts import convrot_descriptor, descriptor_blob, reference_quantize_convrot
-
-_HEADER_DIR = Path("ai/minimax_h3")
 
 # See module docstring "Shrink strategy" -- every field here that is NOT
 # shape-derived by the detector is pinned to its real production value.
@@ -114,18 +113,8 @@ _AUDIO_CONFIG = dict(
 # Linears per transformer block carry int8 codes; every Conv3d in the
 # causal-3D encoder stays float, so no scaled-conv path is involved. The
 # group size is the one its own `comfy_quant` descriptors state.
-_INT8_HEADER = "video_vae_int8_convrot_header.json"
+_INT8_HEADER = "minimax_h3/video_vae_int8_convrot"
 _CONVROT_GROUPSIZE = 256
-
-
-def _load_real_header(name: str) -> dict:
-    path = _HEADER_DIR / name
-    if not path.exists():
-        pytest.skip(f"{path} not present (fetched once via range request; not part of the repo checkout)")
-    with path.open() as f:
-        header = json.load(f)
-    header.pop("__metadata__", None)
-    return header
 
 
 def _randomize(sd: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -177,7 +166,7 @@ def _quantise_video_state_dict(sd: dict[str, torch.Tensor], header: dict) -> dic
 
 @functools.lru_cache(maxsize=1)
 def _quantised_video_state_dict() -> dict[str, torch.Tensor]:
-    header = _load_real_header(_INT8_HEADER)
+    header = load_header(_INT8_HEADER)
     return _quantise_video_state_dict(_build_video_state_dict(), header)
 
 
@@ -191,7 +180,7 @@ class TestVideoStateDictMatchesRealHeaderKeySet:
         one the real checkpoint has that this module doesn't register (e.g.
         forgetting `mask_token`, `latents_mean`/`latents_std`, or a Kaiser
         filter buffer -- the exact class of bug flagged upstream)."""
-        header = _load_real_header("video_vae_header.json")
+        header = load_header("minimax_h3/video_vae")
         sd = _build_video_state_dict()
         assert set(sd.keys()) == set(header.keys())
 
@@ -200,7 +189,7 @@ class TestVideoStateDictMatchesRealHeaderKeySet:
         tensor's NUMBER of dimensions must match the real header (catches a
         conv accidentally built 1D/2D/3D short, etc.), even though the
         absolute sizes differ (shrunk here, real in the header)."""
-        header = _load_real_header("video_vae_header.json")
+        header = load_header("minimax_h3/video_vae")
         sd = _build_video_state_dict()
         for key, tensor in sd.items():
             assert tensor.ndim == len(header[key]["shape"]), key
@@ -211,8 +200,8 @@ class TestQuantisedVideoRepackHeaderStructure:
     is testing the real layout and not an assumed one."""
 
     def test_key_set_is_the_fp16_key_set_plus_two_sidecars_per_quantised_weight(self):
-        fp16 = _load_real_header("video_vae_header.json")
-        int8 = _load_real_header(_INT8_HEADER)
+        fp16 = load_header("minimax_h3/video_vae")
+        int8 = load_header(_INT8_HEADER)
         quantised = _quantised_weight_keys(int8)
         expected = set(fp16) | {k[: -len(".weight")] + s for k in quantised for s in (".weight_scale", ".comfy_quant")}
         assert set(int8) == expected
@@ -220,7 +209,7 @@ class TestQuantisedVideoRepackHeaderStructure:
     def test_only_vit_decoder_linears_are_quantised(self):
         """No Conv3d carries int8 codes -- which is why the encoder needs no
         scaled-convolution path at all."""
-        int8 = _load_real_header(_INT8_HEADER)
+        int8 = load_header(_INT8_HEADER)
         quantised = _quantised_weight_keys(int8)
         assert quantised
         for key in quantised:
@@ -229,7 +218,7 @@ class TestQuantisedVideoRepackHeaderStructure:
             assert len(int8[key]["shape"]) == 2, key
 
     def test_every_quantised_weight_has_a_per_output_channel_scale_and_descriptor(self):
-        int8 = _load_real_header(_INT8_HEADER)
+        int8 = load_header(_INT8_HEADER)
         for key in _quantised_weight_keys(int8):
             base = key[: -len(".weight")]
             scale = int8[base + ".weight_scale"]
@@ -238,7 +227,7 @@ class TestQuantisedVideoRepackHeaderStructure:
             assert int8[base + ".comfy_quant"]["dtype"] == "U8"
 
     def test_unquantised_tensors_are_float(self):
-        int8 = _load_real_header(_INT8_HEADER)
+        int8 = load_header(_INT8_HEADER)
         quantised = _quantised_weight_keys(int8)
         for key, entry in int8.items():
             if key not in quantised and not key.endswith(".comfy_quant"):
@@ -247,19 +236,19 @@ class TestQuantisedVideoRepackHeaderStructure:
     def test_in_features_are_divisible_by_the_convrot_group_size(self):
         """The un-rotation reshapes the contraction dimension into whole
         groups; a non-multiple would silently misgroup it."""
-        int8 = _load_real_header(_INT8_HEADER)
+        int8 = load_header(_INT8_HEADER)
         for key in _quantised_weight_keys(int8):
             assert int8[key]["shape"][1] % _CONVROT_GROUPSIZE == 0, key
 
 
 class TestAudioStateDictMatchesRealHeaderKeySet:
     def test_exact_key_set(self):
-        header = _load_real_header("audio_vae_header.json")
+        header = load_header("minimax_h3/audio_vae")
         sd = _build_audio_state_dict()
         assert set(sd.keys()) == set(header.keys())
 
     def test_shape_ranks_match(self):
-        header = _load_real_header("audio_vae_header.json")
+        header = load_header("minimax_h3/audio_vae")
         sd = _build_audio_state_dict()
         for key, tensor in sd.items():
             assert tensor.ndim == len(header[key]["shape"]), key
@@ -267,7 +256,6 @@ class TestAudioStateDictMatchesRealHeaderKeySet:
 
 class TestVideoDetectionOnRealShapedStateDict:
     def test_detects_config_matching_the_built_module(self):
-        _load_real_header("video_vae_header.json")  # skip if headers absent, for symmetry with the other classes
         sd = _build_video_state_dict()
         config = detect_minimax_h3_video_vae_config(sd)
         assert config is not None
@@ -286,7 +274,6 @@ class TestVideoDetectionOnRealShapedStateDict:
 
 class TestAudioDetectionOnRealShapedStateDict:
     def test_detects_config_matching_the_built_module(self):
-        _load_real_header("audio_vae_header.json")
         sd = _build_audio_state_dict()
         config = detect_minimax_h3_audio_vae_config(sd)
         assert config is not None
@@ -304,7 +291,6 @@ class TestFullEngineDispatchDryRun:
     unexpected-key assertions -> `post_load` -> NaN/meta-device sanity."""
 
     def test_video_loads_through_the_real_engine_and_decodes(self):
-        _load_real_header("video_vae_header.json")
         sd = _build_video_state_dict()
         metadata = {"minimax_h3_video_vae": json.dumps({"vae_clip_length": 17, "vae_token_drop": 3})}
 
@@ -331,7 +317,6 @@ class TestFullEngineDispatchDryRun:
         assert torch.isfinite(pixels).all()
 
     def test_audio_loads_through_the_real_engine_and_decodes(self):
-        _load_real_header("audio_vae_header.json")
         sd = _build_audio_state_dict()
         metadata = {"minimax_h3_audio_vae": json.dumps({"sample_rate": 32000})}
 
@@ -433,7 +418,6 @@ class TestFullEngineDispatchDryRun:
         (not silently upcast/downcast by the ops selection), since a
         storage-dtype mixup is exactly the kind of thing a shape-only key-
         parity check would miss."""
-        _load_real_header("video_vae_header.json")
         video_sd = {k: v.to(torch.float16) for k, v in _build_video_state_dict().items()}
         metadata = {"minimax_h3_video_vae": json.dumps({"vae_clip_length": 17, "vae_token_drop": 3})}
         with tempfile.TemporaryDirectory() as tmp:
@@ -442,7 +426,6 @@ class TestFullEngineDispatchDryRun:
             video_model = NativeEngineLoader(device="cpu")._load_vae(path)
         assert video_model.module.encoder.conv_in.weight.dtype == torch.float16
 
-        _load_real_header("audio_vae_header.json")
         audio_sd = {k: v.to(torch.float32) for k, v in _build_audio_state_dict().items()}
         audio_metadata = {"minimax_h3_audio_vae": json.dumps({"sample_rate": 32000})}
         with tempfile.TemporaryDirectory() as tmp:

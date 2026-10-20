@@ -11,9 +11,7 @@ and the FBCache step-cache hook.
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 
 import pytest
 import torch
@@ -34,8 +32,7 @@ from src.platform.runtime.native.sla_attn import SlaAttnContext
 from src.platform.runtime.native.sol_attn import SolAttnContext
 from vendor.gpl.comfyui.ops import pick_operations
 
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-_HEADER_DIR = _REPO_ROOT / "ai" / "minimax_h3"
+from .._header_listings import load_header
 
 # Exact config detect_unet_config derives from the real headers.
 REAL_CONFIG_FULL = {
@@ -128,10 +125,8 @@ def test_config_rejects_wrong_image_model():
 
 # --- meta key-set parity against the REAL headers ---------------------------
 
-@pytest.mark.requires_models
 def test_full_meta_keyset_parity_against_real_header():
-    header = json.loads((_HEADER_DIR / "full_bf16_header.json").read_text())
-    header.pop("__metadata__", None)
+    header = load_header("minimax_h3/full_bf16")
     real_keys = set(header.keys())
     with torch.device("meta"):
         m = MiniMaxH3Model.from_config(REAL_CONFIG_FULL, pick_operations(torch.bfloat16, torch.bfloat16))
@@ -143,7 +138,6 @@ def test_full_meta_keyset_parity_against_real_header():
 _QUANT_SIDECAR_SUFFIXES = (".weight_scale", ".input_scale", ".comfy_quant")
 
 
-@pytest.mark.requires_models
 def test_pruned_meta_keyset_parity_against_real_header_minus_quant_sidecars():
     # weight_scale/input_scale/comfy_quant are consumed by Fp8ScaledLinear's own
     # _load_from_state_dict (popped before the strict key check ever sees them)
@@ -151,8 +145,7 @@ def test_pruned_meta_keyset_parity_against_real_header_minus_quant_sidecars():
     # module's own state_dict() -- excluded here for a fair comparison, not
     # because the loader can't handle them (it can; see registry.py's
     # expected_unexpected_keys, which is defense-in-depth for the same reason).
-    header = json.loads((_HEADER_DIR / "pruned_fp8_header.json").read_text())
-    header.pop("__metadata__", None)
+    header = load_header("minimax_h3/pruned_fp8")
     real_keys = {k for k in header if not k.endswith(_QUANT_SIDECAR_SUFFIXES)}
     with torch.device("meta"):
         m = MiniMaxH3Model.from_config(REAL_CONFIG_PRUNED, pick_operations(torch.float8_e4m3fn, torch.bfloat16))

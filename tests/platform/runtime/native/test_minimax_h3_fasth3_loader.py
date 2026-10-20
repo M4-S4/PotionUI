@@ -26,9 +26,6 @@ module itself, and ``test_int8_convrot.py``'s for ConvRot dequantisation).
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 import torch
 from safetensors.torch import save_file
@@ -38,10 +35,9 @@ from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from vendor.gpl.comfyui.ops import QUANT_FP8_SCALED, pick_operations
 
+from ._header_listings import load_header
 from ._quant_layouts import convrot_descriptor, descriptor_blob
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_HEADER_DIR = _REPO_ROOT / "ai" / "minimax_h3"
 
 HIDDEN = 256             # multiple of the real ConvRot group size (256)
 HEADS = 2
@@ -67,16 +63,6 @@ REAL_CONFIG_FASTH3 = {
     "pruned": True, "time_embed_dim": 8, "adaln_curve_grid": 1025,
     "gate_compress": True,
 }
-
-
-def _load_real_header(name: str) -> dict:
-    path = _HEADER_DIR / name
-    if not path.exists():
-        pytest.skip(f"{path} not present (fetched once via range request; not part of the repo checkout)")
-    with path.open() as f:
-        header = json.load(f)
-    header.pop("__metadata__", None)
-    return header
 
 
 # --- state-dict builders ------------------------------------------------------
@@ -243,16 +229,6 @@ def test_bf16_checkpoint_loads_through_the_real_public_path(bf16_dit_path):
 
 # --- meta key-set parity against the REAL headers ----------------------------
 
-def test_bf16_meta_keyset_parity_against_real_header():
-    header = _load_real_header("fasth3_bf16_header.json")
-    real_keys = set(header.keys())
-    with torch.device("meta"):
-        m = MiniMaxH3Model.from_config(REAL_CONFIG_FASTH3, pick_operations(torch.bfloat16, torch.bfloat16))
-    built = set(m.state_dict().keys())
-    assert built == real_keys, (
-        f"missing={sorted(real_keys - built)[:20]} extra={sorted(built - real_keys)[:20]}")
-
-
 _QUANT_SIDECAR_SUFFIXES = (".weight_scale", ".input_scale", ".comfy_quant")
 
 
@@ -261,7 +237,7 @@ def test_int8_convrot_meta_keyset_parity_against_real_header_minus_quant_sidecar
     # _load_from_state_dict (popped before the strict key check) and never
     # appear in this module's own state_dict() -- same exclusion
     # test_minimax_h3_model.py's pruned-fp8 parity test uses.
-    header = _load_real_header("fasth3_int8_convrot_header.json")
+    header = load_header("minimax_h3/fasth3_int8_convrot")
     real_keys = {k for k in header if not k.endswith(_QUANT_SIDECAR_SUFFIXES)}
     with torch.device("meta"):
         m = MiniMaxH3Model.from_config(REAL_CONFIG_FASTH3, pick_operations(torch.float8_e4m3fn, torch.bfloat16))

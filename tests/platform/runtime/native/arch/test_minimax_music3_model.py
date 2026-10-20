@@ -12,9 +12,6 @@ order, partial-RoPE dimension coverage, and the fused-qkv split order.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 import torch
 import torch.nn.functional as F
@@ -28,8 +25,8 @@ from src.platform.runtime.native.arch.minimax_music3.model import (
 )
 from vendor.gpl.comfyui.ops import pick_operations
 
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-_HEADER_PATH = _REPO_ROOT / "ai" / "minimax_music3" / "minimax_music3_dit_fp16_header.json"
+from .._header_listings import load_header
+
 
 # Exact config a detector would derive from the real header (every field here is
 # shape-derivable from the checkpoint's own tensor shapes; see the module docstring's
@@ -55,15 +52,6 @@ TINY_CONFIG = dict(
 
 def _fp32_ops():
     return pick_operations(torch.float32, torch.float32)
-
-
-def _load_real_header() -> dict:
-    if not _HEADER_PATH.exists():
-        pytest.skip(f"{_HEADER_PATH} not present")
-    with _HEADER_PATH.open() as f:
-        header = json.load(f)
-    header.pop("__metadata__", None)
-    return header
 
 
 def _build_ready(config: dict) -> MiniMaxMusic3Model:
@@ -97,14 +85,14 @@ def test_config_rejects_wrong_image_model():
 def test_state_dict_key_set_matches_real_header():
     """374/374 keys, meta device only — no real weight data needed for a key-set
     check, so this runs at the checkpoint's real scale cheaply."""
-    header = _load_real_header()
+    header = load_header("minimax_music3/minimax_music3_dit_fp16")
     with torch.device("meta"):
         m = MiniMaxMusic3Model.from_config(REAL_CONFIG, _fp32_ops())
     assert set(m.state_dict().keys()) == set(header.keys())
 
 
 def test_state_dict_shape_ranks_match_real_header():
-    header = _load_real_header()
+    header = load_header("minimax_music3/minimax_music3_dit_fp16")
     with torch.device("meta"):
         m = MiniMaxMusic3Model.from_config(REAL_CONFIG, _fp32_ops())
     sd = m.state_dict()
@@ -117,7 +105,7 @@ def test_bite_check_wrong_ff_naming_breaks_key_parity():
     double-nesting: a plausible-looking flatter naming (`ff.proj_in`/`ff.proj_out`)
     would NOT match the real header, proving the parity test above actually
     discriminates layout, not just tensor count."""
-    header = _load_real_header()
+    header = load_header("minimax_music3/minimax_music3_dit_fp16")
     with torch.device("meta"):
         m = MiniMaxMusic3Model.from_config(REAL_CONFIG, _fp32_ops())
     wrong_keys = {

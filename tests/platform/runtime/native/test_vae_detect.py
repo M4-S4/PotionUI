@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 import torch
 
 from src.platform.runtime.native.detect.vae_detect import (
@@ -16,6 +15,7 @@ from src.platform.runtime.native.detect.vae_detect import (
     detect_vae_config,
 )
 
+from ._header_listings import load_header
 from .conftest import (
     causal3d_v2_vae_sd,
     causal3d_vae_sd,
@@ -261,26 +261,14 @@ class TestMiniMaxH3HeaderKeysMatchDetectionSignature:
     the detectors' own signature keys, so a naming drift in a future repack
     upload is caught here instead of silently mismatching at load time."""
 
-    def _load_header(self, name: str) -> dict:
-        import json
-        from pathlib import Path
-
-        path = Path("ai/minimax_h3") / name
-        if not path.exists():
-            pytest.skip(f"{path} not present (fetched once via range request; not part of the repo checkout)")
-        with path.open() as f:
-            header = json.load(f)
-        header.pop("__metadata__", None)
-        return header
-
     def test_video_header_matches_detector_signature_keys(self):
-        header = self._load_header("video_vae_header.json")
+        header = load_header("minimax_h3/video_vae")
         assert "decoder.mask_token" in header
         assert "decoder.register_tokens" in header
         assert header["encoder.conv_in.weight"]["shape"][0:1] and len(header["encoder.conv_in.weight"]["shape"]) == 5
 
     def test_audio_header_matches_detector_signature_keys(self):
-        header = self._load_header("audio_vae_header.json")
+        header = load_header("minimax_h3/audio_vae")
         assert "pre_block.attn.qkv.weight" in header
         assert "dec_in_proj.weight" in header
         assert "decoder.conv_pre.weight" in header
@@ -290,7 +278,7 @@ class TestMiniMaxH3HeaderKeysMatchDetectionSignature:
         docstring: the repack was exported with weight_norm already fused
         (remove_weight_norm), so no weight_g/weight_v/parametrizations keys
         exist anywhere in the real checkpoint."""
-        header = self._load_header("audio_vae_header.json")
+        header = load_header("minimax_h3/audio_vae")
         offenders = [k for k in header if "weight_g" in k or "weight_v" in k or "parametriz" in k]
         assert offenders == []
 
