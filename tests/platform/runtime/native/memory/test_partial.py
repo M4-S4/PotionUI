@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -158,48 +159,64 @@ def test_teardown_swaps_tensor_identity_on_streamed_leaves(monkeypatch):
         )
 
 
-def test_teardown_unpins_pinned_streamed_leaves():
-    """GPU-gated: pin a streamed leaf's weights for real, then assert teardown
-    leaves nothing pinned (the actual bug -- pinned memory stuck for the
-    module's whole life because device.type=='cpu' looked like a no-op)."""
-    if not torch.cuda.is_available():
-        import pytest
-        pytest.skip("pin_memory() requires CUDA")
-
-    m = _Tiny(n_linear=3)
-    plan = plan_residency_split(m, resident_budget_gb=0.0)  # stream every leaf
-    streamer = ModuleStreamer(m)
-    streamer.apply("cpu", plan, pin=True)
-
-    for _, leaf in iter_streamable_leaves(m):
-        assert leaf.weight.data.is_pinned()
-
-    streamer.teardown()
-
-    for _, leaf in iter_streamable_leaves(m):
-        assert leaf.weight.data.device.type == "cpu"
-        assert not leaf.weight.data.is_pinned()
+def _owned_by_live_arena(streamer, data):
+    return any(arena.owns(data) for arena in streamer._arenas)
 
 
-def test_reapply_pin_true_on_already_pinned_leaf_stays_pinned():
-    """Regression guard for the unpin fix itself: calling ``apply(pin=True)``
-    AGAIN on a leaf that is already pinned (no teardown in between -- e.g.
-    ``NativeModel.stream_to`` retried with a different budget) must leave it
-    pinned. The unpin logic must only fire for ``pin=False`` callers."""
-    if not torch.cuda.is_available():
-        import pytest
-        pytest.skip("pin_memory() requires CUDA")
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="pinning requires CUDA")
+def test_teardown_unpins_pinned_streamed_leaves(monkeypatch):
+    unregistered = []
+    real_unregister = pinned_arena._host_unregister
+
+    def counting_unregister(ptr):
+        unregistered.append(ptr)
+        real_unregister(ptr)
+
+    monkeypatch.setattr(pinned_arena, "_host_unregister", counting_unregister)
 
     m = _Tiny(n_linear=3)
     plan = plan_residency_split(m, resident_budget_gb=0.0)
     streamer = ModuleStreamer(m)
     streamer.apply("cpu", plan, pin=True)
-    for _, leaf in iter_streamable_leaves(m):
-        assert leaf.weight.data.is_pinned()
 
-    streamer.apply("cpu", plan, pin=True)  # re-apply without a teardown
+    arenas = list(streamer._arenas)
+    registered = sum(arena.registered_segments for arena in arenas)
+    assert registered > 0
+    assert streamer.pinned_gb > 0.0
     for _, leaf in iter_streamable_leaves(m):
-        assert leaf.weight.data.is_pinned()  # must still be pinned, not unpinned
+        assert _owned_by_live_arena(streamer, leaf.weight.data)
+
+    streamer.teardown()
+
+    assert len(unregistered) == registered
+    for arena in arenas:
+        assert arena.registered_segments == 0
+        assert arena.pinned_bytes == 0
+    for _, leaf in iter_streamable_leaves(m):
+        assert leaf.weight.data.device.type == "cpu"
+        assert not any(arena.owns(leaf.weight.data) for arena in arenas)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="pinning requires CUDA")
+def test_reapply_pin_true_on_already_pinned_leaf_stays_pinned():
+    m = _Tiny(n_linear=3)
+    plan = plan_residency_split(m, resident_budget_gb=0.0)
+    streamer = ModuleStreamer(m)
+    streamer.apply("cpu", plan, pin=True)
+    pinned_gb = streamer.pinned_gb
+    arenas = list(streamer._arenas)
+    segments = sum(arena.registered_segments for arena in streamer._arenas)
+    assert pinned_gb > 0.0
+    assert segments > 0
+    for _, leaf in iter_streamable_leaves(m):
+        assert _owned_by_live_arena(streamer, leaf.weight.data)
+
+    streamer.apply("cpu", plan, pin=True)
+    assert streamer._arenas == arenas
+    assert streamer.pinned_gb == pinned_gb
+    assert sum(arena.registered_segments for arena in streamer._arenas) == segments
+    for _, leaf in iter_streamable_leaves(m):
+        assert _owned_by_live_arena(streamer, leaf.weight.data)
 
 
 # --- pinned/streamed footprint accounting (drives the engine's pool release) ---
