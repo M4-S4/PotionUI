@@ -311,7 +311,7 @@ class TestBaseField(unittest.TestCase):
         preset2 = Mock()
         preset2.id = 'preset_2'
         
-        self.preset_loader.presets = [preset1, preset2]
+        self.preset_loader.get.side_effect = {'preset_1': preset1, 'preset_2': preset2}.get
         
         # Test finding existing preset
         found = self.mock_field._find_preset_by_id('preset_2')
@@ -352,3 +352,33 @@ class TestBaseField(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class TestFindPresetByIdWithRealLoader(unittest.TestCase):
+
+    def test_lazy_loads_an_unloaded_loader(self):
+        import tempfile
+        from pathlib import Path
+
+        import yaml
+
+        from src.features.presets.loader import PresetTemplateLoader
+
+        with tempfile.TemporaryDirectory() as tmp:
+            preset_dir = Path(tmp) / "alpha"
+            mode_dir = preset_dir / "modes" / "txt2img"
+            mode_dir.mkdir(parents=True)
+            (preset_dir / "preset.yml").write_text(
+                yaml.dump({
+                    "schema": 1, "id": "alpha", "name": "alpha", "version": "1.0.0",
+                    "category": "image", "engine": "native", "modes": ["txt2img"],
+                }),
+                encoding="utf-8",
+            )
+            (mode_dir / "pipeline.yml").write_text("pipeline: []\n", encoding="utf-8")
+            (mode_dir / "form.yml").write_text("fields: []\n", encoding="utf-8")
+            field = MockField(PresetTemplateLoader([tmp]))
+
+            found = field._find_preset_by_id("alpha")
+
+        self.assertIsNotNone(found)
+        self.assertEqual(found.id, "alpha")

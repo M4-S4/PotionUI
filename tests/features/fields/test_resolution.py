@@ -376,7 +376,7 @@ class TestResolveTemplatePath(unittest.TestCase):
         mock_preset = Mock()
         mock_preset.id = 'test-preset'
         mock_preset.path = '/presets/test'
-        self.preset_loader.presets = [mock_preset]
+        self.preset_loader.get.return_value = mock_preset
         self.template_processor.process_template.return_value = '/content/presets/_shared/resolutions/sdxl.yml'
 
         result = self.resolution_field._resolve_template_path(
@@ -391,13 +391,13 @@ class TestResolveTemplatePath(unittest.TestCase):
         mock_preset = Mock()
         mock_preset.id = 'test-preset'
         mock_preset.path = '/presets/test'
-        self.preset_loader.presets = [mock_preset]
+        self.preset_loader.get.return_value = mock_preset
 
         result = field._resolve_template_path('/some/path.yml', 'test-preset')
         self.assertEqual(result, '/some/path.yml')
 
     def test_resolve_preset_not_found(self):
-        self.preset_loader.presets = []
+        self.preset_loader.get.return_value = None
 
         result = self.resolution_field._resolve_template_path('/some/path.yml', 'missing-preset')
         self.assertIsNone(result)
@@ -463,7 +463,7 @@ class TestOutputWithFileLoading(unittest.TestCase):
         self.mock_preset = Mock()
         self.mock_preset.id = 'test-preset'
         self.mock_preset.path = '/presets/test'
-        self.preset_loader.presets = [self.mock_preset]
+        self.preset_loader.get.return_value = self.mock_preset
 
     def test_output_with_single_file(self):
         data = [

@@ -74,7 +74,7 @@ class TestOutputSchema:
             configuration={"style_categories": {"type": "tag_categories"}},
         )
         loader = Mock()
-        loader.presets = [preset]
+        loader.get.return_value = preset
 
         field = FieldTemplate(type="tags", name="style", configuration={"categories": "@config:style_categories"})
         schema = Tags(loader).output(field, preset_id="preset_1")
@@ -92,7 +92,7 @@ class TestOutputSchema:
             configuration={"style_categories": {"type": "tag_categories", "default": default_categories}},
         )
         loader = Mock()
-        loader.presets = [preset]
+        loader.get.return_value = preset
 
         field = FieldTemplate(type="tags", name="style", configuration={"categories": "@config:style_categories"})
         schema = Tags(loader).output(field, preset_id="preset_1")

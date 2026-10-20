@@ -18,7 +18,7 @@ class TestSelectField(unittest.TestCase):
         self.mock_preset.path = '/test/presets/test_author/test_model/v1/main'
         
         self.preset_loader.preset_files_path = '/test/presets'
-        self.preset_loader.presets = [self.mock_preset]
+        self.preset_loader.get.return_value = self.mock_preset
         self.mock_preset.id = 'test_preset_id'
 
     def test_configuration(self):

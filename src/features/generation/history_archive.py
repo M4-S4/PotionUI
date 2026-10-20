@@ -937,8 +937,7 @@ class GenerationHistoryArchive:
         from src.features.presets.templates import default_form_name, sorted_forms
 
         try:
-            preset_loader._ensure_loaded()
-            preset = next((p for p in preset_loader.presets if p.id == preset_id), None)
+            preset = preset_loader.get(preset_id)
         except Exception:
             logger.exception("preset lookup failed while resolving legacy bundle model-reference fields")
             return None

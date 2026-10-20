@@ -26,6 +26,17 @@ def private_system_temp(tmp_path_factory, monkeypatch):
     return root
 
 
+class FakePresetLoader:
+    def __init__(self):
+        self.presets = []
+
+    def all(self):
+        return self.presets
+
+    def get(self, preset_id):
+        return next((preset for preset in self.presets if preset.id == preset_id), None)
+
+
 class ScriptedPluginRegistry:
     def __init__(self, *provider_classes):
         self.context = HookContext(
@@ -89,7 +100,7 @@ def cloud_env(mock_db):
         model_repository=model_repo,
         model_access_policy=ModelAccessPolicy(model_repo),
     )
-    presets = SimpleNamespace(presets=[], _ensure_loaded=lambda: None)
+    presets = FakePresetLoader()
     scopes = CloudModelScopes(ModelPresetScopeRepository(), presets, model_repo)
     env = CloudEnv(registry, catalog, repository, capabilities)
     env.presets = presets

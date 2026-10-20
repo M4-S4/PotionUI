@@ -24,7 +24,7 @@ def get_presets_lint(preset_loader, registered_drivers=None) -> Dict[str, Any]:
         loader that runs at startup) and 'lint_issues' (a fresh, deeper lint
         pass including cross-file checks like orphaned mode dirs).
     """
-    preset_loader._ensure_loaded()
+    preset_loader.all()
     plugin_manifests = (
         preset_loader.plugin_registry.get_enabled_plugins()
         if preset_loader.plugin_registry is not None

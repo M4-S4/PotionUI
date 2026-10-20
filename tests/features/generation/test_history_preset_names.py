@@ -109,3 +109,24 @@ def test_preset_list_is_read_once_per_serialization_pass(real_preset):
     generations = [_gen(preset.id) for _ in range(25)]
     _query(counting).serialize_generations(generations, include_tags=False, viewer_id=None)
     assert len(calls) == 1
+
+
+def test_duplicate_ids_resolve_to_the_first_preset_in_name_map_and_resolve():
+    from types import SimpleNamespace
+
+    first = SimpleNamespace(id="dup", name="First")
+    second = SimpleNamespace(id="dup", name="Second")
+
+    class _Loader:
+        presets = [first, second]
+
+        def all(self):
+            return self.presets
+
+        def get(self, preset_id):
+            return next((p for p in self.presets if p.id == preset_id), None)
+
+    resolver = PresetNameResolver(_Loader())
+
+    assert resolver.name_map() == {"dup": "First"}
+    assert resolver.resolve("dup") == "First"

@@ -225,6 +225,7 @@ class PresetTemplateLoader:
         self.preset_files_path = self.preset_files_paths[0] if self.preset_files_paths else Path("content/presets")
         self.shared_path = Path(shared_path) if shared_path is not None else DEFAULT_SHARED_PATH
         self.presets: List[PresetTemplate] = []
+        self.presets_by_id: Dict[str, PresetTemplate] = {}
         # path (str) -> list of "<file>: <path>: <message>" validation errors
         self.load_errors: Dict[str, List[str]] = {}
         self._loaded = False
@@ -772,6 +773,10 @@ class PresetTemplateLoader:
         """Scan, then swap the result into ``self.presets``/``self.load_errors``."""
         logger.info("Starting preset loading...")
         presets, errors = self._scan_presets()
+        by_id: Dict[str, PresetTemplate] = {}
+        for preset in reversed(presets):
+            by_id[preset.id] = preset
+        self.presets_by_id = by_id
         self.presets, self.load_errors = presets, errors
         if self.on_presets_changed is not None:
             try:
@@ -899,6 +904,7 @@ class PresetTemplateLoader:
         """
         logger.info("Clearing preset cache")
         self.presets.clear()
+        self.presets_by_id = {}
         self._loaded = False
 
     def reload(self) -> None:
@@ -941,10 +947,15 @@ class PresetTemplateLoader:
                 return preset
         return None
 
-    def load_preset_by_id(self, preset_id) -> Optional[PresetTemplate]:
-        """Get a specific preset by its id"""
+    def all(self) -> List[PresetTemplate]:
         self._ensure_loaded()
-        for preset in self.presets:
-            if preset.id == preset_id:
-                return preset
-        return None
+        return self.presets
+
+    def get(self, preset_id: Optional[str]) -> Optional[PresetTemplate]:
+        self._ensure_loaded()
+        if not preset_id:
+            return None
+        return self.presets_by_id.get(preset_id)
+
+    def load_preset_by_id(self, preset_id) -> Optional[PresetTemplate]:
+        return self.get(preset_id)

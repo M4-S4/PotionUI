@@ -219,11 +219,4 @@ class BaseField(ABC):
         return schema
     
     def _find_preset_by_id(self, preset_id: str):
-        """Find a preset template by its ID"""
-        if not preset_id:
-            return None
-
-        for preset_template in self.preset_loader.presets:
-            if preset_template.id == preset_id:
-                return preset_template
-        return None
+        return self.preset_loader.get(preset_id)

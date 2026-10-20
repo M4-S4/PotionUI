@@ -255,6 +255,7 @@ class TestPresetTemplateLoader(unittest.TestCase):
         )
 
         self.loader.presets = [preset1, preset2]
+        self.loader.presets_by_id = {'preset_id_1': preset1, 'preset_id_2': preset2}
         self.loader._loaded = True
 
         result = self.loader.load_preset_by_id('preset_id_1')
