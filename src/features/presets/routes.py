@@ -250,8 +250,7 @@ class PresetController(BaseController):
             driver = preset.driver if isinstance(getattr(preset, "driver", None), str) else None
             task_list = [t.strip() for t in tasks.split(",") if t.strip()] if tasks else None
             type_list = [t.strip() for t in model_types.split(",") if t.strip()] if model_types else None
-            model_index = self.collaborators.model_index
-            locator = getattr(model_index, "locator", None)
+            locator = getattr(self.collaborators.model_index, "locator", None) if unquantized_only else None
             models = await asyncio.to_thread(
                 models_for_engine,
                 engine=preset.engine,
