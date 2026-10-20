@@ -50,6 +50,7 @@ BALANCED_RECIPE = "0.725, 0.421875, 0.0"
 LIGHT_RECIPE = "0.421875, 0.0"
 
 PRESET_DIR = Path("content/presets/marketplace/LTX-2")
+SHARED_UPSCALE_ADVANCED = Path("content/presets/_shared/tabs/ltx_upscale_advanced.yml")
 
 _DOC_T2V = {
     "settings": {"seed": 123, "duration": 5, "fps": 25},
@@ -244,7 +245,7 @@ def _field_by_name(fields, name):
     "tab_path,field_name",
     [
         (PRESET_DIR / "modes/video/tabs/advanced.yml", "upscale_refine_sigmas"),
-        (PRESET_DIR / "modes/upscale/tabs/advanced.yml", "refine_sigmas"),
+        (SHARED_UPSCALE_ADVANCED, "refine_sigmas"),
     ],
 )
 def test_raw_sigma_field_is_advanced_audience_with_empty_default(tab_path, field_name):
@@ -344,7 +345,7 @@ def test_upscale_mode_quality_prompt_disabled_with_empty_prompt_sends_empty_stri
 
 
 def test_upscale_mode_apply_quality_prompt_field_is_advanced_checkbox_default_true():
-    tab_path = PRESET_DIR / "modes/upscale/tabs/advanced.yml"
+    tab_path = SHARED_UPSCALE_ADVANCED
     data = yaml.safe_load(tab_path.read_text())
     field = _field_by_name(data["fields"], "apply_quality_prompt")
     assert field is not None

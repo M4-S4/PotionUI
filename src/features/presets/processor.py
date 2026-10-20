@@ -454,11 +454,6 @@ class PresetProcessor:
                     }
                     inpts.append(inpt)
 
-                cache = []
-                if pipe.cache:
-                    for c in pipe.cache:
-                        cache.append(self.process_value(c, context))
-
                 # `enabled` resolves FIRST: a disabled pipe's config is never
                 # rendered. Under StrictUndefined, rendering configs of pipes
                 # that will not run turns optional features (e.g. ControlNet
@@ -474,7 +469,6 @@ class PresetProcessor:
                         if enabled and pipe.configuration else {}
                     ),
                     'input': inpts,
-                    'cache': cache,
                 }
             except TemplateEvaluationError as e:
                 raise e.with_location(

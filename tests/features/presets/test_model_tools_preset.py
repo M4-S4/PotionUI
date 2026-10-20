@@ -41,7 +41,10 @@ def processor(users=None):
 
 def fields_of(mode):
     out = {}
-    for tab in (PRESET_DIR / "modes" / mode / "tabs").glob("*.yml"):
+    tabs = list((PRESET_DIR / "modes" / mode / "tabs").glob("*.yml"))
+    if mode == "merge_and_quantize":
+        tabs.append(PRESET_DIR / "modes/quantize/tabs/advanced.yml")
+    for tab in tabs:
         for field in yaml.safe_load(tab.read_text())["fields"]:
             out[field["name"]] = field
     return out

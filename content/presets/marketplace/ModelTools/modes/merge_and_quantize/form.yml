@@ -15,4 +15,4 @@ fields:
         configuration:
           icon: "settings"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/merge_and_quantize/tabs/advanced.yml"
+        children: "{{ paths.preset }}/modes/quantize/tabs/advanced.yml"

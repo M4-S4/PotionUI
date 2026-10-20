@@ -94,9 +94,13 @@ content/presets/marketplace/<Model>[/<variant>]/    # or content/presets/local/<
                 └── tabs/*.yml
 ```
 
-Shared vocabulary (resolutions, ComfyUI samplers/schedulers) lives once under
-`content/presets/_shared/` and is referenced from any preset via `{{ paths._shared }}` (see
-[External option files](presets/forms.md#external-option-files)).
+Shared vocabulary (resolutions, ComfyUI samplers/schedulers) and tab bodies identical across
+presets live once under `content/presets/_shared/` (`resolutions/`, `tabs/`, ...) and are referenced
+from any preset via `{{ paths._shared }}` (see
+[External option files](presets/forms.md#external-option-files)). Two modes of one preset that need
+the same tab or option file keep one copy and point the other mode at it with
+`{{ paths.preset }}/modes/<mode>/tabs/<file>.yml`. Do not copy a file byte-for-byte between presets
+or modes; the form.yml entry point of each mode is the only per-mode file that stays duplicated.
 
 Rules the loader (`src/features/presets/loader.py`) and linter (`src/features/presets/linter.py`) enforce:
 

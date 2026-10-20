@@ -21,7 +21,6 @@ class TiledDetailerSDXL(BasePipe):
     @classmethod
     def get_default_config(cls) -> Dict[str, Any]:
         return {
-            "tile_size": 1536,  # SDXL optimized - larger tiles for better quality
             "overlap": 128,     # Increased overlap for SDXL
             "denoise": 0.25,    # Lower denoise for SDXL quality preservation
             "steps": 20,        # Fewer steps needed for SDXL
@@ -32,11 +31,8 @@ class TiledDetailerSDXL(BasePipe):
             "seed": -1,
             "feather_amount": 96,  # Reduced feathering for SDXL sharpness
             "detail_boost": 1.1,   # Conservative boost for SDXL
-            "adaptive_tiles": True,
             "enable_detail_conditioning": True,
             "content_aware_denoise": True,
-            "min_denoise": 0.1,    # Lower minimums for SDXL
-            "max_denoise": 0.45,   # Lower maximums for SDXL
             "vram_limit_gb": 8,  # Updated default for high VRAM cards
             "min_tile_size": 896,  # Based on 896x1152 generation capability
         }
@@ -45,8 +41,6 @@ class TiledDetailerSDXL(BasePipe):
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [
-            PipeConfigSpec("tile_size", int, 1536, "Base tile size for processing", required=False,
-                          min_value=256, max_value=4096),
             PipeConfigSpec("overlap", int, 128, "Overlap between tiles in pixels", required=False,
                           min_value=16, max_value=512),
             PipeConfigSpec("denoise", float, 0.25, "Denoising strength", required=False,
@@ -79,13 +73,8 @@ class TiledDetailerSDXL(BasePipe):
                           min_value=16, max_value=512),
             PipeConfigSpec("detail_boost", float, 1.1, "Detail enhancement multiplier", required=False,
                           min_value=0.5, max_value=2.0),
-            PipeConfigSpec("adaptive_tiles", bool, True, "Enable adaptive tile sizing", required=False),
             PipeConfigSpec("enable_detail_conditioning", bool, True, "Enable detail-focused conditioning", required=False),
             PipeConfigSpec("content_aware_denoise", bool, True, "Adjust denoise based on content complexity", required=False),
-            PipeConfigSpec("min_denoise", float, 0.1, "Minimum denoise for uniform areas", required=False,
-                          min_value=0.0, max_value=1.0),
-            PipeConfigSpec("max_denoise", float, 0.35, "Maximum denoise for detailed areas", required=False,
-                          min_value=0.0, max_value=1.0),
             PipeConfigSpec("vram_limit_gb", int, 32, "VRAM limit in GB for tile sizing", required=False,
                           min_value=4, max_value=80),
             PipeConfigSpec("min_tile_size", int, 896, "Minimum tile size to avoid tiny tiles", required=False,

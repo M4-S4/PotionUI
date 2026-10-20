@@ -2687,7 +2687,6 @@ SDXL-optimized tiled detailer for high-resolution image enhancement
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `tile_size` | `int` | `1536` | no | — | 256 | 4096 | Base tile size for processing |
 | `overlap` | `int` | `128` | no | — | 16 | 512 | Overlap between tiles in pixels |
 | `denoise` | `float` | `0.25` | no | — | 0.0 | 1.0 | Denoising strength |
 | `steps` | `int` | `20` | no | — | 1 | 150 | Number of inference steps |
@@ -2698,11 +2697,8 @@ SDXL-optimized tiled detailer for high-resolution image enhancement
 | `seed` | `int` | `-1` | no | — | — | — | Random seed for generation (-1 for random) |
 | `feather_amount` | `int` | `96` | no | — | 16 | 512 | Feathering amount for tile blending |
 | `detail_boost` | `float` | `1.1` | no | — | 0.5 | 2.0 | Detail enhancement multiplier |
-| `adaptive_tiles` | `bool` | `true` | no | — | — | — | Enable adaptive tile sizing |
 | `enable_detail_conditioning` | `bool` | `true` | no | — | — | — | Enable detail-focused conditioning |
 | `content_aware_denoise` | `bool` | `true` | no | — | — | — | Adjust denoise based on content complexity |
-| `min_denoise` | `float` | `0.1` | no | — | 0.0 | 1.0 | Minimum denoise for uniform areas |
-| `max_denoise` | `float` | `0.35` | no | — | 0.0 | 1.0 | Maximum denoise for detailed areas |
 | `vram_limit_gb` | `int` | `32` | no | — | 4 | 80 | VRAM limit in GB for tile sizing |
 | `min_tile_size` | `int` | `896` | no | — | 256 | 2048 | Minimum tile size to avoid tiny tiles |
 

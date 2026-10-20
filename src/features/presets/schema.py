@@ -423,7 +423,6 @@ class PipeSpec(BaseModel):
     # time by W2's evaluator); runtime checks `is True`, not `== 'true'`.
     enabled: Union[str, bool] = True
     input: Optional[List[List[Any]]] = None
-    cache: Optional[List[Any]] = None
     configuration: Optional[Dict[str, Any]] = None
 
 

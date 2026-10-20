@@ -20,7 +20,7 @@ fields:
         configuration:
           icon: "lora"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/img2img/tabs/lora.yml"
+        children: "{{ paths._shared }}/tabs/lora.yml"
       - type: "tab"
         label: "Advanced"
         audience: "advanced"

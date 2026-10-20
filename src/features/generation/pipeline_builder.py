@@ -25,7 +25,7 @@ Example:
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Union
 
 from src.features.generation.exceptions import PresetProcessingError
 from src.features.presets import PresetTemplateLoader, PresetProcessor
@@ -33,8 +33,6 @@ from src.features.presets.templates import PresetTemplate
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
-
-_warned_stale_cache_key: Set[str] = set()
 
 
 @dataclass
@@ -100,8 +98,6 @@ class PipelineBuilder:
         mode: str = 'txt2img',
         generation_id: Optional[str] = None,
         prompts: Optional[List[Dict[str, str]]] = None,
-        prompt: str = '',
-        negative_prompt: str = '',
         form_name: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> BuiltPipeline:
@@ -122,8 +118,6 @@ class PipelineBuilder:
             mode: Generation mode (txt2img, img2img, etc.). Default: 'txt2img'
             generation_id: Optional generation ID. If not provided, a new ULID will be generated
             prompts: Array of prompt pairs [{positive: str, negative: str}, ...]. Default: None
-            prompt: Legacy positive prompt (deprecated, use prompts). Default: ''
-            negative_prompt: Legacy negative prompt (deprecated, use prompts). Default: ''
             form_name: Which form "variant" within the mode this submission came
                 from (see docs/presets.md "Variants"). If not given,
                 PresetProcessor resolves the mode's default variant - the same
@@ -171,7 +165,7 @@ class PipelineBuilder:
 
         # Normalize prompts - support both legacy and new format
         if prompts is None:
-            prompts = [{'positive': prompt, 'negative': negative_prompt}]
+            prompts = [{'positive': '', 'negative': ''}]
 
         generation_data = {
             'prompts': prompts,  # Array of prompt pairs
@@ -188,7 +182,6 @@ class PipelineBuilder:
         logger.debug("Processing preset through PresetProcessor")
         try:
             processed_pipes = self.preset_processor.process(preset_template, generation_data, user_id=user_id)
-            self._drop_stale_cache_keys(processed_pipes, resolved_preset_id)
             logger.info(f"Pipeline built successfully with {len(processed_pipes)} pipes")
         except Exception as e:
             error_msg = f"Failed to process preset: {str(e)}"
@@ -201,27 +194,3 @@ class PipelineBuilder:
             preset_template=preset_template,
             pipes=processed_pipes
         )
-
-    @staticmethod
-    def _drop_stale_cache_keys(pipes: List[Dict[str, Any]], preset_id: str) -> None:
-        """
-        Pipe-level `cache:` keys are inert: caching goes entirely through
-        ModelLifecycle.acquire() (key/fingerprint/loader, with
-        eviction), not through per-pipe config. Custom presets that still
-        declare `cache:` in their pipeline.yml must keep working rather than
-        crash or silently misbehave, so this drops the key here with a
-        one-line warning pointing at the preset that needs updating.
-        """
-        for pipe_config in pipes:
-            cache_keys = pipe_config.get('cache')
-            if cache_keys:
-                warn_key = f"{preset_id}:{pipe_config.get('name')}"
-                if warn_key not in _warned_stale_cache_key:
-                    logger.warning(
-                        f"Preset '{preset_id}' pipe '{pipe_config.get('name')}' declares stale "
-                        f"'cache: {cache_keys}' — the cache: mechanism was removed in favor of "
-                        f"ModelLifecycle; this key is now ignored. Remove it from the preset's "
-                        f"pipeline.yml."
-                    )
-                    _warned_stale_cache_key.add(warn_key)
-            pipe_config['cache'] = []

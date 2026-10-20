@@ -527,7 +527,6 @@ class TestPipelineFile:
                     "id": "checkpoint_loader",
                     "name": "checkpoint_loader/sdxl",
                     "enabled": "true",
-                    "cache": ["model", "text_encoder"],
                     "configuration": {"model": {"file_path": "{{ get_form('custom', ['model']) }}"}},
                 },
                 {

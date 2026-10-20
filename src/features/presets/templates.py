@@ -33,7 +33,6 @@ class PipeTemplate:
     id: str = None
     enabled: bool = True
     configuration: Dict[str, Any] = None
-    cache: List[str] = None  # Cache specific output variables by name
     input: List[Tuple[str, str, str]] = None  # [param_name, provider_pipe, provider_output_var]
 
 
