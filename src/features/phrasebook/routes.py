@@ -26,7 +26,7 @@ from src.features.phrasebook.dto import (
 )
 from src.features.phrasebook import PhrasebookPreviewGenerator, operations
 from src.features.phrasebook.hooks import PHRASEBOOK_HOOKS
-from src.features.phrasebook.import_service import phrasebook_import_service
+from src.features.phrasebook.import_manager import phrasebook_import_manager
 from src.features.phrasebook.repository import (
     PhrasebookCategoryRepository,
     PhrasebookValueRepository,
@@ -364,7 +364,7 @@ class PhrasebookController(BaseController):
             yaml_content = content.decode('utf-8')
 
             # Import using the service
-            result = phrasebook_import_service.import_yaml(
+            result = phrasebook_import_manager.import_yaml(
                 yaml_content, user.id, root_category
             )
 
@@ -380,7 +380,7 @@ class PhrasebookController(BaseController):
 
     async def export_category(self, category_id: str, user: User) -> PlainTextResponse:
         """Export a category and its values as YAML."""
-        yaml_content = phrasebook_import_service.export_to_yaml(category_id, user.id)
+        yaml_content = phrasebook_import_manager.export_to_yaml(category_id, user.id)
 
         if yaml_content is None:
             # Return error as plain text since we can't mix response types easily
