@@ -188,13 +188,15 @@ def test_the_census_counts_arena_pinned_weights_as_pinned(tmp_path, monkeypatch)
     monkeypatch.setattr(pinned_arena, "_synchronize", lambda device: None)
     weight = nn.Parameter(torch.zeros(512, 1024), requires_grad=False)
     arena = PinnedArena(segment_bytes=1 << 30)
-    arena.pin([weight])
-    assert not weight.data.is_pinned()
+    try:
+        arena.pin([weight])
+        assert not weight.data.is_pinned()
 
-    rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=30.0)
-    pinned_gb = sum(r["nbytes_gb"] for r in rows if r["kind"] == "census_group" and r["is_pinned"])
-    assert pinned_gb >= 0.002
-    arena.release()
+        rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=30.0)
+        pinned_gb = sum(r["nbytes_gb"] for r in rows if r["kind"] == "census_group" and r["is_pinned"])
+        assert pinned_gb >= 0.002
+    finally:
+        arena.release()
 
 
 @pytest.mark.skipif(not __import__("torch").cuda.is_available(), reason="needs a CUDA device")
