@@ -53,21 +53,49 @@ class TestContainment:
 
 
 class TestFreeSpace:
+    def usage(self, monkeypatch, total, free):
+        monkeypatch.setattr(placement.shutil, "disk_usage", lambda _p: Usage(total, total - free, free))
+
     def test_enough_space_passes(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(placement.shutil, "disk_usage", lambda _p: Usage(0, 0, 10 * placement.GIB))
+        self.usage(monkeypatch, 100 * placement.GIB, 50 * placement.GIB)
         placement.check_free_space(tmp_path, 5 * placement.GIB)
 
-    def test_the_margin_counts(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(placement.shutil, "disk_usage", lambda _p: Usage(0, 0, 5 * placement.GIB))
+    def test_floor_applies_on_small_drives(self, tmp_path, monkeypatch):
+        self.usage(monkeypatch, 10 * placement.GIB, 7 * placement.GIB)
+        placement.check_free_space(tmp_path, 5 * placement.GIB)
+        self.usage(monkeypatch, 10 * placement.GIB, 7 * placement.GIB - 1)
         with pytest.raises(ModelToolsRefused):
             placement.check_free_space(tmp_path, 5 * placement.GIB)
 
-    def test_refusal_names_needed_and_available(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(placement.shutil, "disk_usage", lambda _p: Usage(0, 0, 2 * placement.GIB))
+    def test_fraction_applies_on_big_drives(self, tmp_path, monkeypatch):
+        total = 1000 * placement.GIB
+        reserve = placement.free_space_reserve(total)
+        assert reserve == 100 * placement.GIB
+        self.usage(monkeypatch, total, 20 * placement.GIB + reserve)
+        placement.check_free_space(tmp_path, 20 * placement.GIB)
+        self.usage(monkeypatch, total, 20 * placement.GIB + reserve - 1)
+        with pytest.raises(ModelToolsRefused):
+            placement.check_free_space(tmp_path, 20 * placement.GIB)
+
+    def test_reserve_is_the_larger_of_floor_and_fraction(self):
+        assert placement.free_space_reserve(10 * placement.GIB) == 2 * placement.GIB
+        assert placement.free_space_reserve(40 * placement.GIB) == 4 * placement.GIB
+
+    def test_an_existing_output_file_is_not_credited(self, tmp_path, monkeypatch):
+        (tmp_path / "out.safetensors").write_bytes(b"x" * 1024)
+        self.usage(monkeypatch, 10 * placement.GIB, 5 * placement.GIB)
+        with pytest.raises(ModelToolsRefused):
+            placement.check_free_space(tmp_path, 5 * placement.GIB)
+
+    def test_refusal_names_needed_free_reserve_and_shortfall(self, tmp_path, monkeypatch):
+        self.usage(monkeypatch, 100 * placement.GIB, 12 * placement.GIB)
         with pytest.raises(ModelToolsRefused) as err:
             placement.check_free_space(tmp_path, 20 * placement.GIB)
-        assert "needs about 20.06 GiB" in str(err.value)
-        assert "only 2.00 GiB is available" in str(err.value)
+        message = str(err.value)
+        assert "needs about 20.00 GiB" in message
+        assert "keep 10.00 GiB free" in message
+        assert "only 12.00 GiB is available" in message
+        assert "Free at least 18.00 GiB" in message
 
 
 class TestLocate:

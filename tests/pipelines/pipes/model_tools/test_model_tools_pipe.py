@@ -411,7 +411,7 @@ class TestRefusals:
         usage = namedtuple("usage", "total used free")
         monkeypatch.setattr(placement.shutil, "disk_usage", lambda _p: usage(10**9, 10**9 - 1000, 1000))
         before = listing(depot.models)
-        with pytest.raises(ModelToolsRefused, match=r"needs about .*MiB but only .*MiB is available"):
+        with pytest.raises(ModelToolsRefused, match=r"needs about .*MiB and the drive must keep .* free .* only .*MiB is available"):
             run_pipe(depot, {"mode": "quantize", "model": str(source)})
         assert listing(depot.models) == before
 

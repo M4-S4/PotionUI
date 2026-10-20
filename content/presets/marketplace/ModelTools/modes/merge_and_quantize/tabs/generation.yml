@@ -43,4 +43,4 @@ fields:
     type: "checkbox"
     label: "Overwrite Existing File"
     default: false
-    ai_hint: "Off by default: a run is refused when the output name already exists. The output can never replace one of its own inputs."
+    ai_hint: "Off by default: a run is refused when the output name already exists. The output can never replace one of its own inputs. The drive must keep 10% (at least 2 GiB) free after the write."

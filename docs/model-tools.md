@@ -52,10 +52,14 @@ file is only replaced when **Overwrite** is ticked.
 
 1. The source headers and the LoRA files are read and planned first; unsupported input is refused
    before any byte is written.
-2. The planned output size plus a 64 MiB margin must fit in the free space of the destination folder,
-   otherwise the run is refused with the needed and available sizes.
+2. The planned output size plus a reserve of `max(2 GiB, 10% of the drive)` must fit in the free space of
+   the destination folder, otherwise the run is refused with the needed size, the free space, the reserve
+   and how much to free. The reserve keeps the drive from filling up completely, where consumer SSDs
+   stall. Overwrite does not credit the old file, because it stays until the new one is renamed over it.
 3. The sources are hashed (SHA-256) so the provenance can be stored in the file header, then the output
-   is streamed tensor by tensor to a hidden staging file with per-tensor progress.
+   is streamed tensor by tensor to a hidden staging file with per-tensor progress. The writer syncs to disk
+   every 256 MiB (and drops the synced pages from the cache on Linux), so dirty data stays bounded instead
+   of being flushed in one burst at the end.
 4. The staged file is verified (`verify_quantized` on sampled layers for quantize; the quantization error
    against the merged fp32 weights for merge and quantize; changed, finite sampled layers for a bake;
    the written tensors and kept energy for a LoRA merge) and only then renamed over the final name. A

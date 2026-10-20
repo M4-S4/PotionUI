@@ -11,8 +11,9 @@ from src.pipelines.pipes.model_tools.errors import ModelToolsRefused
 LORA_TYPE = "lora"
 MODEL_TYPES = frozenset({"diffusion_model", "unet", "checkpoint", "text_encoder"})
 SAFETENSORS_SUFFIXES = (".safetensors", ".sft")
-FREE_SPACE_MARGIN_BYTES = 64 * 1024 * 1024
 GIB = 1024 ** 3
+FREE_SPACE_RESERVE_FLOOR_BYTES = 2 * GIB
+FREE_SPACE_RESERVE_FRACTION = 0.10
 
 
 @dataclass(frozen=True)
@@ -105,11 +106,19 @@ def check_overwrite(destination: Destination, protected: list[Path], overwrite: 
         )
 
 
+def free_space_reserve(total_bytes: int) -> int:
+    return max(FREE_SPACE_RESERVE_FLOOR_BYTES, int(total_bytes * FREE_SPACE_RESERVE_FRACTION))
+
+
 def check_free_space(directory: Path, required_bytes: int) -> None:
-    free = shutil.disk_usage(directory).free
-    needed = required_bytes + FREE_SPACE_MARGIN_BYTES
-    if needed > free:
+    usage = shutil.disk_usage(directory)
+    reserve = free_space_reserve(usage.total)
+    needed = required_bytes + reserve
+    if needed > usage.free:
+        shortfall = needed - usage.free
         raise ModelToolsRefused(
-            f"Not enough free disk space in {directory}: the output needs about {format_size(needed)} "
-            f"but only {format_size(free)} is available"
+            f"Not enough free disk space in {directory}: the output needs about {format_size(required_bytes)} "
+            f"and the drive must keep {format_size(reserve)} free afterwards (a nearly full SSD stalls), "
+            f"so {format_size(needed)} is required but only {format_size(usage.free)} is available. "
+            f"Free at least {format_size(shortfall)} or pick another model folder"
         )

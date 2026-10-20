@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import struct
 import weakref
 
@@ -198,3 +199,52 @@ def test_writer_holds_at_most_one_tensor(tmp_path):
 
     write_stream(tmp_path / "o.safetensors", plan, stream(), {})
     assert max(live_at_yield) <= 1
+
+
+def _expected_bytes(plan, metadata):
+    import struct
+    from src.platform.runtime.native.ops.model_tools.writer import _tensor_bytes
+    header = build_header(plan, metadata)
+    body = b"".join(bytes(_tensor_bytes(t)) for _, t in tensors_for(plan))
+    return struct.pack("<Q", len(header)) + header + body
+
+
+def test_periodic_sync_keeps_output_byte_identical(tmp_path, monkeypatch):
+    from src.platform.runtime.native.ops.model_tools import writer
+    monkeypatch.setattr(writer, "SYNC_EVERY_BYTES", 16)
+    dest = tmp_path / "o.safetensors"
+    write_stream(dest, PLAN, tensors_for(), {"k": "v"})
+    assert dest.read_bytes() == _expected_bytes(PLAN, {"k": "v"})
+
+
+def test_syncs_at_least_once_per_interval(tmp_path, monkeypatch):
+    import os
+    from src.platform.runtime.native.ops.model_tools import writer
+    interval = 64
+    monkeypatch.setattr(writer, "SYNC_EVERY_BYTES", interval)
+    calls = []
+    monkeypatch.setattr(os, "fsync", lambda fd: calls.append("fsync"))
+    if hasattr(os, "fdatasync"):
+        monkeypatch.setattr(os, "fdatasync", lambda fd: calls.append("fdatasync"))
+    plan = [TensorSpec(f"t{i}", "F32", (8,)) for i in range(10)]
+    write_stream(tmp_path / "o.safetensors", plan, tensors_for_f32(plan), {})
+    payload = sum(s.nbytes for s in plan)
+    assert len(calls) >= payload // interval
+    assert calls[-1] == "fsync"
+
+
+def tensors_for_f32(plan):
+    for spec in plan:
+        yield spec.key, torch.zeros(spec.shape)
+
+
+@pytest.mark.skipif(not hasattr(os, "posix_fadvise"), reason="posix_fadvise is Linux only")
+def test_synced_ranges_are_dropped_from_the_page_cache(tmp_path, monkeypatch):
+    from src.platform.runtime.native.ops.model_tools import writer
+    monkeypatch.setattr(writer, "SYNC_EVERY_BYTES", 16)
+    advised = []
+    monkeypatch.setattr(os, "posix_fadvise", lambda fd, start, length, advice: advised.append((start, length, advice)))
+    plan = [TensorSpec(f"t{i}", "F32", (8,)) for i in range(4)]
+    write_stream(tmp_path / "o.safetensors", plan, tensors_for_f32(plan), {})
+    assert advised
+    assert all(advice == os.POSIX_FADV_DONTNEED and length > 0 for _, length, advice in advised)

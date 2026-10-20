@@ -14,6 +14,9 @@ from .errors import StreamMismatchError, WriteCancelledError
 from .spec import TORCH_TO_DTYPE, TensorSpec
 
 ALIGNMENT = 8
+SYNC_EVERY_BYTES = 256 * 1024 * 1024
+
+_FADVISE_DONTNEED = getattr(os, "POSIX_FADV_DONTNEED", None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +59,20 @@ def _tensor_bytes(tensor: torch.Tensor) -> memoryview:
     return memoryview(flat.view(torch.uint8).numpy())
 
 
+def _sync_range(f, start: int) -> int:
+    f.flush()
+    end = f.tell()
+    fd = f.fileno()
+    sync = getattr(os, "fdatasync", os.fsync)
+    sync(fd)
+    if _FADVISE_DONTNEED is not None and hasattr(os, "posix_fadvise"):
+        try:
+            os.posix_fadvise(fd, start, end - start, _FADVISE_DONTNEED)
+        except OSError:
+            pass
+    return end
+
+
 def write_stream(
     dest: str | Path,
     plan: list[TensorSpec],
@@ -72,6 +89,8 @@ def write_stream(
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.parent / f".{dest.name}.{uuid.uuid4().hex[:8]}.tmp"
     written = 0
+    synced_written = 0
+    synced_pos = 0
     try:
         with open(tmp, "wb") as f:
             f.write(struct.pack("<Q", len(header)))
@@ -90,6 +109,9 @@ def write_stream(
                     raise StreamMismatchError(f"{spec.key}: {len(data)} bytes where {spec.nbytes} are planned")
                 f.write(data)
                 written += len(data)
+                if written - synced_written >= SYNC_EVERY_BYTES:
+                    synced_pos = _sync_range(f, synced_pos)
+                    synced_written = written
                 del data, tensor
                 if on_progress is not None:
                     on_progress(written, total)
