@@ -74,7 +74,7 @@ async function mockTabDrafts(page: Page): Promise<DraftServer> {
 		if (tabId && !action && method === 'GET') {
 			server.reads.push(tabId);
 			const row = server.rows.get(tabId);
-			return row ? ok(route, draftBody(tabId, row)) : fail(route, 404, { error: 'tab_draft_not_found' });
+			return ok(route, row ? draftBody(tabId, row) : null);
 		}
 		if (tabId && !action && method === 'PUT') {
 			const variables = (request.postDataJSON().doc?.variables ?? {}) as Record<string, unknown>;

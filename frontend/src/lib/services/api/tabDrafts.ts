@@ -48,7 +48,7 @@ export function createTabDraftsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async getTabDraft(tabId: string): Promise<APIResponse<TabDraft>> {
+		async getTabDraft(tabId: string): Promise<APIResponse<TabDraft | null>> {
 			const response = await client.get(path(tabId));
 			return response.data;
 		},

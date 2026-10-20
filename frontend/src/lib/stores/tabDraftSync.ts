@@ -31,7 +31,7 @@ export interface TabsPort {
 
 export interface TabDraftApiPort {
 	list(): Promise<APIResponse<TabDraftSummary[]>>;
-	get(tabId: string): Promise<APIResponse<TabDraft>>;
+	get(tabId: string): Promise<APIResponse<TabDraft | null>>;
 	replace(tabId: string, doc: TabDraftDoc): Promise<APIResponse<TabDraft>>;
 	apply(tabId: string, request: TabDraftOpsRequest): Promise<APIResponse<TabDraft>>;
 	remove(tabId: string): Promise<void>;

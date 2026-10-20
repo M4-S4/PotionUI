@@ -86,7 +86,7 @@ function fakeApi(overrides: Partial<TabDraftApiPort> = {}) {
 		async get(tabId) {
 			calls.get(tabId);
 			const row = server.get(tabId);
-			if (!row) throw httpError(404, { error: 'tab_draft_not_found' });
+			if (!row) return { success: true, data: null };
 			return { success: true, data: draft(tabId, row.variables, row.rev) };
 		},
 		async replace(tabId, doc) {

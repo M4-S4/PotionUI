@@ -88,7 +88,7 @@ class TestRoutes(RoutesTestBase):
         self.client.put("/api/tab-drafts/t1", json={"doc": {}})
 
         self.assertEqual(self.client.delete("/api/tab-drafts/t1").status_code, 200)
-        self.assertEqual(self.client.get("/api/tab-drafts/t1").status_code, 404)
+        self.assertIsNone(self.client.get("/api/tab-drafts/t1").json()["data"])
 
 
 class TestAuthScoping(RoutesTestBase):
@@ -98,17 +98,26 @@ class TestAuthScoping(RoutesTestBase):
         self.client.put("/api/tab-drafts/t1", json={"doc": {"variables": {"a": text("owner")}}})
         self.as_user("u2")
 
-    def test_another_users_tab_is_a_404_on_every_verb(self):
-        responses = [
-            self.client.get("/api/tab-drafts/t1"),
-            self.client.delete("/api/tab-drafts/t1"),
-        ]
+    def test_another_users_tab_reads_as_absent_and_is_not_deletable(self):
+        got = self.client.get("/api/tab-drafts/t1")
+        deleted = self.client.delete("/api/tab-drafts/t1")
 
-        for response in responses:
-            self.assertEqual(response.status_code, 404)
-            self.assertEqual(response.json()["detail"]["error"], "tab_draft_not_found")
+        self.assertEqual(got.status_code, 200)
+        self.assertTrue(got.json()["success"])
+        self.assertIsNone(got.json()["data"])
+        self.assertEqual(deleted.status_code, 404)
+        self.assertEqual(deleted.json()["detail"]["error"], "tab_draft_not_found")
+        self.as_user("u1")
+        self.assertEqual(self.client.get("/api/tab-drafts/t1").json()["data"]["doc"], {"variables": {"a": text("owner")}})
 
-    def test_a_404_does_not_differ_between_foreign_and_missing(self):
+    def test_an_unknown_tab_reads_as_an_empty_200(self):
+        response = self.client.get("/api/tab-drafts/never-existed")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        self.assertIsNone(response.json()["data"])
+
+    def test_foreign_and_missing_reads_do_not_differ(self):
         foreign = self.client.get("/api/tab-drafts/t1")
         missing = self.client.get("/api/tab-drafts/never-existed")
 
@@ -150,7 +159,7 @@ class TestErrorShapes(RoutesTestBase):
         self.assertEqual([o["index"] for o in detail["operations"]], [1])
         self.assertEqual(detail["operations"][0]["name"], "bad name")
         self.assertTrue(detail["operations"][0]["errors"])
-        self.assertEqual(self.client.get("/api/tab-drafts/t1").status_code, 404)
+        self.assertIsNone(self.client.get("/api/tab-drafts/t1").json()["data"])
 
     def test_invalid_replace_is_422(self):
         response = self.client.put("/api/tab-drafts/t1", json={"doc": {"variables": {"a": {"type": "x"}}}})

@@ -47,8 +47,8 @@ class TabDraftController(BaseController):
         return self.success_response(data=[d.to_dict() for d in drafts])
 
     async def get_draft(self, user_id: str, tab_id: str) -> APIResponse:
-        draft = self._guarded(lambda: self.manager.get(user_id, tab_id))
-        return self.success_response(data=draft.to_dict())
+        draft = self._guarded(lambda: self.manager.find(user_id, tab_id))
+        return self.success_response(data=draft.to_dict() if draft else None)
 
     async def replace_draft(self, user_id: str, tab_id: str, request: ReplaceTabDraftRequest) -> APIResponse:
         draft = self._guarded(lambda: self.manager.replace(user_id, tab_id, request.doc))
