@@ -155,6 +155,7 @@ def _fakes(monkeypatch):
         lambda loras: [({"fake": torch.zeros(1)}, l["weight"], l["window"]) for l in loras],
     )
     yield
+    _SteppingGenerator.instances.clear()
 
 
 # --- ordering ------------------------------------------------------------

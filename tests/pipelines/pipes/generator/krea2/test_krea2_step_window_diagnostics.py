@@ -183,6 +183,7 @@ def _fakes(monkeypatch):
         lambda path, device="cpu": (files[path], {}),
     )
     yield
+    _SteppingGenerator.instances.clear()
 
 
 def test_windowed_valid_plus_unmatched_warns_once_through_the_real_pipe():
