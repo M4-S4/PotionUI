@@ -131,7 +131,7 @@ test.describe('per-entry tools menu', () => {
 		const dialog = page.getByRole('alertdialog', { name: 'Delete Generation' });
 		await expect(dialog).toBeVisible();
 		await expect(cards).toHaveCount(2);
-		await dialog.getByRole('button', { name: 'Confirm' }).click();
+		await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
 
 		await expect(cards).toHaveCount(1);
 	});
