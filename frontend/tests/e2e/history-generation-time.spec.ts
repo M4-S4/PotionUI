@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, expectNoBoxOverlap } from './helpers';
 
 const JOURNEY = 'history-generation-time';
 const PNG_1X1 = Buffer.from(
@@ -112,6 +112,27 @@ for (const viewport of [
 		const row = page.getByTestId('detail-generation-time');
 		await expect(row).toContainText('Generation time');
 		await expect(row).toHaveText(/^Generation time\s*1:32 · 4 images · queued 12 s$/);
+		await page.locator('[data-stage-meta]').hover();
+		await expect
+			.poll(() => page.locator('[data-stage-toolbar]').evaluate((el) => getComputedStyle(el).opacity))
+			.toBe('1');
+		await expectNoBoxOverlap([
+			{ name: 'stage metadata chip', locator: page.locator('[data-stage-meta] > *') },
+			{ name: 'stage toolbar button', locator: page.locator('[data-stage-toolbar] > *') }
+		]);
+		if (viewport.width < 640) {
+			const toolbar = page.locator('[data-stage-toolbar]');
+			const stage = page.locator('[data-details-stage]');
+			const toolbarBox = (await toolbar.boundingBox())!;
+			const stageBox = (await stage.boundingBox())!;
+			expect(toolbarBox.y).toBeGreaterThanOrEqual(stageBox.y + stageBox.height - 1);
+			expect(toolbarBox.x).toBeGreaterThanOrEqual(0);
+			expect(toolbarBox.x + toolbarBox.width).toBeLessThanOrEqual(viewport.width + 0.5);
+			await expectNoBoxOverlap([
+				{ name: 'stage toolbar', locator: toolbar },
+				{ name: 'stage metadata chips', locator: page.locator('[data-stage-meta]') }
+			]);
+		}
 		await screenshot(page, JOURNEY, `02-detail-${viewport.width}`);
 		await page.keyboard.press('Escape');
 

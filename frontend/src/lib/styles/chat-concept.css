@@ -2653,8 +2653,45 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
 
 @media (max-width: 520px) {
   .chat-header {
-        padding-right: 8px;
-        gap: 4px;
+        height: auto;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        padding: 8px;
+        gap: 6px 4px;
+      }
+  .header-actions {
+        flex: 1 0 100%;
+        min-width: 0;
+        justify-content: flex-end;
+      }
+  .header-actions > .relative {
+        min-width: 0;
+        flex: 0 1 auto;
+      }
+  .model-button {
+        max-width: 160px;
+        min-width: 0;
+        padding: 0 10px;
+      }
+  .model-button > span:not(.model-dot) {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+  .model-button .model-dot, .model-button .chevron {
+        flex: none;
+      }
+  .mode-chip {
+        max-width: 100%;
+      }
+  .mode-chip span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+  .floating-menu {
+        top: 96px;
       }
   .header-actions .icon-button:nth-of-type(2), .header-divider {
         display: none;
@@ -2694,7 +2731,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
   .context-meter span, .mode-chip .lock {
         display: none;
       }
-  .context-meter, .mode-chip {
+  .context-meter {
         width: 32px;
         padding: 0;
         justify-content: center;

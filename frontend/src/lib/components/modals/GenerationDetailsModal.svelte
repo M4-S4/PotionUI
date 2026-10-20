@@ -697,7 +697,8 @@
 	{:else if activeGeneration}
 		<div class="flex flex-col md:flex-row h-full min-h-0">
 			<!-- Left Side - Media -->
-			<div data-details-stage class="flex-1 bg-black relative group min-h-0 overflow-hidden">
+			<div class="group relative flex min-h-0 flex-1 flex-col">
+			<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">
 				{#if currentFile}
 					<!-- Navigation Arrows -->
 					{#if canGoPrev}
@@ -720,11 +721,96 @@
 						</button>
 					{/if}
 
+					<div class="absolute top-4 left-4 z-20 max-w-[calc(100%-2rem)] opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+						<div class="flex flex-col gap-2">
+							<div data-stage-meta class="flex flex-wrap items-center gap-2">
+								{#if mediaFiles.length > 1}
+									<div data-file-counter class="bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded text-sm font-medium shadow-lg">
+										<span class="font-mono tabular-nums">
+											{currentFileIndex + 1} / {mediaFiles.length}
+										</span>
+									</div>
+								{/if}
+
+								{#if currentFile.width && currentFile.height}
+									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
+										{currentFile.width} × {currentFile.height}
+									</span>
+								{/if}
+
+								{#if currentFile.file_size}
+									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
+										{formatBytes(currentFile.file_size)}
+									</span>
+								{/if}
+
+								{#if currentFile.file_type}
+									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg uppercase">
+										{isVideoFile(currentFile) ? 'MP4' : isMeshFile(currentFile) ? resolveMeshFormat(currentFile).toUpperCase() : isAudioFile(currentFile) ? resolveAudioFormat(currentFile).toUpperCase() : 'PNG'}
+									</span>
+								{/if}
+							</div>
+
+							{#if selectedTags.length > 0}
+								<div class="flex flex-wrap gap-1">
+									{#each selectedTags as tag}
+										<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg">
+											{tag.name}
+										</span>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					</div>
+
+					{#if isVideoFile(currentFile)}
+						<video
+							src={getImageUrl(currentFile)}
+							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''}"
+							controls={!detailBlur}
+							playsinline
+						>
+							<track kind="captions" />
+						</video>
+					{:else if isMeshFile(currentFile)}
+						<div class="absolute inset-0 h-full w-full p-3 md:p-6">
+							<MeshPreview file={{ url: getImageUrl(currentFile), originalUrl: getImageUrl(currentFile) }} />
+						</div>
+					{:else if isAudioFile(currentFile)}
+						<div class="absolute inset-0 h-full w-full flex items-center justify-center p-3 md:p-6">
+							<div class="w-full max-w-2xl">
+								<AudioPlayer tracks={currentAudioTracks(currentFile)} showWaveform={true} showDownload={false} />
+							</div>
+						</div>
+					{:else}
+						<img
+							src={getImageUrl(currentFile)}
+							alt={`Output ${currentFileIndex + 1}`}
+							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''} {currentFileAlphaCheckerboard ? 'alpha-checkerboard' : ''}"
+						/>
+					{/if}
+					{#if detailBlur}
+						<button
+							type="button"
+							class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-canvas/40 text-fg cursor-pointer"
+							aria-label="Sensitive content, click to reveal"
+							on:click|stopPropagation={() => nsfwRevealStore.reveal(currentRevealKey)}
+						>
+							<Icon name="eyes" className="w-8 h-8" strokeWidth={1.5} />
+							<span class="text-sm font-medium">Sensitive content</span>
+							<span class="text-xs text-fg-muted">Click to reveal</span>
+						</button>
+					{/if}
+				{:else}
+					<slot name="stageEmpty" />
+				{/if}
+			</div>
+				{#if currentFile}
 					<!-- Action buttons - top-right corner, shown on hover -->
-					<div data-stage-toolbar class="absolute top-4 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap justify-end gap-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+					<div data-stage-toolbar class="flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-line bg-surface-1 px-3 py-2 max-sm:[&_button]:!p-2 max-sm:[&_svg]:!h-5 max-sm:[&_svg]:!w-5 max-sm:[&>*]:shrink-0 sm:absolute sm:right-4 sm:top-4 sm:z-20 sm:max-w-[calc(100%-2rem)] sm:flex-wrap sm:justify-end sm:overflow-visible sm:border-t-0 sm:bg-transparent sm:p-0 sm:opacity-0 sm:transition-opacity sm:duration-200 sm:group-hover:opacity-100">
 						<!-- Favorite toggle -->
 						<div
-							class="bg-black/50 hover:bg-black/70 p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors flex items-center"
+							class="bg-black/50 hover:bg-black/70 p-3 max-sm:p-0 rounded-lg shadow-lg backdrop-blur-sm transition-colors flex items-center"
 						>
 							<FavoriteButton
 								active={activeGeneration.is_favorite}
@@ -835,97 +921,6 @@
 							}}
 						/>
 					</div>
-
-					<!-- Top-left metadata overlay - shown on hover -->
-					<div class="absolute top-4 left-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-						<div class="flex flex-col gap-2">
-							<div class="flex items-center gap-2">
-								<!-- File counter -->
-								{#if mediaFiles.length > 1}
-									<div data-file-counter class="bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded text-sm font-medium shadow-lg">
-										<span class="font-mono tabular-nums">
-											{currentFileIndex + 1} / {mediaFiles.length}
-										</span>
-									</div>
-								{/if}
-
-								<!-- Resolution -->
-								{#if currentFile.width && currentFile.height}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
-										{currentFile.width} × {currentFile.height}
-									</span>
-								{/if}
-
-								<!-- File size -->
-								{#if currentFile.file_size}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
-										{formatBytes(currentFile.file_size)}
-									</span>
-								{/if}
-
-								<!-- File format -->
-								{#if currentFile.file_type}
-									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg uppercase">
-										{isVideoFile(currentFile) ? 'MP4' : isMeshFile(currentFile) ? resolveMeshFormat(currentFile).toUpperCase() : isAudioFile(currentFile) ? resolveAudioFormat(currentFile).toUpperCase() : 'PNG'}
-									</span>
-								{/if}
-							</div>
-
-							<!-- Selected tags display - shown on hover -->
-							{#if selectedTags.length > 0}
-								<div class="flex flex-wrap gap-1">
-									{#each selectedTags as tag}
-										<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg">
-											{tag.name}
-										</span>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					</div>
-
-					<!-- Media Display -->
-					<!-- Absolutely filled so the media can never dictate the pane's size -->
-					{#if isVideoFile(currentFile)}
-						<video
-							src={getImageUrl(currentFile)}
-							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''}"
-							controls={!detailBlur}
-							playsinline
-						>
-							<track kind="captions" />
-						</video>
-					{:else if isMeshFile(currentFile)}
-						<div class="absolute inset-0 h-full w-full p-3 md:p-6">
-							<MeshPreview file={{ url: getImageUrl(currentFile), originalUrl: getImageUrl(currentFile) }} />
-						</div>
-					{:else if isAudioFile(currentFile)}
-						<div class="absolute inset-0 h-full w-full flex items-center justify-center p-3 md:p-6">
-							<div class="w-full max-w-2xl">
-								<AudioPlayer tracks={currentAudioTracks(currentFile)} showWaveform={true} showDownload={false} />
-							</div>
-						</div>
-					{:else}
-						<img
-							src={getImageUrl(currentFile)}
-							alt={`Output ${currentFileIndex + 1}`}
-							class="absolute inset-0 h-full w-full object-contain p-3 md:p-6 {detailBlur ? 'blur-3xl' : ''} {currentFileAlphaCheckerboard ? 'alpha-checkerboard' : ''}"
-						/>
-					{/if}
-					{#if detailBlur}
-						<button
-							type="button"
-							class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-canvas/40 text-fg cursor-pointer"
-							aria-label="Sensitive content, click to reveal"
-							on:click|stopPropagation={() => nsfwRevealStore.reveal(currentRevealKey)}
-						>
-							<Icon name="eyes" className="w-8 h-8" strokeWidth={1.5} />
-							<span class="text-sm font-medium">Sensitive content</span>
-							<span class="text-xs text-fg-muted">Click to reveal</span>
-						</button>
-					{/if}
-				{:else}
-					<slot name="stageEmpty" />
 				{/if}
 			</div>
 
