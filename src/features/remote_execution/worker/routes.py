@@ -145,6 +145,8 @@ def build_worker_router(container, *, cuda_probe=probe_cuda) -> APIRouter:
                     return
                 record = container.coordinator.record_for(execution_id)
                 if record is not None and record.is_terminal:
+                    for event in container.coordinator.events_after(execution_id, cursor):
+                        yield f"data: {json.dumps(envelope(event))}\n\n"
                     return
                 await asyncio.sleep(0.02)
 
