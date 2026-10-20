@@ -6,11 +6,11 @@
 // dispatches the generic potionui:switch-plugin-tab event the host listens
 // for), and delete (hand-built confirm modal, Esc/Enter, row disappears on
 // confirm). Same stage/load approach as importedPresetsTab.test.ts.
-import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { stagePluginDist } from './helpers/stagePluginDist';
-import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
+import { installPluginHost, removePluginHost, type PluginHostStubs } from './helpers/installPluginHost';
 import { mount, unmount, flushSync } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
@@ -49,17 +49,15 @@ const PRESET_ROW = {
 };
 
 let ImportedPresetsTab: any;
+let host: PluginHostStubs;
 
 beforeAll(async () => {
+	host = await installPluginHost();
 	if (!existsSync(resolve(REPO_ROOT, DIST_PATH))) {
 		throw new Error(`${DIST_PATH} is missing - run \`node scripts/build-plugins.mjs comfyui-backend\` first.`);
 	}
 	const raw = await loadDist();
 	ImportedPresetsTab = _wrapPluginDistComponent(raw);
-});
-
-beforeEach(async () => {
-	await installPluginHost();
 });
 
 afterAll(removePluginHost);
@@ -120,7 +118,7 @@ describe('ImportedPresetsTab row actions (real compiled dist)', () => {
 		await settle();
 
 		const resultLine = el.querySelector('.ip-reload-result');
-		expect(resultLine?.className).toContain('ip-reload-danger');
+		expect(resultLine?.querySelector('[role="alert"]')).toBeTruthy();
 		expect(resultLine?.textContent).toContain('1 lint error');
 
 		unmount(instance);
@@ -152,7 +150,7 @@ describe('ImportedPresetsTab row actions (real compiled dist)', () => {
 		unmount(instance);
 	});
 
-	it('delete asks for confirmation, Escape cancels, Enter confirms and removes the row', async () => {
+	it('delete asks the host to confirm; declining sends nothing, accepting removes the row', async () => {
 		let deleted = false;
 		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 			if (url === '/api/plugins/comfyui-backend/presets/imported') {
@@ -170,31 +168,81 @@ describe('ImportedPresetsTab row actions (real compiled dist)', () => {
 		const instance = mount(ImportedPresetsTab, { target: el, props: { pluginId: 'comfyui-backend' } });
 		await settle();
 
+		host.confirm.mockResolvedValueOnce(false);
 		el.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')!.click();
 		await settle();
 
-		let dialog = document.querySelector('[role="dialog"][aria-label="Delete imported preset"]');
-		expect(dialog).toBeTruthy();
-		expect(dialog!.textContent).toContain('LTX 2.5 — My workflow');
-
-		// Escape cancels without deleting.
-		flushSync(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-		await settle();
-		expect(document.querySelector('[role="dialog"][aria-label="Delete imported preset"]')).toBeNull();
+		expect(host.confirm).toHaveBeenCalledTimes(1);
+		expect(host.confirm.mock.calls[0][0]).toMatchObject({ variant: 'danger' });
+		expect(host.confirm.mock.calls[0][0].title).toContain('LTX 2.5 — My workflow');
 		expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'DELETE')).toBe(false);
+		expect(el.querySelector('[data-imported-presets]')).toBeTruthy();
 
-		// Re-open, this time confirm with Enter.
 		el.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')!.click();
 		await settle();
-		dialog = document.querySelector('[role="dialog"][aria-label="Delete imported preset"]');
-		expect(dialog).toBeTruthy();
 
-		flushSync(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
-		await settle();
-
-		expect(document.querySelector('[role="dialog"][aria-label="Delete imported preset"]')).toBeNull();
+		expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'DELETE')).toBe(true);
 		expect(el.querySelector('[data-imported-presets]')).toBeNull();
 		expect(el.textContent).toContain('No presets have been imported yet');
+		expect(host.toast).not.toHaveBeenCalled();
+
+		unmount(instance);
+	});
+
+	it('a delete in flight disables the row button and a second click sends no second request', async () => {
+		host.confirm.mockClear();
+		let release: (value: Response) => void = () => {};
+		const pending = new Promise<Response>((resolveResponse) => {
+			release = resolveResponse;
+		});
+		const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+			if (url === '/api/plugins/comfyui-backend/presets/imported') return Promise.resolve(jsonResponse({ presets: [PRESET_ROW] }));
+			if (init?.method === 'DELETE') return pending;
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const el = target();
+		const instance = mount(ImportedPresetsTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		const deleteButton = el.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')!;
+		deleteButton.click();
+		await settle();
+
+		const deleteCalls = () => fetchMock.mock.calls.filter((c) => c[1]?.method === 'DELETE').length;
+		expect(deleteCalls()).toBe(1);
+		expect(el.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')!.disabled).toBe(true);
+
+		el.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')!.click();
+		await settle();
+		expect(deleteCalls()).toBe(1);
+		expect(host.confirm).toHaveBeenCalledTimes(1);
+
+		release(jsonResponse({ deleted: true, preset_id: 'P1' }));
+		await settle();
+		expect(el.querySelector('[data-imported-presets]')).toBeNull();
+
+		unmount(instance);
+	});
+
+	it('a failed delete keeps the row and shows the failure as a toast', async () => {
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/plugins/comfyui-backend/presets/imported') return jsonResponse({ presets: [PRESET_ROW] });
+			if (init?.method === 'DELETE') return jsonResponse({ detail: 'Preset is in use' }, false, 409);
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const el = target();
+		const instance = mount(ImportedPresetsTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		el.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')!.click();
+		await settle();
+
+		expect(host.toast).toHaveBeenCalledWith('error', 'Preset is in use');
+		expect(el.querySelector('[data-imported-presets]')).toBeTruthy();
 
 		unmount(instance);
 	});

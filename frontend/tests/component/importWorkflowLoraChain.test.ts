@@ -122,7 +122,7 @@ async function mountOnFormStep(el: HTMLDivElement, analyzeResult: unknown = ANAL
 	textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 	textarea.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
-	el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 	await settle();
 
 	return instance;
@@ -145,7 +145,7 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		const el = target();
 		const instance = await mountOnFormStep(el);
 
-		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.click();
 		await settle();
 
 		const card = el.querySelector('[data-field-name="loras"]')!;
@@ -154,8 +154,8 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		expect((card.querySelector('.di-field-default') as HTMLInputElement).value).toContain('0 items');
 
 		// Both rows are now marked replaced, and the action button is disabled.
-		expect(el.querySelectorAll('[data-import-lora-chain] .chip-info').length).toBe(2);
-		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.disabled).toBe(true);
+		expect(el.querySelectorAll('[data-import-lora-chain] [data-lora-replaced]').length).toBe(2);
+		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.disabled).toBe(true);
 
 		unmount(instance);
 	});
@@ -167,14 +167,14 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		el.querySelector<HTMLButtonElement>('[data-lora-chain-node="101"] [data-action="lora-keep-fixed"]')!.click();
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.click();
 		await settle();
 
 		// Only node 102 is marked "→ picker"; node 101 stays unmarked (kept).
 		const row101 = el.querySelector('[data-lora-chain-node="101"]')!;
 		const row102 = el.querySelector('[data-lora-chain-node="102"]')!;
-		expect(row101.querySelector('.chip-info')).toBeFalsy();
-		expect(row102.querySelector('.chip-info')).toBeTruthy();
+		expect(row101.querySelector('[data-lora-replaced]')).toBeFalsy();
+		expect(row102.querySelector('[data-lora-replaced]')).toBeTruthy();
 
 		unmount(instance);
 	});
@@ -186,7 +186,7 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		// Keep 101 fixed, convert (only 102 gets replaced).
 		el.querySelector<HTMLButtonElement>('[data-lora-chain-node="101"] [data-action="lora-keep-fixed"]')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.click();
 		await settle();
 
 		// 102's lora_name candidate is gone from the mappable inputs list...
@@ -201,9 +201,9 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		const el = target();
 		const instance = await mountOnFormStep(el);
 
-		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.click();
 		await settle();
 
 		expect(el.querySelectorAll('[data-field-name="loras"]')).toHaveLength(1);
@@ -215,15 +215,15 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		const el = target();
 		const instance = await mountOnFormStep(el);
 
-		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.click();
 		await settle();
-		expect(el.querySelectorAll('[data-import-lora-chain] .chip-info').length).toBe(2);
+		expect(el.querySelectorAll('[data-import-lora-chain] [data-lora-replaced]').length).toBe(2);
 
-		el.querySelector('[data-field-name="loras"]')!.querySelector<HTMLButtonElement>('[data-action="remove"]')!.click();
+		el.querySelector('[data-field-name="loras"]')!.querySelector<HTMLButtonElement>('[data-action="remove"] button')!.click();
 		await settle();
 
-		expect(el.querySelectorAll('[data-import-lora-chain] .chip-info').length).toBe(0);
-		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.disabled).toBe(false);
+		expect(el.querySelectorAll('[data-import-lora-chain] [data-lora-replaced]').length).toBe(0);
+		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.disabled).toBe(false);
 		// Both rows are individually mappable again.
 		expect(el.querySelector('[data-input-key="101:lora_name"]')).toBeTruthy();
 		expect(el.querySelector('[data-input-key="102:lora_name"]')).toBeTruthy();
@@ -243,7 +243,7 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		const error = el.querySelector('[data-lora-sandwich-error]');
 		expect(error).toBeTruthy();
 		expect(error?.textContent).toContain('Kept LoRA node 102 sits between replaced nodes 101 and 103');
-		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.disabled).toBe(true);
+		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.disabled).toBe(true);
 
 		unmount(instance);
 	});
@@ -256,7 +256,7 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		await settle();
 
 		expect(el.querySelector('[data-lora-sandwich-error]')).toBeFalsy();
-		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.disabled).toBe(false);
+		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"] button')!.disabled).toBe(false);
 
 		unmount(instance);
 	});

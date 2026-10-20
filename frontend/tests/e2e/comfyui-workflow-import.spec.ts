@@ -168,7 +168,7 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		// Step 1: Source.
 		const workflowJson = readFileSync(FIXTURE_PATH, 'utf-8');
 		await wizard.locator('textarea[data-import-json-input]').fill(workflowJson);
-		await wizard.locator('button[data-import-analyze]').click();
+		await wizard.locator('[data-import-analyze] button').click();
 
 		// Step 2: Form - the default_form designer (left: workflow inputs,
 		// right: tabs/field cards).
@@ -208,7 +208,7 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await expect(originalTab.locator('use[href="#ti-lora"]')).toHaveCount(1);
 		await screenshot(page, JOURNEY, '03a-wizard-tab-icon');
 
-		await fieldsList.first().locator('button[data-action="move-to-tab-menu"]').click();
+		await fieldsList.first().locator('[data-action="move-to-tab-menu"] button').click();
 		await page.locator(`.tab-popover button[data-target-tab="${newTabId}"]`).click();
 		// Moving a field switches the view to the tab it landed on.
 		await expect(newTab).toHaveClass(/active/);
@@ -274,20 +274,20 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 
 		await wizard.locator('#import-model-family').fill(familyId);
 		await wizard.locator('#import-display-name').fill('E2E imported SDXL');
-		await wizard.locator('button[data-import-continue-form]').click();
+		await wizard.locator('[data-import-continue-form] button').click();
 
 		// Step 3: History - default_history pre-populates the table; the live
 		// preview mirrors it.
 		await expect(wizard.locator('[data-wiz-step="history"].current')).toBeVisible({ timeout: 10000 });
 		await expect(wizard.locator('[data-history-preview]')).toBeVisible();
 		await screenshot(page, JOURNEY, '04-wizard-history');
-		await wizard.locator('button[data-import-continue-history]').click();
+		await wizard.locator('[data-import-continue-history] button').click();
 
 		// Step 4: Requirements (non-blocking - Continue works regardless of
 		// what the checkers found against this backend-less throwaway instance).
 		await expect(wizard.locator('[data-wiz-step="requirements"].current')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, '05-wizard-requirements');
-		await wizard.locator('button[data-import-create]').click();
+		await wizard.locator('[data-import-create] button').click();
 
 		// Step 5: Done.
 		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
@@ -342,7 +342,7 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		expect(samplerFieldYml).toContain('type: select');
 		expect(samplerFieldYml).toMatch(/options:\s*\n\s*-\s*Euler\s*\n\s*-\s*DPM\+\+ 2M/);
 
-		const openLink = wizard.locator('a[data-import-open-preset]');
+		const openLink = wizard.locator('[data-import-open-preset] a');
 		await expect(openLink).toBeVisible();
 		await openLink.click();
 
@@ -380,15 +380,15 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await expect(wizard.locator('[data-import-editing]')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, '10-wizard-edit-prefill');
 
-		await wizard.locator('button[data-import-analyze]').click();
+		await wizard.locator('[data-import-analyze] button').click();
 		await expect(wizard.locator('[data-wiz-step="form"].current')).toBeVisible();
 		await wizard.locator('#import-display-name').fill('E2E imported SDXL (updated)');
-		await wizard.locator('button[data-import-continue-form]').click();
+		await wizard.locator('[data-import-continue-form] button').click();
 		await expect(wizard.locator('[data-wiz-step="history"].current')).toBeVisible({ timeout: 10000 });
-		await wizard.locator('button[data-import-continue-history]').click();
+		await wizard.locator('[data-import-continue-history] button').click();
 		await expect(wizard.locator('[data-wiz-step="requirements"].current')).toBeVisible({ timeout: 10000 });
 
-		const updateBtn = wizard.locator('button[data-import-create]');
+		const updateBtn = wizard.locator('[data-import-create] button');
 		await expect(updateBtn).toContainText('Update preset');
 		await updateBtn.click();
 		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
@@ -402,7 +402,7 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await expect(myRowAfterUpdate).toHaveCount(1);
 
 		await myRowAfterUpdate.locator('button[aria-label="Delete"]').click();
-		const confirmDialog = page.locator('[role="dialog"][aria-label="Delete imported preset"]');
+		const confirmDialog = page.getByRole('alertdialog', { name: /^Delete "/ });
 		await expect(confirmDialog).toBeVisible();
 		await screenshot(page, JOURNEY, '12-delete-confirm');
 		await confirmDialog.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -466,7 +466,7 @@ test('Admin > Plugins > ComfyUI Backend - "Add LoRA picker" wires a picker into 
 		// all, but a sampler cluster for `analysis.model_chain` to point at.
 		const workflowJson = readFileSync(FIXTURE_PATH, 'utf-8');
 		await wizard.locator('textarea[data-import-json-input]').fill(workflowJson);
-		await wizard.locator('button[data-import-analyze]').click();
+		await wizard.locator('[data-import-analyze] button').click();
 
 		await expect(wizard.locator('[data-import-form-inputs]')).toBeVisible({ timeout: 10000 });
 
@@ -478,7 +478,7 @@ test('Admin > Plugins > ComfyUI Backend - "Add LoRA picker" wires a picker into 
 		const fieldsList = wizard.locator('[data-import-form-items] .di-field-card');
 		const fieldCountBefore = await fieldsList.count();
 
-		const addPickerBtn = loraChainCard.locator('button[data-action="add-lora-picker"]');
+		const addPickerBtn = loraChainCard.locator('[data-action="add-lora-picker"] button');
 		await addPickerBtn.click();
 		await expect(fieldsList).toHaveCount(fieldCountBefore + 1);
 		await expect(wizard.locator('[data-import-form-items] .di-field-card[data-field-name="loras"]')).toBeVisible();
@@ -487,13 +487,13 @@ test('Admin > Plugins > ComfyUI Backend - "Add LoRA picker" wires a picker into 
 
 		await wizard.locator('#import-model-family').fill(familyId);
 		await wizard.locator('#import-display-name').fill('E2E no-LoRA import');
-		await wizard.locator('button[data-import-continue-form]').click();
+		await wizard.locator('[data-import-continue-form] button').click();
 
 		await expect(wizard.locator('[data-wiz-step="history"].current')).toBeVisible({ timeout: 10000 });
-		await wizard.locator('button[data-import-continue-history]').click();
+		await wizard.locator('[data-import-continue-history] button').click();
 
 		await expect(wizard.locator('[data-wiz-step="requirements"].current')).toBeVisible({ timeout: 10000 });
-		await wizard.locator('button[data-import-create]').click();
+		await wizard.locator('[data-import-create] button').click();
 
 		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
 

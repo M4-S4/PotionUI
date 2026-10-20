@@ -101,10 +101,14 @@ async function mountOnFormStep(el: HTMLDivElement, analyzeResult: unknown = ANAL
 	textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 	textarea.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
-	el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 	await settle();
 
 	return instance;
+}
+
+function columnButton(row: Element, label: string): HTMLButtonElement {
+	return Array.from(row.querySelectorAll<HTMLButtonElement>('[aria-label="Columns"] button')).find((b) => b.textContent?.trim() === label)!;
 }
 
 describe('ImportWorkflowTab Form step (real compiled dist)', () => {
@@ -122,7 +126,7 @@ describe('ImportWorkflowTab Form step (real compiled dist)', () => {
 		const el = target();
 		const instance = await mountOnFormStep(el);
 
-		const rootAddButton = el.querySelector<HTMLButtonElement>('[data-add-root="true"] [data-action="open-add-menu"]')!;
+		const rootAddButton = el.querySelector<HTMLButtonElement>('[data-add-root="true"] [data-action="open-add-menu"] button')!;
 		rootAddButton.click();
 		await settle();
 
@@ -140,10 +144,10 @@ describe('ImportWorkflowTab Form step (real compiled dist)', () => {
 
 		const row = el.querySelector('[data-item-kind="row"]')!;
 		expect(row).toBeTruthy();
-		expect(row.querySelector('.chip-violet')).toBeTruthy();
-		row.querySelector<HTMLButtonElement>('[data-columns="3"]')!.click();
+		expect(row.querySelector('[data-container-badge="ROW"]')).toBeTruthy();
+		columnButton(row, '3').click();
 		await settle();
-		expect(row.querySelector('[data-columns="3"]')?.className).toContain('active');
+		expect(columnButton(row, '3').getAttribute('aria-pressed')).toBe('true');
 
 		rootAddButton.click();
 		await settle();
@@ -153,7 +157,7 @@ describe('ImportWorkflowTab Form step (real compiled dist)', () => {
 
 		// Row <-> Group convert swaps the chip.
 		const group = el.querySelector('[data-item-kind="group"]')!;
-		group.querySelector<HTMLButtonElement>('[data-action="convert"]')!.click();
+		group.querySelector<HTMLButtonElement>('[data-action="convert"] button')!.click();
 		await settle();
 		expect(el.querySelectorAll('[data-item-kind="row"]')).toHaveLength(2);
 
@@ -164,7 +168,7 @@ describe('ImportWorkflowTab Form step (real compiled dist)', () => {
 		const el = target();
 		const instance = await mountOnFormStep(el);
 
-		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"] button')!.click();
 		await settle();
 
 		const card = el.querySelector('[data-field-name="sampler_name"]')!;
@@ -197,7 +201,7 @@ describe('ImportWorkflowTab Form step (real compiled dist)', () => {
 		const el = target();
 		const instance = await mountOnFormStep(el, ANALYZE_RESULT_WITH_SEED);
 
-		const rootAddButton = el.querySelector<HTMLButtonElement>('[data-add-root="true"] [data-action="open-add-menu"]')!;
+		const rootAddButton = el.querySelector<HTMLButtonElement>('[data-add-root="true"] [data-action="open-add-menu"] button')!;
 		rootAddButton.click();
 		await settle();
 		document.querySelector<HTMLButtonElement>('[data-add-kind="field"]')!.click();
@@ -213,7 +217,7 @@ describe('ImportWorkflowTab Form step (real compiled dist)', () => {
 		expect(suggestion).toBeTruthy();
 		expect(suggestion.textContent).toContain('5.inputs.seed');
 
-		suggestion.querySelector<HTMLButtonElement>('[data-action="apply-name-match"]')!.click();
+		suggestion.querySelector<HTMLButtonElement>('[data-action="apply-name-match"] button')!.click();
 		await settle();
 
 		expect(seedCard.querySelector('[data-name-suggestions]')).toBeFalsy();

@@ -1,4 +1,5 @@
 <script>
+    import { untrack } from 'svelte';
     import HostUi from '../../../../sdk/HostUi.svelte';
 
     let { context = {}, onclose } = $props();
@@ -25,7 +26,10 @@
     let snapshots = $state(null);
     let failed = $state(null);
     let updatedAt = $state(null);
-    let dialog = $state(null);
+    let hostEl = $state(null);
+    let bodyEl = $state(null);
+    let modalApi = $state.raw(null);
+    let modalInstance = $state.raw(null);
 
     let inFlight = false;
     let controller = null;
@@ -77,67 +81,60 @@
         }
     }
 
-    function onkeydown(event) {
-        if (event.key === 'Escape') {
-            event.stopPropagation();
-            onclose?.();
-        }
+    let subtitle = $derived(
+        failed && snapshots
+            ? 'Showing the last reading, updates are failing'
+            : updatedAt
+              ? `Live, updated ${updatedAt.toLocaleTimeString()}`
+              : 'Reading every enabled backend'
+    );
+
+    function modalProps() {
+        return {
+            title: 'Backends',
+            subtitle,
+            size: 'lg',
+            confirmLabel: 'Close',
+            hideCancel: true,
+            onConfirm: () => onclose?.(),
+            onCancel: () => onclose?.(),
+            mountBody: (el) => {
+                bodyEl.hidden = false;
+                el.appendChild(bodyEl);
+            }
+        };
     }
 
     $effect(() => {
         load();
         const timer = setInterval(load, POLL_MS);
-        dialog?.focus();
         return () => {
             clearInterval(timer);
             controller?.abort();
         };
     });
 
-    function portal(node) {
-        document.body.appendChild(node);
-        return {
-            destroy() {
-                node.remove();
-            }
+    $effect(() => {
+        const el = hostEl;
+        if (!el) return;
+        const api = window.__potionui?.components?.PluginModal;
+        if (!api) return;
+        modalApi = api;
+        modalInstance = api.mount(el, untrack(modalProps));
+        return () => {
+            api.unmount(modalInstance);
+            modalInstance = null;
         };
-    }
+    });
+
+    $effect(() => {
+        if (!modalInstance || !modalApi) return;
+        modalApi.update(modalInstance, modalProps());
+    });
 </script>
 
-<svelte:window {onkeydown} />
-
-<div use:portal class="backdrop" role="presentation" onclick={(event) => event.target === event.currentTarget && onclose?.()}>
-    <div
-        bind:this={dialog}
-        class="panel"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Backends"
-        tabindex="-1"
-    >
-        <header class="panel-header">
-            <div class="panel-heading">
-                <h2>Backends</h2>
-                <p>
-                    {#if failed && snapshots}
-                        Showing the last reading, updates are failing
-                    {:else if updatedAt}
-                        Live, updated <span class="mono">{updatedAt.toLocaleTimeString()}</span>
-                    {:else}
-                        Reading every enabled backend
-                    {/if}
-                </p>
-            </div>
-            <HostUi name="Tooltip" props={{ text: 'Close', position: 'bottom' }}>
-                <button type="button" class="close" aria-label="Close backends panel" onclick={() => onclose?.()}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                </button>
-            </HostUi>
-        </header>
-
-        <div class="panel-body">
+<div bind:this={hostEl}></div>
+<div bind:this={bodyEl} class="panel-body" hidden>
             {#if snapshots === null && failed === null}
                 <p class="note" role="status">Reading backends...</p>
             {:else if snapshots === null}
@@ -150,7 +147,9 @@
                 <p class="note">No backend is enabled. Enable one in Admin, Backends.</p>
             {:else}
                 {#if failed}
-                    <p class="note stale" role="alert">The last update failed, so these numbers may be out of date.</p>
+                    <div class="stale">
+                        <HostUi name="Alert" props={{ variant: 'warning', density: 'compact', icon: true }}>The last update failed, so these numbers may be out of date.</HostUi>
+                    </div>
                 {/if}
                 <ul class="backends">
                     {#each snapshots as snapshot (snapshot.id)}
@@ -220,93 +219,12 @@
                 </ul>
             {/if}
         </div>
-    </div>
-</div>
 
 <style>
-    .backdrop {
-        position: fixed;
-        inset: 0;
-        z-index: var(--z-overlay, 1000);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 16px;
-        background: rgb(0 0 0 / 0.55);
+    .stale {
+        margin: 0 0 12px;
     }
 
-    .panel {
-        display: flex;
-        flex-direction: column;
-        width: min(760px, 100%);
-        max-height: min(720px, 100%);
-        overflow: hidden;
-        color: rgb(var(--fg));
-        background: rgb(var(--surface-1));
-        border: 1px solid rgb(var(--line-strong));
-        border-radius: 10px;
-        box-shadow: var(--shadow-overlay);
-        font-family: inherit;
-        outline: none;
-    }
-
-    .panel-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 16px 16px 12px;
-        border-bottom: 1px solid rgb(var(--line));
-    }
-
-    .panel-heading h2 {
-        margin: 0;
-        font-size: 16px;
-        line-height: 22px;
-        font-weight: 600;
-    }
-
-    .panel-heading p {
-        margin: 2px 0 0;
-        font-size: 12px;
-        line-height: 16px;
-        color: rgb(var(--fg-subtle));
-    }
-
-    .close {
-        display: grid;
-        width: 28px;
-        height: 28px;
-        place-items: center;
-        padding: 0;
-        color: rgb(var(--fg-muted));
-        background: transparent;
-        border: 0;
-        border-radius: 4px;
-        cursor: pointer;
-    }
-
-    .close:hover {
-        color: rgb(var(--fg));
-        background: rgb(var(--surface-2));
-    }
-
-    .close:focus-visible {
-        outline: 2px solid rgb(var(--signal));
-        outline-offset: 1px;
-    }
-
-    .close svg {
-        width: 16px;
-        height: 16px;
-    }
-
-    .panel-body {
-        flex: 1 1 auto;
-        min-height: 0;
-        padding: 12px 16px 16px;
-        overflow-y: auto;
-    }
 
     .note {
         margin: 24px 0;
@@ -314,17 +232,6 @@
         font-size: 14px;
         line-height: 20px;
         color: rgb(var(--fg-muted));
-    }
-
-    .note.stale {
-        margin: 0 0 12px;
-        padding: 8px 12px;
-        text-align: left;
-        font-size: 13px;
-        color: rgb(var(--warning));
-        background: rgb(var(--warning) / 0.1);
-        border: 1px solid rgb(var(--warning) / 0.25);
-        border-radius: 4px;
     }
 
     .backends {
@@ -503,17 +410,6 @@
     }
 
     @media (max-width: 560px) {
-        .backdrop {
-            align-items: flex-end;
-            padding: 0;
-        }
-
-        .panel {
-            width: 100%;
-            max-height: 92%;
-            border-radius: 10px 10px 0 0;
-        }
-
         .meter {
             grid-template-columns: minmax(0, 1fr) auto;
             grid-template-areas:

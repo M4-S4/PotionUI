@@ -3,11 +3,11 @@
 // Drives the REAL compiled comfyui-backend plugin dist for the "Imported
 // presets" admin tab (see manifest.yml admin_tabs, backend/api.py's GET
 // /presets/imported) - same stage/load approach as importWorkflowTab.test.ts.
-import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { describe, expect, it, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { stagePluginDist } from './helpers/stagePluginDist';
-import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
+import { installPluginHost, removePluginHost, type PluginHostStubs } from './helpers/installPluginHost';
 import { mount, unmount, flushSync } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
@@ -35,17 +35,15 @@ function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
 }
 
 let ImportedPresetsTab: any;
+let host: PluginHostStubs;
 
 beforeAll(async () => {
+	host = await installPluginHost();
 	if (!existsSync(resolve(REPO_ROOT, DIST_PATH))) {
 		throw new Error(`${DIST_PATH} is missing - run \`node scripts/build-plugins.mjs comfyui-backend\` first.`);
 	}
 	const raw = await loadDist();
 	ImportedPresetsTab = _wrapPluginDistComponent(raw);
-});
-
-beforeEach(async () => {
-	await installPluginHost();
 });
 
 afterAll(removePluginHost);

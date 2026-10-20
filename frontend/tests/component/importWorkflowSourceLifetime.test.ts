@@ -80,7 +80,7 @@ async function fillSourceAndAnalyze(el: HTMLElement, workflow: unknown) {
 	textarea.value = JSON.stringify(workflow);
 	textarea.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
-	el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 	await settle();
 }
 
@@ -92,7 +92,7 @@ async function fillFormAndContinue(el: HTMLElement, family: string, name: string
 	nameInput.value = name;
 	nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
-	el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 	await settle();
 }
 
@@ -202,7 +202,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 
 		await fillSourceAndAnalyze(el, { marker: 'A' });
 		await fillFormAndContinue(el, 'SDXL', 'Import A');
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
 
 		expect(el.querySelector('[data-wiz-step="requirements"]')?.className).toContain('current');
@@ -220,7 +220,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 
 		await fillSourceAndAnalyze(el, { marker: 'B' });
 		await fillFormAndContinue(el, 'SDXL', 'Import B');
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
 
 		// B's own requirements request must fire - not skipped because A's
@@ -268,14 +268,14 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 
 		await fillSourceAndAnalyze(el, { marker: 'A' });
 		await fillFormAndContinue(el, 'SDXL', 'Import A');
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
 		expect(requirementsCalls).toHaveLength(1); // still pending when Create is clicked below.
 
 		// The Create button is only gated on `creating`, not on the
 		// requirements preview - clicking through while it's still loading
 		// is a real path, not a test artifact.
-		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-create] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-wiz-step="done"]')?.className).toContain('current');
 
@@ -290,7 +290,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		// Walk a fresh source (B) through to the requirements step again.
 		await fillSourceAndAnalyze(el, { marker: 'B' });
 		await fillFormAndContinue(el, 'SDXL', 'Import B');
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
 
 		// If A's late write had gone unguarded it would have left
@@ -329,7 +329,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		await settle();
 
 		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
-		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+		const continueBtn = el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!;
 
 		textarea.value = JSON.stringify({ marker: 'A' });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -388,7 +388,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		await settle();
 
 		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
-		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+		const continueBtn = el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!;
 
 		textarea.value = JSON.stringify({ marker: 'A' });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
@@ -454,7 +454,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		await settle();
 		expect(textarea.value).toBe(JSON.stringify({ marker: 'B' }));
 
-		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+		const continueBtn = el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!;
 		continueBtn.click();
 		await settle();
 		expect(analyzeCalls).toHaveLength(1);
@@ -486,7 +486,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		// back to step 1 - always re-query rather than caching a reference,
 		// or a later interaction silently hits a detached node.
 		const textareaEl = () => el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
-		const continueEl = () => el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+		const continueEl = () => el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!;
 
 		textareaEl().value = JSON.stringify({ marker: 'A' });
 		textareaEl().dispatchEvent(new Event('input', { bubbles: true }));
@@ -543,7 +543,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		// See the previous test - step 1's controls are recreated on every
 		// trip back to step 1, so always re-query rather than caching them.
 		const textareaEl = () => el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
-		const continueEl = () => el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+		const continueEl = () => el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!;
 
 		textareaEl().value = JSON.stringify({ marker: 'A' });
 		textareaEl().dispatchEvent(new Event('input', { bubbles: true }));

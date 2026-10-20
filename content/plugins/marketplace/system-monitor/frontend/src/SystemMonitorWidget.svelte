@@ -1,5 +1,28 @@
 <script>
     import BackendPanel from './BackendPanel.svelte';
+    import HostUi from '../../../../sdk/HostUi.svelte';
+    import { accentOf, toneOf, usageLabelOf } from './tone.js';
+
+    const TRIGGERS = [
+        {
+            id: 'gpu',
+            label: 'GPU memory',
+            percentOf: (stats) => stats.gpu.vram_usage_percent,
+            icon: 'M13 10V3L4 14h7v7l9-11h-7z'
+        },
+        {
+            id: 'ram',
+            label: 'System memory',
+            percentOf: (stats) => stats.ram.usage_percent,
+            icon: 'M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375'
+        },
+        {
+            id: 'cpu',
+            label: 'CPU',
+            percentOf: (stats) => stats.cpu.usage_percent,
+            icon: 'M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z'
+        }
+    ];
 
     let { context = {} } = $props();
 
@@ -115,12 +138,6 @@
         return `${gb.toFixed(1)} GB`;
     }
 
-    function getUsageStroke(percent) {
-        if (percent < 50) return '#34d399'; // emerald-400
-        if (percent < 80) return '#fbbf24'; // amber-400
-        return '#f87171'; // red-400
-    }
-
     function calculateCircleOffset(percent, radius) {
         const circumference = 2 * Math.PI * radius;
         return circumference * (1 - percent / 100);
@@ -189,18 +206,15 @@
         if (event.key === 'Escape') hideTooltip();
     }
 
-    function getUsageLabel(percent) {
-        if (percent < 50) return 'Plenty of headroom';
-        if (percent < 80) return 'Moderate load';
-        return 'Running near capacity';
+    function getTooltipAccent() {
+        if (activeTooltip === 'connection') return accentOf(connected ? 'success' : 'danger');
+        const trigger = TRIGGERS.find((candidate) => candidate.id === activeTooltip);
+        if (trigger && stats) return accentOf(toneOf(trigger.percentOf(stats) ?? 0));
+        return accentOf('info');
     }
 
-    function getTooltipAccent() {
-        if (activeTooltip === 'connection') return connected ? '#34d399' : '#f87171';
-        if (activeTooltip === 'gpu') return getUsageStroke(stats?.gpu?.vram_usage_percent ?? 0);
-        if (activeTooltip === 'ram') return getUsageStroke(stats?.ram?.usage_percent ?? 0);
-        if (activeTooltip === 'cpu') return getUsageStroke(stats?.cpu?.usage_percent ?? 0);
-        return '#60a5fa';
+    function overlayLayer(node) {
+        return window.__potionui?.layers?.overlayLayer?.(node, 'tooltip') ?? { destroy() {} };
     }
 
     $effect(() => {
@@ -234,110 +248,43 @@
     </button>
 
     {#if stats}
-        {#if stats.gpu.available}
-            <button
-                type="button"
-                class="resource-trigger"
-                class:openable={context.isAdmin}
-                aria-label={`GPU memory ${stats.gpu.vram_usage_percent.toFixed(0)} percent used`}
-                aria-describedby={activeTooltip === 'gpu' ? 'resource-monitor-tooltip' : undefined}
-                aria-haspopup={context.isAdmin ? 'dialog' : undefined}
-                onclick={openPanel}
-                onmouseenter={(event) => showTooltip('gpu', event)}
-                onmouseleave={hideTooltip}
-                onfocus={(event) => showTooltip('gpu', event, 0)}
-                onblur={hideTooltip}
-            >
-                <svg class="usage-ring" viewBox="0 0 32 32" aria-hidden="true">
-                    <circle class="usage-ring-track" cx="16" cy="16" r="14" fill="none" stroke-width="2" />
-                    <circle
-                        cx="16"
-                        cy="16"
-                        r="14"
-                        fill="none"
-                        stroke={getUsageStroke(stats.gpu.vram_usage_percent)}
-                        stroke-width="2"
-                        stroke-dasharray={2 * Math.PI * 14}
-                        stroke-dashoffset={calculateCircleOffset(stats.gpu.vram_usage_percent, 14)}
-                        class="usage-ring-value"
-                        stroke-linecap="round"
-                    />
-                </svg>
-                <svg class="trigger-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-            </button>
-        {/if}
-
-        {#if stats.ram.available}
-            <button
-                type="button"
-                class="resource-trigger"
-                class:openable={context.isAdmin}
-                aria-label={`System memory ${stats.ram.usage_percent.toFixed(0)} percent used`}
-                aria-describedby={activeTooltip === 'ram' ? 'resource-monitor-tooltip' : undefined}
-                aria-haspopup={context.isAdmin ? 'dialog' : undefined}
-                onclick={openPanel}
-                onmouseenter={(event) => showTooltip('ram', event)}
-                onmouseleave={hideTooltip}
-                onfocus={(event) => showTooltip('ram', event, 0)}
-                onblur={hideTooltip}
-            >
-                <svg class="usage-ring" viewBox="0 0 32 32" aria-hidden="true">
-                    <circle class="usage-ring-track" cx="16" cy="16" r="14" fill="none" stroke-width="2" />
-                    <circle
-                        cx="16"
-                        cy="16"
-                        r="14"
-                        fill="none"
-                        stroke={getUsageStroke(stats.ram.usage_percent)}
-                        stroke-width="2"
-                        stroke-dasharray={2 * Math.PI * 14}
-                        stroke-dashoffset={calculateCircleOffset(stats.ram.usage_percent, 14)}
-                        class="usage-ring-value"
-                        stroke-linecap="round"
-                    />
-                </svg>
-                <svg class="trigger-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
-                </svg>
-            </button>
-        {/if}
-
-        {#if stats.cpu.available}
-            <button
-                type="button"
-                class="resource-trigger"
-                class:openable={context.isAdmin}
-                aria-label={`CPU ${stats.cpu.usage_percent.toFixed(0)} percent used`}
-                aria-describedby={activeTooltip === 'cpu' ? 'resource-monitor-tooltip' : undefined}
-                aria-haspopup={context.isAdmin ? 'dialog' : undefined}
-                onclick={openPanel}
-                onmouseenter={(event) => showTooltip('cpu', event)}
-                onmouseleave={hideTooltip}
-                onfocus={(event) => showTooltip('cpu', event, 0)}
-                onblur={hideTooltip}
-            >
-                <svg class="usage-ring" viewBox="0 0 32 32" aria-hidden="true">
-                    <circle class="usage-ring-track" cx="16" cy="16" r="14" fill="none" stroke-width="2" />
-                    <circle
-                        cx="16"
-                        cy="16"
-                        r="14"
-                        fill="none"
-                        stroke={getUsageStroke(stats.cpu.usage_percent)}
-                        stroke-width="2"
-                        stroke-dasharray={2 * Math.PI * 14}
-                        stroke-dashoffset={calculateCircleOffset(stats.cpu.usage_percent, 14)}
-                        class="usage-ring-value"
-                        stroke-linecap="round"
-                    />
-                </svg>
-                <svg class="trigger-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z" />
-                </svg>
-            </button>
-        {/if}
+        {#each TRIGGERS as trigger (trigger.id)}
+            {#if stats[trigger.id].available}
+                {@const percent = trigger.percentOf(stats)}
+                <button
+                    type="button"
+                    class="resource-trigger"
+                    class:openable={context.isAdmin}
+                    aria-label={`${trigger.label} ${percent.toFixed(0)} percent used`}
+                    aria-describedby={activeTooltip === trigger.id ? 'resource-monitor-tooltip' : undefined}
+                    aria-haspopup={context.isAdmin ? 'dialog' : undefined}
+                    onclick={openPanel}
+                    onmouseenter={(event) => showTooltip(trigger.id, event)}
+                    onmouseleave={hideTooltip}
+                    onfocus={(event) => showTooltip(trigger.id, event, 0)}
+                    onblur={hideTooltip}
+                >
+                    <svg class="usage-ring" viewBox="0 0 32 32" aria-hidden="true">
+                        <circle class="usage-ring-track" cx="16" cy="16" r="14" fill="none" stroke-width="2" />
+                        <circle
+                            cx="16"
+                            cy="16"
+                            r="14"
+                            fill="none"
+                            data-tone={toneOf(percent)}
+                            stroke-width="2"
+                            stroke-dasharray={2 * Math.PI * 14}
+                            stroke-dashoffset={calculateCircleOffset(percent, 14)}
+                            class="usage-ring-value"
+                            stroke-linecap="round"
+                        />
+                    </svg>
+                    <svg class="trigger-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d={trigger.icon} />
+                    </svg>
+                </button>
+            {/if}
+        {/each}
     {/if}
 </div>
 
@@ -348,6 +295,7 @@
 {#if activeTooltip}
     <div
         use:portal
+        use:overlayLayer
         bind:this={tooltipElement}
         id="resource-monitor-tooltip"
         role="tooltip"
@@ -366,9 +314,7 @@
                     <div class="tooltip-title">Resource monitor</div>
                     <div class="tooltip-subtitle">Live hardware telemetry</div>
                 </div>
-                <span class:online={connected} class="connection-badge">
-                    <span></span>{connected ? 'Live' : 'Offline'}
-                </span>
+                <HostUi name="Badge" props={{ variant: connected ? 'success' : 'danger', size: 'sm', dot: true }}>{connected ? 'Live' : 'Offline'}</HostUi>
             </div>
             <p class="connection-copy">
                 {connected
@@ -444,7 +390,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.25" d="M5 12.5l4 4L19 7" />
                     </svg>
                 </span>
-                {getUsageLabel(usage)}
+                {usageLabelOf(usage)}
             </div>
         {/if}
         <div class="tooltip-arrow"></div>
@@ -499,13 +445,13 @@
         width: 7px;
         height: 7px;
         border-radius: 999px;
-        background: #f87171;
-        box-shadow: 0 0 0 3px rgb(248 113 113 / 0.1);
+        background: rgb(var(--danger));
+        box-shadow: 0 0 0 3px rgb(var(--danger) / 0.1);
     }
 
     .connection-dot.connected {
-        background: #34d399;
-        box-shadow: 0 0 0 3px rgb(52 211 153 / 0.1), 0 0 8px rgb(52 211 153 / 0.3);
+        background: rgb(var(--success));
+        box-shadow: 0 0 0 3px rgb(var(--success) / 0.1), 0 0 8px rgb(var(--success) / 0.3);
         animation: monitor-pulse 2.2s ease-in-out infinite;
     }
 
@@ -539,15 +485,26 @@
         transition: stroke-dashoffset 300ms ease, stroke 200ms ease;
     }
 
+    .usage-ring-value[data-tone='success'] {
+        stroke: rgb(var(--success));
+    }
+
+    .usage-ring-value[data-tone='warning'] {
+        stroke: rgb(var(--warning));
+    }
+
+    .usage-ring-value[data-tone='danger'] {
+        stroke: rgb(var(--danger));
+    }
+
     .trigger-icon {
         width: 14px;
         height: 14px;
     }
 
     .resource-tooltip {
-        --resource-accent: #60a5fa;
+        --resource-accent: rgb(var(--info));
         position: fixed;
-        z-index: 2147483000;
         width: min(288px, calc(100vw - 24px));
         box-sizing: border-box;
         padding: 14px;
@@ -723,36 +680,6 @@
 
     .connection-header {
         padding-right: 1px;
-    }
-
-    .connection-badge {
-        display: inline-flex;
-        flex: 0 0 auto;
-        align-items: center;
-        gap: 5px;
-        padding: 3px 6px;
-        color: #f87171;
-        background: rgb(248 113 113 / 0.1);
-        border: 1px solid rgb(248 113 113 / 0.2);
-        border-radius: 999px;
-        font-size: 9px;
-        line-height: 12px;
-        font-weight: 650;
-        text-transform: uppercase;
-        letter-spacing: 0.055em;
-    }
-
-    .connection-badge.online {
-        color: #34d399;
-        background: rgb(52 211 153 / 0.1);
-        border-color: rgb(52 211 153 / 0.2);
-    }
-
-    .connection-badge > span {
-        width: 5px;
-        height: 5px;
-        background: currentColor;
-        border-radius: 999px;
     }
 
     .connection-copy {

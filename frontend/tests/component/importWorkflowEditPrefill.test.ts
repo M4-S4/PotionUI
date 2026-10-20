@@ -122,7 +122,7 @@ describe('ImportWorkflowTab edit prefill (real compiled dist)', () => {
 		expect(editBanner?.textContent).toContain('SDXL — My workflow');
 		expect(el.querySelector('[data-import-detected]')?.textContent).toContain('5 nodes');
 
-		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+		const continueBtn = el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!;
 		expect(continueBtn.disabled).toBe(false);
 		continueBtn.click();
 		await settle();
@@ -136,7 +136,7 @@ describe('ImportWorkflowTab edit prefill (real compiled dist)', () => {
 		expect(el.querySelector<HTMLInputElement>('#import-model-family')!.value).toBe('SDXL');
 		expect(el.querySelector<HTMLInputElement>('#import-display-name')!.value).toBe('SDXL — My workflow');
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 		await settle();
 
 		// Step 3: the stored history entry's custom label carries over.
@@ -144,10 +144,10 @@ describe('ImportWorkflowTab edit prefill (real compiled dist)', () => {
 		expect(stepsHistRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
 		expect(stepsHistRow.querySelector<HTMLInputElement>('.hist-label-input')!.value).toBe('Steps (custom)');
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
 
-		const updateBtn = el.querySelector<HTMLButtonElement>('button[data-import-create]')!;
+		const updateBtn = el.querySelector<HTMLButtonElement>('[data-import-create] button')!;
 		expect(updateBtn.textContent).toContain('Update preset');
 		updateBtn.click();
 		await settle();

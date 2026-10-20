@@ -127,7 +127,7 @@ async function mountOnFormStep(el: HTMLDivElement, analyzeResult: unknown = ANAL
 	textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 	textarea.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
-	el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 	await settle();
 
 	return instance;
@@ -390,7 +390,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} }, marker: 'B' });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-wiz-step="form"]')?.className).toContain('current');
 
@@ -437,7 +437,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		const provider = host.providers.get('comfyui_import')!;
@@ -456,11 +456,11 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		nameInput.value = 'Import A';
 		nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-create] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-wiz-step="done"]')?.className).toContain('current');
 
@@ -490,7 +490,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		// Manually map the sampler_name candidate to a field before the
 		// "proposal" this test simulates was supposedly built.
-		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-field-name="sampler_name"]')).toBeTruthy();
 
@@ -500,7 +500,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		// Intervening manual edit: the user removes that same field - a newer
 		// change the proposal (built before it) knows nothing about.
-		el.querySelector<HTMLButtonElement>('[data-field-name="sampler_name"] [data-action="remove"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-field-name="sampler_name"] [data-action="remove"] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-field-name="sampler_name"]')).toBeNull();
 
@@ -538,12 +538,12 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		const host = stubChatHost();
 		const instance = await mountOnFormStep(el);
 
-		el.querySelector<HTMLButtonElement>('[data-action="add-tab"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="add-tab"] button')!.click();
 		await settle();
 		const secondTab = el.querySelector('[data-tab-id="tab_2"]')!;
 		expect(secondTab).toBeTruthy();
 
-		secondTab.querySelector<HTMLButtonElement>('[data-action="tab-menu"]')!.click();
+		secondTab.querySelector<HTMLButtonElement>('[data-action="tab-menu"] button')!.click();
 		await settle();
 		document.querySelector<HTMLButtonElement>('[data-action="delete-tab"]:not([disabled])')!.click();
 		await settle();
@@ -594,7 +594,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		// The user maps node 9's "width" candidate to their own field AFTER
 		// the (simulated) proposal above was built.
-		el.querySelector<HTMLButtonElement>('[data-input-key="9:width"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="9:width"] [data-action="add-input"] button')!.click();
 		await settle();
 		const usersCard = el.querySelector('[data-field-name="upscale_width"]')!;
 		expect(usersCard).toBeTruthy();
@@ -642,7 +642,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 	// transform 'none') and returns the mapping editor's transform <select>
 	// for it, expanding the card's mapping editor first.
 	async function mapSamplerNameAndGetTransformSelect(el: HTMLElement) {
-		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"] button')!.click();
 		await settle();
 		const card = el.querySelector('[data-field-name="sampler_name"]')!;
 		card.querySelector<HTMLButtonElement>('[data-action="toggle-mapping"]')!.click();
@@ -738,7 +738,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		// An unrelated manual edit bumps the revision past the proposal's -
 		// the transform itself is left exactly as it was.
-		el.querySelector<HTMLButtonElement>('[data-action="add-tab"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="add-tab"] button')!.click();
 		await settle();
 		const ctxNow = provider() as any;
 		expect(ctxNow.form_revision).toBeGreaterThan(ctxAtProposal.form_revision);

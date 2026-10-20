@@ -1,5 +1,5 @@
 export async function call(url, init) {
-	const res = await window.__potionui.api.fetch(url, init);
+	const res = await globalThis.__potionui.api.fetch(url, init);
 	const payload = await res.json().catch(() => null);
 	return { ok: res.ok, status: res.status, payload };
 }

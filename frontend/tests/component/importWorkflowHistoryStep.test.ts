@@ -104,7 +104,7 @@ async function mountOnHistoryStep(el: HTMLDivElement, importAssert?: (body: any)
 	textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 	textarea.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
-	el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 	await settle();
 
 	const familyInput = el.querySelector<HTMLInputElement>('#import-model-family')!;
@@ -115,7 +115,7 @@ async function mountOnHistoryStep(el: HTMLDivElement, importAssert?: (body: any)
 	nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
 
-	el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 	await settle();
 
 	return instance;
@@ -149,7 +149,7 @@ describe('ImportWorkflowTab History step (real compiled dist)', () => {
 		expect(cfgRow.querySelector('.hist-jinja-out')?.textContent).toContain('3.5 strength');
 
 		// Reorder: move cfg above steps, preview cell order follows.
-		cfgRow.querySelector<HTMLButtonElement>('[data-action="move-up"]')!.click();
+		cfgRow.querySelector<HTMLButtonElement>('[data-action="move-up"] button')!.click();
 		await settle();
 		const rows = Array.from(el.querySelectorAll('[data-history-table] [data-history-row]'));
 		expect(rows.map((r) => r.getAttribute('data-history-row'))).toEqual(['cfg', 'steps']);
@@ -170,7 +170,7 @@ describe('ImportWorkflowTab History step (real compiled dist)', () => {
 		const cfgRow = el.querySelector('[data-history-row="cfg"]')!;
 		cfgRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
 		await settle();
-		cfgRow.querySelector<HTMLButtonElement>('[data-action="move-up"]')!.click();
+		cfgRow.querySelector<HTMLButtonElement>('[data-action="move-up"] button')!.click();
 		await settle();
 
 		const cfgLabel = cfgRow.querySelector<HTMLInputElement>('.hist-label-input')!;
@@ -178,9 +178,9 @@ describe('ImportWorkflowTab History step (real compiled dist)', () => {
 		cfgLabel.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-create] button')!.click();
 		await settle();
 
 		expect(sentHistory).toEqual([
