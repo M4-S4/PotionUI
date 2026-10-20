@@ -42,10 +42,7 @@ from src.pipelines.outputs import (
 )
 from src.platform.observability.logger import logger
 from src.platform.runtime.native.errors import SamplingCancelled
-from src.pipelines.pipes.interpolator.rife.encode import (
-    StreamingMp4Writer,
-    mux_audio_from_source,
-)
+from src.platform.util.video_stream import StreamingMp4Writer, mux_audio_from_source
 from vendor.rife import load_ifnet
 from vendor.rife.inference import PreparedFrame, interpolate_prepared, prepare_frame
 

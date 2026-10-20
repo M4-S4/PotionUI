@@ -30,6 +30,12 @@ the model depot's `detection_segm/` folder, the convention
 from typing import TYPE_CHECKING
 
 from src.platform.util.imaging import convert_image_to_base64
+from src.platform.util.video_stream import (
+    FFmpegNotFoundError,
+    StreamingMp4Writer,
+    has_audio_stream,
+    mux_audio_from_source,
+)
 from src.platform.util.video_transcode import (
     FfmpegUnavailableError,
     TranscodeSpec,
@@ -45,12 +51,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BackgroundMattingModel",
+    "FFmpegNotFoundError",
     "FfmpegUnavailableError",
+    "StreamingMp4Writer",
     "TranscodeSpec",
     "VideoProbe",
     "VideoTranscodeError",
     "convert_image_to_base64",
     "find_ffmpeg",
+    "has_audio_stream",
+    "mux_audio_from_source",
     "probe_video",
     "transcode_video",
 ]

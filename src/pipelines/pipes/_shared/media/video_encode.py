@@ -27,26 +27,11 @@ import numpy as np
 import torch
 from PIL import Image
 
-from src.platform.util.video_transcode import find_ffmpeg
+from src.platform.util.video_stream import has_audio_stream, require_ffmpeg
 
 logger = logging.getLogger(__name__)
 
 FramesInput = Union[np.ndarray, List[Image.Image], torch.Tensor]
-
-
-class FFmpegNotFoundError(RuntimeError):
-    """Raised when the `ffmpeg` binary is not available on PATH."""
-
-
-def require_ffmpeg() -> str:
-    found = find_ffmpeg()
-    if found is None:
-        raise FFmpegNotFoundError(
-            "ffmpeg binary not found on PATH and no bundled imageio-ffmpeg binary is available -- "
-            "required to encode video output. Install ffmpeg (e.g. `apt install ffmpeg`, "
-            "`winget install ffmpeg`) and retry."
-        )
-    return found
 
 
 @dataclass
@@ -62,37 +47,6 @@ class AudioTrack:
 
 
 AudioInput = Union[AudioTrack, str, Path, None]
-
-
-def has_audio_stream(path: Union[str, Path]) -> bool:
-    """Probe ``path`` for an audio stream via ``ffprobe``.
-
-    Used to decide whether an existing media file is safe to hand to
-    :func:`encode_frames_to_mp4` as ``audio=``: a source video with NO audio
-    track must fall back to the plain ``-an`` path (byte-identical to no
-    audio at all), not be passed through as a second ffmpeg input that then
-    has nothing for ``-map 1:a:0`` to resolve (ffmpeg would exit non-zero).
-    Returns ``False`` -- never raises -- on any probe failure (``ffprobe``
-    missing, a corrupt/unreadable file, a timeout), so a probing hiccup
-    degrades to "no audio" rather than crashing an otherwise-working encode.
-    """
-    if shutil.which("ffprobe") is None:
-        return False
-    try:
-        result = subprocess.run(
-            [
-                "ffprobe", "-v", "quiet", "-print_format", "json",
-                "-show_streams", "-select_streams", "a",
-                str(path),
-            ],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
-            return False
-        data = json.loads(result.stdout)
-        return bool(data.get("streams"))
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-        return False
 
 
 def probe_source_fps(path: Union[str, Path]) -> Optional[float]:

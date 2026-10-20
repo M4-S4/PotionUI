@@ -17,10 +17,8 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.outputs import Icon, Progress
 from src.platform.util.video_transcode import find_ffmpeg
-from src.pipelines.pipes._shared.media.video_encode import (
-    has_audio_stream,
-    probe_source_duration,
-)
+from src.pipelines.pipes._shared.media.video_encode import probe_source_duration
+from src.platform.util.video_stream import has_audio_stream
 
 
 class VideoSpeedPipe(BasePipe):

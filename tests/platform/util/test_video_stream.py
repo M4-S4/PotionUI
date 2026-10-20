@@ -1,15 +1,16 @@
-"""StreamingMp4Writer teardown contract, exercised without ffmpeg/cv2: the
-subprocess handshake is what regressed in the field (communicate() flushes
-stdin itself — pre-closing it raised "flush of closed file" on every
-successful encode), so these tests stub Popen with real pipe processes."""
 
 import subprocess
+import sys
 import threading
 
 import numpy as np
 import pytest
 
-from src.pipelines.pipes.interpolator.rife import encode
+from src.platform.util import video_stream as encode
+
+
+_READ_STDIN = [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"]
+_EXIT_ONE = [sys.executable, "-c", "import sys; sys.exit(1)"]
 
 
 @pytest.fixture
@@ -23,9 +24,9 @@ def ffmpeg_stub(monkeypatch):
     return _install
 
 
-def test_close_after_successful_writes(ffmpeg_stub):
-    ffmpeg_stub(["cat"])
-    writer = encode.StreamingMp4Writer("/dev/null", 64, 64, 24.0)
+def test_close_after_successful_writes(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_READ_STDIN)
+    writer = encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 64, 64, 24.0)
 
     writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
     writer.close()
@@ -33,78 +34,72 @@ def test_close_after_successful_writes(ffmpeg_stub):
     assert writer._proc.returncode == 0
 
 
-def test_nonzero_exit_raises_with_message(ffmpeg_stub):
-    ffmpeg_stub(["false"])
-    writer = encode.StreamingMp4Writer("/dev/null", 4, 4, 24.0)
+def test_nonzero_exit_raises_with_message(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_EXIT_ONE)
+    writer = encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 4, 4, 24.0)
 
     with pytest.raises(RuntimeError, match="exit 1"):
         writer.write(np.zeros((4, 4, 3), dtype=np.uint8))
         writer.close()
 
 
-def test_odd_dimensions_rejected(ffmpeg_stub):
-    ffmpeg_stub(["cat"])
+def test_odd_dimensions_rejected(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_READ_STDIN)
     with pytest.raises(ValueError, match="even dimensions"):
-        encode.StreamingMp4Writer("/dev/null", 63, 64, 24.0)
+        encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 63, 64, 24.0)
 
 
-# -- abort() / context manager, against a real process ------------------------
-# `cat` with nothing written to it and stdin left open blocks forever on read,
-# so it stands in for an ffmpeg encode that must be cut short.
 
-def test_abort_terminates_a_running_process(ffmpeg_stub):
-    ffmpeg_stub(["cat"])
-    writer = encode.StreamingMp4Writer("/dev/null", 64, 64, 24.0)
+def test_abort_terminates_a_running_process(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_READ_STDIN)
+    writer = encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 64, 64, 24.0)
     assert writer._proc.poll() is None
 
     writer.abort()
 
-    assert writer._proc.poll() is not None  # reaped, not left as a zombie
+    assert writer._proc.poll() is not None
 
 
-def test_abort_is_idempotent(ffmpeg_stub):
-    ffmpeg_stub(["cat"])
-    writer = encode.StreamingMp4Writer("/dev/null", 64, 64, 24.0)
+def test_abort_is_idempotent(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_READ_STDIN)
+    writer = encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 64, 64, 24.0)
 
     writer.abort()
-    writer.abort()  # must not raise the second time
+    writer.abort()
 
     assert writer._proc.poll() is not None
 
 
-def test_abort_after_close_is_a_noop(ffmpeg_stub):
-    ffmpeg_stub(["cat"])
-    writer = encode.StreamingMp4Writer("/dev/null", 64, 64, 24.0)
+def test_abort_after_close_is_a_noop(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_READ_STDIN)
+    writer = encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 64, 64, 24.0)
     writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
     writer.close()
 
-    writer.abort()  # must not raise or hang once the process has already exited
+    writer.abort()
 
     assert writer._proc.returncode == 0
 
 
-def test_context_manager_closes_on_clean_exit(ffmpeg_stub):
-    ffmpeg_stub(["cat"])
-    with encode.StreamingMp4Writer("/dev/null", 64, 64, 24.0) as writer:
+def test_context_manager_closes_on_clean_exit(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_READ_STDIN)
+    with encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 64, 64, 24.0) as writer:
         writer.write(np.zeros((64, 64, 3), dtype=np.uint8))
 
     assert writer._proc.returncode == 0
 
 
-def test_context_manager_aborts_on_exception(ffmpeg_stub):
-    ffmpeg_stub(["cat"])
+def test_context_manager_aborts_on_exception(ffmpeg_stub, tmp_path):
+    ffmpeg_stub(_READ_STDIN)
     holder = {}
     with pytest.raises(ValueError, match="boom"):
-        with encode.StreamingMp4Writer("/dev/null", 64, 64, 24.0) as writer:
+        with encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 64, 64, 24.0) as writer:
             holder["writer"] = writer
             raise ValueError("boom")
 
-    assert holder["writer"]._proc.poll() is not None  # aborted, not left running
+    assert holder["writer"]._proc.poll() is not None
 
 
-# -- close()/abort() timeout-escalation, against a scripted fake process ------
-# These exercise the reap-after-kill path directly: waiting 600s for a real
-# `close()` timeout is not practical in a test.
 
 class _NoOpStderrTail:
     def __init__(self):
@@ -158,7 +153,7 @@ def test_close_timeout_kills_and_reaps():
         writer.close()
 
     assert writer._proc.killed
-    assert writer._proc.waits >= 1  # reaped after the kill, not left running
+    assert writer._proc.waits >= 1
 
 
 def test_abort_escalates_to_kill_when_terminate_does_not_stop_it():
@@ -186,14 +181,13 @@ def test_abort_on_already_exited_process_skips_terminate_and_kill():
     assert not proc.killed
 
 
-# -- mux_audio_from_source: never leaves a partial file behind ---------------
 
 def test_mux_audio_from_source_removes_partial_output_on_nonzero_exit(tmp_path, monkeypatch):
     monkeypatch.setattr(encode, "has_audio_stream", lambda _source: True)
     out_path = tmp_path / "muxed.mp4"
 
     def fake_run(cmd, capture_output, timeout):
-        out_path.write_bytes(b"partial")  # ffmpeg wrote something before failing
+        out_path.write_bytes(b"partial")
         return subprocess.CompletedProcess(cmd, returncode=1, stdout=b"", stderr=b"boom")
 
     monkeypatch.setattr(encode.subprocess, "run", fake_run)
@@ -220,10 +214,8 @@ def test_mux_audio_from_source_removes_partial_output_on_timeout(tmp_path, monke
     assert not out_path.exists()
 
 
-# -- _StderrTail: continuously drained, bounded retention --------------------
 
 class _FiniteStream:
-    """A readable stream that yields `chunks` one at a time, then EOF."""
 
     def __init__(self, chunks):
         self._chunks = list(chunks)
@@ -235,21 +227,15 @@ class _FiniteStream:
 
 
 def test_stderr_tail_drains_continuously_and_stays_bounded():
-    chunks = [b"E" * 4096 for _ in range(50)]  # 200KB total, far past the bound
+    chunks = [b"E" * 4096 for _ in range(50)]
     tail = encode._StderrTail(_FiniteStream(chunks), max_bytes=8192)
 
     tail.join(timeout=5)
 
     assert len(tail.tail()) == 8192
-    assert tail.tail() == b"E" * 8192  # only the LAST 8KB survive
+    assert tail.tail() == b"E" * 8192
 
 
-# -- stderr can never back-pressure stdin; abort() never blocks on a flush ---
-# A tiny fake process/pipe pair reproducing the exact coupling a real one has
-# (its OWN stderr write blocking stops it reading stdin) without spawning a
-# real, potentially-unkillable subprocess. Every risky call is run through
-# `_run_with_timeout` so a regression here FAILS (cleanly, within the bound)
-# instead of hanging the test process.
 
 def _run_with_timeout(fn, timeout):
     box = {}
@@ -257,7 +243,7 @@ def _run_with_timeout(fn, timeout):
     def target():
         try:
             box["value"] = fn()
-        except BaseException as exc:  # noqa: BLE001 - re-raised by the caller below
+        except BaseException as exc:
             box["error"] = exc
 
     thread = threading.Thread(target=target, daemon=True)
@@ -267,10 +253,6 @@ def _run_with_timeout(fn, timeout):
 
 
 class _BoundedPipe:
-    """An in-memory model of a real OS pipe's bounded kernel buffer: write()
-    blocks (with real partial-write semantics) once `capacity` unread bytes
-    are buffered; read() unblocks any blocked writer; close() breaks a
-    blocked writer immediately, matching a dead reader raising EPIPE."""
 
     def __init__(self, capacity):
         self._capacity = capacity
@@ -311,10 +293,6 @@ class _BoundedPipe:
 
 
 class _StdinEnd:
-    """The writer's view of a `_BoundedPipe`, matching the subset of a real
-    ``Popen.stdin``'s interface `StreamingMp4Writer` uses. `close()` flushes
-    one more pending write before marking itself closed, mirroring a real
-    buffered stdin -- exactly the call `abort()` must never let block."""
 
     def __init__(self, channel):
         self._channel = channel
@@ -326,8 +304,8 @@ class _StdinEnd:
     def close(self):
         if self.closed:
             return
-        self._channel.write(b"F")  # the pending flush
-        self._channel.close()  # then EOF, like closing a real file descriptor
+        self._channel.write(b"F")
+        self._channel.close()
         self.closed = True
 
 
@@ -344,11 +322,6 @@ class _StderrEnd:
 
 
 class _FloodingFakeProc:
-    """Models an ffmpeg child that writes `stderr_bytes` to stderr BEFORE
-    ever reading a byte of stdin -- the ordering that deadlocks a real
-    process against an undrained stderr pipe. The flood runs on a background
-    thread the same way a real ffmpeg's own stderr write only blocks ITSELF,
-    never the parent directly."""
 
     def __init__(self, stderr_bytes: bytes, stdin_capacity: int, stderr_capacity: int):
         self._stdin_channel = _BoundedPipe(stdin_capacity)
@@ -364,11 +337,11 @@ class _FloodingFakeProc:
 
     def _run_child(self, stderr_bytes: bytes) -> None:
         try:
-            self._stderr_channel.write(stderr_bytes)  # blocks here if undrained
+            self._stderr_channel.write(stderr_bytes)
         except BrokenPipeError:
             self._returncode = -1
             return
-        while True:  # only reaches here once the flood is fully written
+        while True:
             chunk = self._stdin_channel.read()
             if not chunk and self._stdin_channel._closed:
                 break
@@ -394,16 +367,12 @@ class _FloodingFakeProc:
         self.terminate()
 
 
-def test_stderr_flood_does_not_block_writes_and_close_completes(monkeypatch):
+def test_stderr_flood_does_not_block_writes_and_close_completes(monkeypatch, tmp_path):
     monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
-    # 200KB of chatter, well past any real pipe's ~64KB kernel buffer, and a
-    # stdin capacity small enough that a single frame needs the child
-    # actually reading -- so this frame's write() only completes once the
-    # flood has been drained and the child moves on to stdin.
     proc = _FloodingFakeProc(stderr_bytes=b"E" * 200_000, stdin_capacity=4096, stderr_capacity=65536)
     monkeypatch.setattr(encode.subprocess, "Popen", lambda *a, **k: proc)
 
-    writer = encode.StreamingMp4Writer("/dev/null", 64, 64, 24.0)
+    writer = encode.StreamingMp4Writer(str(tmp_path / "out.mp4"), 64, 64, 24.0)
 
     completed, box = _run_with_timeout(
         lambda: writer.write(np.zeros((64, 64, 3), dtype=np.uint8)), timeout=5,
@@ -421,11 +390,6 @@ def test_stderr_flood_does_not_block_writes_and_close_completes(monkeypatch):
 
 
 class _StuckFakeProc:
-    """Models a completely unresponsive ffmpeg: never reads stdin, never
-    writes stderr, never exits on its own -- only `terminate()`/`kill()`
-    breaks it, exactly like killing a real hung process breaks its pipes.
-    Stdin capacity is tiny so a pending flush write blocks immediately
-    unless the child (or `terminate()`) has already unblocked it."""
 
     def __init__(self, stdin_capacity: int = 1):
         self._stdin_channel = _BoundedPipe(stdin_capacity)
@@ -452,7 +416,7 @@ class _StuckFakeProc:
 
 def test_abort_completes_within_the_bounded_wait_when_stdin_flush_would_block():
     proc = _StuckFakeProc(stdin_capacity=1)
-    proc._stdin_channel.write(b"x")  # fills the tiny channel: the next write blocks
+    proc._stdin_channel.write(b"x")
     writer = object.__new__(encode.StreamingMp4Writer)
     writer._proc = proc
     writer._stderr_tail = encode._StderrTail(proc.stderr)
@@ -465,17 +429,6 @@ def test_abort_completes_within_the_bounded_wait_when_stdin_flush_would_block():
     assert proc._returncode == -15
 
 
-# -- _finalize_streams: one shared path, reached on every terminal branch ----
-# Each fixture below is a tiny process double covering exactly one of
-# close()'s success and nonzero-exit outcomes, close()'s timeout branch (the
-# concrete bug: it used to raise BEFORE ever reaching the join), and
-# abort() -- asserting stdin AND stderr are both closed and the drain thread
-# ACTUALLY exited (not merely that finalisation ran).
-#
-# `proc.stderr` and the `_StderrTail`'s own stream are the SAME object in
-# every fixture here: a fixture handing the drainer a different stream than
-# the one `_finalize_streams` closes would prove nothing about the real
-# owned reader/stream pair.
 
 class _TrackedStream:
     def __init__(self):
@@ -486,9 +439,6 @@ class _TrackedStream:
 
 
 class _EOFStream(_TrackedStream):
-    """A readable, closeable fake stream that yields `chunks` once each,
-    then EOF -- shared between `proc.stderr` and the drainer, so the drain
-    thread's own exit is what a fixture observes."""
 
     def __init__(self, chunks=()):
         super().__init__()
@@ -501,19 +451,12 @@ class _EOFStream(_TrackedStream):
 
 
 class _BlockingStream(_TrackedStream):
-    """A readable, closeable fake stream whose read() never returns -- models
-    a drain thread genuinely stuck. Unlike a real OS pipe, closing this fake
-    does NOT itself unblock the reader, so a join against it deterministically
-    times out rather than racing the thread waking up mid-assertion."""
 
     def read(self, n: int = 65536) -> bytes:
-        threading.Event().wait()  # blocks forever; the thread stays a daemon
+        threading.Event().wait()
 
 
 class _CleanExitProc:
-    """A process that has already exited with `returncode` by the time
-    `wait()` is first called -- models close()'s success and nonzero-exit
-    paths."""
 
     def __init__(self, returncode: int, stderr):
         self.stdin = _TrackedStream()
@@ -542,8 +485,7 @@ def test_close_success_finalizes_both_streams_and_the_reader_actually_exits():
 
     assert proc.stdin.closed
     assert proc.stderr.closed
-    assert writer._stderr_tail.finished
-    assert not writer._stderr_tail.is_alive()
+    assert writer._stderr_tail.join(timeout=5)
 
 
 def test_close_nonzero_exit_still_finalizes_streams_before_raising():
@@ -555,15 +497,10 @@ def test_close_nonzero_exit_still_finalizes_streams_before_raising():
 
     assert proc.stdin.closed
     assert proc.stderr.closed
-    assert writer._stderr_tail.finished
-    assert not writer._stderr_tail.is_alive()
+    assert writer._stderr_tail.join(timeout=5)
 
 
 class _TimesOutOnceProc:
-    """The FIRST `wait()` (close()'s own 600s wait) times out; the SECOND
-    (the `_reap()` call after `kill()`) succeeds -- models the exact
-    regression this fix targets: finalisation must still run even though
-    close()'s timeout branch raises."""
 
     def __init__(self, stderr):
         self.stdin = _TrackedStream()
@@ -593,12 +530,10 @@ def test_close_timeout_still_finalizes_streams_before_the_original_error():
 
     assert proc.stdin.closed
     assert proc.stderr.closed
-    assert writer._stderr_tail.finished
-    assert not writer._stderr_tail.is_alive()
+    assert writer._stderr_tail.join(timeout=5)
 
 
 class _StillRunningProc:
-    """A process that is running (`poll()` -> None) until `terminate()`."""
 
     def __init__(self, stderr):
         self.stdin = _TrackedStream()
@@ -614,7 +549,7 @@ class _StillRunningProc:
     def wait(self, timeout=None):
         return self.returncode
 
-    def kill(self):  # pragma: no cover - terminate() already exits this fake
+    def kill(self):
         self.returncode = -9
 
 
@@ -626,8 +561,7 @@ def test_abort_finalizes_both_streams_and_the_reader_actually_exits():
 
     assert proc.stdin.closed
     assert proc.stderr.closed
-    assert writer._stderr_tail.finished
-    assert not writer._stderr_tail.is_alive()
+    assert writer._stderr_tail.join(timeout=5)
 
 
 def test_raise_with_stderr_finalizes_both_streams_before_raising():
@@ -639,16 +573,11 @@ def test_raise_with_stderr_finalizes_both_streams_before_raising():
 
     assert proc.stdin.closed
     assert proc.stderr.closed
-    assert writer._stderr_tail.finished
-    assert not writer._stderr_tail.is_alive()
+    assert writer._stderr_tail.join(timeout=5)
 
 
-# -- join-timeout control: a genuinely stuck reader must never be reported
-# finished, and the caller's bounded wait / original exception still hold ---
 
 def test_join_timeout_control_never_reports_the_reader_finished(monkeypatch):
-    # Shrink the bound so this test does not actually wait out a real
-    # multi-second timeout -- the fixture's read() blocks forever regardless.
     monkeypatch.setattr(encode, "_ABORT_WAIT_TIMEOUT", 0.2)
     proc = _StillRunningProc(stderr=_BlockingStream())
     writer = _finalize_writer(proc)
@@ -658,10 +587,275 @@ def test_join_timeout_control_never_reports_the_reader_finished(monkeypatch):
     assert completed, "abort() blocked past its own bounded wait"
     if "error" in box:
         raise box["error"]
-    # The join timed out -- the flag must reflect that, not the fact that
-    # finalisation was attempted.
-    assert writer._stderr_tail.finished is False
-    assert writer._stderr_tail.is_alive() is True
-    # Best-effort cleanup still ran independently of the stuck reader.
+    assert writer._stderr_tail.join(timeout=0) is False
     assert proc.stdin.closed
     assert proc.stderr.closed
+
+
+class _Completed:
+    def __init__(self, returncode=0, stderr=b""):
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+def _mux_runner(monkeypatch, outcomes, out_path, calls):
+    queue = list(outcomes)
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        returncode = queue.pop(0)
+        if returncode == 0:
+            out_path.write_bytes(b"muxed")
+        else:
+            out_path.write_bytes(b"partial")
+        return _Completed(returncode, b"boom")
+
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode.subprocess, "run", fake_run)
+
+
+def test_mux_audio_prefers_stream_copy_and_stops_on_success(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+    calls = []
+    _mux_runner(monkeypatch, [0], out_path, calls)
+
+    encode.mux_audio("v.mp4", "s.mp4", out_path, shortest=False, prefer_copy=True)
+
+    assert len(calls) == 1
+    assert calls[0][calls[0].index("-c:a") + 1] == "copy"
+    assert "-shortest" not in calls[0]
+    assert out_path.exists()
+
+
+def test_mux_audio_falls_back_to_aac_when_copy_fails(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+    calls = []
+    _mux_runner(monkeypatch, [1, 0], out_path, calls)
+
+    encode.mux_audio("v.mp4", "s.mp4", out_path, shortest=False, prefer_copy=True)
+
+    assert [c[c.index("-c:a") + 1] for c in calls] == ["copy", "aac"]
+    assert out_path.read_bytes() == b"muxed"
+
+
+def test_mux_audio_without_prefer_copy_is_aac_only_and_honours_shortest(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+    calls = []
+    _mux_runner(monkeypatch, [0], out_path, calls)
+
+    encode.mux_audio("v.mp4", "s.mp4", out_path, shortest=True, prefer_copy=False)
+
+    assert len(calls) == 1
+    assert calls[0][calls[0].index("-c:a") + 1] == "aac"
+    assert "-shortest" in calls[0]
+
+
+def test_mux_audio_raises_and_removes_partial_when_every_attempt_fails(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+    calls = []
+    _mux_runner(monkeypatch, [1, 1], out_path, calls)
+
+    with pytest.raises(RuntimeError, match="exit 1"):
+        encode.mux_audio("v.mp4", "s.mp4", out_path, shortest=False, prefer_copy=True)
+
+    assert not out_path.exists()
+
+
+def test_mux_audio_rejects_a_zero_byte_result(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+
+    def fake_run(cmd, **kwargs):
+        out_path.write_bytes(b"")
+        return _Completed(0)
+
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="no muxed output"):
+        encode.mux_audio("v.mp4", "s.mp4", out_path, shortest=True, prefer_copy=False)
+
+    assert not out_path.exists()
+
+
+class _Probed:
+    def __init__(self, returncode=0, stdout=""):
+        self.returncode = returncode
+        self.stdout = stdout
+
+
+def _probe_with(monkeypatch, *, ffprobe="/usr/bin/ffprobe", result=None, error=None):
+    monkeypatch.setattr(encode, "find_ffprobe", lambda: ffprobe)
+
+    def fake_run(cmd, **kwargs):
+        if error is not None:
+            raise error
+        return result
+
+    monkeypatch.setattr(encode.subprocess, "run", fake_run)
+
+
+def test_probe_reports_present_when_ffprobe_finds_an_audio_stream(monkeypatch):
+    _probe_with(monkeypatch, result=_Probed(stdout='{"streams": [{"codec_type": "audio"}]}'))
+
+    result = encode.probe_audio_stream("src.mp4")
+
+    assert result.status == encode.AUDIO_PROBE_PRESENT
+    assert result.reason is None
+
+
+def test_probe_reports_silent_when_there_are_no_streams(monkeypatch):
+    _probe_with(monkeypatch, result=_Probed(stdout='{"streams": []}'))
+
+    result = encode.probe_audio_stream("src.mp4")
+
+    assert result.status == encode.AUDIO_PROBE_SILENT
+    assert result.reason is None
+
+
+def test_probe_reports_failed_when_ffprobe_is_missing(monkeypatch):
+    _probe_with(monkeypatch, ffprobe=None)
+
+    result = encode.probe_audio_stream("src.mp4")
+
+    assert result.status == encode.AUDIO_PROBE_FAILED
+    assert "not found" in result.reason
+
+
+def test_probe_reports_failed_on_nonzero_exit(monkeypatch):
+    _probe_with(monkeypatch, result=_Probed(returncode=1))
+
+    result = encode.probe_audio_stream("src.mp4")
+
+    assert result.status == encode.AUDIO_PROBE_FAILED
+    assert "exited 1" in result.reason
+
+
+def test_probe_reports_failed_on_timeout(monkeypatch):
+    _probe_with(monkeypatch, error=subprocess.TimeoutExpired(cmd="ffprobe", timeout=10))
+
+    result = encode.probe_audio_stream("src.mp4")
+
+    assert result.status == encode.AUDIO_PROBE_FAILED
+    assert "timed out" in result.reason
+
+
+def test_probe_reports_failed_when_ffprobe_cannot_run(monkeypatch):
+    _probe_with(monkeypatch, error=OSError("denied"))
+
+    result = encode.probe_audio_stream("src.mp4")
+
+    assert result.status == encode.AUDIO_PROBE_FAILED
+    assert "denied" in result.reason
+
+
+def test_probe_reports_failed_on_unparseable_output(monkeypatch):
+    _probe_with(monkeypatch, result=_Probed(stdout="not json"))
+
+    result = encode.probe_audio_stream("src.mp4")
+
+    assert result.status == encode.AUDIO_PROBE_FAILED
+    assert "unparseable" in result.reason
+
+
+def test_has_audio_stream_is_true_only_for_a_confirmed_audio_track(monkeypatch):
+    _probe_with(monkeypatch, result=_Probed(stdout='{"streams": [{"codec_type": "audio"}]}'))
+    assert encode.has_audio_stream("src.mp4") is True
+
+    _probe_with(monkeypatch, result=_Probed(stdout='{"streams": []}'))
+    assert encode.has_audio_stream("src.mp4") is False
+
+    _probe_with(monkeypatch, result=_Probed(returncode=1))
+    assert encode.has_audio_stream("src.mp4") is False
+
+
+def test_require_ffmpeg_returns_the_binary_or_raises(monkeypatch):
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/opt/ffmpeg")
+    assert encode.require_ffmpeg() == "/opt/ffmpeg"
+
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: None)
+    with pytest.raises(encode.FFmpegNotFoundError, match="ffmpeg binary not found"):
+        encode.require_ffmpeg()
+
+
+def test_mux_audio_raises_and_removes_partial_when_ffmpeg_cannot_run(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+    out_path.write_bytes(b"partial")
+
+    def fake_run(cmd, **kwargs):
+        raise OSError("exec format error")
+
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="could not run"):
+        encode.mux_audio("v.mp4", "s.mp4", out_path, shortest=False, prefer_copy=True)
+
+    assert not out_path.exists()
+
+
+def test_mux_audio_raises_and_removes_partial_on_timeout(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+    out_path.write_bytes(b"partial")
+
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=600)
+
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        encode.mux_audio("v.mp4", "s.mp4", out_path, shortest=True, prefer_copy=False)
+
+    assert not out_path.exists()
+
+
+def test_mux_audio_raises_ffmpeg_not_found_without_running_anything(tmp_path, monkeypatch):
+    ran = []
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: None)
+    monkeypatch.setattr(encode.subprocess, "run", lambda *a, **k: ran.append(a))
+
+    with pytest.raises(encode.FFmpegNotFoundError):
+        encode.mux_audio("v.mp4", "s.mp4", tmp_path / "out.mp4", shortest=False, prefer_copy=True)
+
+    assert ran == []
+
+
+def test_mux_audio_from_source_returns_true_on_success(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+    calls = []
+    _mux_runner(monkeypatch, [0], out_path, calls)
+    monkeypatch.setattr(encode, "has_audio_stream", lambda _source: True)
+
+    assert encode.mux_audio_from_source("v.mp4", "s.mp4", out_path) is True
+    assert out_path.read_bytes() == b"muxed"
+
+
+def test_mux_audio_from_source_skips_ffmpeg_when_the_source_has_no_audio(tmp_path, monkeypatch):
+    ran = []
+    monkeypatch.setattr(encode, "has_audio_stream", lambda _source: False)
+    monkeypatch.setattr(encode.subprocess, "run", lambda *a, **k: ran.append(a))
+
+    assert encode.mux_audio_from_source("v.mp4", "s.mp4", tmp_path / "out.mp4") is False
+    assert ran == []
+
+
+def test_mux_audio_from_source_returns_false_when_ffmpeg_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(encode, "has_audio_stream", lambda _source: True)
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: None)
+
+    assert encode.mux_audio_from_source("v.mp4", "s.mp4", tmp_path / "out.mp4") is False
+
+
+def test_mux_audio_from_source_returns_false_for_a_zero_byte_result_and_removes_it(tmp_path, monkeypatch):
+    out_path = tmp_path / "out.mp4"
+
+    def fake_run(cmd, **kwargs):
+        out_path.write_bytes(b"")
+        return _Completed(0)
+
+    monkeypatch.setattr(encode, "has_audio_stream", lambda _source: True)
+    monkeypatch.setattr(encode, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(encode.subprocess, "run", fake_run)
+
+    assert encode.mux_audio_from_source("v.mp4", "s.mp4", out_path) is False
+    assert not out_path.exists()

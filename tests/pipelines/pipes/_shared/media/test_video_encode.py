@@ -16,21 +16,20 @@ import wave as wave_module
 
 from src.pipelines.pipes._shared.media.video_encode import (
     AudioTrack,
-    FFmpegNotFoundError,
     _build_ffmpeg_args,
-    require_ffmpeg,
     _normalize_frames,
     _pad_to_even,
     _write_wav_pcm16,
     encode_frames_to_mp4,
-    has_audio_stream,
     probe_decoded_frame_count,
     probe_effective_fps,
     probe_source_duration,
     probe_source_fps,
 )
+from src.platform.util.video_stream import FFmpegNotFoundError, has_audio_stream
 
 _MOD = "src.pipelines.pipes._shared.media.video_encode"
+_VS = "src.platform.util.video_stream"
 
 _HAS_FFMPEG = shutil.which("ffmpeg") is not None
 _HAS_FFPROBE = shutil.which("ffprobe") is not None
@@ -210,85 +209,6 @@ class TestBuildFfmpegArgs:
         second_i_index = args.index("-i", args.index("-i") + 1)
         assert args[second_i_index + 1] == str(audio_file)
         assert args[-1] == str(tmp_path / "out.mp4")
-
-
-class TestHasAudioStream:
-    """Pure unit tests -- subprocess.run mocked, no real ffprobe needed."""
-
-    def test_returns_false_when_ffprobe_missing(self, monkeypatch):
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which", lambda _: None
-        )
-        assert has_audio_stream("/tmp/whatever.mp4") is False
-
-    def test_returns_true_when_audio_stream_present(self, monkeypatch):
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which", lambda _: "/usr/bin/ffprobe"
-        )
-
-        class _Result:
-            returncode = 0
-            stdout = json.dumps({"streams": [{"codec_type": "audio"}]})
-
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", lambda *a, **kw: _Result()
-        )
-        assert has_audio_stream("/tmp/with_audio.mp4") is True
-
-    def test_returns_false_when_no_audio_stream(self, monkeypatch):
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which", lambda _: "/usr/bin/ffprobe"
-        )
-
-        class _Result:
-            returncode = 0
-            stdout = json.dumps({"streams": []})
-
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", lambda *a, **kw: _Result()
-        )
-        assert has_audio_stream("/tmp/no_audio.mp4") is False
-
-    def test_returns_false_on_nonzero_exit(self, monkeypatch):
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which", lambda _: "/usr/bin/ffprobe"
-        )
-
-        class _Result:
-            returncode = 1
-            stdout = ""
-
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", lambda *a, **kw: _Result()
-        )
-        assert has_audio_stream("/tmp/broken.mp4") is False
-
-    def test_returns_false_on_timeout(self, monkeypatch):
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which", lambda _: "/usr/bin/ffprobe"
-        )
-
-        def _raise(*a, **kw):
-            raise subprocess.TimeoutExpired(cmd="ffprobe", timeout=10)
-
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", _raise
-        )
-        assert has_audio_stream("/tmp/slow.mp4") is False
-
-    def test_returns_false_on_malformed_json(self, monkeypatch):
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which", lambda _: "/usr/bin/ffprobe"
-        )
-
-        class _Result:
-            returncode = 0
-            stdout = "not json"
-
-        monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", lambda *a, **kw: _Result()
-        )
-        assert has_audio_stream("/tmp/weird.mp4") is False
 
 
 class TestProbeSourceFps:
@@ -515,7 +435,7 @@ class TestEncodeAudioProbing:
 
     def test_str_audio_without_stream_degrades_to_no_audio(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which",
+            "src.platform.util.video_transcode.shutil.which",
             lambda name: "/usr/bin/ffmpeg" if name == "ffmpeg" else None,
         )
         monkeypatch.setattr(
@@ -536,7 +456,7 @@ class TestEncodeAudioProbing:
             return _Result()
 
         monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", _fake_run
+            "src.platform.util.video_stream.subprocess.run", _fake_run
         )
 
         out_path = tmp_path / "out.mp4"
@@ -547,7 +467,7 @@ class TestEncodeAudioProbing:
 
     def test_str_audio_with_stream_is_passed_through_with_maps(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which",
+            "src.platform.util.video_transcode.shutil.which",
             lambda name: "/usr/bin/ffmpeg" if name == "ffmpeg" else None,
         )
         monkeypatch.setattr(
@@ -568,7 +488,7 @@ class TestEncodeAudioProbing:
             return _Result()
 
         monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", _fake_run
+            "src.platform.util.video_stream.subprocess.run", _fake_run
         )
 
         out_path = tmp_path / "out.mp4"
@@ -642,7 +562,7 @@ class TestWriteWavPcm16:
 
 
 def test_encode_raises_clear_error_when_ffmpeg_missing(monkeypatch):
-    monkeypatch.setattr(f"{_MOD}.find_ffmpeg", lambda: None)
+    monkeypatch.setattr(f"{_VS}.find_ffmpeg", lambda: None)
     with pytest.raises(FFmpegNotFoundError, match="ffmpeg"):
         encode_frames_to_mp4(_gradient_frames(2, 8), "/tmp/should-not-be-created.mp4", fps=24)
 
@@ -792,19 +712,8 @@ class TestRealEncode:
         assert len(a_streams) == 1
 
 
-class TestRequireFfmpeg:
-    def test_returns_located_binary(self, monkeypatch):
-        monkeypatch.setattr(f"{_MOD}.find_ffmpeg", lambda: "/opt/ffmpeg")
-        assert require_ffmpeg() == "/opt/ffmpeg"
-
-    def test_raises_when_nothing_available(self, monkeypatch):
-        monkeypatch.setattr(f"{_MOD}.find_ffmpeg", lambda: None)
-        with pytest.raises(FFmpegNotFoundError, match="imageio-ffmpeg"):
-            require_ffmpeg()
-
-
 def test_encode_runs_the_located_binary(monkeypatch, tmp_path):
-    monkeypatch.setattr(f"{_MOD}.find_ffmpeg", lambda: "/sentinel/ffmpeg")
+    monkeypatch.setattr(f"{_VS}.find_ffmpeg", lambda: "/sentinel/ffmpeg")
     seen = {}
 
     class _Failed:

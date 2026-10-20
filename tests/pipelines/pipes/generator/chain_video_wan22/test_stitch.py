@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from src.pipelines.pipes._shared.media import video_encode as video_encode_mod
+import shutil
 from src.pipelines.pipes.generator.chain_video_wan22 import stitch as stitch_mod
 from src.pipelines.pipes.generator.chain_video_wan22.stitch import stitch_segments
 from src.platform.util.video_transcode import find_ffmpeg
@@ -187,7 +187,7 @@ def _dispatching_run(ffprobe_fps: str, ffmpeg_side_effect):
 
 def test_zero_overlap_uses_stream_copy_when_ffmpeg_available_and_fps_match(monkeypatch, tmp_path):
     monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
-    monkeypatch.setattr(video_encode_mod.shutil, "which", lambda name: "/usr/bin/ffprobe")
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/ffprobe")
 
     def ffmpeg_side_effect(cmd, **kwargs):
         # -c copy concat: write bytes to the requested output path, as real
@@ -219,7 +219,7 @@ def test_zero_overlap_uses_stream_copy_when_ffmpeg_available_and_fps_match(monke
 
 def test_stream_copy_command_is_concat_demuxer_with_stream_copy(monkeypatch, tmp_path):
     monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
-    monkeypatch.setattr(video_encode_mod.shutil, "which", lambda name: "/usr/bin/ffprobe")
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/ffprobe")
     captured = {}
 
     def ffmpeg_side_effect(cmd, **kwargs):

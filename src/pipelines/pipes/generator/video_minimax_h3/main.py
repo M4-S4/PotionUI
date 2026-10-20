@@ -159,10 +159,9 @@ from src.pipelines.pipes._shared.vae.minimax_h3_decode import (
 from src.pipelines.pipes._shared.media.video_encode import (
     AudioInput,
     AudioTrack,
-    FFmpegNotFoundError,
     encode_frames_to_mp4,
-    require_ffmpeg,
 )
+from src.platform.util.video_stream import FFmpegNotFoundError, require_ffmpeg
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.audio import (

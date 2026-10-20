@@ -134,11 +134,11 @@ class TestAudioProbingIntegration:
         pipe = VideoSpeedPipe({"speed_percent": 50, "keep_audio": True, "output_format": "mp4"})
 
         monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which", lambda _: None
+            "src.platform.util.video_transcode.shutil.which", lambda _: None
         )
         probe_run = MagicMock()
         monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", probe_run
+            "src.platform.util.video_stream.subprocess.run", probe_run
         )
         encode_run = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
         monkeypatch.setattr("src.pipelines.pipes.video_speed.main.subprocess.run", encode_run)

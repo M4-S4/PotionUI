@@ -14,8 +14,6 @@ NOT_INSTALLED) on a host without the package -- see `_import_nvvfx()`.
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -23,7 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 from PIL import Image
 
-from src.plugin_api.media import find_ffmpeg
+from src.plugin_api.media import StreamingMp4Writer, mux_audio_from_source
 from src.plugin_api.pipes import (
     BasePipe,
     GalleryGenerationOutput,
@@ -42,123 +40,6 @@ from src.plugin_api.pipes import (
 )
 
 logger = logging.getLogger(__name__)
-
-# -- ffmpeg subprocess helpers, video mode only --------------------------
-#
-# Inlined rather than imported: the core encode-with-audio-passthrough helper
-# (`src/pipelines/pipes/_shared/media/video_encode.py`, used by the native
-# SeedVR2/RIFE pipes) lives under `src.pipelines`, not `src.plugin_api` -- a
-# plugin may only import from the latter. A sibling module in this same
-# directory isn't an option either: the catalog loads a pipe's `main.py` via
-# `importlib.util.spec_from_file_location` with no package context, so a
-# relative `from .video_io import ...` would fail with "no known parent
-# package" the moment this pipe is used.
-
-
-class FFmpegNotFoundError(RuntimeError):
-    """Raised when the `ffmpeg`/`ffprobe` binaries are not on PATH."""
-
-
-class _StreamingMp4Writer:
-    """Pipes RGB uint8 frames to ffmpeg's stdin one at a time, into a
-    video-only MP4. All frames must share the writer's (width, height), and
-    both must be even (yuv420p requires it) -- callers get this for free here
-    since RTX output dimensions are always rounded to a multiple of 8."""
-
-    def __init__(self, out_path: Union[str, Path], width: int, height: int,
-                 fps: float, codec: str = "libx264", crf: int = 18):
-        ffmpeg = find_ffmpeg()
-        if ffmpeg is None:
-            raise FFmpegNotFoundError("ffmpeg binary not found on PATH")
-        self.width = int(width)
-        self.height = int(height)
-        if self.width % 2 or self.height % 2:
-            raise ValueError(
-                f"_StreamingMp4Writer needs even dimensions for yuv420p, got {self.width}x{self.height}"
-            )
-        cmd = [
-            ffmpeg, "-y",
-            "-f", "rawvideo", "-pix_fmt", "rgb24",
-            "-s", f"{self.width}x{self.height}", "-r", str(fps),
-            "-i", "-", "-an",
-            "-c:v", codec, "-pix_fmt", "yuv420p", "-crf", str(crf),
-            "-movflags", "+faststart",
-            str(out_path),
-        ]
-        self._proc = subprocess.Popen(
-            cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-        )
-
-    def write(self, frame_rgb: "np.ndarray") -> None:
-        arr = np.ascontiguousarray(frame_rgb, dtype=np.uint8)
-        try:
-            self._proc.stdin.write(arr.tobytes())
-        except (BrokenPipeError, OSError):
-            self._raise_with_stderr("ffmpeg died mid-encode")
-
-    def close(self) -> None:
-        # communicate() flushes and closes stdin itself (ffmpeg's EOF); closing
-        # stdin beforehand makes that flush raise "flush of closed file".
-        try:
-            _, stderr = self._proc.communicate(timeout=600)
-        except subprocess.TimeoutExpired:
-            self._proc.kill()
-            raise RuntimeError("ffmpeg encode timed out after 600s")
-        if self._proc.returncode != 0:
-            msg = stderr.decode("utf-8", errors="replace")[-2000:] if stderr else ""
-            raise RuntimeError(f"ffmpeg encode failed (exit {self._proc.returncode}): {msg}")
-
-    def _raise_with_stderr(self, prefix: str) -> None:
-        try:
-            _, stderr = self._proc.communicate(timeout=10)
-        except Exception:
-            self._proc.kill()
-            stderr = b""
-        msg = stderr.decode("utf-8", errors="replace")[-2000:] if stderr else ""
-        raise RuntimeError(f"{prefix} (exit {self._proc.returncode}): {msg}")
-
-
-def _has_audio_stream(path: Union[str, Path]) -> bool:
-    """Probe `path` for an audio stream via ffprobe, so a silent source video
-    degrades to the `-an` path instead of being handed to ffmpeg as a second
-    input with nothing for `-map 1:a:0` to resolve."""
-    if shutil.which("ffprobe") is None:
-        return False
-    cmd = [
-        "ffprobe", "-v", "error", "-select_streams", "a",
-        "-show_entries", "stream=index", "-of", "csv=p=0", str(path),
-    ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, timeout=30)
-    except (subprocess.TimeoutExpired, OSError):
-        return False
-    return result.returncode == 0 and bool(result.stdout.strip())
-
-
-def _mux_audio_from_source(video_only: Union[str, Path], source: Union[str, Path],
-                            out_path: Union[str, Path]) -> bool:
-    """Copy `video_only`'s video stream and `source`'s audio into `out_path`.
-    Returns True on success; on any failure (no audio stream, ffmpeg error,
-    timeout) leaves `out_path` untouched and returns False so the caller keeps
-    the video-only file rather than failing the whole generation over audio."""
-    if not _has_audio_stream(source):
-        return False
-    for audio_args in (["-c:a", "copy"], ["-c:a", "aac", "-b:a", "192k"]):
-        cmd = [
-            find_ffmpeg() or "ffmpeg", "-y",
-            "-i", str(video_only), "-i", str(source),
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-c:v", "copy", *audio_args,
-            str(out_path),
-        ]
-        try:
-            result = subprocess.run(cmd, capture_output=True, timeout=600)
-        except (subprocess.TimeoutExpired, OSError):
-            return False
-        if result.returncode == 0:
-            return True
-    return False
-
 
 #: (intent, quality) -> the `nvvfx.VideoSuperRes.QualityLevel` member name.
 #: BICUBIC (index 0) is deliberately unreachable through this table -- it is
@@ -459,7 +340,7 @@ class RtxUpscalePipe(BasePipe):
         if not cap.isOpened():
             raise GenerationExecutionError(f"upscaler/rtx_vsr: could not open video: {video_path}")
 
-        writer: Optional[_StreamingMp4Writer] = None
+        writer: Optional[StreamingMp4Writer] = None
         written = 0
         out_tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         try:
@@ -480,7 +361,7 @@ class RtxUpscalePipe(BasePipe):
                 processed = session.process_frame(pil_frame)
 
                 if writer is None:
-                    writer = _StreamingMp4Writer(out_tmp, processed.width, processed.height, fps)
+                    writer = StreamingMp4Writer(out_tmp, processed.width, processed.height, fps)
                 writer.write(np.asarray(processed))
                 written += 1
 
@@ -500,7 +381,7 @@ class RtxUpscalePipe(BasePipe):
         final_path = out_tmp
         if keep_audio:
             muxed = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-            if _mux_audio_from_source(out_tmp, video_path, muxed):
+            if mux_audio_from_source(out_tmp, video_path, muxed):
                 final_path = muxed
             else:
                 logger.warning(

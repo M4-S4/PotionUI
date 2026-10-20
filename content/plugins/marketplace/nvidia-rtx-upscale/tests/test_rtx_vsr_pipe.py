@@ -5,7 +5,11 @@ mocks `Tensor.cuda()` to a no-op (`no_real_cuda`) - the real GPU on this host
 is shared and busy, and nvvfx is not installed in this venv at all.
 """
 
+import io
+import os
+import subprocess
 import sys
+import threading
 
 import numpy as np
 import pytest
@@ -230,3 +234,51 @@ def test_cancellation_stops_before_processing_later_images(pipe_class, fake_nvvf
     )
 
     assert len(result.output["image"]) == 1
+
+
+class _ChattyFfmpeg:
+    def __init__(self, flood_bytes):
+        read_fd, write_fd = os.pipe()
+        self.stdin = io.BytesIO()
+        self.stderr = os.fdopen(read_fd, "rb")
+        self.returncode = None
+        self._write_fd = write_fd
+        self._flood = threading.Thread(target=self._chatter, args=(flood_bytes,), daemon=True)
+        self._flood.start()
+
+    def _chatter(self, flood_bytes):
+        with os.fdopen(self._write_fd, "wb") as sink:
+            sink.write(b"E" * flood_bytes)
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        self._flood.join(timeout=2)
+        if self._flood.is_alive():
+            raise subprocess.TimeoutExpired(cmd="chatty-ffmpeg", timeout=timeout)
+        self.returncode = 0
+        return 0
+
+    def terminate(self):
+        self.returncode = -15
+
+    def kill(self):
+        self.returncode = -9
+
+
+def test_the_pipe_writes_video_through_the_shared_writer(pipe_module, monkeypatch):
+    from src.plugin_api import media
+
+    assert pipe_module.StreamingMp4Writer is media.StreamingMp4Writer
+
+    proc = _ChattyFfmpeg(flood_bytes=400_000)
+    video_stream = sys.modules["src.platform.util.video_stream"]
+    monkeypatch.setattr(video_stream, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(video_stream.subprocess, "Popen", lambda *a, **k: proc)
+
+    writer = pipe_module.StreamingMp4Writer("out.mp4", 8, 8, 24.0)
+    writer.write(np.zeros((8, 8, 3), dtype=np.uint8))
+    writer.close()
+
+    assert proc.returncode == 0
