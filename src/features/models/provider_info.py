@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from src.features.models.exceptions import ProviderFetchException
 from src.features.models.attributes.well_known import WellKnownModelAttribute
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.records import ModelInfo
@@ -93,19 +93,16 @@ class ProviderInfoFetcher:
                 f"Provider '{provider}' is not initialized. Please configure API key and other settings in Providers settings."
             )
 
-        hook_data, blocked = execute_hook(
+        run_veto_hook(
             self.plugins,
             MODEL_INDEX_HOOKS.before_fetch_info,
             {
                 "provider": provider,
                 "model_ids": model_ids,
                 "force_refresh": force_refresh
-            }
+            },
+            "Provider fetch blocked by plugin", error=ProviderFetchException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Provider fetch blocked by plugin")
-            raise ProviderFetchException(reason)
 
         logger.info(f"Using provider plugin for {provider}")
 

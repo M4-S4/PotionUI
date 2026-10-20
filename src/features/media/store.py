@@ -27,7 +27,7 @@ from src.features.media.image_processor import ImageProcessor
 from src.features.media.media_types import MediaTypeResolver
 from src.platform.database.rows import dt_iso
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.plugins.limit_kinds import AdmissionRequest
 from src.features.media.hooks import MEDIA_HOOKS
 from src.platform.settings.settings import Settings
@@ -177,17 +177,15 @@ class MediaStore:
             ValueError: If generation or file not found
         """
         # Execute before_serve hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             MEDIA_HOOKS.before_serve,
             {
                 "generation_id": generation_id,
                 "filename": filename,
                 "size": size
-            }
+            },
+            "Media serve blocked",
         )
-
-        if blocked:
-            raise ValueError(hook_data.get("block_reason", "Media serve blocked"))
 
         # Get generation (allow access if user_id is None for public access)
         if generation is None:
@@ -494,18 +492,16 @@ class MediaStore:
             raise ValueError("Only image, video, and audio files are allowed")
 
         # Execute before_upload hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             MEDIA_HOOKS.before_upload,
             {
                 "filename": filename,
                 "content_type": content_type,
                 "size": len(file_data),
                 "user_id": user_id
-            }
+            },
+            "Upload blocked",
         )
-
-        if blocked:
-            raise ValueError(hook_data.get("block_reason", "Upload blocked"))
 
         content_hash = hashlib.sha256(file_data).hexdigest()
 
@@ -909,16 +905,14 @@ class MediaStore:
             raise ValueError("Generation not found or access denied")
 
         # Execute before_delete hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             MEDIA_HOOKS.before_delete,
             {
                 "generation_id": generation_id,
                 "user_id": user_id
-            }
+            },
+            "Delete blocked",
         )
-
-        if blocked:
-            raise ValueError(hook_data.get("block_reason", "Delete blocked"))
 
         # `delete_generation_outputs` has no directory to scan - it deletes
         # exactly the keys it's given, so every file plus its thumbnails

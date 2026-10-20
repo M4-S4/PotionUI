@@ -41,7 +41,7 @@ from src.features.downloads.persistent_loop import PersistentLoop
 from src.features.downloads.hooks import DOWNLOAD_HOOKS
 from src.features.downloads.utils import safe_download_name, url_path_name
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.util.path_resolution import is_within
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 
@@ -532,7 +532,7 @@ class DownloadQueue:
                 would escape the configured depot
         """
         # Execute before_queue hook
-        hook_data, blocked = execute_hook(self.plugins,
+        hook_data = run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_queue,
             {
                 "url": url,
@@ -544,13 +544,9 @@ class DownloadQueue:
                 "provider_id": provider_id,
                 "created_by": created_by,
                 "model_type": model_type,
-            }
+            },
+            "Download queue blocked", error=DownloadQueueException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Download queue blocked")
-            logger.warning(f"Model download queue blocked by plugin: {reason}")
-            raise DownloadQueueException(reason)
 
         # Allow hooks to modify data
         url = hook_data.get("url", url)
@@ -639,7 +635,7 @@ class DownloadQueue:
             DownloadQueueException: If queueing fails or is blocked
         """
         # Execute before_queue hook
-        hook_data, blocked = execute_hook(self.plugins,
+        hook_data = run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_queue,
             {
                 "url": url,
@@ -647,13 +643,9 @@ class DownloadQueue:
                 "destination_dir": destination_dir,
                 "filename": filename,
                 "created_by": created_by
-            }
+            },
+            "Download queue blocked", error=DownloadQueueException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Download queue blocked")
-            logger.warning(f"Media download queue blocked by plugin: {reason}")
-            raise DownloadQueueException(reason)
 
         # Allow hooks to modify data
         url = hook_data.get("url", url)
@@ -871,7 +863,7 @@ class DownloadQueue:
         trusted = trusted_destination_dir is not None
         requested_dir = trusted_destination_dir if trusted else destination_dir
 
-        hook_data, blocked = execute_hook(self.plugins,
+        hook_data = run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_queue,
             {
                 "url": repo_url,
@@ -879,12 +871,9 @@ class DownloadQueue:
                 "destination_dir": requested_dir,
                 "filename": repo_id,
                 "created_by": created_by,
-            }
+            },
+            "Download queue blocked", error=DownloadQueueException,
         )
-        if blocked:
-            reason = hook_data.get("block_reason", "Download queue blocked")
-            logger.warning(f"HF repo download queue blocked by plugin: {reason}")
-            raise DownloadQueueException(reason)
 
         destination_dir = hook_data.get("destination_dir", requested_dir)
         if destination_dir != requested_dir:
@@ -1220,18 +1209,14 @@ class DownloadQueue:
     ) -> Download:
         download = self.get_download(download_id)
 
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             before_hook,
             {
                 "download_id": download_id,
                 "filename": download.filename
-            }
+            },
+            f"{verb.capitalize()} blocked", error=DownloadOperationException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", f"{verb.capitalize()} blocked")
-            logger.warning(f"Download {verb} blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
 
         if not self.worker:
             raise DownloadOperationException("Download worker not running")
@@ -1336,18 +1321,14 @@ class DownloadQueue:
         download = self.get_download(download_id)
 
         # Execute before_delete hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_delete,
             {
                 "download_id": download_id,
                 "filename": download.filename
-            }
+            },
+            "Delete blocked", error=DownloadOperationException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Delete blocked")
-            logger.warning(f"Download delete blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
 
         # Cancel if active
         if self.worker:
@@ -1374,17 +1355,13 @@ class DownloadQueue:
         logger.info(f"Deleted download: {download.filename}")
 
     def _clear(self, clear_type: str, delete: Callable[[], int]) -> int:
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             DOWNLOAD_HOOKS.before_clear,
             {
                 "clear_type": clear_type
-            }
+            },
+            "Clear blocked", error=DownloadOperationException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Clear blocked")
-            logger.warning(f"Clear {clear_type} blocked by plugin: {reason}")
-            raise DownloadOperationException(reason)
 
         count = delete()
 

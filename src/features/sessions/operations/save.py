@@ -15,7 +15,7 @@ from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import SessionVersionRepository
 from src.platform.http.errors import AccessDeniedError, ConflictError, NotFoundError
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.sessions.hooks import SESSION_HOOKS
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ def _create_new_session(
     Raises:
         ValueError: If creation blocked or failed
     """
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugin_registry,
         SESSION_HOOKS.before_create,
         {
@@ -114,12 +114,8 @@ def _create_new_session(
             "mode": request.mode,
             "user_id": user_id,
         },
+        "Session creation blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Session creation blocked")
-        logger.warning(f"Session creation blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     # Allow hooks to modify data
     session_data = hook_data.get("data", request.data)
@@ -168,7 +164,7 @@ def _update_existing_session(
     Raises:
         ValueError: If update blocked or failed
     """
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugin_registry,
         SESSION_HOOKS.before_update,
         {
@@ -180,12 +176,8 @@ def _update_existing_session(
             "mode": mode,
             "user_id": user_id,
         },
+        "Session update blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Session update blocked")
-        logger.warning(f"Session update blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     new_data = hook_data.get("new_data", new_data)
     merged_data = _merge_mode_data(existing_session.data, new_data, mode)
@@ -288,7 +280,7 @@ def update_session(
         if existing_with_name:
             raise ConflictError("session_name_exists", f"Session with name '{request.name}' already exists for this preset")
 
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugin_registry,
         SESSION_HOOKS.before_update,
         {
@@ -301,12 +293,8 @@ def update_session(
             "mode": request.mode,
             "user_id": user_id,
         },
+        "Session update blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Session update blocked")
-        logger.warning(f"Session update blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     new_data = hook_data.get("new_data", request.data)
     merged_data = _merge_mode_data(session.data, new_data, request.mode)

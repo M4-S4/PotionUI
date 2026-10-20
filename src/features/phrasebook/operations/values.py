@@ -18,7 +18,7 @@ from src.features.phrasebook.repository import (
     PhrasebookValueRepository,
 )
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def create_value(
     # Validate category exists
     get_category(category_repository, request.category_id, user_id)
 
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         PHRASEBOOK_HOOKS.before_create,
         {
@@ -44,11 +44,8 @@ def create_value(
             "value": request.value,
             "user_id": user_id,
         },
+        "Value creation blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Value creation blocked")
-        logger.warning(f"Value creation blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     value = PhrasebookValue(
         id=generate_ulid(),
@@ -92,7 +89,7 @@ def update_value(
     # Validate category exists
     get_category(category_repository, request.category_id, user_id)
 
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         PHRASEBOOK_HOOKS.before_update,
         {
@@ -104,11 +101,8 @@ def update_value(
             "new_value": request.value,
             "user_id": user_id,
         },
+        "Value update blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Value update blocked")
-        logger.warning(f"Value update blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     value = PhrasebookValue(
         id=value_id,
@@ -148,7 +142,7 @@ def delete_value(
 ) -> bool:
     existing = get_value(value_repository, value_id, user_id)
 
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         PHRASEBOOK_HOOKS.before_delete,
         {
@@ -158,11 +152,8 @@ def delete_value(
             "category_id": existing.category_id,
             "user_id": user_id,
         },
+        "Value deletion blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Value deletion blocked")
-        logger.warning(f"Value deletion blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     success = value_repository.delete(value_id, user_id)
     if not success:

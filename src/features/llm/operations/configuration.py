@@ -19,7 +19,7 @@ from src.features.llm.exceptions import (
 from src.features.llm.hooks import LLM_CONFIG_HOOKS
 from src.features.llm.repository import LLMConfig, LLMRepository
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.util.ids import generate_ulid
 
 if TYPE_CHECKING:
@@ -47,16 +47,12 @@ def create_configuration(
     request.id = config_id
 
     # Execute before_create hook
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugins,
         LLM_CONFIG_HOOKS.before_create,
         {"config_id": config_id, "request": request.model_dump()},
+        "Configuration creation blocked", error=ConfigurationCreationFailedException,
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Configuration creation blocked")
-        logger.warning(f"LLM config creation blocked by plugin: {reason}")
-        raise ConfigurationCreationFailedException(reason)
 
     # Check if configuration already exists
     if repo.get_configuration(config_id):
@@ -112,16 +108,12 @@ def update_configuration(
         request.api_key = existing.api_key
 
     # Execute before_update hook
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugins,
         LLM_CONFIG_HOOKS.before_update,
         {"config_id": config_id, "request": request.model_dump()},
+        "Configuration update blocked", error=ConfigurationUpdateFailedException,
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Configuration update blocked")
-        logger.warning(f"LLM config update blocked by plugin: {reason}")
-        raise ConfigurationUpdateFailedException(reason)
 
     # Ensure the ID in the request matches
     request.id = config_id
@@ -171,14 +163,10 @@ def delete_configuration(
         )
 
     # Execute before_delete hook
-    hook_data, blocked = execute_hook(
-        plugins, LLM_CONFIG_HOOKS.before_delete, {"config_id": config_id}
+    run_veto_hook(
+        plugins, LLM_CONFIG_HOOKS.before_delete, {"config_id": config_id},
+        "Configuration deletion blocked", error=ConfigurationDeletionFailedException,
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Configuration deletion blocked")
-        logger.warning(f"LLM config deletion blocked by plugin: {reason}")
-        raise ConfigurationDeletionFailedException(reason)
 
     # Delete configuration
     success = repo.delete_configuration(config_id)

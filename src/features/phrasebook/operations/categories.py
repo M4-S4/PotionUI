@@ -13,7 +13,7 @@ from src.features.phrasebook.hooks import PHRASEBOOK_HOOKS
 from src.features.phrasebook.operations.reads import get_category
 from src.features.phrasebook.repository import PhrasebookCategoryRepository
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ def create_category(
     request: PhrasebookCategoryRequest,
     user_id: str,
 ) -> PhrasebookCategory:
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         PHRASEBOOK_HOOKS.before_create,
         {
@@ -36,11 +36,8 @@ def create_category(
             "description": request.description,
             "user_id": user_id,
         },
+        "Category creation blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Category creation blocked")
-        logger.warning(f"Category creation blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     existing = category_repository.get_by_path(request.path, user_id)
     if existing:
@@ -84,7 +81,7 @@ def update_category(
 ) -> PhrasebookCategory:
     existing = get_category(category_repository, category_id, user_id)
 
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         PHRASEBOOK_HOOKS.before_update,
         {
@@ -96,11 +93,8 @@ def update_category(
             "new_path": request.path,
             "user_id": user_id,
         },
+        "Category update blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Category update blocked")
-        logger.warning(f"Category update blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     if request.path != existing.path:
         conflicting = category_repository.get_by_path(request.path, user_id)
@@ -146,7 +140,7 @@ def delete_category(
 ) -> bool:
     existing = get_category(category_repository, category_id, user_id)
 
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         PHRASEBOOK_HOOKS.before_delete,
         {
@@ -156,11 +150,8 @@ def delete_category(
             "path": existing.path,
             "user_id": user_id,
         },
+        "Category deletion blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Category deletion blocked")
-        logger.warning(f"Category deletion blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     success = category_repository.delete(category_id, user_id)
     if not success:

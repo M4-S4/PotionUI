@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.forms.hooks import FORM_HOOKS
 from src.platform.filesystem.yaml_io import load_yaml_cached
 
@@ -62,14 +62,11 @@ def get_field_options(
         ValueError: If field type is unsupported or operation is blocked
     """
     # Execute before hook
-    hook_data, blocked = execute_hook(plugin_registry,
+    hook_data = run_veto_hook(plugin_registry,
         FORM_HOOKS.before_get_options,
-        {"field_type": field_type, "field_config": field_config}
+        {"field_type": field_type, "field_config": field_config},
+        "Operation blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Operation blocked")
-        logger.warning(f"Field options retrieval blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     # Use potentially modified config from hook
     field_config = hook_data.get("field_config", field_config)

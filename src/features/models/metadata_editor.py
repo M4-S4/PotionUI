@@ -13,7 +13,7 @@ from src.features.models.exceptions import (
     InvalidTagException,
     InvalidModelMetadataException,
 )
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.models.hooks import MODEL_INDEX_HOOKS
 from src.features.models.repository import ModelRepository
 from src.features.tags.repository import TagRepository
@@ -62,15 +62,12 @@ class ModelMetadataEditor:
                 f"'{model.filename}' is offered by a provider; disable it in the backend's catalog instead of deleting it"
             )
 
-        hook_data, blocked = execute_hook(
+        run_veto_hook(
             self.plugins,
             MODEL_INDEX_HOOKS.before_delete,
-            {"model_id": model_id, "filename": model.filename}
+            {"model_id": model_id, "filename": model.filename},
+            "Delete blocked by plugin", error=ModelIndexingException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Delete blocked by plugin")
-            raise ModelIndexingException(reason)
 
         success = self.model_repo.delete(model_id)
 
@@ -112,15 +109,12 @@ class ModelMetadataEditor:
             if not tag or tag.type != 'MODEL':
                 raise InvalidTagException(f"Invalid tag ID: {tag_id}")
 
-        hook_data, blocked = execute_hook(
+        run_veto_hook(
             self.plugins,
             MODEL_INDEX_HOOKS.before_update_tags,
-            {"model_id": model_id, "tag_ids": tag_ids}
+            {"model_id": model_id, "tag_ids": tag_ids},
+            "Tag update blocked by plugin", error=InvalidTagException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Tag update blocked by plugin")
-            raise InvalidTagException(reason)
 
         success = self.tag_repo.set_model_tags(model_id, tag_ids)
 

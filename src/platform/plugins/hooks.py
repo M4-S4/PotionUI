@@ -76,6 +76,27 @@ def execute_hook(plugins: "PluginRegistry", hook, data: dict) -> Tuple[dict, boo
     return context.data, blocked
 
 
+class BlockedByPlugin(ValueError):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def run_veto_hook(
+    plugins: "PluginRegistry",
+    hook,
+    data: dict,
+    default_reason: str,
+    error: Callable[[str], BaseException] = BlockedByPlugin,
+) -> dict:
+    result, blocked = execute_hook(plugins, hook, data)
+    if blocked:
+        reason = result.get("block_reason", default_reason)
+        logger.warning("%s blocked by plugin: %s", hook, reason)
+        raise error(reason)
+    return result
+
+
 HookKind = Literal["backend", "frontend"]
 
 # Fields a `specs`/`declare_one` payload dict may carry, beyond `description`.

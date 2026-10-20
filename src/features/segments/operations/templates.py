@@ -15,7 +15,7 @@ from src.features.segments.hooks import SEGMENT_HOOKS
 from src.features.segments.operations.reads import get_template
 from src.features.segments.repository import SegmentTemplateRepository
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ def create_template(
     request: SegmentTemplateRequest,
     user_id: str,
 ) -> SegmentTemplate:
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         SEGMENT_HOOKS.before_create_template,
         {
@@ -43,11 +43,8 @@ def create_template(
             "segments": [segment.model_dump(mode="json") for segment in request.segments],
             "user_id": user_id,
         },
+        "Segment Template creation blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Segment Template creation blocked")
-        logger.warning("Segment-domain operation blocked by plugin: %s", reason)
-        raise ValueError(reason)
 
     if template_repository.get_by_name(request.name, user_id):
         raise ValueError("Segment Template with this name already exists")
@@ -86,7 +83,7 @@ def update_template(
     user_id: str,
 ) -> SegmentTemplate:
     existing = get_template(template_repository, template_id, user_id)
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         SEGMENT_HOOKS.before_update_template,
         {
@@ -98,11 +95,8 @@ def update_template(
             "segments": [segment.model_dump(mode="json") for segment in request.segments],
             "user_id": user_id,
         },
+        "Segment Template update blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Segment Template update blocked")
-        logger.warning("Segment-domain operation blocked by plugin: %s", reason)
-        raise ValueError(reason)
 
     duplicate = template_repository.get_by_name(request.name, user_id)
     if duplicate and duplicate.id != template_id:
@@ -145,15 +139,12 @@ def delete_template(
     user_id: str,
 ) -> bool:
     existing = get_template(template_repository, template_id, user_id)
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         SEGMENT_HOOKS.before_delete_template,
         {"template_id": template_id, "name": existing.name, "user_id": user_id},
+        "Segment Template deletion blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Segment Template deletion blocked")
-        logger.warning("Segment-domain operation blocked by plugin: %s", reason)
-        raise ValueError(reason)
 
     if not template_repository.delete(template_id, user_id):
         raise ValueError("Segment Template not found")

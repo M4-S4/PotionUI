@@ -830,7 +830,8 @@ class TestControlAndClearHooks:
             calls.append((hook, data))
             return {}, False
 
-        with patch('src.features.downloads.queue.execute_hook', record):
+        with patch('src.platform.plugins.hooks.execute_hook', record), \
+                patch('src.features.downloads.queue.execute_hook', record):
             await getattr(manager, action)('test-id')
             getattr(worker, worker_method).return_value = False
             with pytest.raises(DownloadOperationException) as raised:
@@ -855,7 +856,7 @@ class TestControlAndClearHooks:
         mock_repository.get_by_id.return_value = download
         manager.worker = AsyncMock()
 
-        with patch('src.features.downloads.queue.execute_hook', lambda *_: ({}, True)):
+        with patch('src.platform.plugins.hooks.execute_hook', lambda *_: ({}, True)):
             with pytest.raises(DownloadOperationException) as raised:
                 await getattr(manager, action)('test-id')
 
@@ -873,7 +874,8 @@ class TestControlAndClearHooks:
             calls.append((hook, data))
             return {}, False
 
-        with patch('src.features.downloads.queue.execute_hook', record):
+        with patch('src.platform.plugins.hooks.execute_hook', record), \
+                patch('src.features.downloads.queue.execute_hook', record):
             assert getattr(manager, action)() == 4
 
         assert calls == [

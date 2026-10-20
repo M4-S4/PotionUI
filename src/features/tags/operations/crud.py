@@ -14,7 +14,7 @@ from src.features.tags.errors import TagInUseByPresetError
 from src.features.tags.repository import TagRepository
 from src.platform.http.errors import AccessDeniedError, NotFoundError
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.tags.hooks import TAG_HOOKS
 
 logger = logging.getLogger(__name__)
@@ -44,16 +44,12 @@ def create_tag(tag_repository: TagRepository, plugin_registry: PluginRegistry, r
 
     effective_user_id = effective_user_id_for_type(request.type, user_id)
 
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugin_registry,
         TAG_HOOKS.before_create,
         {"name": request.name, "type": request.type.value, "user_id": effective_user_id},
+        "Tag creation blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Tag creation blocked")
-        logger.warning(f"Tag creation blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     # Allow hooks to modify name
     name = hook_data.get("name", request.name)
@@ -98,7 +94,7 @@ def update_tag(tag_repository: TagRepository, plugin_registry: PluginRegistry, t
     if existing.type == TagType.MODEL and not is_admin:
         raise AccessDeniedError("tag_access_denied", "Tag not found or access denied")
 
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugin_registry,
         TAG_HOOKS.before_update,
         {
@@ -108,12 +104,8 @@ def update_tag(tag_repository: TagRepository, plugin_registry: PluginRegistry, t
             "type": existing.type,
             "user_id": existing.user_id,
         },
+        "Tag update blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Tag update blocked")
-        logger.warning(f"Tag update blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     name = hook_data.get("new_name", request.name)
 
@@ -189,16 +181,12 @@ def delete_tag(
             })
         raise TagInUseByPresetError(tag_id, used_by)
 
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         TAG_HOOKS.before_delete,
         {"tag_id": tag_id, "name": existing.name, "type": existing.type, "user_id": existing.user_id},
+        "Tag deletion blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Tag deletion blocked")
-        logger.warning(f"Tag deletion blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     success = tag_repository.delete_tag(tag_id)
     if not success:
