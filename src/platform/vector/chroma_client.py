@@ -11,11 +11,14 @@ client instead of each opening (and holding a connection to) its own.
 
 from __future__ import annotations
 
+import logging
 import threading
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     import chromadb
+
+logger = logging.getLogger(__name__)
 
 
 class ChromaClientProvider:
@@ -57,3 +60,49 @@ class ChromaClientProvider:
             client, self._client = self._client, None
         if client is not None:
             client.close()
+
+
+class ChromaCollectionStore:
+    collection_prefix: str = ""
+
+    def __init__(
+        self,
+        persist_dir: str = "storage/chromadb",
+        embedder_slug: str = "default",
+        client_provider: Optional[ChromaClientProvider] = None,
+    ):
+        self._persist_dir = persist_dir
+        self._embedder_slug = embedder_slug
+        self._client: Optional["chromadb.ClientAPI"] = None
+        self._client_provider = client_provider or ChromaClientProvider(persist_dir)
+
+    @property
+    def client(self) -> "chromadb.ClientAPI":
+        if self._client is not None:
+            return self._client
+        return self._client_provider.get()
+
+    def _collection_name(self, user_id: str) -> str:
+        return f"{self.collection_prefix}{user_id}__{self._embedder_slug}"
+
+    def get_collection(self, user_id: str) -> "chromadb.Collection":
+        return self.client.get_or_create_collection(
+            name=self._collection_name(user_id),
+            metadata={"hnsw:space": "cosine"},
+        )
+
+    def is_collection_empty(self, user_id: str) -> bool:
+        try:
+            return self.get_collection(user_id).count() == 0
+        except Exception as e:
+            logger.error(f"ChromaDB is_collection_empty failed on '{self.collection_prefix}{user_id}': {e}")
+            return False
+
+    def bulk_delete(self, user_id: str, ids: List[str]) -> None:
+        if not ids:
+            return
+        collection = self.get_collection(user_id)
+        try:
+            collection.delete(ids=ids)
+        except Exception as e:
+            logger.error(f"ChromaDB bulk_delete failed on '{self.collection_prefix}{user_id}': {e}")

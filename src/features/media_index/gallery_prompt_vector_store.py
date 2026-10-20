@@ -19,50 +19,15 @@ same directory.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from src.platform.vector.chroma_client import ChromaClientProvider
-
-if TYPE_CHECKING:
-    import chromadb
+from src.platform.vector.chroma_client import ChromaCollectionStore
 
 logger = logging.getLogger(__name__)
 
 
-class GalleryPromptVectorStore:
-    """Per-user, per-file generation-prompt text embeddings, cosine-ranked."""
-
-    def __init__(
-        self,
-        persist_dir: str = "storage/chromadb",
-        embedder_slug: str = "default",
-        client_provider: Optional[ChromaClientProvider] = None,
-    ):
-        self._persist_dir = persist_dir
-        self._embedder_slug = embedder_slug
-        # Test-injection override only (see the `client` property) - stays
-        # None in production, where the provider is the sole cache.
-        self._client: Optional["chromadb.ClientAPI"] = None
-        self._client_provider = client_provider or ChromaClientProvider(persist_dir)
-
-    @property
-    def client(self) -> "chromadb.ClientAPI":
-        # `self._client` is a test-injection override, never a production
-        # cache: production reads delegate to the provider's cache on every
-        # access, so a store never keeps serving a client the provider has
-        # since closed via ChromaClientProvider.close().
-        if self._client is not None:
-            return self._client
-        return self._client_provider.get()
-
-    def _collection_name(self, user_id: str) -> str:
-        return f"gallery_prompts_{user_id}__{self._embedder_slug}"
-
-    def get_collection(self, user_id: str) -> "chromadb.Collection":
-        return self.client.get_or_create_collection(
-            name=self._collection_name(user_id),
-            metadata={"hnsw:space": "cosine"},
-        )
+class GalleryPromptVectorStore(ChromaCollectionStore):
+    collection_prefix = "gallery_prompts_"
 
     def add(
         self,
@@ -84,12 +49,3 @@ class GalleryPromptVectorStore:
             documents=[prompt_text],
             metadatas=[safe_meta] if safe_meta else None,
         )
-
-    def bulk_delete(self, user_id: str, file_ids: List[str]) -> None:
-        if not file_ids:
-            return
-        collection = self.get_collection(user_id)
-        try:
-            collection.delete(ids=file_ids)
-        except Exception as e:
-            logger.error(f"ChromaDB gallery-prompt bulk_delete failed: {e}")
