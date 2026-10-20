@@ -326,6 +326,37 @@ def test_submit_runs_to_succeeded_with_a_downloadable_artifact(client, container
     assert hashlib.sha256(art_resp.content).hexdigest() == artifact.digest.hex
 
 
+def test_the_event_stream_delivers_the_terminal_event_of_a_run_that_ends_between_two_reads(
+    client, container, monkeypatch
+):
+    import json as jsonlib
+
+    GatedPipe.gate = threading.Event()
+    real_events_after = container.coordinator.events_after
+
+    def events_after(execution_id, after_cursor):
+        events = real_events_after(execution_id, after_cursor)
+        if not GatedPipe.gate.is_set():
+            GatedPipe.gate.set()
+            _wait_for_terminal(container, execution_id)
+        return events
+
+    monkeypatch.setattr(container.coordinator, "events_after", events_after)
+    package = _package(container, execution_id="exec-race", pipe_type="gated/fake", digest_hex="33" * 32)
+    assert client.post("/v1/executions", json=envelope(package), headers=_auth()).status_code == 202
+
+    events_resp = client.get("/v1/executions/exec-race/events?after=0", headers=_auth())
+
+    events = [
+        read_envelope(jsonlib.loads(chunk[len("data: "):]))
+        for chunk in events_resp.text.split("\n\n") if chunk.startswith("data: ")
+    ]
+    assert events[0].kind == "accepted"
+    assert events[-1].kind == "succeeded"
+    cursors = [event.cursor for event in events]
+    assert cursors == sorted(set(cursors))
+
+
 # -- idempotency --------------------------------------------------------------
 
 def test_resubmitting_the_same_digest_does_not_re_execute(client, container):
