@@ -68,3 +68,28 @@ export async function clickDialogSaveAndAwaitResponse(page: Page): Promise<void>
 	const body = response.ok() ? '' : await response.text();
 	expect(response.ok(), `POST /api/sessions/save -> ${response.status()} ${body}`).toBeTruthy();
 }
+
+export async function expectNoBoxOverlap(
+	items: Array<{ name: string; locator: import('@playwright/test').Locator }>
+): Promise<void> {
+	const boxes: Array<{ name: string; x: number; y: number; width: number; height: number }> = [];
+	for (const { name, locator } of items) {
+		const count = await locator.count();
+		for (let i = 0; i < count; i++) {
+			const box = await locator.nth(i).boundingBox();
+			if (box && box.width > 0 && box.height > 0) boxes.push({ name: `${name}[${i}]`, ...box });
+		}
+	}
+	for (let a = 0; a < boxes.length; a++) {
+		for (let b = a + 1; b < boxes.length; b++) {
+			const p = boxes[a];
+			const q = boxes[b];
+			const overlap =
+				p.x < q.x + q.width - 0.5 &&
+				q.x < p.x + p.width - 0.5 &&
+				p.y < q.y + q.height - 0.5 &&
+				q.y < p.y + p.height - 0.5;
+			expect(overlap, `${p.name} overlaps ${q.name}`).toBe(false);
+		}
+	}
+}
