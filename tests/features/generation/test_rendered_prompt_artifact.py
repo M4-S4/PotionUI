@@ -25,9 +25,9 @@ class TestRegistration:
         spec, output = _spec()
         assert spec.resolve_message_type(output) == "pipe_artifact"
 
-    def test_has_a_transport_only_handler(self):
+    def test_is_serialize_only(self):
         spec, _ = _spec()
-        assert spec.handler_cls is not None
+        assert spec.handler_cls is None
 
 
 class TestSerializer:

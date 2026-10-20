@@ -1,28 +1,6 @@
-"""
-Artifact-specific generation output handlers.
-
-This module contains handlers for artifact-type generation outputs that are
-primarily used for transport and display purposes, not for persistent storage.
-These handlers process outputs like progress updates, timers, comparisons,
-model information, and seeds - all of which are meant to provide real-time
-feedback and metadata during the generation process.
-
-Handler Categories:
-- CompareImagesGenerationOutputHandler: Handles image comparison artifacts
-- ProgressGenerationOutputHandler: Handles generation progress updates
-- TimerGenerationOutputHandler: Handles timing information
-- ModelsGenerationOutputHandler: Handles model metadata
-- SeedGenerationOutputHandler: Handles seed artifact outputs
-- ComfyUIWorkflowGenerationOutputHandler: Handles ComfyUI workflow artifacts
-
-All handlers inherit from BaseGenerationOutputHandler and implement
-transport-only behavior (no file saving).
-"""
-
 import logging
 import os
 from typing import Dict, Any
-from abc import ABC, abstractmethod
 
 from src.pipelines.outputs import (
     GenerationOutput,
@@ -39,247 +17,11 @@ from src.pipelines.outputs import (
     ModelFileGenerationOutput,
 )
 
-# Import base handler from core
 from src.features.generation.handlers.base_handler import BaseGenerationOutputHandler
 from src.features.generation.output_types import OutputTypeSpec, SerializeContext, output_type_registry
 from src.features.generation.media_utils import create_base64_image
 
 logger = logging.getLogger(__name__)
-
-
-class CompareImagesGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for CompareImagesGenerationOutput - processes comparison images."""
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process CompareImagesGenerationOutput."""
-        return isinstance(output, CompareImagesGenerationOutput)
-
-    def handle(self, output: CompareImagesGenerationOutput) -> Dict[str, Any]:
-        """
-        Process CompareImagesGenerationOutput - transport only, no saving.
-
-        Args:
-            output: CompareImagesGenerationOutput to process
-
-        Returns:
-            Dictionary with processing metadata
-        """
-        metadata = {
-            'handler': 'CompareImagesGenerationOutputHandler',
-            'processed': True
-        }
-
-        try:
-            return metadata
-
-        except Exception as e:
-            logger.error(f"Error handling CompareImagesGenerationOutput: {str(e)}")
-            metadata['error'] = str(e)
-            metadata['processed'] = False
-            return metadata
-
-
-class ProgressGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for ProgressGenerationOutput - processes progress updates."""
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process ProgressGenerationOutput."""
-        return isinstance(output, ProgressGenerationOutput)
-
-    def handle(self, output: ProgressGenerationOutput) -> Dict[str, Any]:
-        """
-        Process ProgressGenerationOutput - transport only, no saving.
-
-        Args:
-            output: ProgressGenerationOutput to process
-
-        Returns:
-            Dictionary with processing metadata
-        """
-        metadata = {
-            'handler': 'ProgressGenerationOutputHandler',
-            'processed': True
-        }
-
-        try:
-            return metadata
-
-        except Exception as e:
-            logger.error(f"Error handling ProgressGenerationOutput: {str(e)}")
-            metadata['error'] = str(e)
-            metadata['processed'] = False
-            return metadata
-
-
-class TimerGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for TimerGenerationOutput - processes timer updates."""
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process TimerGenerationOutput."""
-        return isinstance(output, TimerGenerationOutput)
-
-    def handle(self, output: TimerGenerationOutput) -> Dict[str, Any]:
-        """
-        Process TimerGenerationOutput - transport only, no saving.
-
-        Args:
-            output: TimerGenerationOutput to process
-
-        Returns:
-            Dictionary with processing metadata
-        """
-        metadata = {
-            'handler': 'TimerGenerationOutputHandler',
-            'processed': True
-        }
-
-        try:
-            return metadata
-
-        except Exception as e:
-            logger.error(f"Error handling TimerGenerationOutput: {str(e)}")
-            metadata['error'] = str(e)
-            metadata['processed'] = False
-            return metadata
-
-
-class ModelsGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for ModelsGenerationOutput - processes model information."""
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process ModelsGenerationOutput."""
-        return isinstance(output, ModelsGenerationOutput)
-
-    def handle(self, output: ModelsGenerationOutput) -> Dict[str, Any]:
-        """
-        Process ModelsGenerationOutput - transport only, no saving.
-
-        Args:
-            output: ModelsGenerationOutput to process
-
-        Returns:
-            Dictionary with processing metadata
-        """
-        metadata = {
-            'handler': 'ModelsGenerationOutputHandler',
-            'processed': True
-        }
-
-        try:
-            return metadata
-
-        except Exception as e:
-            logger.error(f"Error handling ModelsGenerationOutput: {str(e)}")
-            metadata['error'] = str(e)
-            metadata['processed'] = False
-            return metadata
-
-
-class SeedGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for SeedGenerationOutput - processes seed artifact outputs."""
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process SeedGenerationOutput."""
-        return isinstance(output, SeedGenerationOutput)
-
-    def handle(self, output: SeedGenerationOutput) -> Dict[str, Any]:
-        """
-        Process SeedGenerationOutput - transport only, no saving.
-
-        Args:
-            output: SeedGenerationOutput to process
-
-        Returns:
-            Dictionary with processing metadata
-        """
-        metadata = {
-            'handler': 'SeedGenerationOutputHandler',
-            'processed': True,
-            'index': output.index,
-            'seed': output.seed
-        }
-
-        try:
-            return metadata
-
-        except Exception as e:
-            logger.error(f"Error handling SeedGenerationOutput: {str(e)}")
-            metadata['error'] = str(e)
-            metadata['processed'] = False
-            return metadata
-
-
-class RenderedPromptGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for RenderedPromptGenerationOutput - transport-only rendered-prompt provenance.
-
-    Mirrors SeedGenerationOutputHandler: no file saving. The serializer delivers
-    the resolved per-image prompt to the frontend as a pipe_artifact; the
-    handler exists so OutputProcessor doesn't log an "unhandled output" warning
-    on every emission (same reason DiffTextGenerationOutputHandler exists)."""
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process RenderedPromptGenerationOutput."""
-        return isinstance(output, RenderedPromptGenerationOutput)
-
-    def handle(self, output: RenderedPromptGenerationOutput) -> Dict[str, Any]:
-        """Process RenderedPromptGenerationOutput - transport only, no saving."""
-        return {
-            'handler': 'RenderedPromptGenerationOutputHandler',
-            'processed': True,
-            'index': output.index,
-        }
-
-
-class WarmStartGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for WarmStartGenerationOutput - transport-only iterate-mode telemetry."""
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        return isinstance(output, WarmStartGenerationOutput)
-
-    def handle(self, output: WarmStartGenerationOutput) -> Dict[str, Any]:
-        """Process WarmStartGenerationOutput - transport only, no saving."""
-        return {
-            'handler': 'WarmStartGenerationOutputHandler',
-            'processed': True,
-            'index': output.index,
-            'resume_step': output.resume_step,
-        }
-
-
-class DiffTextGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for DiffTextGenerationOutput - transport-only prompt-diff artifact.
-
-    Without a handler_cls, OutputProcessor._process_via_spec() treats the
-    spec as unhandled ("No handler registered for DiffTextGenerationOutput")
-    and logs a warning on every single emission, even though the serializer
-    already delivers it to the frontend fine as a pipe_artifact message. This
-    mirrors every other transport-only artifact handler in this file.
-    """
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process DiffTextGenerationOutput."""
-        return isinstance(output, DiffTextGenerationOutput)
-
-    def handle(self, output: DiffTextGenerationOutput) -> Dict[str, Any]:
-        """Process DiffTextGenerationOutput - transport only, no saving."""
-        return {
-            'handler': 'DiffTextGenerationOutputHandler',
-            'processed': True,
-            'name': output.name,
-        }
-
-
-class TextGenerationOutputHandler(BaseGenerationOutputHandler):
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        return isinstance(output, TextGenerationOutput)
-
-    def handle(self, output: TextGenerationOutput) -> Dict[str, Any]:
-        return {
-            'handler': 'TextGenerationOutputHandler',
-            'processed': True,
-            'index': output.index,
-        }
 
 
 class ModelFileGenerationOutputHandler(BaseGenerationOutputHandler):
@@ -308,39 +50,6 @@ class ModelFileGenerationOutputHandler(BaseGenerationOutputHandler):
         metadata['indexed'] = output.indexed
         metadata['model_id'] = output.model_id
         return metadata
-
-class ComfyUIWorkflowGenerationOutputHandler(BaseGenerationOutputHandler):
-    """Handler for ComfyUIWorkflowGenerationOutput - processes workflow artifacts for display."""
-
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process ComfyUIWorkflowGenerationOutput."""
-        return isinstance(output, ComfyUIWorkflowGenerationOutput)
-
-    def handle(self, output: ComfyUIWorkflowGenerationOutput) -> Dict[str, Any]:
-        """
-        Process ComfyUIWorkflowGenerationOutput - transport only, no saving.
-
-        Args:
-            output: ComfyUIWorkflowGenerationOutput to process
-
-        Returns:
-            Dictionary with processing metadata
-        """
-        metadata = {
-            'handler': 'ComfyUIWorkflowGenerationOutputHandler',
-            'processed': True,
-            'node_count': output.node_count,
-            'workflow_file': output.workflow_file
-        }
-
-        try:
-            return metadata
-
-        except Exception as e:
-            logger.error(f"Error handling ComfyUIWorkflowGenerationOutput: {str(e)}")
-            metadata['error'] = str(e)
-            metadata['processed'] = False
-            return metadata
 
 
 def serialize_compare_images_output(output: CompareImagesGenerationOutput, ctx: SerializeContext) -> Dict[str, Any]:
@@ -571,7 +280,6 @@ output_type_registry.register(OutputTypeSpec(
     key='compare_images',
     message_type='pipe_artifact',
     serializer=serialize_compare_images_output,
-    handler_cls=CompareImagesGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -579,7 +287,6 @@ output_type_registry.register(OutputTypeSpec(
     key='progress',
     message_type='generation_status',
     serializer=serialize_progress_output,
-    handler_cls=ProgressGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -587,7 +294,6 @@ output_type_registry.register(OutputTypeSpec(
     key='timer',
     message_type='timer_update',
     serializer=serialize_timer_output,
-    handler_cls=TimerGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -595,7 +301,6 @@ output_type_registry.register(OutputTypeSpec(
     key='models',
     message_type='pipe_artifact',
     serializer=serialize_models_output,
-    handler_cls=ModelsGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -603,7 +308,6 @@ output_type_registry.register(OutputTypeSpec(
     key='seed',
     message_type='pipe_artifact',
     serializer=serialize_seed_output,
-    handler_cls=SeedGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -611,7 +315,6 @@ output_type_registry.register(OutputTypeSpec(
     key='rendered_prompt',
     message_type='pipe_artifact',
     serializer=serialize_rendered_prompt_output,
-    handler_cls=RenderedPromptGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -619,7 +322,6 @@ output_type_registry.register(OutputTypeSpec(
     key='warm_start',
     message_type='pipe_artifact',
     serializer=serialize_warm_start_output,
-    handler_cls=WarmStartGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -627,7 +329,6 @@ output_type_registry.register(OutputTypeSpec(
     key='comfyui_workflow',
     message_type='pipe_artifact',
     serializer=serialize_workflow_output,
-    handler_cls=ComfyUIWorkflowGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -635,7 +336,6 @@ output_type_registry.register(OutputTypeSpec(
     key='diff_text',
     message_type='pipe_artifact',
     serializer=serialize_diff_text_output,
-    handler_cls=DiffTextGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(
@@ -643,7 +343,6 @@ output_type_registry.register(OutputTypeSpec(
     key='text',
     message_type='pipe_artifact',
     serializer=serialize_text_output,
-    handler_cls=TextGenerationOutputHandler,
 ))
 
 output_type_registry.register(OutputTypeSpec(

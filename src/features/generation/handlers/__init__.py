@@ -19,16 +19,6 @@ from src.features.generation.handlers.mesh_handler import MeshGenerationOutputHa
 from src.features.generation.handlers.gallery_handler import GalleryGenerationOutputHandler
 from src.features.generation.handlers.param_handler import ParamGenerationOutputHandler
 from src.features.generation.handlers.artifact_handlers import (
-    CompareImagesGenerationOutputHandler,
-    ProgressGenerationOutputHandler,
-    TimerGenerationOutputHandler,
-    ModelsGenerationOutputHandler,
-    SeedGenerationOutputHandler,
-    RenderedPromptGenerationOutputHandler,
-    WarmStartGenerationOutputHandler,
-    ComfyUIWorkflowGenerationOutputHandler,
-    DiffTextGenerationOutputHandler,
-    TextGenerationOutputHandler,
     ModelFileGenerationOutputHandler,
 )
 from src.features.generation.handlers.cost_handler import CostGenerationOutputHandler
@@ -45,16 +35,6 @@ __all__ = [
     'MeshGenerationOutputHandler',
     'GalleryGenerationOutputHandler',
     'ParamGenerationOutputHandler',
-    'CompareImagesGenerationOutputHandler',
-    'ProgressGenerationOutputHandler',
-    'TimerGenerationOutputHandler',
-    'ModelsGenerationOutputHandler',
-    'SeedGenerationOutputHandler',
-    'RenderedPromptGenerationOutputHandler',
-    'WarmStartGenerationOutputHandler',
-    'ComfyUIWorkflowGenerationOutputHandler',
-    'DiffTextGenerationOutputHandler',
-    'TextGenerationOutputHandler',
     'ModelFileGenerationOutputHandler',
     'CostGenerationOutputHandler',
     'serialize_error_output',

@@ -19,11 +19,6 @@ from src.features.generation.handlers.image_handler import ImageGenerationOutput
 from src.features.generation.handlers.video_handler import VideoGenerationOutputHandler
 from src.features.generation.handlers.gallery_handler import GalleryGenerationOutputHandler
 from src.features.generation.handlers.param_handler import ParamGenerationOutputHandler
-from src.features.generation.handlers.artifact_handlers import (
-    SeedGenerationOutputHandler,
-    ModelsGenerationOutputHandler,
-    ProgressGenerationOutputHandler
-)
 from src.pipelines.outputs import (
     ImageGenerationOutput,
     VideoGenerationOutput,
@@ -190,94 +185,6 @@ class TestParamHandlerIntegration:
         assert result['processed'] is True
         assert result['parameter_name'] == 'cfg_scale'
         assert result['value_count'] == 3
-
-
-class TestSeedHandlerIntegration:
-    """Integration tests for seed handler."""
-
-    def test_seed_handler_can_handle(self):
-        """Test seed handler can_handle logic."""
-        handler = SeedGenerationOutputHandler('gen_123', 'user_456')
-
-        output = SeedGenerationOutput(index=0, seed=12345)
-
-        assert handler.can_handle(output) is True
-
-    def test_seed_handler_processes_seed(self):
-        """Test seed handler processes seed correctly."""
-        handler = SeedGenerationOutputHandler('gen_123', 'user_456')
-
-        output = SeedGenerationOutput(index=2, seed=98765)
-
-        result = handler.handle(output)
-
-        assert result['processed'] is True
-        assert result['seed'] == 98765
-        assert result['index'] == 2
-
-
-class TestModelsHandlerIntegration:
-    """Integration tests for models handler."""
-
-    def test_models_handler_can_handle(self):
-        """Test models handler can_handle logic."""
-        handler = ModelsGenerationOutputHandler('gen_123', 'user_456')
-
-        model = ModelGenerationOutput(name='test_model', type='checkpoint')
-        output = ModelsGenerationOutput(models=[model])
-
-        assert handler.can_handle(output) is True
-
-    def test_models_handler_processes_models(self):
-        """Test models handler processes models correctly."""
-        handler = ModelsGenerationOutputHandler('gen_123', 'user_456')
-
-        models = [
-            ModelGenerationOutput(name='checkpoint1', type='checkpoint', weight=1.0),
-            ModelGenerationOutput(name='lora1', type='lora', weight=0.8),
-            ModelGenerationOutput(name='lora2', type='lora', weight=0.6)
-        ]
-        output = ModelsGenerationOutput(models=models)
-
-        result = handler.handle(output)
-
-        # ModelsGenerationOutputHandler is transport-only, doesn't return model_count
-        assert result['processed'] is True
-        assert result['handler'] == 'ModelsGenerationOutputHandler'
-
-
-class TestProgressHandlerIntegration:
-    """Integration tests for progress handler."""
-
-    def test_progress_handler_can_handle(self):
-        """Test progress handler can_handle logic."""
-        handler = ProgressGenerationOutputHandler('gen_123', 'user_456')
-
-        output = ProgressGenerationOutput(
-            pipe_id=2,
-            state='Generating',
-            progress=Progress(current=5, max=10)
-        )
-
-        assert handler.can_handle(output) is True
-
-    def test_progress_handler_processes_progress(self):
-        """Test progress handler processes progress correctly."""
-        handler = ProgressGenerationOutputHandler('gen_123', 'user_456')
-
-        output = ProgressGenerationOutput(
-            pipe_id=3,
-            pipe_name='generator',
-            state='Processing',
-            title='Generating Images',
-            progress=Progress(current=7, max=10)
-        )
-
-        result = handler.handle(output)
-
-        # ProgressGenerationOutputHandler is transport-only, doesn't return state
-        assert result['processed'] is True
-        assert result['handler'] == 'ProgressGenerationOutputHandler'
 
 
 class TestUserIdPropagation:

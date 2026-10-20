@@ -9,13 +9,9 @@ from src.features.generation.handlers import (
     BaseGenerationOutputHandler, ImageGenerationOutputHandler,
     VideoGenerationOutputHandler, GalleryGenerationOutputHandler,
     ParamGenerationOutputHandler,
-    CompareImagesGenerationOutputHandler, ProgressGenerationOutputHandler,
-    TimerGenerationOutputHandler, ModelsGenerationOutputHandler,
-    SeedGenerationOutputHandler, AudioGenerationOutputHandler,
+    AudioGenerationOutputHandler,
     MeshGenerationOutputHandler,
-    ComfyUIWorkflowGenerationOutputHandler, WarmStartGenerationOutputHandler,
-    RenderedPromptGenerationOutputHandler, DiffTextGenerationOutputHandler,
-    TextGenerationOutputHandler, CostGenerationOutputHandler, ModelFileGenerationOutputHandler,
+    CostGenerationOutputHandler, ModelFileGenerationOutputHandler,
 )
 from src.features.generation.output_types import output_type_registry
 from src.pipelines.outputs import (
@@ -839,120 +835,30 @@ class TestGalleryOutputSerialization:
         assert payload['image_urls_list'][1]['label'] == "Guide: Pose"
 
 
-class TestCompareImagesGenerationOutputHandler:
-    def setup_method(self):
-        self.generation_id = "test_gen_123"
-        self.handler = CompareImagesGenerationOutputHandler(self.generation_id)
-
-        self.image1 = Image.new('RGB', (100, 100), color='red')
-        self.image2 = Image.new('RGB', (100, 100), color='blue')
-
-    def test_can_handle_compare_output(self):
-        output = CompareImagesGenerationOutput(
-            index=0,
-            compare=("label1", self.image1),
-            to=("label2", self.image2)
-        )
-        assert self.handler.can_handle(output) is True
-
-    def test_can_handle_non_compare_output(self):
-        output = ProgressGenerationOutput(state="test")
-        assert self.handler.can_handle(output) is False
-
-    def test_handle_compare_output(self):
-        output = CompareImagesGenerationOutput(
-            index=0,
-            compare=("label1", self.image1),
-            to=("label2", self.image2)
-        )
-
-        result = self.handler.handle(output)
-
-        assert result['handler'] == 'CompareImagesGenerationOutputHandler'
-        assert result['processed'] is True
+SERIALIZE_ONLY_KEYS = {
+    'compare_images', 'progress', 'timer', 'models', 'seed', 'rendered_prompt',
+    'warm_start', 'comfyui_workflow', 'diff_text', 'text',
+}
 
 
+class TestSerializeOnlyArtifacts:
+    def test_transport_only_artifacts_register_no_handler(self):
+        specs = {spec.key: spec for spec in output_type_registry.all()}
+        for key in SERIALIZE_ONLY_KEYS:
+            assert specs[key].handler_cls is None, key
+            assert specs[key].serializer is not None, key
 
-class TestProgressGenerationOutputHandler:
-    def setup_method(self):
-        self.generation_id = "test_gen_123"
-        self.handler = ProgressGenerationOutputHandler(self.generation_id)
+    @pytest.mark.parametrize("output", [
+        ProgressGenerationOutput(state="Processing"),
+        TimerGenerationOutput(name="test_timer", value=1.5),
+        ModelsGenerationOutput(models=[]),
+    ])
+    async def test_processor_reports_serialize_only(self, output):
+        from src.features.generation.output_processor import OutputProcessor
 
-    def test_can_handle_progress_output(self):
-        output = ProgressGenerationOutput(state="Processing")
-        assert self.handler.can_handle(output) is True
+        result = await OutputProcessor(settings=None).process_output("gen_1", output, "user_1")
 
-    def test_can_handle_non_progress_output(self):
-        output = TimerGenerationOutput(name="test_timer", value=1.5)
-        assert self.handler.can_handle(output) is False
-
-    def test_handle_progress_output(self):
-        output = ProgressGenerationOutput(
-            state="Processing step 1",
-            icon=Icon("gear", "spin"),
-            progress=Progress(current=5, max=10)
-        )
-
-        result = self.handler.handle(output)
-
-        assert result['handler'] == 'ProgressGenerationOutputHandler'
-        assert result['processed'] is True
-
-
-
-class TestTimerGenerationOutputHandler:
-    def setup_method(self):
-        self.generation_id = "test_gen_123"
-        self.handler = TimerGenerationOutputHandler(self.generation_id)
-
-    def test_can_handle_timer_output(self):
-        output = TimerGenerationOutput(name="test_timer", value=1.5)
-        assert self.handler.can_handle(output) is True
-
-    def test_can_handle_non_timer_output(self):
-        output = ProgressGenerationOutput(state="test")
-        assert self.handler.can_handle(output) is False
-
-    def test_handle_timer_output(self):
-        output = TimerGenerationOutput(
-            name="generation.total",
-            value=2.5,
-            unit="s"
-        )
-
-        result = self.handler.handle(output)
-
-        assert result['handler'] == 'TimerGenerationOutputHandler'
-        assert result['processed'] is True
-
-
-
-class TestModelsGenerationOutputHandler:
-    def setup_method(self):
-        self.generation_id = "test_gen_123"
-        self.handler = ModelsGenerationOutputHandler(self.generation_id)
-
-    def test_can_handle_models_output(self):
-        model = ModelGenerationOutput(name="test_model", type="checkpoint")
-        output = ModelsGenerationOutput(models=[model])
-        assert self.handler.can_handle(output) is True
-
-    def test_can_handle_non_models_output(self):
-        output = ProgressGenerationOutput(state="test")
-        assert self.handler.can_handle(output) is False
-
-    def test_handle_models_output(self):
-        models = [
-            ModelGenerationOutput(name="model1", type="checkpoint", weight=1.0),
-            ModelGenerationOutput(name="model2", type="lora", weight=0.8)
-        ]
-        output = ModelsGenerationOutput(models=models)
-
-        result = self.handler.handle(output)
-
-        assert result['handler'] == 'ModelsGenerationOutputHandler'
-        assert result['processed'] is True
-
+        assert result == {'handler': 'serialize-only', 'processed': True}
 
 
 class TestOutputTypeRegistryHandlerResolution:
@@ -984,17 +890,7 @@ class TestOutputTypeRegistryHandlerResolution:
 
         progress_output = ProgressGenerationOutput(state="test")
         progress_spec = output_type_registry.spec_for(progress_output)
-        assert progress_spec.handler_cls is ProgressGenerationOutputHandler
-
-    def test_process_output_with_handler(self):
-        output = ProgressGenerationOutput(state="test")
-
-        spec = output_type_registry.spec_for(output)
-        handler = spec.handler_cls("test_gen", "user_123", None)
-        result = handler.handle(output)
-
-        assert result['handler'] == 'ProgressGenerationOutputHandler'
-        assert result['processed'] is True
+        assert progress_spec.handler_cls is None
 
     def test_spec_not_found_for_unregistered_type(self):
         class UnregisteredOutput(GenerationOutput):
@@ -1014,17 +910,7 @@ class TestDefaultOutputTypeRegistry:
             AudioGenerationOutputHandler,
             MeshGenerationOutputHandler,
             GalleryGenerationOutputHandler,
-            CompareImagesGenerationOutputHandler,
-            ProgressGenerationOutputHandler,
-            TimerGenerationOutputHandler,
-            ModelsGenerationOutputHandler,
             ParamGenerationOutputHandler,
-            SeedGenerationOutputHandler,
-            RenderedPromptGenerationOutputHandler,
-            WarmStartGenerationOutputHandler,
-            ComfyUIWorkflowGenerationOutputHandler,
-            DiffTextGenerationOutputHandler,
-            TextGenerationOutputHandler,
             ModelFileGenerationOutputHandler,
             CostGenerationOutputHandler,
         }
@@ -1050,8 +936,9 @@ class TestDefaultOutputTypeRegistry:
 
         for output in test_outputs:
             spec = output_type_registry.spec_for(output)
-            assert spec is not None and spec.handler_cls is not None, \
-                f"No handler found for {type(output).__name__}"
+            assert spec is not None, f"No spec found for {type(output).__name__}"
+            if spec.handler_cls is None:
+                continue
 
             handler = spec.handler_cls("test_gen", None, None)
             result = handler.handle(output)

@@ -340,10 +340,7 @@ class TestModeAndPromptStatePersistence:
         with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_mode_3'):
             await orchestrator.start_generation(sample_request, 'user_123')
 
-        # Called twice: once at enqueue time (the model-identity affinity
-        # build, no generation_id yet) and once at dispatch time (the real
-        # backend payload build) - both must use the persisted mode.
-        assert mock_pipeline_builder.build_pipeline.call_count == 2
+        assert mock_pipeline_builder.build_pipeline.call_count == 1
         for call in mock_pipeline_builder.build_pipeline.call_args_list:
             assert call.kwargs['mode'] == 'img2img'
 
@@ -416,12 +413,8 @@ class TestLocalGenerationStartup:
         assert gen_arg.user_id == user_id
         assert gen_arg.status == 'pending'
 
-        # Verify pipeline was built - once at enqueue time for the
-        # model-identity affinity key (no generation_id yet), once at
-        # dispatch time for the actual backend payload (generation_id set).
-        assert mock_pipeline_builder.build_pipeline.call_count == 2
-        enqueue_call, dispatch_call = mock_pipeline_builder.build_pipeline.call_args_list
-        assert 'generation_id' not in enqueue_call.kwargs
+        assert mock_pipeline_builder.build_pipeline.call_count == 1
+        (dispatch_call,) = mock_pipeline_builder.build_pipeline.call_args_list
         assert dispatch_call.kwargs['generation_id'] == 'gen_123'
 
         # Verify backend was called with (pipeline_data, emit)
@@ -546,12 +539,8 @@ class TestUnifiedBackendPath:
         assert 'pipes' in pipeline_data
         assert isinstance(pipeline_data['pipes'], list)
 
-        # Verify pipeline builder was called - once at enqueue time for the
-        # model-identity affinity key (no generation_id yet), once at
-        # dispatch time for the actual backend payload (generation_id set).
-        assert mock_pipeline_builder.build_pipeline.call_count == 2
-        enqueue_call, dispatch_call = mock_pipeline_builder.build_pipeline.call_args_list
-        assert 'generation_id' not in enqueue_call.kwargs
+        assert mock_pipeline_builder.build_pipeline.call_count == 1
+        (dispatch_call,) = mock_pipeline_builder.build_pipeline.call_args_list
         assert dispatch_call.kwargs['generation_id'] == 'gen_comfyui'
 
 
@@ -572,12 +561,8 @@ class TestOutputHandling:
         generation_id = 'gen_progress'
         user_id = 'user_123'
 
-        orchestrator.status_tracker.create(id=generation_id)
+        orchestrator.status_tracker.create(id=generation_id, user_id=user_id)
         orchestrator.status_tracker.transition(generation_id, GenerationState.RUNNING)
-
-        # Mock repository to return generation
-        mock_gen = Mock(user_id=user_id)
-        mock_generation_repo.get_by_id.return_value = mock_gen
 
         # Create output with progress
         output = ProgressGenerationOutput(

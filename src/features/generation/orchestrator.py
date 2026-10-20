@@ -68,7 +68,7 @@ from src.features.generation.prompt_batch_split_repository import PromptBatchSpl
 from src.features.generation.output_bridge import OutputBridge
 from src.features.generation.queue import QueuedGeneration
 from src.features.generation.queue_dispatcher import CancelledBeforeStart, QueueDispatcher
-from src.features.generation.scheduling import SchedulingPolicy
+from src.features.generation.scheduling import FAIR, SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
 from src.features.generation.notifier import GenerationNotifier
 from src.features.generation.grids.repository import grid_repo
@@ -599,6 +599,7 @@ class GenerationOrchestrator:
 
         self.status_tracker = status_tracker or GenerationStatusTracker()
 
+        self._scheduling_policy_for = scheduling_policy_for or (lambda backend_id: SchedulingPolicy())
         self._queue_dispatcher = QueueDispatcher(
             status_tracker=self.status_tracker,
             dispatch=self._start_generation,
@@ -1343,7 +1344,11 @@ class GenerationOrchestrator:
                 backend_id=backend.backend_id,
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
-                model_key=self._resolve_model_key(bound, preset_template, mode, user_id),
+                model_key=(
+                    self._resolve_model_key(bound, preset_template, mode, user_id)
+                    if self._scheduling_policy_for(backend.backend_id).name == FAIR
+                    else None
+                ),
                 payload={
                     'request': request,
                     'backend': backend,
@@ -1638,11 +1643,8 @@ class GenerationOrchestrator:
             prompt_batch.stamp(output)
 
         if output_type_registry.is_server_only(output):
-            generation = generation_repo.get_by_id(generation_id)
             try:
-                await self.output_processor.process_output(
-                    generation_id, output, generation.user_id if generation else None
-                )
+                await self.output_processor.process_output(generation_id, output, record.user_id)
             except Exception as e:
                 logger.error(f"Error recording server-only output {type(output).__name__}: {str(e)}", exc_info=True)
             return
@@ -1680,13 +1682,10 @@ class GenerationOrchestrator:
             output = gate_outcome.output
 
         # Process output through OutputProcessor (handles file saving, etc.)
-        generation = generation_repo.get_by_id(generation_id)
-        user_id = generation.user_id if generation else None
-
         handler_metadata: Optional[Dict[str, Any]] = None
         try:
             handler_metadata = await self.output_processor.process_output(
-                generation_id, output, user_id
+                generation_id, output, record.user_id
             )
             if prompt_batch is not None and handler_metadata.get('processed'):
                 prompt_batch.record_saved(output)

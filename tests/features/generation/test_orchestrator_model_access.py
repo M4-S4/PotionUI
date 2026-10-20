@@ -10,6 +10,7 @@ from unittest.mock import Mock, AsyncMock, patch
 
 from src.features.generation import orchestrator as orch
 from src.features.forms.binding import BoundForm
+from src.features.generation.scheduling import SchedulingPolicy
 from src.features.models.form_refs import make_model_ref
 from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
 
@@ -233,6 +234,7 @@ class TestFieldOverridesThreadedFromRepository:
         instance.output_broadcaster = None
         instance.status_tracker = Mock()
         instance.status_tracker.create = Mock(return_value=Mock(model_dump=Mock(return_value={})))
+        instance._scheduling_policy_for = lambda backend_id: SchedulingPolicy()
         instance._queue_dispatcher = Mock()
         instance._queue_dispatcher.enqueue = AsyncMock()
         instance._queue_dispatcher.publish_positions = AsyncMock()
