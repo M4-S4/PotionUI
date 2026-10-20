@@ -182,6 +182,10 @@ def test_catalog_construction_alone_imports_nothing():
         forbidden = ("cv2", "diffusers", "transformers", "safetensors", "einops")
         leaked = sorted(m for m in forbidden if m in sys.modules)
         print("LEAKED=" + ",".join(leaked))
+
+        assert catalog.get_pipe("checkpoint_loader/sdxl") is not None
+        loader_leaked = sorted(m for m in ("diffusers", "transformers") if m in sys.modules)
+        print("LOADER_LEAKED=" + ",".join(loader_leaked))
     """)
 
     result = _run_subprocess(script)
@@ -192,6 +196,12 @@ def test_catalog_construction_alone_imports_nothing():
     assert leaked_line is not None, result.stdout
     leaked = leaked_line[len("LEAKED="):]
     assert leaked == "", f"constructing the catalog must not import anything: {leaked}"
+    loader_line = next(
+        (line for line in result.stdout.splitlines() if line.startswith("LOADER_LEAKED=")), None
+    )
+    assert loader_line is not None, result.stdout
+    loader_leaked = loader_line[len("LOADER_LEAKED="):]
+    assert loader_leaked == "", f"the sdxl checkpoint loader must not import diffusers or transformers: {loader_leaked}"
 
 
 def test_catalog_discovers_yue2_loader_and_generator_pipes():

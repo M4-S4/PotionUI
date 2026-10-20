@@ -375,7 +375,7 @@ def fake_pipeline_class(monkeypatch):
             return pipe
 
     monkeypatch.setattr(
-        "src.pipelines.pipes.checkpoint_loader.sdxl.sdxl_model.StableDiffusionXLKDiffusionPipeline",
+        "src.pipelines.pipes.generator.sdxl.pipeline.StableDiffusionXLKDiffusionPipeline",
         FakePipelineClass,
     )
     return state
