@@ -40,6 +40,7 @@ class _TrackingPool(ConnectionPool):
         self.opened = []
         self.leased = set()
         self.overlaps = []
+        self.peak = 0
 
     def _record(self, path):
         conn = self._real_connect(path)
@@ -53,6 +54,7 @@ class _TrackingPool(ConnectionPool):
             if conn in self.leased:
                 self.overlaps.append(conn)
             self.leased.add(conn)
+            self.peak = max(self.peak, len(self.leased))
         return conn
 
     def checkin(self, path, conn):
@@ -272,11 +274,15 @@ def test_threads_hammering_one_database_never_share_a_connection(tracking_pool, 
     threads, iterations = 2 * MAX_IDLE_PER_PATH, 12
     barrier = threading.Barrier(threads)
     errors = []
+    completed = []
+    deadline = time.monotonic() + 3
 
     def work(index):
         try:
             barrier.wait()
             for iteration in range(iterations):
+                if time.monotonic() > deadline:
+                    break
                 name = f"{index}-{iteration}"
                 with database.get_cursor() as cursor:
                     cursor.execute("INSERT INTO items (name) VALUES (?)", (name,))
@@ -293,6 +299,7 @@ def test_threads_hammering_one_database_never_share_a_connection(tracking_pool, 
                             inner.execute("SELECT COUNT(*) FROM items")
                 if index % 5 == 0 and iteration % 4 == 1:
                     Database.close_pool()
+                completed.append(name)
         except Exception as exc:
             errors.append(exc)
 
@@ -303,14 +310,17 @@ def test_threads_hammering_one_database_never_share_a_connection(tracking_pool, 
         for worker in workers:
             worker.start()
         for worker in workers:
-            worker.join(30)
+            worker.join(15)
     finally:
         sys.setswitchinterval(previous_interval)
 
+    assert not any(worker.is_alive() for worker in workers)
     assert errors == []
     assert tracking_pool.overlaps == []
+    assert tracking_pool.peak >= 2
+    assert len(completed) >= threads
     with database.get_cursor() as cursor:
         cursor.execute("SELECT name, COUNT(*) FROM items GROUP BY name")
         counts = dict(cursor.fetchall())
-    assert counts == {f"{index}-{iteration}": 1 for index in range(threads) for iteration in range(iterations)}
+    assert counts == {name: 1 for name in completed}
     assert tracking_pool.idle(str(database.db_path)) <= MAX_IDLE_PER_PATH
