@@ -74,12 +74,12 @@ def _is_user_plugin_path(rel: Path) -> bool:
     return rel.parts[: len(_USER_PLUGIN_ROOT.parts)] == _USER_PLUGIN_ROOT.parts
 
 
-def _py_files() -> Iterable[Path]:
+def _py_files(index) -> Iterable[Path]:
     for scan_root in _SCAN_ROOTS:
         base = ROOT / scan_root
         if not base.is_dir():
             continue
-        for f in base.rglob("*.py"):
+        for f in index.py_files(base):
             if any(part in SKIP_DIRS for part in f.parts):
                 continue
             rel = f.relative_to(ROOT)
@@ -136,15 +136,14 @@ def _type_dir_literal_hits(tree: ast.AST) -> List[str]:
     return hits
 
 
-def test_directory_map_import_is_allowlisted():
+def test_directory_map_import_is_allowlisted(source_index):
     violations: List[str] = []
-    for f in _py_files():
+    for f in _py_files(source_index):
         rel_posix = f.relative_to(ROOT).as_posix()
         if _allowed(rel_posix, _DIRECTORY_MAP_ALLOWLIST):
             continue
-        try:
-            tree = ast.parse(f.read_text(encoding="utf-8"))
-        except SyntaxError:
+        tree = source_index.tree(f)
+        if tree is None:
             continue
         hits = _directory_map_imports(tree)
         if hits:
@@ -153,28 +152,26 @@ def test_directory_map_import_is_allowlisted():
     assert not violations, "MODEL_TYPE_TO_DIRECTORY/DIRECTORY_TO_MODEL_TYPE/MODEL_DIRECTORY_NAMES used outside the allowlist:\n" + "\n".join(violations)
 
 
-def test_models_dir_literal_is_allowlisted():
+def test_models_dir_literal_is_allowlisted(source_index):
     violations: List[str] = []
-    for f in _py_files():
+    for f in _py_files(source_index):
         rel_posix = f.relative_to(ROOT).as_posix()
         if _allowed(rel_posix, _MODELS_DIR_ALLOWLIST):
             continue
-        text = f.read_text(encoding="utf-8")
-        if _models_dir_literal_hits(text):
+        if _models_dir_literal_hits(source_index.text(f)):
             violations.append(rel_posix)
 
     assert not violations, "'models_dir' / get_models_dir( used outside the allowlist:\n" + "\n".join(violations)
 
 
-def test_type_dir_path_literal_is_allowlisted():
+def test_type_dir_path_literal_is_allowlisted(source_index):
     violations: List[str] = []
-    for f in _py_files():
+    for f in _py_files(source_index):
         rel_posix = f.relative_to(ROOT).as_posix()
         if _allowed(rel_posix, _TYPE_DIR_LITERAL_ALLOWLIST):
             continue
-        try:
-            tree = ast.parse(f.read_text(encoding="utf-8"))
-        except SyntaxError:
+        tree = source_index.tree(f)
+        if tree is None:
             continue
         hits = _type_dir_literal_hits(tree)
         if hits:

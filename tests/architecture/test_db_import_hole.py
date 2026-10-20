@@ -90,10 +90,17 @@ def _is_exempt(path: Path) -> bool:
     return "migrations" in parts or "tests" in parts
 
 
-def _py_files(base: Path):
+def _tree(index, path: Path) -> ast.Module | None:
+    try:
+        return index.tree(path)
+    except UnicodeDecodeError:
+        return None
+
+
+def _py_files(index, base: Path):
     if not base.exists():
         return
-    for f in base.rglob("*.py"):
+    for f in index.py_files(base):
         if any(part in SKIP_DIRS for part in f.parts):
             continue
         if _is_exempt(f):
@@ -101,9 +108,9 @@ def _py_files(base: Path):
         yield f
 
 
-def _scanned_files():
+def _scanned_files(index):
     for root in SCAN_ROOTS:
-        yield from _py_files(ROOT / root)
+        yield from _py_files(index, ROOT / root)
 
 
 def _package_of(path: Path) -> str:
@@ -128,13 +135,12 @@ def _resolved_module(path: Path, node: ast.ImportFrom) -> str:
     return absolute
 
 
-def _module_level_db_imports(path: Path) -> list[int]:
+def _module_level_db_imports(index, path: Path) -> list[int]:
     """Line numbers of top-level `from <forbidden module> import db` (or
     `... as db`) statements - `tree.body` only, so anything nested inside a
     function or class (already call-time) is not a violation."""
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (SyntaxError, UnicodeDecodeError):
+    tree = _tree(index, path)
+    if tree is None:
         return []
 
     hits = []
@@ -150,13 +156,12 @@ def _module_level_db_imports(path: Path) -> list[int]:
     return hits
 
 
-def _module_level_db_aliases(path: Path) -> list[int]:
+def _module_level_db_aliases(index, path: Path) -> list[int]:
     """Line numbers of top-level `<name> = <something>.db` assignments - the
     `import src.platform.database as X` / `X.db` spelling of the same freeze,
     which no `from ... import` check would see."""
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (SyntaxError, UnicodeDecodeError):
+    tree = _tree(index, path)
+    if tree is None:
         return []
 
     hits = []
@@ -172,13 +177,13 @@ def _module_level_db_aliases(path: Path) -> list[int]:
     return hits
 
 
-def test_no_module_level_db_import_outside_allowlist():
+def test_no_module_level_db_import_outside_allowlist(source_index):
     violations: list[str] = []
-    for f in _scanned_files():
+    for f in _scanned_files(source_index):
         rel = f.relative_to(ROOT).as_posix()
         if rel in ALLOWLIST:
             continue
-        for lineno in _module_level_db_imports(f):
+        for lineno in _module_level_db_imports(source_index, f):
             violations.append(f"{rel}:{lineno}")
 
     assert not violations, (
@@ -190,10 +195,10 @@ def test_no_module_level_db_import_outside_allowlist():
     )
 
 
-def test_no_module_level_db_attribute_alias():
+def test_no_module_level_db_attribute_alias(source_index):
     violations: list[str] = []
-    for f in _scanned_files():
-        for lineno in _module_level_db_aliases(f):
+    for f in _scanned_files(source_index):
+        for lineno in _module_level_db_aliases(source_index, f):
             violations.append(f"{str(f.relative_to(ROOT))}:{lineno}")
 
     assert not violations, (
@@ -237,19 +242,18 @@ def _dotted(node: ast.AST) -> str | None:
     return ".".join(reversed(parts))
 
 
-def _silent_db_redirections(path: Path) -> list[str]:
+def _silent_db_redirections(index, path: Path) -> list[str]:
     """`<module>.db = <x>` assignments onto a module that no longer binds
     `db` - the assignment succeeds, the repository never reads it, and the
     test quietly runs against whatever database was already in place."""
     try:
-        source = path.read_text(encoding="utf-8")
+        source = index.text(path)
     except UnicodeDecodeError:
         return []
     if not _DB_ASSIGNMENT.search(source):
         return []
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
+    tree = index.tree(path)
+    if tree is None:
         return []
 
     aliases = _module_aliases(tree)
@@ -274,16 +278,16 @@ def _silent_db_redirections(path: Path) -> list[str]:
     return hits
 
 
-def test_no_test_redirects_db_on_a_module_that_no_longer_binds_it():
+def test_no_test_redirects_db_on_a_module_that_no_longer_binds_it(source_index):
     """The failure mode this catches is silent: the assignment lands on a
     module attribute nothing reads, so the test keeps passing while running
     against the real database instead of its scratch one."""
     violations: list[str] = []
     for root in ("tests", "content/plugins"):
-        for f in (ROOT / root).rglob("*.py"):
+        for f in source_index.py_files(ROOT / root):
             if any(part in SKIP_DIRS for part in f.parts):
                 continue
-            violations.extend(_silent_db_redirections(f))
+            violations.extend(_silent_db_redirections(source_index, f))
 
     assert not violations, (
         "these assignments no longer reach anything - the module resolves "
@@ -292,11 +296,11 @@ def test_no_test_redirects_db_on_a_module_that_no_longer_binds_it():
     )
 
 
-def test_allowlist_entries_still_exist_and_are_needed():
+def test_allowlist_entries_still_exist_and_are_needed(source_index):
     for rel in ALLOWLIST:
         path = ROOT / rel
         assert path.is_file(), f"allowlisted {rel} no longer exists - remove its entry"
-        assert _module_level_db_imports(path), (
+        assert _module_level_db_imports(source_index, path), (
             f"{rel} no longer has a module-level db import - remove its allowlist entry"
         )
 
