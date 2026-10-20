@@ -77,13 +77,11 @@ class TestDatabase:
 
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        """Get a database connection with automatic cleanup"""
-        try:
-            yield self._connection
-        finally:
-            # Don't close the connection for in-memory database
-            # as it would lose all data
-            pass
+        with self._guard:
+            connection = self._connection
+            if connection is None:
+                raise sqlite3.ProgrammingError("test database is closed")
+            yield connection
 
     @contextmanager
     def get_cursor(self) -> Generator[sqlite3.Cursor, None, None]:
@@ -100,10 +98,10 @@ class TestDatabase:
                 cursor.close()
 
     def close(self):
-        """Close the database connection"""
-        if self._connection:
-            self._connection.close()
-            self._connection = None
+        with self._guard:
+            if self._connection:
+                self._connection.close()
+                self._connection = None
 
     @classmethod
     def from_template(cls) -> "TestDatabase":
