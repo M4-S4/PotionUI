@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import List
 from pathlib import Path
 from PIL import Image
 
@@ -18,18 +18,6 @@ from src.pipelines.outputs import Icon, Progress
 class VideoFrameExtractorPipe(BasePipe):
     name = "video_frame_extractor"
     description = "Extract frames from video files at specified frame rate"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "frame_rate": 1,  # Extract 1 frame per second by default
-            "start_time": 0,  # Start extraction from beginning
-            "end_time": -1,   # Extract until end (-1 means full video)
-            "max_frames": -1, # Maximum number of frames to extract (-1 means no limit)
-            "frame_format": "png",  # Output frame format
-            "quality": 95,    # JPEG quality if using jpg format
-            "frame_index": None,  # When set, extract exactly this one frame (bypasses fps interval)
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

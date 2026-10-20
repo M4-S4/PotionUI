@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import List
 from src.pipelines.outputs import DiffTextGenerationOutput, ProgressGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
@@ -18,27 +18,13 @@ class PromptExpanderPipe(BasePipe):
     description = "Expands prompts using configured LLM service"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        """Return default configuration for the pipe."""
-        return {
-            "llm_id": None,
-            "command_id": None,
-            "style_id": None,
-            "prompt": "Expand this prompt with creative details",
-            "p_prompt_input": "",
-            "n_prompt_input": "",
-            "p_prompt_output": "[[__expanded_p_prompt__]]",
-            "n_prompt_output": "[[__expanded_n_prompt__]]",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts."""
         return [
             PipeConfigSpec("llm_id", str, None, "LLM configuration ID", required=False),
             PipeConfigSpec("command_id", str, None, "Predefined command ID", required=False),
             PipeConfigSpec("style_id", str, None, "Prompt style ID", required=False),
-            PipeConfigSpec("prompt", str, "Expand this prompt", "Expansion instruction", required=False),
+            PipeConfigSpec("prompt", str, "Expand this prompt with creative details", "Expansion instruction", required=False),
             PipeConfigSpec("p_prompt_input", str, "", "Positive prompt to expand", required=True),
             PipeConfigSpec("n_prompt_input", str, "", "Negative prompt to expand", required=False),
             PipeConfigSpec("p_prompt_output", str, "[[__expanded_p_prompt__]]", "Output template for positive", required=False),

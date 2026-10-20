@@ -19,12 +19,6 @@ class OutputSkipperPipe(BasePipe):
     description = "Filter and skip specific outputs from the previous pipe by type and index"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "rules": []  # List of filtering rules
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec(

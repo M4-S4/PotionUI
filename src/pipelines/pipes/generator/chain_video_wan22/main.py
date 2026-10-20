@@ -94,6 +94,11 @@ from src.pipelines.pipes.generator.txt2vid_wan22.main import (
     resolve_expert_boundary,
 )
 from src.pipelines.pipes.model_loader.wan22.acquire import acquire_wan_dit
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    nag_config_specs,
+    preview_config_spec,
+)
 
 _LOG_TAG = "GENERATOR WAN CHAIN"
 
@@ -225,56 +230,6 @@ class GeneratorWanChainVideoPipe(BasePipe):
     description = "Native Wan 2.2 sequential chain-video generator (SVI Pro 2.0-style continuation)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "chain",
-            "document": None,
-            "motion_latent_count": 1,
-            "anchor_latent_strength": 1.0,
-            "seam_handoff": "latent",
-            "steps": 30,
-            "cfg": 5.0,
-            "sampler": "unipc",
-            "resolution": "832x480",
-            "fps": 16.0,
-            "expert_boundary": None,
-            "expert_switch_step": None,
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-            "dtype": "bfloat16",
-            "t2v_high_noise_model": None,
-            "t2v_low_noise_model": None,
-            "i2v_high_noise_model": None,
-            "i2v_low_noise_model": None,
-            "device": "cuda",
-            "preview": True,
-            "cfg_zero_star": True,
-            "zero_init_steps": 0,
-            "riflex": False,
-            "riflex_trained_frames": None,
-            # None-sentinel: guidance_options.py's *_overrides() only emit a key
-            # when non-None, so an unset knob here lets the model's own
-            # ModelSpec.sampling_settings survive the merge (see that module's
-            # docstring; P5 fix).
-            "apg_eta": None,
-            "apg_norm_threshold": None,
-            "apg_momentum": None,
-            "slg_scale": None,
-            "slg_layers": None,
-            "slg_sigma_start": None,
-            "slg_sigma_end": None,
-            "sampler_options": {},
-            "step_cache": {},
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "chain", "Generation mode", required=True, choices=["chain"]),
@@ -320,20 +275,13 @@ class GeneratorWanChainVideoPipe(BasePipe):
                            "i2v high-noise (or only) DiT file -- re-acquire target for an i2v/chain segment's LoRA swap", required=False),
             PipeConfigSpec("i2v_low_noise_model", dict, None,
                            "i2v low-noise expert DiT file (Wan 2.2 dual-expert only)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
+            device_config_spec(),
+            preview_config_spec(),
             PipeConfigSpec("cfg_zero_star", bool, True,
                            "CFG-Zero*: rescale the uncond branch onto cond before extrapolation", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: zero velocity for the first N steps",
                            required=False, min_value=0, max_value=100),
-            PipeConfigSpec("nag_scale", float, 1.0, "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
-                           "prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set "
-                           "cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on.",
-                           required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold (paper default 3.5)", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back-toward-positive weight (paper default 0.5)", required=False,
-                           min_value=0.0, max_value=1.0),
+            *nag_config_specs(),
             *riflex_config_specs(),
             *apg_settings_config_specs(),
             *slg_settings_config_specs(),

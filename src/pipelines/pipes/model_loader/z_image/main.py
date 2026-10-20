@@ -16,7 +16,7 @@ so the encode contract must be selected by this caller.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 from src.pipelines.contracts import (
     IOType,
@@ -28,6 +28,7 @@ from src.pipelines.pipes._shared.generation.three_component_loader import Loader
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.text_encoders.loader import load_text_encoder
 from src.pipelines.pipes.model_loader.z_image.z_image_clip import ZImageClipTextEncoder
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 
 class ModelLoaderZImagePipe(ThreeComponentLoaderPipe):
@@ -47,27 +48,13 @@ class ModelLoaderZImagePipe(ThreeComponentLoaderPipe):
     # -- declaration -------------------------------------------------------
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "text_encoder": None,
-            "vae": None,
-            "loras": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None, "Z-Image NextDiT checkpoint", required=True),
             PipeConfigSpec("text_encoder", dict, None, "Qwen3-4B text encoder (single TE, no CLIP-L)", required=True),
             PipeConfigSpec("vae", dict, None, "Z-Image (Flux-style 2D) VAE", required=True),
-            PipeConfigSpec("loras", list, [], "LoRA adapters (busts only the DiT cache)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            loras_config_spec("LoRA adapters (busts only the DiT cache)"),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

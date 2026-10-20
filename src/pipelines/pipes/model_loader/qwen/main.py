@@ -12,7 +12,7 @@ DiT fingerprint, not the TE/VAE ones).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 from src.pipelines.contracts import (
     IOType,
@@ -21,6 +21,7 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.pipes._shared.generation.three_component_loader import ThreeComponentLoaderPipe
 from src.pipelines.pipes.model_loader.qwen.qwen_clip import QwenClipTextEncoder
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 
 class ModelLoaderQwenPipe(ThreeComponentLoaderPipe):
@@ -40,28 +41,13 @@ class ModelLoaderQwenPipe(ThreeComponentLoaderPipe):
     # -- declaration -------------------------------------------------------
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "text_encoder": None,
-            "vae": None,
-            "loras": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-            "vision": False,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None, "Qwen-Image MMDiT checkpoint", required=True),
             PipeConfigSpec("text_encoder", dict, None, "Qwen2.5-VL text encoder (single TE, no CLIP-L)", required=True),
             PipeConfigSpec("vae", dict, None, "Qwen-Image (Wan-2.1 causal-3D) VAE", required=True),
-            PipeConfigSpec("loras", list, [], "LoRA adapters (busts only the DiT cache)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            loras_config_spec("LoRA adapters (busts only the DiT cache)"),
+            *cls.runtime_config_specs(),
             # Edit mode only: keep+load the Qwen2.5-VL vision tower so the prompt
             # encoder can condition on the source image, not just its text
             # description. Off by default (txt2img/img2img memory footprint

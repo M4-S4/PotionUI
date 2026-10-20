@@ -80,7 +80,7 @@ for call-site and test-import stability.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import torch
 
@@ -106,6 +106,7 @@ from src.pipelines.pipes.generator.txt2vid_ltx.main import _SPATIAL_DOWNSCALE, _
 from src.pipelines.pipes.generator.video_ltx.conditioning import _resize_cover_center_crop
 from src.pipelines.pipes.generator.video_ltx.main import _load_video_frames
 from src.pipelines.pipes.latent_upscaler.ltx.geometry import temporal_upsample_out_frames
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 logger = logging.getLogger(__name__)
 
@@ -280,13 +281,9 @@ class LatentUpscalerLtxPipe(BasePipe):
                    "or temporally (x2 frames) -- via the model's optional upscaler checkpoints")
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {"device": "cuda", "max_frames": 1001, "mode": "spatial"}
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
             PipeConfigSpec("mode", str, "spatial",
                            "Which upscaler to run: 'spatial' (model_loader/ltx's upscale_model, x1.5/x2.0, "
                            "frame count unchanged) or 'temporal' (its temporal_upscale_model, LTX-2.5 x2, "

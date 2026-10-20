@@ -95,19 +95,6 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
     # -- declaration -------------------------------------------------------
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "shape_vae": None,
-            "texture_vae": None,
-            "image_encoder": None,
-            "matting_model": None,
-            "resolution_tier": "1024",
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None,
@@ -124,12 +111,7 @@ class ModelLoaderTrellis2Pipe(BaseModelLoaderPipe):
                            "Reconstruction path. 512 is a single shape pass; 1024 and 1536 "
                            "are cascades and load a second shape flow.",
                            required=False, choices=sorted(TIERS)),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False,
-                           choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=sorted(_DTYPES)),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)",
-                           required=False),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

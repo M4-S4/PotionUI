@@ -18,6 +18,7 @@ from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.seed_plan import plan_seeds
 from src.platform.runtime.native.arch.yue2 import ar_loop, nar, protocol
 from src.platform.runtime.native.errors import SamplingCancelled
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec, seed_config_spec
 
 VAE_DECODE_CHUNK_LATENTS = 192
 VAE_DECODE_OVERLAP_LATENTS = 64
@@ -62,24 +63,6 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
     description = "Native YuE2-3B text-to-music generator"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "style": "",
-            "lyrics": "",
-            "cot": "off",
-            "abc": "",
-            "duration": 0.0,
-            "seed": -1,
-            "cfg_scale": None,
-            "nar_steps": 32,
-            "temperature": protocol.SEMANTIC_SAMPLING_DEFAULTS.temperature,
-            "top_p": protocol.SEMANTIC_SAMPLING_DEFAULTS.top_p,
-            "top_k": protocol.SEMANTIC_SAMPLING_DEFAULTS.top_k,
-            "repetition_penalty": protocol.SEMANTIC_SAMPLING_DEFAULTS.repetition_penalty,
-            "device": "cuda",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("style", str, "", "The song's style -- genre/mood/instrumentation/vocals, "
@@ -98,7 +81,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                 f"actual length. 0 = auto (run to the model's own stop token). Hard cap {MAX_DURATION:.0f}s",
                 required=False, min_value=0.0, max_value=MAX_DURATION,
             ),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
+            seed_config_spec(),
             PipeConfigSpec("cfg_scale", float, None,
                            "Classifier-free guidance for the semantic (codec) AR stage. "
                            "None or 0 = auto: 1.01 when cot='off', 1.0 otherwise",
@@ -113,7 +96,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                            "Semantic-stage top-k restriction", required=False, min_value=1, max_value=1024),
             PipeConfigSpec("repetition_penalty", float, protocol.SEMANTIC_SAMPLING_DEFAULTS.repetition_penalty,
                            "Semantic-stage repetition penalty", required=False, min_value=0.01, max_value=2.0),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
         ]
 
     @classmethod

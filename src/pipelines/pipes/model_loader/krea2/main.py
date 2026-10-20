@@ -78,18 +78,6 @@ class ModelLoaderKrea2Pipe(ThreeComponentLoaderPipe):
     sync_loras = True
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "text_encoder": None,
-            "vae": None,
-            "loras": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-            "vision": False,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None, "Krea-2 DiT checkpoint (bf16)", required=True),
@@ -102,10 +90,7 @@ class ModelLoaderKrea2Pipe(ThreeComponentLoaderPipe):
                            "switches it on at the window's first step and off after its last. Omit both keys "
                            "for the ordinary always-on behaviour.",
                            required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            *cls.runtime_config_specs(),
             # Opt-in vision-grounded instruction encode (Krea-2 edit
             # mode only). Default False -- keeps the checkpoint's Qwen3-VL
             # vision tower stripped at load, exactly as before this flag

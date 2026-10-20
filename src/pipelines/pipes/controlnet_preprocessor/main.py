@@ -80,15 +80,6 @@ class ControlNetPreprocessorPipe(BasePipe):
     description = "Preprocess images for ControlNet (Canny, Depth, OpenPose, etc.)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "preprocessors": [],  # List of preprocessor configurations
-            "output_resolution": None,  # Optional resize for output (e.g., [512, 512])
-            "strict": False,
-            "blank_hint": "use it without preprocessing",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [

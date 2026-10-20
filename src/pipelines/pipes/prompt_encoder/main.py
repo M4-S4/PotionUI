@@ -113,18 +113,6 @@ class PromptEncoderPipe(BasePipe):
     description = "Encodes prompts using CLIP text encoders for SDXL"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        """Return default configuration for the pipe."""
-        return {
-            "p_prompt": "",
-            "n_prompt": "",
-            "quantity": 1,
-            "guidance_scale": 7.5,
-            "nag_scale": 1.0,
-            "clip_skip": None,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [

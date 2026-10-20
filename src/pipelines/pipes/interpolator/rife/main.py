@@ -157,15 +157,6 @@ class RifeInterpolatorPipe(BasePipe):
     description = "RIFE 4.x frame interpolation (2x/4x) with audio passthrough"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,
-            "factor": 2,
-            "flow_scale": 1.0,
-            "keep_audio": True,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("model", dict, None,

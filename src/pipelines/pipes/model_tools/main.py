@@ -16,6 +16,7 @@ from src.pipelines.contracts import (
 from src.pipelines.outputs import Icon, ModelFileGenerationOutput, Progress, ProgressGenerationOutput
 
 from src.pipelines.pipes.model_tools.errors import ModelToolsRefused
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 MODES = ["quantize", "merge_into_model", "merge_and_quantize", "merge_loras"]
 MODEL_MODES = frozenset({"quantize", "merge_into_model", "merge_and_quantize"})
@@ -95,23 +96,6 @@ class ModelToolsPipe(BasePipe):
     display_title = "Processing model files"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "quantize",
-            "is_admin": False,
-            "model": "",
-            "loras": [],
-            "keep_patterns": "",
-            "merge_method": "concat",
-            "target_rank": 32,
-            "min_energy": 0.9,
-            "lora_dtype": "F32",
-            "output_name": "",
-            "overwrite": False,
-            "family": "",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "quantize", "Which tool to run", required=True, choices=MODES),
@@ -120,7 +104,7 @@ class ModelToolsPipe(BasePipe):
                            required=False),
             PipeConfigSpec("model", str, "", "Absolute path of the source model file (quantize and bake modes)",
                            required=False),
-            PipeConfigSpec("loras", list, [], "LoRA rows [{model, strength}] (bake and merge modes)", required=False),
+            loras_config_spec("LoRA rows [{model, strength}] (bake and merge modes)"),
             PipeConfigSpec("keep_patterns", str, "",
                            "Extra tensor-name globs kept in full precision (quantize modes), one per line or comma separated",
                            required=False),

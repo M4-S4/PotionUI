@@ -155,6 +155,12 @@ from src.pipelines.pipes.generator.video_ltx.conditioning import (
     mix_initial_noise,
     prepare_ltx_conditions,
 )
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    nag_config_specs,
+    preview_config_spec,
+    seed_config_spec,
+)
 
 Tensor = torch.Tensor
 
@@ -285,57 +291,6 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
     description = "Native LTX-2/2.3 video-director generator (media conditioning, IC-LoRA references, optional audio)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "video",
-            "steps": 24,
-            "cfg": 4.0,
-            "sampler": "euler",
-            "resolution": "768x512",
-            "frames": 49,
-            "fps": 25.0,
-            "quantity": 1,
-            "seed": -1,
-            "device": "cuda",
-            "preview": True,
-            "media_placements": [],
-            "audio": False,
-            "audio_source": "generate",
-            "cfg_zero_star": True,
-            "zero_init_steps": 0,
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-            # None-sentinel: guidance_options.py's *_overrides() only emit a key
-            # when non-None, so an unset knob here lets the model's own
-            # ModelSpec.sampling_settings survive the merge (see that module's
-            # docstring; P5 fix).
-            "apg_eta": None,
-            "apg_norm_threshold": None,
-            "apg_momentum": None,
-            "sampler_options": {},
-            "step_cache": {},
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-            "quality_mode": False,
-            "quality_cfg": None,
-            "quality_stg": None,
-            "quality_rescale": None,
-            "quality_modality": None,
-            "quality_stg_blocks": None,
-            "quality_distilled_strength": None,
-            "decode": True,
-            "refine_sigmas": "",
-            "stage2_loras": [],
-            "scoped_loras": [],
-            "refine_reference": False,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "video", "Generation mode", required=True, choices=["video"]),
@@ -377,9 +332,9 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
                            required=False, min_value=1, max_value=1001),
             PipeConfigSpec("fps", float, 25.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews during sampling", required=False),
+            seed_config_spec(),
+            device_config_spec(),
+            preview_config_spec("Emit live latent previews during sampling"),
             PipeConfigSpec("media_placements", list, [],
                            "Media conditioning placements: [{source: image|video, index, frame: int|first|last, "
                            "strength, role: keyframe|reference}]. Empty with image inputs present = image[0] as "
@@ -395,14 +350,7 @@ class GeneratorLtxVideoPipe(BaseGeneratorPipe):
             PipeConfigSpec("cfg_zero_star", bool, True, "CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction)", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: return a zero velocity prediction for the first N steps", required=False,
                            min_value=0, max_value=100),
-            PipeConfigSpec("nag_scale", float, 1.0, "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
-                           "prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set "
-                           "cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on.",
-                           required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold (paper default 3.5)", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back-toward-positive weight (paper default 0.5)", required=False,
-                           min_value=0.0, max_value=1.0),
+            *nag_config_specs(),
             *apg_settings_config_specs(),
             *sampler_step_cache_config_specs(),
             *schedule_settings_config_specs(),

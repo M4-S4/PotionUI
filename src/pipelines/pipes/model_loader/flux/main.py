@@ -23,7 +23,7 @@ correctly with no family-specific handling here.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, List
 
 from src.platform.runtime.model_headers import read_safetensors_header
 from src.platform.runtime.model_headers.signatures import FLUX3_SIG
@@ -38,6 +38,7 @@ from src.pipelines.pipes._shared.generation.three_component_loader import Loader
 from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.platform.runtime.native.engine import NativeModel
 from src.pipelines.pipes.model_loader.flux.flux_clip import FluxClipTextEncoder
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 
 def _is_flux3_checkpoint(path: str) -> bool:
@@ -66,29 +67,14 @@ class ModelLoaderFluxPipe(ThreeComponentLoaderPipe):
     # -- declaration -------------------------------------------------------
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "text_encoder": None,
-            "clip_l": None,
-            "vae": None,
-            "loras": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None, "Flux DiT checkpoint", required=True),
             PipeConfigSpec("text_encoder", dict, None, "Text encoder (T5-XXL for Flux1, Qwen3 for Klein)", required=True),
             PipeConfigSpec("clip_l", dict, None, "CLIP-L (Flux1 only; omit for Klein/Flux2)", required=False),
             PipeConfigSpec("vae", dict, None, "Flux VAE", required=True),
-            PipeConfigSpec("loras", list, [], "LoRA adapters (patched in place on an already-cached DiT)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            loras_config_spec("LoRA adapters (patched in place on an already-cached DiT)"),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

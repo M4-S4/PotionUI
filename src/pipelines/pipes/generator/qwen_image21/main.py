@@ -18,7 +18,7 @@ text.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -40,6 +40,11 @@ from src.pipelines.pipes.generator.qwen_image21.control import (
 )
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator
 from src.platform.runtime.native.sampling.flow_schedule import percent_to_sigma
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    preview_config_spec,
+    seed_config_spec,
+)
 
 
 class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
@@ -49,31 +54,6 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
 
     EDIT_AREA_TARGET = 1024 * 1024
     MAX_EDIT_REFS = 10
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "txt2img",
-            "steps": 40,
-            "guidance": 4.0,
-            "shift": None,
-            "sampler": "euler",
-            "resolution": "1024x1024",
-            "quantity": 1,
-            "seed": -1,
-            "device": "cuda",
-            "preview": True,
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-            "step_cache": {},
-            "control_strength": 1.0,
-            "control_start": 0.0,
-            "control_end": 1.0,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -94,9 +74,9 @@ class GeneratorQwenImage21Pipe(FlowMatchGeneratorPipe):
                            "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
+            seed_config_spec(),
+            device_config_spec(),
+            preview_config_spec(),
             *schedule_settings_config_specs(),
             PipeConfigSpec(
                 "step_cache", dict, {},

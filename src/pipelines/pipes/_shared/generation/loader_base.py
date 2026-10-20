@@ -11,7 +11,12 @@ from typing import Any, Dict, List, Optional
 
 from src.pipelines.outputs import ModelsGenerationOutput, ProgressGenerationOutput
 from src.pipelines.contracts import BasePipe
-from src.pipelines.contracts import PipeInput, PipeOutput
+from src.pipelines.contracts import PipeConfigSpec, PipeInput, PipeOutput
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    dtype_config_spec,
+    vram_limit_config_spec,
+)
 from src.pipelines.pipes._shared.generation.loader_helpers import COLD_LOAD_NOTE
 
 
@@ -19,6 +24,10 @@ class BaseModelLoaderPipe(BasePipe):
     """Owns the MODELS-acquire + ModelsGenerationOutput emission shared by
     model/checkpoint loader pipes.
     """
+
+    @classmethod
+    def runtime_config_specs(cls) -> List[PipeConfigSpec]:
+        return [device_config_spec(), dtype_config_spec(), vram_limit_config_spec()]
 
     def progress_message(self) -> str:
         """Message for the ProgressGenerationOutput emitted before loading."""

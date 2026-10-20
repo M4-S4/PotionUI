@@ -41,7 +41,7 @@ the image's border (`_shared.imaging.color.border_ring_color`) and keys
 against that - no explicit `key_color` needed.
 """
 
-from typing import Any, Dict, List
+from typing import List
 
 import numpy as np
 from PIL import Image
@@ -87,17 +87,6 @@ def soft_alpha(distance: np.ndarray, threshold: float, ramp_half: float) -> np.n
 class ColorKeyPipe(BasePipe):
     name = "color_key"
     description = "Chroma-key a flat background colour to alpha, keying on chrominance (brightness-invariant)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "key_mode": "auto",
-            "key_color": "#00B140",
-            "tolerance": 25.0,
-            "softness": 10.0,
-            "despill": True,
-            "feather": 0.0,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

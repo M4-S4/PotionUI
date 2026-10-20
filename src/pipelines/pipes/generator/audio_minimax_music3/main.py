@@ -46,6 +46,7 @@ from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.seed_plan import plan_seeds
 from src.platform.runtime.native.arch.minimax_music3 import ar_loop, flow
 from src.platform.runtime.native.optimizations.compile import maybe_compile_music3_ar
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 FPS = 25.0
 DEFAULT_DURATION = 60.0
@@ -112,20 +113,6 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
     description = "Native MiniMax-Music3 text-to-music generator"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "caption": "",
-            "lyrics": "",
-            "duration": DEFAULT_DURATION,
-            "steps": 30,
-            "seed": -1,
-            "ar_cfg_scale": 1.5,
-            "cfg_scale": 1.7,
-            "top_k": 50,
-            "device": "cuda",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("caption", str, "", "The song's caption -- genre/mood/instrumentation/vocals, "
@@ -149,7 +136,7 @@ class GeneratorAudioMinimaxMusic3Pipe(BaseGeneratorPipe):
                            required=False, min_value=1.0, max_value=10.0),
             PipeConfigSpec("top_k", int, 50, "Top-k restriction for AR sampling",
                            required=False, min_value=1, max_value=1024),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
         ]
 
     @classmethod

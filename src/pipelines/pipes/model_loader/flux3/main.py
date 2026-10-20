@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 from src.pipelines.contracts import (
     IOType,
@@ -9,6 +9,7 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.pipes._shared.generation.three_component_loader import ThreeComponentLoaderPipe
 from src.pipelines.pipes.model_loader.flux3.flux3_clip import Flux3ClipTextEncoder
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 
 class ModelLoaderFlux3Pipe(ThreeComponentLoaderPipe):
@@ -27,27 +28,13 @@ class ModelLoaderFlux3Pipe(ThreeComponentLoaderPipe):
     te_load_kwargs = {"te_variant": "flux3"}
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "text_encoder": None,
-            "vae": None,
-            "loras": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None, "FLUX 3 Image Klein DiT (distilled flow-map or base)", required=True),
             PipeConfigSpec("text_encoder", dict, None, "Qwen3-VL-4B text encoder (4 hidden layers, one prompt per pass)", required=True),
             PipeConfigSpec("vae", dict, None, "FLUX 3 autoencoder (ae.safetensors)", required=True),
-            PipeConfigSpec("loras", list, [], "LoRA adapters (busts only the DiT cache)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            loras_config_spec("LoRA adapters (busts only the DiT cache)"),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

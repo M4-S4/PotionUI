@@ -3,7 +3,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, List
 
 from src.pipelines.outputs import ProgressGenerationOutput, VideoGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
@@ -25,14 +25,6 @@ from src.pipelines.pipes._shared.media.video_encode import (
 class VideoSpeedPipe(BasePipe):
     name = "video_speed"
     description = "Change video playback speed using FFmpeg"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "speed_percent": 50,
-            "keep_audio": True,
-            "output_format": "mp4",
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

@@ -123,6 +123,7 @@ from src.pipelines.pipes.generator.video_ltx.conditioning import (
     prepare_ltx_conditions,
 )
 from src.pipelines.pipes.generator.video_ltx.main import _to_frames_tensor
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec, nag_config_specs
 
 Tensor = torch.Tensor
 
@@ -202,28 +203,6 @@ class GeneratorDfrLtxPipe(BasePipe):
                    "the frame rate with tiled, keyframe-anchored re-denoising")
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "rounds": 1,
-            "fps": 25.0,
-            "frames": 121,
-            "resolution": "768x512",
-            "round_sigmas": _DEFAULT_ROUND_SIGMAS,
-            "anchor_strength": 0.95,
-            "ancestral_eta": 0.5,
-            "cfg": 1.0,
-            "num_tiles_override": 0,
-            "max_tile_tokens": 0,
-            "reanchor_each_round": False,
-            "media_placements": [],
-            "decode": True,
-            "device": "cuda",
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("rounds", int, 1,
@@ -282,16 +261,9 @@ class GeneratorDfrLtxPipe(BasePipe):
             PipeConfigSpec("decode", bool, True,
                            "Decode to video; false emits the densified latent instead",
                            required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False,
-                           choices=["cuda", "cpu"]),
-            PipeConfigSpec("nag_scale", float, 1.0,
-                           "Normalized Attention Guidance scale (1.0 = off). The only channel by "
-                           "which the negative prompt reaches a cfg-1.0 round", required=False,
-                           min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back weight", required=False,
-                           min_value=0.0, max_value=1.0),
+            device_config_spec(),
+            *nag_config_specs("Normalized Attention Guidance scale (1.0 = off). The only channel by "
+                           "which the negative prompt reaches a cfg-1.0 round"),
         ]
 
     @classmethod

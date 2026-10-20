@@ -14,17 +14,6 @@ class FilmGrain(BasePipe):
     description = "Adds realistic film grain effect to make images look more natural"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "intensity": 0.3,  # Controls the overall strength of the grain effect (0-1)
-            "grain_size": 1.5,  # Controls the size of grain particles
-            "shadows_bias": 0.6,  # More grain in darker areas (0-1)
-            "highlights_protect": 0.2,  # Protect highlights from grain (0-1)
-            "monochromatic": False,  # If True, applies same grain to all channels
-            "blur_amount": 0.5,  # Slight blur to make grain look more natural
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [

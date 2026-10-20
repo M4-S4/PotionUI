@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 from src.pipelines.contracts import (
     IOType,
@@ -12,6 +12,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import path_of as _pa
 from src.pipelines.pipes._shared.generation.three_component_loader import LoaderContext
 from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.pipelines.pipes.model_loader.qwen_image21.qwen_image21_clip import QwenImage21ClipTextEncoder
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 
 class ModelLoaderQwenImage21Pipe(ThreeComponentLoaderPipe):
@@ -30,29 +31,13 @@ class ModelLoaderQwenImage21Pipe(ThreeComponentLoaderPipe):
     te_vision = True
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "text_encoder": None,
-            "vae": None,
-            "loras": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-            "vision": False,
-            "control_model": None,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None, "Qwen-Image-2.1 MMDiT checkpoint", required=True),
             PipeConfigSpec("text_encoder", dict, None, "Qwen3-VL-8B text encoder (single TE, no CLIP-L)", required=True),
             PipeConfigSpec("vae", dict, None, "Qwen-Image-2.1 RGBA 16x VAE", required=True),
-            PipeConfigSpec("loras", list, [], "LoRA adapters (busts only the DiT cache)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            loras_config_spec("LoRA adapters (busts only the DiT cache)"),
+            *cls.runtime_config_specs(),
             PipeConfigSpec("vision", bool, False, "Load the vision tower for image-conditioned editing", required=False),
             PipeConfigSpec("control_model", dict, None, "Fun ControlNet Union patch loaded with the DiT", required=False),
         ]

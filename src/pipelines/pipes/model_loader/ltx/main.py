@@ -85,6 +85,7 @@ from src.pipelines.pipes._shared.generation.loader_lifecycle import (
 from src.pipelines.pipes.model_loader.ltx.bundle import LTXModelBundle
 from src.pipelines.pipes.model_loader.ltx.ltx_clip import LTXClipTextEncoder
 from src.pipelines.pipes.model_loader.ltx.projection import load_projection
+from src.pipelines.pipes._shared.generation.config_specs import loras_config_spec
 
 
 def _has_prefixed_keys(path: str, prefix: str) -> bool:
@@ -122,22 +123,6 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
     description = "Load a native LTX-2/2.3/2.5 checkpoint set (all-in-one or split DiT + TE + video VAE)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,
-            "text_encoder": None,
-            "vae": None,
-            "audio": False,
-            "audio_model": None,
-            "upscale_model": None,
-            "temporal_upscale_model": None,
-            "duration_head": None,
-            "loras": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("model", dict, None, "LTX DiT checkpoint (all-in-one for 2.0/2.3, transformer-only for 2.5's split layout)", required=True),
@@ -148,11 +133,8 @@ class ModelLoaderLtxPipe(BaseModelLoaderPipe):
             PipeConfigSpec("upscale_model", dict, None, "Optional LTX-2.3/2.5 spatial latent-upscaler checkpoint", required=False),
             PipeConfigSpec("temporal_upscale_model", dict, None, "Optional LTX-2.5 temporal x2 latent-upscaler checkpoint", required=False),
             PipeConfigSpec("duration_head", dict, None, "Optional LTX-2.5 duration head (predicts a shot's natural length from the prompt)", required=False),
-            PipeConfigSpec("loras", list, [], "DiT LoRAs", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            loras_config_spec("DiT LoRAs"),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

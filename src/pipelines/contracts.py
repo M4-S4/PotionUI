@@ -18,6 +18,7 @@ flow-matching family's generator extends `FlowMatchGeneratorPipe` (itself a
 cancellation support each family already shares.
 """
 
+import copy
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field as dataclass_field
@@ -223,10 +224,8 @@ class BasePipe(ABC):
         pass
 
     @classmethod
-    @abstractmethod
     def get_default_config(cls) -> Dict[str, Any]:
-        """Return default configuration for this pipe"""
-        pass
+        return {spec.name: copy.deepcopy(spec.default) for spec in cls.configuration()}
 
     @classmethod
     @abstractmethod

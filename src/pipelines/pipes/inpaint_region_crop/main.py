@@ -3,7 +3,7 @@ Inpaint Region Crop Pipe - Fooocus-style cropping to masked region
 Crops the image to the masked region with padding to reduce VRAM usage
 Based on Fooocus InpaintWorker implementation
 """
-from typing import Dict, Any, List
+from typing import List
 import numpy as np
 from PIL import Image
 
@@ -29,14 +29,6 @@ from src.pipelines.pipes._shared.inpainting.region_utils import (
 class InpaintRegionCropPipe(BasePipe):
     name = "inpaint_region_crop"
     description = "Crop image to masked region for memory-efficient inpainting (Fooocus-style)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "k": 0.618,  # Fooocus default padding factor
-            "min_size": 1024,  # Minimum size to upscale to
-            "max_size": 1024,  # Maximum size to downscale to
-        }
 
     def process(
             self,

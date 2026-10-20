@@ -53,7 +53,7 @@ never silently misrendered.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import ParamGenerationOutput
@@ -64,6 +64,12 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     schedule_settings_config_specs,
 )
 from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    nag_config_specs,
+    preview_config_spec,
+    seed_config_spec,
+)
 
 # refine_tail -> how many trailing sigmas of the official 8-step grid to walk.
 _REFINE_TAIL_STEPS = {"subtle": 2, "balanced": 3, "strong": 4}
@@ -202,34 +208,6 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
         ))
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "txt2img",
-            "steps": 8,             # turbo distilled
-            "guidance": 1.0,        # true CFG, but scale 1.0 = single forward (turbo default)
-            "mu_schedule": "fixed", # ModelSpec's own fixed_mu=1.15 (turbo/distilled schedule)
-            "sampler": "euler",
-            "resolution": "1024x1024",
-            "quantity": 1,
-            "seed": -1,
-            "device": "cuda",
-            "denoise": 0.55,
-            "img2img_scale": 0.0,
-            "preview": True,
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-            "refine_tail": "",
-            "step_cache": {},
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True, choices=["txt2img", "img2img"]),
@@ -248,19 +226,14 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
                            "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
-            PipeConfigSpec("nag_scale", float, 1.0, "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
+            seed_config_spec(),
+            device_config_spec(),
+            preview_config_spec(),
+            *nag_config_specs("Normalized Attention Guidance scale (1.0 = off). Injects the negative "
                            "prompt into the joint attention so it's enforced even at guidance=1.0 (single-forward turbo "
                            "speed) — set nag_scale to ~1.1-1.5 for real negative-prompt influence without a second "
                            "forward pass. Redundant with (and unvalidated alongside) real CFG (guidance > 1.0), which "
-                           "already runs a full negative-conditioned pass -- leave at 1.0 on a CFG profile.",
-                           required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold (paper default 3.5)", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back-toward-positive weight (paper default 0.5)", required=False,
-                           min_value=0.0, max_value=1.0),
+                           "already runs a full negative-conditioned pass -- leave at 1.0 on a CFG profile."),
             PipeConfigSpec("refine_tail", str, "", "Whole-frame enhance (img2img only): walk only the tail of the "
                            "official fixed-mu 8-step Euler grid instead of a denoise-truncated schedule. '' = off, "
                            "'subtle'/'balanced'/'strong' = the last 2/3/4 grid steps.",

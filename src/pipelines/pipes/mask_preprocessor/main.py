@@ -2,7 +2,7 @@
 Mask Preprocessor Pipe - Fooocus-style mask preprocessing
 Dilates and blurs the mask for better inpainting results
 """
-from typing import Dict, Any, List
+from typing import List
 import numpy as np
 from PIL import Image
 
@@ -21,13 +21,6 @@ from src.platform.util.inpaint import blur_mask, dilate_mask
 class MaskPreprocessorPipe(BasePipe):
     name = "mask_preprocessor"
     description = "Preprocess inpainting mask with dilation and blur (Fooocus-style)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "dilate_iterations": 4,  # Fooocus default
-            "blur_radius": 4,        # Gaussian blur radius
-        }
 
     def process(
             self,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 from src.pipelines.contracts import (
     IOType,
@@ -30,17 +30,6 @@ class ModelLoaderMossImagePipe(ThreeComponentLoaderPipe):
     sync_loras = True
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "text_encoder": None,
-            "vae": None,
-            "loras": [],
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None, "MOSS-Image DiT (SFT or Base, bf16 or int8 ConvRot)", required=True),
@@ -48,10 +37,7 @@ class ModelLoaderMossImagePipe(ThreeComponentLoaderPipe):
             PipeConfigSpec("vae", dict, None, "FLUX 2 autoencoder (flux2-vae.safetensors)", required=True),
             PipeConfigSpec("loras", list, [],
                            "LoRA adapters (patched in place on an already-cached DiT)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

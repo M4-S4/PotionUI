@@ -273,15 +273,6 @@ class Upscaler(BasePipe):
             PipeOutputSpec("image", IOType.IMAGE, "Upscaled images", is_array=True),
         ]
 
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,       # Path to .pth
-            "scale": 2.0,       # user-requested final scale
-            "tile_size": 512,
-            "tile_padding": 32,
-        }
-
     def process(
             self,
             pipe_input: PipeInput,

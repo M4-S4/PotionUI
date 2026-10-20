@@ -60,29 +60,10 @@ class GeneratorMayaPipe(BaseGeneratorPipe):
     description = "Maya text-to-speech generation with emotional expressions"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "text": "Hello, how are you today?",
-            "voice_description": "",
-            "voice_age": "30s",
-            "voice_gender": "male",
-            "voice_pitch": "medium",
-            "voice_accent": "american",
-            "voice_warmth": 0.5,
-            "temperature": 0.4,
-            "top_p": 0.9,
-            "repetition_penalty": 1.1,
-            "max_new_tokens": 2048,
-            "min_new_tokens": 28,
-            "seed": -1,
-            "sample_rate": 24000,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Configuration specifications for Maya generator."""
         return [
-            PipeConfigSpec("text", str, "Hello!", "Text to synthesize into speech",
+            PipeConfigSpec("text", str, "Hello, how are you today?", "Text to synthesize into speech",
                           required=True),
             PipeConfigSpec("voice_description", str, "", "Custom voice description",
                           required=False),

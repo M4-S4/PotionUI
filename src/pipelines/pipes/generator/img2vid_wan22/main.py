@@ -54,6 +54,12 @@ from src.pipelines.pipes.generator.txt2vid_wan22.main import (
     _to_device,
     resolve_expert_boundary,
 )
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    nag_config_specs,
+    preview_config_spec,
+    seed_config_spec,
+)
 
 
 class _I2VForward:
@@ -142,41 +148,6 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
     description = "Native Wan image-to-video generator (concat conditioning, dual-expert)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "img2vid", "steps": 30, "cfg": 5.0, "sampler": "unipc",
-            "resolution": "832x480", "frames": 81, "fps": 16.0,
-            "quantity": 1, "seed": -1, "device": "cuda", "expert_boundary": None, "expert_switch_step": None,
-            "preview": True,
-            "cfg_zero_star": True,
-            "zero_init_steps": 0,
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-            "riflex": False,
-            "riflex_trained_frames": None,
-            # None-sentinel: guidance_options.py's *_overrides() only emit a key
-            # when non-None, so an unset knob here lets the model's own
-            # ModelSpec.sampling_settings survive the merge (see that module's
-            # docstring; P5 fix).
-            "apg_eta": None,
-            "apg_norm_threshold": None,
-            "apg_momentum": None,
-            "slg_scale": None,
-            "slg_layers": None,
-            "slg_sigma_start": None,
-            "slg_sigma_end": None,
-            "sampler_options": {},
-            "step_cache": {},
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "img2vid", "Generation mode", required=True, choices=["img2vid"]),
@@ -188,24 +159,17 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
             PipeConfigSpec("frames", int, 81, "Number of video frames", required=False, min_value=1, max_value=257),
             PipeConfigSpec("fps", float, 16.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            seed_config_spec(),
+            device_config_spec(),
             PipeConfigSpec("expert_boundary", float, None, "Dual-expert switch boundary override", required=False,
                            min_value=0.0, max_value=1.0),
             PipeConfigSpec("expert_switch_step", int, None, "Switch high->low expert at this step (wins over expert_boundary; converted to that step's sigma)", required=False,
                            min_value=0),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews (frame 0) to the workbench during sampling", required=False),
+            preview_config_spec("Emit live latent previews (frame 0) to the workbench during sampling"),
             PipeConfigSpec("cfg_zero_star", bool, True, "CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction)", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: return a zero velocity prediction for the first N steps", required=False,
                            min_value=0, max_value=100),
-            PipeConfigSpec("nag_scale", float, 1.0, "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
-                           "prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set "
-                           "cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on.",
-                           required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold (paper default 3.5)", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back-toward-positive weight (paper default 0.5)", required=False,
-                           min_value=0.0, max_value=1.0),
+            *nag_config_specs(),
             *riflex_config_specs(),
             *apg_settings_config_specs(),
             *slg_settings_config_specs(),

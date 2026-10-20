@@ -2,7 +2,7 @@
 Inpaint Region Restore Pipe - Paste cropped inpainted region back into original image
 Based on Fooocus InpaintWorker.post_process implementation
 """
-from typing import Dict, Any, List
+from typing import List
 import numpy as np
 from PIL import Image
 
@@ -23,12 +23,6 @@ from src.pipelines.pipes._shared.inpainting.mask_utils import color_correction
 class InpaintRegionRestorePipe(BasePipe):
     name = "inpaint_region_restore"
     description = "Restore inpainted region back into original full image (Fooocus-style)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "color_correction": True,  # Apply color correction for smooth blending
-        }
 
     def process(
             self,

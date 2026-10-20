@@ -220,6 +220,11 @@ from src.pipelines.pipes.generator.video_minimax_h3.windows import (
     WindowPlan,
     build_director_plan,
 )
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    preview_config_spec,
+    seed_config_spec,
+)
 
 Tensor = torch.Tensor
 
@@ -939,46 +944,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
     description = "Native MiniMax-H3 t2va/fl2va video+audio generator"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "video",
-            "steps": 24,
-            "resolution": "1344x768",
-            "frames": 124,
-            "quantity": 1,
-            "seed": -1,
-            "device": "cuda",
-            "preview": True,
-            "keyframe_anchors": [],
-            "audio_source": "generate",
-            "audio_refine": "lock",
-            "decode": True,
-            "decode_tile_px": 256,
-            "step_cache_threshold": 0.0,
-            "step_cache_warmup_steps": 4,
-            "step_cache_max_skips": 3,
-            "sparse_attn": "off",
-            "sol_attn_tau": 1.0,
-            "sla_sparsity": 0.90,
-            "sla_block_size": 64,
-            "sparse_attn_dense_last_steps": 2,
-            "sparse_attn_start_percent": 0.0,
-            "seq_chunk_rows": 0,
-            "ffn_chunking": True,
-            "sampler": "euler",
-            "scheduler": SIMPLE_SCHEDULER,
-            "manual_sigmas": "",
-            "manual_audio_sigmas": "",
-            "denoise": 1.0,
-            "video_sigma_shift": VIDEO_SHIFT,
-            "runtime_loras": [],
-            "document": None,
-            "references": [],
-            "reference_videos": [],
-            "reference_audios": [],
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "video", "Generation mode. 'video' is t2va/fl2va: the request "
@@ -997,9 +962,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                            "timeline here and is cut into windows of at most max_frames_per_segment",
                            required=False, min_value=1),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews during sampling", required=False),
+            seed_config_spec(),
+            device_config_spec(),
+            preview_config_spec("Emit live latent previews during sampling"),
             PipeConfigSpec("keyframe_anchors", list, [],
                            "Which end of the video each 'image' input anchors, positional with it: "
                            "['first'], ['last'] or ['first','last'] (fl2va). Empty with images present "

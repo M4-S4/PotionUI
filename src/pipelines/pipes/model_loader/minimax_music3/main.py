@@ -23,7 +23,7 @@ off the way H3's does.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from src.pipelines.outputs import (
     ModelGenerationOutput,
@@ -58,16 +58,6 @@ class ModelLoaderMinimaxMusic3Pipe(BaseModelLoaderPipe):
     description = "Load a native MiniMax-Music3 checkpoint set (DiT + fused text encoder + DAV vocoder)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,
-            "text_encoder": None,
-            "vae": None,
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("model", dict, None, "MiniMax-Music3 flow-matching DiT checkpoint", required=True),
@@ -75,10 +65,7 @@ class ModelLoaderMinimaxMusic3Pipe(BaseModelLoaderPipe):
                            "MiniMax-Music3 fused text encoder (global LLM + depth decoder + tokenizer)",
                            required=True),
             PipeConfigSpec("vae", dict, None, "MiniMax-Music3 DAV vocoder", required=True),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod

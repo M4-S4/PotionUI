@@ -19,25 +19,6 @@ class TiledDetailerSDXL(BasePipe):
     description = "SDXL-optimized tiled detailer for high-resolution image enhancement"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "overlap": 128,     # Increased overlap for SDXL
-            "denoise": 0.25,    # Lower denoise for SDXL quality preservation
-            "steps": 20,        # Fewer steps needed for SDXL
-            "cfg": 5.5,         # SDXL optimized CFG
-            "sampler": "DPMPP_2M",  # SDXL optimized sampler algorithm
-            "scheduler": "karras",  # SDXL optimized noise schedule
-            "clip_skip": 2,
-            "seed": -1,
-            "feather_amount": 96,  # Reduced feathering for SDXL sharpness
-            "detail_boost": 1.1,   # Conservative boost for SDXL
-            "enable_detail_conditioning": True,
-            "content_aware_denoise": True,
-            "vram_limit_gb": 8,  # Updated default for high VRAM cards
-            "min_tile_size": 896,  # Based on 896x1152 generation capability
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [
@@ -75,7 +56,7 @@ class TiledDetailerSDXL(BasePipe):
                           min_value=0.5, max_value=2.0),
             PipeConfigSpec("enable_detail_conditioning", bool, True, "Enable detail-focused conditioning", required=False),
             PipeConfigSpec("content_aware_denoise", bool, True, "Adjust denoise based on content complexity", required=False),
-            PipeConfigSpec("vram_limit_gb", int, 32, "VRAM limit in GB for tile sizing", required=False,
+            PipeConfigSpec("vram_limit_gb", int, 8, "VRAM limit in GB for tile sizing", required=False,
                           min_value=4, max_value=80),
             PipeConfigSpec("min_tile_size", int, 896, "Minimum tile size to avoid tiny tiles", required=False,
                           min_value=256, max_value=2048)

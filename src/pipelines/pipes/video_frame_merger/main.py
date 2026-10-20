@@ -1,6 +1,6 @@
 import tempfile
 import numpy as np
-from typing import Dict, Any, List
+from typing import List
 from pathlib import Path
 from PIL import Image
 
@@ -25,21 +25,6 @@ from src.platform.util.dimensions import align_dimensions
 class VideoFrameMergerPipe(BasePipe):
     name = "video_frame_merger"
     description = "Merge image frames into video files"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "fps": 30.0,           # Output video frame rate
-            "codec": "mp4v",       # Video codec
-            "output_format": "mp4", # Output format
-            "loop_count": 1,       # Number of times to loop the frames
-            "reverse": False,      # Add reverse frames for ping-pong effect
-            "fade_in": 0,          # Fade in duration in frames
-            "fade_out": 0,         # Fade out duration in frames
-            "resize_mode": "keep", # keep, fit, fill, stretch
-            "target_width": -1,    # Target width (-1 to use source)
-            "target_height": -1,   # Target height (-1 to use source)
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

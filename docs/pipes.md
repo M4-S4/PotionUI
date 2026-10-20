@@ -191,7 +191,7 @@ Specialized pipe for loading SDXL models with optimized settings
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu`, `mps` | — | — | Device to load model on |
 | `dtype` | `str` | `"float16"` | no | `float16`, `float32`, `bfloat16` | — | — | Data type for model weights |
 | `nsfw` | `bool` | `false` | no | — | — | — | Enable NSFW content filtering |
-| `clip_skip` | `int` | — | no | — | 0 | 12 | Number of CLIP layers to skip (None for default SDXL behavior) |
+| `clip_skip` | `int` | `2` | no | — | 0 | 12 | Number of CLIP layers to skip |
 | `vram_limit_gb` | `float` | — | no | — | 4.0 | 128.0 | GPU VRAM limit in GB (None = auto-detect based on hardware) |
 | `extras` | `dict` | `{}` | no | — | — | — | Extra configuration parameters |
 
@@ -420,7 +420,7 @@ SDXL-optimized automatic detection and enhancement of faces and hands
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
 | `detect` | `list` | `["face", "hand"]` | no | `face`, `hand`, `eyes`, `teeth`, `person` | — | — | Types of objects to detect |
-| `detections` | `dict` | `{}` | no | — | — | — | Detection configuration for each object type |
+| `detections` | `dict` | `{"face": {"confidence": 0.35, "mask_min_ratio": 0.008, "mask_max_ratio": 0.6, "strength": 0.12, "cfg": 5.5, "steps": 25, "padding": 32, "mask_blur": 0.5, "box_color": [0, 0, 0], "box_thickness": 8, "size_threshold": 0.08, "step_reduction_percentage": 0.6, "enable_upscale": true, "upscale_factor": 1.5, "upscale_method": "LANCZOS", "min_size_for_upscale": 96, "sampler": "DPMPP_2M", "scheduler": "karras", "type": "yolo", "model": "models/detection_bbox/face_yolov12m.pt"}, "hand": {"confidence": 0.5, "mask_min_ratio": 0.005, "mask_max_ratio": 0.6, "strength": 0.3, "cfg": 7, "steps": 20, "padding": 32, "mask_blur": 2, "box_color": [0, 255, 0], "box_thickness": 8, "size_threshold": 0.08, "step_reduction_percentage": 0.6, "enable_upscale": true, "upscale_factor": 1.5, "upscale_method": "LANCZOS", "min_size_for_upscale": 96, "sampler": "DPMPP_2M", "scheduler": "karras", "type": "yolo", "model": "models/detection_bbox/hand_yolov8n.pt"}, "eyes": {"confidence": 0.5, "mask_min_ratio": 0.008, "mask_max_ratio": 0.6, "strength": 0.15, "cfg": 4.5, "steps": 20, "padding": 20, "mask_blur": 1, "box_color": [255, 255, 0], "box_thickness": 4, "size_threshold": 0.08, "step_reduction_percentage": 0.6, "enable_upscale": true, "upscale_factor": 1.5, "upscale_method": "LANCZOS", "min_size_for_upscale": 96, "sampler": "DPMPP_2M", "scheduler": "karras", "enabled": false, "type": "mediapipe", "model": "models/mediapipe/face_landmarker.task", "eye_padding": 10, "eye_v_padding": 15, "clip_skip": 2}, "teeth": {"confidence": 0.5, "mask_min_ratio": 0.008, "mask_max_ratio": 0.6, "strength": 0.12, "cfg": 4.5, "steps": 20, "padding": 15, "mask_blur": 0, "box_color": [255, 255, 255], "box_thickness": 4, "size_threshold": 0.08, "step_reduction_percentage": 0.6, "enable_upscale": true, "upscale_factor": 1.5, "upscale_method": "LANCZOS", "min_size_for_upscale": 96, "sampler": "DPMPP_2M", "scheduler": "karras", "enabled": false, "type": "mediapipe", "model": "models/mediapipe/face_landmarker.task", "mouth_open_threshold": 0.015, "teeth_padding": 5, "teeth_v_padding": 8, "clip_skip": 2}, "person": {"confidence": 0.4, "mask_min_ratio": 0.01, "mask_max_ratio": 0.9, "strength": 0.25, "cfg": 5.0, "steps": 20, "padding": 48, "mask_blur": 3, "box_color": [255, 0, 255], "box_thickness": 8, "size_threshold": 0.08, "step_reduction_percentage": 0.6, "enable_upscale": true, "upscale_factor": 1.5, "upscale_method": "LANCZOS", "min_size_for_upscale": 96, "sampler": "DPMPP_2M", "scheduler": "karras", "enabled": false, "type": "yolo", "model": "yolov8m.pt", "clip_skip": 2}}` | no | — | — | — | Detection configuration for each object type |
 | `confidence` | `float` | `0.35` | no | — | 0.0 | 1.0 | Detection confidence threshold |
 | `mask_min_ratio` | `float` | `0.008` | no | — | 0.001 | 1.0 | Minimum mask size ratio |
 | `mask_max_ratio` | `float` | `0.6` | no | — | 0.1 | 1.0 | Maximum mask size ratio |
@@ -804,8 +804,8 @@ Native LTX-2.5 DFR temporal rounds: densify a finished video latent to 2x/4x the
 | `decode` | `bool` | `true` | no | — | — | — | Decode to video; false emits the densified latent instead |
 | `device` | `str` | `"cuda"` | no | `cuda`, `cpu` | — | — | Compute device |
 | `nag_scale` | `float` | `1.0` | no | — | 1.0 | 20.0 | Normalized Attention Guidance scale (1.0 = off). The only channel by which the negative prompt reaches a cfg-1.0 round |
-| `nag_tau` | `float` | `3.5` | no | — | 0.1 | 20.0 | NAG norm-clamp threshold |
-| `nag_alpha` | `float` | `0.5` | no | — | 0.0 | 1.0 | NAG blend-back weight |
+| `nag_tau` | `float` | `3.5` | no | — | 0.1 | 20.0 | NAG norm-clamp threshold (paper default 3.5) |
+| `nag_alpha` | `float` | `0.5` | no | — | 0.0 | 1.0 | NAG blend-back-toward-positive weight (paper default 0.5) |
 
 ### <a id="pipe-generator-flux"></a>`generator/flux`
 
@@ -1024,7 +1024,7 @@ Maya text-to-speech generation with emotional expressions
 
 | Option | Type | Default | Required | Choices | Min | Max | Description |
 |---|---|---|---|---|---|---|---|
-| `text` | `str` | `"Hello!"` | yes | — | — | — | Text to synthesize into speech |
+| `text` | `str` | `"Hello, how are you today?"` | yes | — | — | — | Text to synthesize into speech |
 | `voice_description` | `str` | `""` | no | — | — | — | Custom voice description |
 | `voice_age` | `str` | `"30s"` | no | — | — | — | Voice age range |
 | `voice_gender` | `str` | `"male"` | no | `male`, `female` | — | — | Voice gender |
@@ -2583,7 +2583,7 @@ Expands prompts using configured LLM service
 | `llm_id` | `str` | — | no | — | — | — | LLM configuration ID |
 | `command_id` | `str` | — | no | — | — | — | Predefined command ID |
 | `style_id` | `str` | — | no | — | — | — | Prompt style ID |
-| `prompt` | `str` | `"Expand this prompt"` | no | — | — | — | Expansion instruction |
+| `prompt` | `str` | `"Expand this prompt with creative details"` | no | — | — | — | Expansion instruction |
 | `p_prompt_input` | `str` | `""` | yes | — | — | — | Positive prompt to expand |
 | `n_prompt_input` | `str` | `""` | no | — | — | — | Negative prompt to expand |
 | `p_prompt_output` | `str` | `"[[__expanded_p_prompt__]]"` | no | — | — | — | Output template for positive |
@@ -2699,7 +2699,7 @@ SDXL-optimized tiled detailer for high-resolution image enhancement
 | `detail_boost` | `float` | `1.1` | no | — | 0.5 | 2.0 | Detail enhancement multiplier |
 | `enable_detail_conditioning` | `bool` | `true` | no | — | — | — | Enable detail-focused conditioning |
 | `content_aware_denoise` | `bool` | `true` | no | — | — | — | Adjust denoise based on content complexity |
-| `vram_limit_gb` | `int` | `32` | no | — | 4 | 80 | VRAM limit in GB for tile sizing |
+| `vram_limit_gb` | `int` | `8` | no | — | 4 | 80 | VRAM limit in GB for tile sizing |
 | `min_tile_size` | `int` | `896` | no | — | 256 | 2048 | Minimum tile size to avoid tiny tiles |
 
 ## tiled_refiner

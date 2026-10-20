@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import List
 
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
@@ -15,10 +15,6 @@ from src.pipelines.pipes.sharpness.sdxl.hook import SharpnessHook
 class SharpnessPipe(BasePipe):
     name = "sharpness"
     description = "Anisotropic sharpness enhancement for SDXL"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {"strength": 0.0}
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         model = pipe_input.input["model"]

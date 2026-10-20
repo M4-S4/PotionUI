@@ -63,7 +63,7 @@ clearly-worded error rather than silently degrading.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -95,6 +95,7 @@ from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import (
     resolve_target_geometry,
     upsample_chunked,
 )
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 logger = logging.getLogger(__name__)
 
@@ -195,15 +196,9 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
     description = "Upsample a MiniMax-H3 video latent spatially, via the model's optional upscaler checkpoint"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "device": "cuda", "target_mode": "megapixels", "megapixels": 2.1, "scale": 2.0, "max_frames": 601,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
             PipeConfigSpec("target_mode", str, "megapixels", "How to size the upscale target: a decimal-megapixel "
                            "area, or a straight axis multiplier", required=False, choices=["megapixels", "scale"]),
             PipeConfigSpec("megapixels", float, 2.1, "Target area in megapixels (target_mode='megapixels')",

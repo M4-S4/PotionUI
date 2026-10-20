@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Any, List, Union
+from typing import List
 from pathlib import Path
 from PIL import Image, ImageFile
 
@@ -21,18 +21,6 @@ from src.pipelines.outputs import Icon, Progress
 class MediaLoaderPipe(BasePipe):
     name = "media_loader"
     description = "Load media files (images/videos/audio) from form file paths and convert them to proper IOType objects"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "validate_files": True,  # Validate that files exist and are readable
-            "max_file_size": 104857600,  # 100MB max file size
-            "supported_image_formats": [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"],
-            "supported_video_formats": [".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"],
-            "supported_audio_formats": [".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac"],
-            "auto_detect_type": True,  # Auto-detect media type from file extension
-            "media": [],  # List of media files to load: [{"type": "video", "path": "..."}]
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

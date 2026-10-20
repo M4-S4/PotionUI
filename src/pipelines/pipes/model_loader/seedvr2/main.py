@@ -15,7 +15,7 @@ DiT fingerprint so a swapped embedding busts the reused bundle.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from src.pipelines.outputs import (
     ModelGenerationOutput,
@@ -52,26 +52,13 @@ class ModelLoaderSeedVR2Pipe(BaseModelLoaderPipe):
     # -- declaration -------------------------------------------------------
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "diffusion_model": None,
-            "vae": None,
-            "prompt_embedding": None,
-            "device": "cuda",
-            "dtype": "bfloat16",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("diffusion_model", dict, None, "SeedVR2 NaDiT checkpoint", required=True),
             PipeConfigSpec("vae", dict, None, "SeedVR2 self-normalizing causal-video VAE", required=True),
             PipeConfigSpec("prompt_embedding", dict, None,
                            "Fixed positive prompt embedding (.pt tensor); no live text encoder", required=True),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
-                           choices=["bfloat16", "float16", "float32"]),
-            PipeConfigSpec("vram_limit_gb", float, None, "VRAM budget hint (backend-injected)", required=False),
+            *cls.runtime_config_specs(),
         ]
 
     @classmethod
