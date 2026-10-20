@@ -564,6 +564,7 @@
 							variant="secondary"
 							icon={action.icon}
 							class={action.active ? 'text-sm styles-applied' : 'text-sm'}
+							ariaLabel={count > 0 ? `${action.label} (${count})` : action.label}
 							onclick={action.onclick}
 						>
 							<span class="toolbar-label">{action.label}</span>

@@ -38,7 +38,7 @@ async function segmentEditor(page: Page): Promise<Locator> {
 }
 
 async function openVariableManager(page: Page): Promise<Locator> {
-	const button = page.getByRole('button', { name: 'Variables' });
+	const button = page.getByRole('button', { name: /^Variables/ });
 	try {
 		await button.waitFor({ state: 'visible', timeout: 10000 });
 	} catch {
@@ -59,7 +59,7 @@ async function openVariableManagerResponsive(page: Page): Promise<Locator> {
 		await pill.first().click();
 		await expect(sheet).toBeVisible();
 	}
-	await page.locator('[data-toolbar-action="variables"] button').first().click();
+	await page.getByRole('button', { name: /^Variables/ }).first().click();
 	const modal = page.getByRole('dialog', { name: 'Prompt variables', exact: true });
 	await expect(modal).toBeVisible({ timeout: 10000 });
 	return modal;

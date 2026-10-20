@@ -21,6 +21,7 @@
 		initialFocus = false,
 		ariaExpanded,
 		ariaHaspopup,
+		ariaLabel,
 		children
 	}: {
 		variant?: Variant;
@@ -38,6 +39,7 @@
 		initialFocus?: boolean;
 		ariaExpanded?: boolean;
 		ariaHaspopup?: 'dialog' | 'menu' | 'listbox' | 'true';
+		ariaLabel?: string;
 		children?: Snippet;
 	} = $props();
 
@@ -69,7 +71,7 @@
 </script>
 
 {#if href && !isDisabled}
-	<a {href} {target} {rel} class={classes} {title} role="button">
+	<a {href} {target} {rel} class={classes} {title} role="button" aria-label={ariaLabel}>
 		{#if icon}<Icon name={icon} className={iconSizeClasses[size]} />{/if}
 		{@render children?.()}
 	</a>
@@ -82,6 +84,7 @@
 		{onclick}
 		aria-expanded={ariaExpanded}
 		aria-haspopup={ariaHaspopup}
+		aria-label={ariaLabel}
 		data-autofocus={initialFocus ? '' : undefined}
 	>
 		{#if loading}
