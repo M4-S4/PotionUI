@@ -11,7 +11,6 @@ from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, HTTPExc
 from fastapi.responses import StreamingResponse, FileResponse, Response
 import aiofiles
 
-from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import (
     get_current_active_user,
@@ -186,8 +185,6 @@ class MediaController(BaseController):
                 "fps": result.fps
             })
 
-        except LimitExceeded as e:
-            raise e.http()
         except ValueError as e:
             return self.error_response(error="upload_failed", message=str(e))
         except Exception as e:

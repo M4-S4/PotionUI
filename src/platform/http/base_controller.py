@@ -6,6 +6,16 @@ import traceback
 import logging
 
 
+class PassThrough(Exception):
+    pass
+
+
+def reraise_in_flight() -> None:
+    exc = sys.exc_info()[1]
+    if isinstance(exc, PassThrough):
+        raise exc
+
+
 class APIResponse(BaseModel):
     success: bool
     data: Optional[Any] = None
@@ -36,6 +46,7 @@ class BaseController:
         The stack trace is logged server-side only; it is never returned to
         the client.
         """
+        reraise_in_flight()
         error_data = APIError(error=error, message=message)
 
         # Log the error; the stacktrace only when one is actually in flight -
@@ -50,6 +61,7 @@ class BaseController:
 
     def error_api_response(self, error: str, message: str = None) -> APIResponse:
         """Create an APIResponse with error information (does not raise exception)"""
+        reraise_in_flight()
         # Log the error
         self.logger.error(f"API Error: {error} - {message}")
 
@@ -65,6 +77,7 @@ class BaseController:
         None; a generic message is used instead.
         """
 
+        reraise_in_flight()
         # Log the exception with full traceback (server-side only).
         self.logger.exception(f"Exception in {self.__class__.__name__} ({error_code}): {e}")
 

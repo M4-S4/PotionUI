@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import HTTPException
 
 from src.features.media.editing.dto import CropOperation, TrimOperation
 from src.features.media.routes import MediaController
@@ -190,12 +189,12 @@ async def test_the_upload_route_refuses_by_the_streamed_size_before_reading_the_
     store, driver = media_store(tmp_path, plans.guard)
     file = Mock(filename="a.png", content_type="image/png", size=3277, read=AsyncMock(return_value=b"x" * 3277))
 
-    with pytest.raises(HTTPException) as raised:
+    with pytest.raises(LimitExceeded) as raised:
         await MediaController(store, Mock()).upload_media(file, Mock(id="u1"))
 
     assert raised.value.status_code == 403
-    assert raised.value.detail["kind"] == "upload_file_size"
-    assert raised.value.detail["message"].startswith("This file is 3.2 KB; your plan allows files up to 1 KB.")
+    assert raised.value.payload()["kind"] == "upload_file_size"
+    assert raised.value.payload()["message"].startswith("This file is 3.2 KB; your plan allows files up to 1 KB.")
     file.read.assert_not_awaited()
     driver.put_bytes.assert_not_called()
 

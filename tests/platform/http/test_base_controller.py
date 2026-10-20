@@ -8,7 +8,7 @@ reach the response body, only the server-side log.
 import pytest
 from fastapi import HTTPException
 
-from src.platform.http.base_controller import BaseController
+from src.platform.http.base_controller import BaseController, PassThrough
 
 
 class _Controller(BaseController):
@@ -69,3 +69,21 @@ class TestErrorResponse:
 
         assert "Stacktrace" in caplog.text
         assert "ValueError: boom" in caplog.text
+
+
+class _Passing(PassThrough):
+    pass
+
+
+class TestPassThrough:
+    @pytest.mark.parametrize("call", [
+        lambda c: c.error_response(error="x", message="m"),
+        lambda c: c.handle_exception(RuntimeError("x"), error_code="x"),
+        lambda c: c.error_api_response(error="x", message="m"),
+    ])
+    def test_the_error_helpers_reraise_a_pass_through_in_flight(self, controller, call):
+        with pytest.raises(_Passing):
+            try:
+                raise _Passing("refused")
+            except Exception:
+                call(controller)

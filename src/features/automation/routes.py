@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Optional
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.automation.dto import (
     CreateAutomationRequest,
@@ -35,6 +36,9 @@ from src.platform.websocket.automation_connection_hub import automation_connecti
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
+
+
+_GRAPH_ERRORS = {GraphValidationError: Fail("invalid_graph", lambda e: str(e.issues))}
 
 
 def _serialize_config_schema(config_schema: list) -> dict:
@@ -152,113 +156,93 @@ class AutomationController(BaseController):
 
     # -- CRUD ----------------------------------------------------------------
 
+    @guarded({}, Fail("list_automations_failed", detail=failure_detail), admin="user")
     async def list_automations(self, user: User) -> APIResponse:
-        try:
-            automations = self.manager.list()
-            return self.success_response(data=[a.to_dict() for a in automations])
-        except Exception as e:
-            self.logger.error(f"Error listing automations: {e}")
-            return self.error_api_response(error="list_automations_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        automations = self.manager.list()
+        return self.success_response(data=[a.to_dict() for a in automations])
 
     async def create_automation(self, request: CreateAutomationRequest, user: User) -> APIResponse:
         denial = self._admin_denial(request.graph, user)
         if denial:
             return denial
-        try:
-            automation = await self.manager.create(
-                name=request.name,
-                graph=request.graph,
-                description=request.description,
-                user_id=user.id,
-                enabled=request.enabled,
-            )
-            return self.success_response(data=automation.to_dict())
-        except GraphValidationError as e:
-            return self.error_api_response(error="invalid_graph", message=str(e.issues))
-        except Exception as e:
-            self.logger.error(f"Error creating automation: {e}")
-            return self.error_api_response(error="create_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        return await self._create_automation(request, user)
 
+    @guarded(_GRAPH_ERRORS, Fail("create_automation_failed", detail=failure_detail), admin="user")
+    async def _create_automation(self, request: CreateAutomationRequest, user: User) -> APIResponse:
+        automation = await self.manager.create(
+            name=request.name,
+            graph=request.graph,
+            description=request.description,
+            user_id=user.id,
+            enabled=request.enabled,
+        )
+        return self.success_response(data=automation.to_dict())
+
+    @guarded({}, Fail("get_automation_failed", detail=failure_detail), admin="user")
     async def get_automation(self, automation_id: str, user: User) -> APIResponse:
-        try:
-            automation = self.manager.get(automation_id)
-            if automation is None:
-                return self.error_api_response(error="automation_not_found", message="Automation not found")
-            return self.success_response(data=automation.to_dict())
-        except Exception as e:
-            self.logger.error(f"Error getting automation: {e}")
-            return self.error_api_response(error="get_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        automation = self.manager.get(automation_id)
+        if automation is None:
+            return self.error_api_response(error="automation_not_found", message="Automation not found")
+        return self.success_response(data=automation.to_dict())
 
     # -- portability ---------------------------------------------------------
 
+    @guarded({}, Fail("list_templates_failed", detail=failure_detail), admin="user")
     async def list_templates(self, user: User) -> APIResponse:
-        try:
-            return self.success_response(data=self.manager.list_templates())
-        except Exception as e:
-            self.logger.error(f"Error listing automation templates: {e}")
-            return self.error_api_response(error="list_templates_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        return self.success_response(data=self.manager.list_templates())
 
+    @guarded(
+        {
+            AutomationTemplateNotFoundError: Fail(
+                "template_not_found", lambda e: f"Automation template not found: {e}"
+            ),
+            AutomationTemplateUnavailableError: Fail("template_unavailable"),
+            AutomationImportError: Fail("invalid_template"),
+            GraphValidationError: Fail("invalid_template_graph", lambda e: str(e.issues)),
+        },
+        Fail("instantiate_template_failed", detail=failure_detail),
+        admin="user",
+    )
     async def instantiate_template(
         self,
         template_key: str,
         request: InstantiateAutomationTemplateRequest,
         user: User,
     ) -> APIResponse:
-        try:
-            automation, warnings = await self.manager.instantiate_template(
-                template_key,
-                user_id=user.id,
-                name=request.name,
-            )
-            return self.success_response(data={"automation": automation.to_dict(), "warnings": warnings})
-        except AutomationTemplateNotFoundError:
-            return self.error_api_response(
-                error="template_not_found",
-                message=f"Automation template not found: {template_key}",
-            )
-        except AutomationTemplateUnavailableError as e:
-            return self.error_api_response(error="template_unavailable", message=str(e))
-        except AutomationImportError as e:
-            return self.error_api_response(error="invalid_template", message=str(e))
-        except GraphValidationError as e:
-            return self.error_api_response(error="invalid_template_graph", message=str(e.issues))
-        except Exception as e:
-            self.logger.error(f"Error instantiating automation template {template_key}: {e}")
-            return self.error_api_response(error="instantiate_template_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        automation, warnings = await self.manager.instantiate_template(
+            template_key,
+            user_id=user.id,
+            name=request.name,
+        )
+        return self.success_response(data={"automation": automation.to_dict(), "warnings": warnings})
 
+    @guarded({}, Fail("export_automation_failed", detail=failure_detail), admin="user")
     async def export_automation(self, automation_id: str, user: User) -> APIResponse:
-        try:
-            envelope = self.manager.export_automation(automation_id)
-            if envelope is None:
-                return self.error_api_response(error="automation_not_found", message="Automation not found")
-            return self.success_response(data=envelope)
-        except Exception as e:
-            self.logger.error(f"Error exporting automation: {e}")
-            return self.error_api_response(error="export_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        envelope = self.manager.export_automation(automation_id)
+        if envelope is None:
+            return self.error_api_response(error="automation_not_found", message="Automation not found")
+        return self.success_response(data=envelope)
 
+    @guarded(
+        {AutomationImportError: Fail("invalid_import"), **_GRAPH_ERRORS},
+        Fail("import_automation_failed", detail=failure_detail),
+        admin="user",
+    )
     async def import_automation(self, request: ImportAutomationRequest, user: User) -> APIResponse:
         """Imported automations always land disabled; `warnings` lists what this machine can't satisfy yet."""
-        try:
-            document = dict(request.document)
-            if request.name:
-                automation_payload = dict(document.get("automation") or {})
-                automation_payload["name"] = request.name
-                document["automation"] = automation_payload
+        document = dict(request.document)
+        if request.name:
+            automation_payload = dict(document.get("automation") or {})
+            automation_payload["name"] = request.name
+            document["automation"] = automation_payload
 
-            import_graph = (document.get("automation") or {}).get("graph")
-            denial = self._admin_denial(import_graph, user)
-            if denial:
-                return denial
+        import_graph = (document.get("automation") or {}).get("graph")
+        denial = self._admin_denial(import_graph, user)
+        if denial:
+            return denial
 
-            automation, warnings = await self.manager.import_automation(document, user_id=user.id)
-            return self.success_response(data={"automation": automation.to_dict(), "warnings": warnings})
-        except AutomationImportError as e:
-            return self.error_api_response(error="invalid_import", message=str(e))
-        except GraphValidationError as e:
-            return self.error_api_response(error="invalid_graph", message=str(e.issues))
-        except Exception as e:
-            self.logger.error(f"Error importing automation: {e}")
-            return self.error_api_response(error="import_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        automation, warnings = await self.manager.import_automation(document, user_id=user.id)
+        return self.success_response(data={"automation": automation.to_dict(), "warnings": warnings})
 
     async def update_automation(self, automation_id: str, request: UpdateAutomationRequest, user: User) -> APIResponse:
         # A partial update omits `graph`; only inspect one that's actually supplied.
@@ -266,22 +250,20 @@ class AutomationController(BaseController):
             denial = self._admin_denial(request.graph, user)
             if denial:
                 return denial
-        try:
-            automation = await self.manager.update(
-                automation_id,
-                name=request.name,
-                graph=request.graph,
-                description=request.description,
-                enabled=request.enabled,
-            )
-            if automation is None:
-                return self.error_api_response(error="automation_not_found", message="Automation not found")
-            return self.success_response(data=automation.to_dict())
-        except GraphValidationError as e:
-            return self.error_api_response(error="invalid_graph", message=str(e.issues))
-        except Exception as e:
-            self.logger.error(f"Error updating automation: {e}")
-            return self.error_api_response(error="update_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        return await self._update_automation(automation_id, request, user)
+
+    @guarded(_GRAPH_ERRORS, Fail("update_automation_failed", detail=failure_detail), admin="user")
+    async def _update_automation(self, automation_id: str, request: UpdateAutomationRequest, user: User) -> APIResponse:
+        automation = await self.manager.update(
+            automation_id,
+            name=request.name,
+            graph=request.graph,
+            description=request.description,
+            enabled=request.enabled,
+        )
+        if automation is None:
+            return self.error_api_response(error="automation_not_found", message="Automation not found")
+        return self.success_response(data=automation.to_dict())
 
     async def set_enabled(self, automation_id: str, enabled: bool, user: User) -> APIResponse:
         # Enabling arms triggers, which fire with no user - so a non-admin must
@@ -292,24 +274,21 @@ class AutomationController(BaseController):
                 denial = self._admin_denial(existing.graph, user)
                 if denial:
                     return denial
-        try:
-            automation = await self.manager.set_enabled(automation_id, enabled)
-            if automation is None:
-                return self.error_api_response(error="automation_not_found", message="Automation not found")
-            return self.success_response(data=automation.to_dict())
-        except Exception as e:
-            self.logger.error(f"Error setting automation enabled state: {e}")
-            return self.error_api_response(error="set_enabled_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        return await self._set_enabled(automation_id, enabled, user)
 
+    @guarded({}, Fail("set_enabled_failed", detail=failure_detail), admin="user")
+    async def _set_enabled(self, automation_id: str, enabled: bool, user: User) -> APIResponse:
+        automation = await self.manager.set_enabled(automation_id, enabled)
+        if automation is None:
+            return self.error_api_response(error="automation_not_found", message="Automation not found")
+        return self.success_response(data=automation.to_dict())
+
+    @guarded({}, Fail("delete_automation_failed", detail=failure_detail), admin="user")
     async def delete_automation(self, automation_id: str, user: User) -> APIResponse:
-        try:
-            success = await self.manager.delete(automation_id)
-            if not success:
-                return self.error_api_response(error="automation_not_found", message="Automation not found")
-            return self.success_response(data={"id": automation_id})
-        except Exception as e:
-            self.logger.error(f"Error deleting automation: {e}")
-            return self.error_api_response(error="delete_automation_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        success = await self.manager.delete(automation_id)
+        if not success:
+            return self.error_api_response(error="automation_not_found", message="Automation not found")
+        return self.success_response(data={"id": automation_id})
 
     # -- execution / validation ------------------------------------------------
 
@@ -322,55 +301,43 @@ class AutomationController(BaseController):
             denial = self._admin_denial(existing.graph, user)
             if denial:
                 return denial
-        try:
-            run_id = await self.manager.run_now(automation_id, node_id=request.node_id, payload=request.payload)
-            if run_id is None:
-                return self.error_api_response(
-                    error="run_failed", message="Automation not found or has no trigger node"
-                )
-            return self.success_response(data={"run_id": run_id})
-        except Exception as e:
-            self.logger.error(f"Error running automation: {e}")
-            return self.error_api_response(error="run_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        return await self._run_now(automation_id, request, user)
 
+    @guarded({}, Fail("run_failed", detail=failure_detail), admin="user")
+    async def _run_now(self, automation_id: str, request: RunNowRequest, user: User) -> APIResponse:
+        run_id = await self.manager.run_now(automation_id, node_id=request.node_id, payload=request.payload)
+        if run_id is None:
+            return self.error_api_response(
+                error="run_failed", message="Automation not found or has no trigger node"
+            )
+        return self.success_response(data={"run_id": run_id})
+
+    @guarded({}, Fail("validate_graph_failed", detail=failure_detail), admin="user")
     async def validate_graph(self, request: ValidateGraphRequest, user: User) -> APIResponse:
-        try:
-            issues = self.manager.validate_graph(request.graph)
-            return self.success_response(data={"issues": issues})
-        except Exception as e:
-            self.logger.error(f"Error validating automation graph: {e}")
-            return self.error_api_response(error="validate_graph_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        issues = self.manager.validate_graph(request.graph)
+        return self.success_response(data={"issues": issues})
 
+    @guarded({}, Fail("list_node_types_failed", detail=failure_detail), admin="user")
     async def get_node_types(self, user: User) -> APIResponse:
-        try:
-            node_types = [_serialize_node_type(spec) for spec in self.registry.all()]
-            return self.success_response(data=node_types)
-        except Exception as e:
-            self.logger.error(f"Error listing node types: {e}")
-            return self.error_api_response(error="list_node_types_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        node_types = [_serialize_node_type(spec) for spec in self.registry.all()]
+        return self.success_response(data=node_types)
 
     # -- run history -----------------------------------------------------------
 
+    @guarded({}, Fail("list_runs_failed", detail=failure_detail), admin="user")
     async def list_runs(self, automation_id: str, user: User, limit: int = 20, before: Optional[str] = None) -> APIResponse:
-        try:
-            runs = self.manager.repository.list_runs(automation_id, limit=limit, before=before)
-            return self.success_response(data=[r.to_dict() for r in runs])
-        except Exception as e:
-            self.logger.error(f"Error listing automation runs: {e}")
-            return self.error_api_response(error="list_runs_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        runs = self.manager.repository.list_runs(automation_id, limit=limit, before=before)
+        return self.success_response(data=[r.to_dict() for r in runs])
 
+    @guarded({}, Fail("get_run_failed", detail=failure_detail), admin="user")
     async def get_run(self, automation_id: str, run_id: str, user: User) -> APIResponse:
-        try:
-            run = self.manager.repository.get_run(run_id)
-            if run is None or run.automation_id != automation_id:
-                return self.error_api_response(error="run_not_found", message="Run not found")
-            run_nodes = self.manager.repository.list_run_nodes(run_id)
-            data = run.to_dict()
-            data["nodes"] = [n.to_dict() for n in run_nodes]
-            return self.success_response(data=data)
-        except Exception as e:
-            self.logger.error(f"Error getting automation run: {e}")
-            return self.error_api_response(error="get_run_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        run = self.manager.repository.get_run(run_id)
+        if run is None or run.automation_id != automation_id:
+            return self.error_api_response(error="run_not_found", message="Run not found")
+        run_nodes = self.manager.repository.list_run_nodes(run_id)
+        data = run.to_dict()
+        data["nodes"] = [n.to_dict() for n in run_nodes]
+        return self.success_response(data=data)
 
 
 def build_router(container: "AppContainer") -> APIRouter:

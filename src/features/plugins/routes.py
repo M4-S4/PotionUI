@@ -1,10 +1,9 @@
-import logging
 from typing import Any, List, Optional, TYPE_CHECKING
-from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import User
 from src.features.plugins.dto import (
@@ -21,6 +20,29 @@ from src.features.providers.registry import reset_provider_registry, refresh_pro
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
+
+
+_NOT_FOUND = {ValueError: Fail("plugin_not_found", status=404)}
+
+
+def _missing(e: Exception) -> bool:
+    return "not found" in str(e).lower()
+
+
+def _toggle(failed_code: str) -> dict:
+    return {ValueError: Fail(
+        lambda e: "plugin_not_found" if _missing(e) else failed_code,
+        status=lambda e: 404 if _missing(e) else 400,
+    )}
+
+
+_DELETE = {ValueError: Fail(
+    lambda e: "plugin_not_found" if _missing(e) else "plugin_delete_failed", status=400
+)}
+_SETTINGS_UPDATE = {
+    PluginManifestUnavailableError: Fail("plugin_manifest_unavailable", status=409),
+    **_NOT_FOUND,
+}
 
 
 class PluginController(BaseController):
@@ -66,339 +88,190 @@ class PluginController(BaseController):
             for page in pages
         ]
 
+    @guarded(fallback=Fail("plugin_pages_get_failed", "Failed to get plugin pages", 500))
     async def get_plugin_pages(self) -> APIResponse:
         """Get all active plugin pages sorted by sidebar_order"""
-        try:
-            pages = self._get_active_pages()
-            return self.success_response(data=[p.model_dump() for p in pages])
-        except Exception as e:
-            self.logger.error(f"Failed to get plugin pages: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_pages_get_failed",
-                message="Failed to get plugin pages"
-            )
+        pages = self._get_active_pages()
+        return self.success_response(data=[p.model_dump() for p in pages])
 
+    @guarded(fallback=Fail("plugin_page_get_failed", "Failed to get plugin page", 500))
     async def get_plugin_page_by_route(self, route: str) -> APIResponse:
         """Get page info for a specific route"""
-        try:
-            pages = self._get_active_pages()
-            matching = [p for p in pages if p.route == route]
-            if not matching:
-                return self.error_response(
-                    error="plugin_page_not_found",
-                    message=f"No plugin page found for route '{route}'",
-                    status_code=404
-                )
-            return self.success_response(data=matching[0].model_dump())
-        except Exception as e:
-            self.logger.error(f"Failed to get plugin page for route {route}: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_page_get_failed",
-                message="Failed to get plugin page"
+        pages = self._get_active_pages()
+        matching = [p for p in pages if p.route == route]
+        if not matching:
+            return self.error_response(
+                error="plugin_page_not_found",
+                message=f"No plugin page found for route '{route}'",
+                status_code=404
             )
+        return self.success_response(data=matching[0].model_dump())
 
+    @guarded(fallback=Fail("sidebar_items_get_failed", "Failed to get sidebar items", 500))
     async def get_sidebar_items(self) -> APIResponse:
         """Get sidebar items from active plugins"""
-        try:
-            items = [p for p in self._get_active_pages() if p.show_in_sidebar]
-            return self.success_response(data=[i.model_dump() for i in items])
-        except Exception as e:
-            self.logger.error(f"Failed to get sidebar items: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="sidebar_items_get_failed",
-                message="Failed to get sidebar items"
-            )
+        items = [p for p in self._get_active_pages() if p.show_in_sidebar]
+        return self.success_response(data=[i.model_dump() for i in items])
 
     # ========== Quick Actions ==========
 
+    @guarded(fallback=Fail("plugin_quick_actions_get_failed", "Failed to get plugin quick actions", 500))
     async def get_plugin_quick_actions(self) -> APIResponse:
         """Get quick actions from enabled plugins"""
-        try:
-            actions = operations.get_active_quick_actions(self.repository, self.registry)
-            return self.success_response(data=actions)
-        except Exception as e:
-            self.logger.error(f"Failed to get plugin quick actions: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_quick_actions_get_failed",
-                message="Failed to get plugin quick actions"
-            )
+        actions = operations.get_active_quick_actions(self.repository, self.registry)
+        return self.success_response(data=actions)
 
     # ========== History Tools ==========
 
+    @guarded(fallback=Fail("plugin_history_tools_get_failed", "Failed to get plugin history tools", 500))
     async def get_plugin_history_tools(self) -> APIResponse:
         """Get History page selection-bar tools from enabled plugins"""
-        try:
-            tools = operations.get_active_history_tools(self.repository, self.registry)
-            return self.success_response(data=tools)
-        except Exception as e:
-            self.logger.error(f"Failed to get plugin history tools: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_history_tools_get_failed",
-                message="Failed to get plugin history tools"
-            )
+        tools = operations.get_active_history_tools(self.repository, self.registry)
+        return self.success_response(data=tools)
 
     # ========== Sidebar Widgets ==========
 
+    @guarded(fallback=Fail("sidebar_widgets_get_failed", "Failed to get sidebar widgets", 500))
     async def get_sidebar_widgets(self, user: User) -> APIResponse:
-        try:
-            widgets = operations.get_active_sidebar_widgets(
-                self.repository, self.registry, user.account_type.value
-            )
-            return self.success_response(data=widgets)
-        except Exception as e:
-            self.logger.error(f"Failed to get sidebar widgets: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="sidebar_widgets_get_failed",
-                message="Failed to get sidebar widgets"
-            )
+        widgets = operations.get_active_sidebar_widgets(
+            self.repository, self.registry, user.account_type.value
+        )
+        return self.success_response(data=widgets)
 
     # ========== Plugin Management ==========
 
+    @guarded(fallback=Fail("plugin_list_failed", "Failed to list plugins", 500))
     async def list_plugins(self) -> APIResponse:
         """List all plugins with their status"""
-        try:
-            plugins = self.repository.get_all_plugins()
-            responses = [plugin_to_response(p, self.registry) for p in plugins]
-            return self.success_response(data=[p.model_dump() for p in responses])
-        except Exception as e:
-            self.logger.error(f"Failed to list plugins: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_list_failed",
-                message="Failed to list plugins"
-            )
+        plugins = self.repository.get_all_plugins()
+        responses = [plugin_to_response(p, self.registry) for p in plugins]
+        return self.success_response(data=[p.model_dump() for p in responses])
 
+    @guarded(_NOT_FOUND, Fail("plugin_get_failed", "Failed to get plugin", 500))
     async def get_plugin(self, plugin_id: str) -> APIResponse:
         """Get single plugin details"""
-        try:
-            plugin = self.repository.get_plugin_by_id(plugin_id)
-            if not plugin:
-                raise ValueError(f"Plugin '{plugin_id}' not found")
+        plugin = self.repository.get_plugin_by_id(plugin_id)
+        if not plugin:
+            raise ValueError(f"Plugin '{plugin_id}' not found")
 
-            base = plugin_to_response(plugin, self.registry)
+        base = plugin_to_response(plugin, self.registry)
 
-            hooks = self.repository.get_plugin_hooks(plugin_id)
-            hook_responses = [hook_to_response(hook) for hook in hooks]
+        hooks = self.repository.get_plugin_hooks(plugin_id)
+        hook_responses = [hook_to_response(hook) for hook in hooks]
 
-            manifest = self.registry.get_plugin(plugin_id)
-            settings_schema = manifest.settings if manifest and manifest.settings else []
+        manifest = self.registry.get_plugin(plugin_id)
+        settings_schema = manifest.settings if manifest and manifest.settings else []
 
-            settings = self.repository.get_plugin_settings(plugin_id)
-            settings_values = {
-                setting.setting_key: ('***' if setting.is_secret else setting.setting_value)
-                for setting in settings
-            }
+        settings = self.repository.get_plugin_settings(plugin_id)
+        settings_values = {
+            setting.setting_key: ('***' if setting.is_secret else setting.setting_value)
+            for setting in settings
+        }
 
-            detail = PluginDetailResponse(
-                **base.model_dump(),
-                hooks=hook_responses,
-                settings_schema=settings_schema,
-                settings_values=settings_values
-            )
-            return self.success_response(data=detail.model_dump())
-        except ValueError as e:
-            return self.error_response(
-                error="plugin_not_found",
-                message=str(e),
-                status_code=404
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to get plugin {plugin_id}: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_get_failed",
-                message="Failed to get plugin"
-            )
+        detail = PluginDetailResponse(
+            **base.model_dump(),
+            hooks=hook_responses,
+            settings_schema=settings_schema,
+            settings_values=settings_values
+        )
+        return self.success_response(data=detail.model_dump())
 
+    @guarded(_toggle("plugin_enable_failed"), Fail("plugin_enable_failed", "Failed to enable plugin", 500))
     async def enable_plugin(self, plugin_id: str) -> APIResponse:
-        """Enable a plugin"""
-        try:
-            plugin = operations.enable_plugin(
-                self.repository,
-                self.registry,
-                plugin_id,
-                preset_loader=self.preset_loader,
-                pipe_catalog=self.pipe_catalog,
-                recipe_catalog=self.recipe_catalog,
-                model_layout_catalog=self.model_layout_catalog,
-            )
+        plugin = operations.enable_plugin(
+            self.repository,
+            self.registry,
+            plugin_id,
+            preset_loader=self.preset_loader,
+            pipe_catalog=self.pipe_catalog,
+            recipe_catalog=self.recipe_catalog,
+            model_layout_catalog=self.model_layout_catalog,
+        )
 
-            # Reset provider service to re-discover providers from newly enabled plugin
-            reset_provider_registry()
+        reset_provider_registry()
 
-            return self.success_response(
-                message=f"Plugin '{plugin.name}' enabled successfully"
-            )
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_response(
-                    error="plugin_not_found",
-                    message=error_msg,
-                    status_code=404
-                )
-            return self.error_response(
-                error="plugin_enable_failed",
-                message=error_msg
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to enable plugin {plugin_id}: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_enable_failed",
-                message="Failed to enable plugin"
-            )
+        return self.success_response(
+            message=f"Plugin '{plugin.name}' enabled successfully"
+        )
 
+    @guarded(_toggle("plugin_disable_failed"), Fail("plugin_disable_failed", "Failed to disable plugin", 500))
     async def disable_plugin(self, plugin_id: str) -> APIResponse:
-        """Disable a plugin"""
-        try:
-            plugin = operations.disable_plugin(
-                self.repository,
-                self.registry,
-                plugin_id,
-                preset_loader=self.preset_loader,
-                pipe_catalog=self.pipe_catalog,
-                recipe_catalog=self.recipe_catalog,
-                model_layout_catalog=self.model_layout_catalog,
-            )
+        plugin = operations.disable_plugin(
+            self.repository,
+            self.registry,
+            plugin_id,
+            preset_loader=self.preset_loader,
+            pipe_catalog=self.pipe_catalog,
+            recipe_catalog=self.recipe_catalog,
+            model_layout_catalog=self.model_layout_catalog,
+        )
 
-            # Reset provider service to remove providers from disabled plugin
-            reset_provider_registry()
+        reset_provider_registry()
 
-            return self.success_response(
-                message=f"Plugin '{plugin.name}' disabled successfully"
-            )
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_response(
-                    error="plugin_not_found",
-                    message=error_msg,
-                    status_code=404
-                )
-            return self.error_response(
-                error="plugin_disable_failed",
-                message=error_msg
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to disable plugin {plugin_id}: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_disable_failed",
-                message="Failed to disable plugin"
-            )
+        return self.success_response(
+            message=f"Plugin '{plugin.name}' disabled successfully"
+        )
 
+    @guarded(_DELETE, Fail("plugin_delete_failed", "Failed to delete plugin", 500))
     async def delete_plugin(self, plugin_id: str) -> APIResponse:
-        """Delete a plugin from the database (does not remove files)"""
-        try:
-            plugin_name = operations.delete_plugin(
-                self.repository,
-                self.registry,
-                plugin_id,
-                preset_loader=self.preset_loader,
-                pipe_catalog=self.pipe_catalog,
-                recipe_catalog=self.recipe_catalog,
-                model_layout_catalog=self.model_layout_catalog,
-            )
-            return self.success_response(
-                message=f"Plugin '{plugin_name}' deleted successfully. Re-scan to rediscover."
-            )
-        except ValueError as e:
-            error_msg = str(e)
-            if "not found" in error_msg.lower():
-                return self.error_response(
-                    error="plugin_not_found",
-                    message=error_msg
-                )
-            return self.error_response(
-                error="plugin_delete_failed",
-                message=error_msg
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to delete plugin {plugin_id}: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_delete_failed",
-                message="Failed to delete plugin"
-            )
+        plugin_name = operations.delete_plugin(
+            self.repository,
+            self.registry,
+            plugin_id,
+            preset_loader=self.preset_loader,
+            pipe_catalog=self.pipe_catalog,
+            recipe_catalog=self.recipe_catalog,
+            model_layout_catalog=self.model_layout_catalog,
+        )
+        return self.success_response(
+            message=f"Plugin '{plugin_name}' deleted successfully. Re-scan to rediscover."
+        )
 
+    @guarded(fallback=Fail("plugin_scan_failed", "Failed to scan plugins", 500))
     async def scan_plugins(self) -> APIResponse:
         """Rescan plugin directories to discover new plugins"""
-        try:
-            result = operations.scan_plugins(self.repository, self.registry)
-            return self.success_response(
-                data={
-                    "new_plugins": [p.model_dump() for p in result.new_plugins],
-                    "updated_plugins": [p.model_dump() for p in result.updated_plugins],
-                    "total_discovered": result.total_discovered,
-                    "added_plugin_ids": result.added_plugin_ids,
-                    "changed_plugin_ids": result.changed_plugin_ids,
-                    "removed_plugin_ids": result.removed_plugin_ids,
-                    "errored_plugin_ids": result.errored_plugin_ids,
-                },
-                message=f"Scan complete: {len(result.new_plugins)} new, {len(result.updated_plugins)} updated"
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to scan plugins: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_scan_failed",
-                message="Failed to scan plugins"
-            )
+        result = operations.scan_plugins(self.repository, self.registry)
+        return self.success_response(
+            data={
+                "new_plugins": [p.model_dump() for p in result.new_plugins],
+                "updated_plugins": [p.model_dump() for p in result.updated_plugins],
+                "total_discovered": result.total_discovered,
+                "added_plugin_ids": result.added_plugin_ids,
+                "changed_plugin_ids": result.changed_plugin_ids,
+                "removed_plugin_ids": result.removed_plugin_ids,
+                "errored_plugin_ids": result.errored_plugin_ids,
+            },
+            message=f"Scan complete: {len(result.new_plugins)} new, {len(result.updated_plugins)} updated"
+        )
 
     # ========== Plugin Settings ==========
 
+    @guarded(_NOT_FOUND, Fail("plugin_settings_get_failed", "Failed to get plugin settings", 500))
     async def get_plugin_settings(
         self,
         plugin_id: str,
         user_id: Optional[str] = None
     ) -> APIResponse:
         """Get all settings for a plugin"""
-        try:
-            plugin = self.repository.get_plugin_by_id(plugin_id)
-            if not plugin:
-                raise ValueError(f"Plugin '{plugin_id}' not found")
+        plugin = self.repository.get_plugin_by_id(plugin_id)
+        if not plugin:
+            raise ValueError(f"Plugin '{plugin_id}' not found")
 
-            settings = self.repository.get_plugin_settings(plugin_id, user_id)
-            responses = [setting_to_response(s) for s in settings]
-            return self.success_response(data=[s.model_dump() for s in responses])
-        except ValueError as e:
-            return self.error_response(
-                error="plugin_not_found",
-                message=str(e),
-                status_code=404
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to get plugin settings {plugin_id}: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_settings_get_failed",
-                message="Failed to get plugin settings"
-            )
+        settings = self.repository.get_plugin_settings(plugin_id, user_id)
+        responses = [setting_to_response(s) for s in settings]
+        return self.success_response(data=[s.model_dump() for s in responses])
 
+    @guarded(fallback=Fail("plugin_settings_audit_failed", "Failed to read plugin settings audit trail", 500))
     async def get_setting_audit(
         self,
         plugin_id: Optional[str] = None,
         limit: int = 200
     ) -> APIResponse:
         """Read the plugin settings audit trail"""
-        try:
-            entries = self.repository.get_setting_audit(plugin_id, limit)
-            return self.success_response(data=entries)
-        except Exception as e:
-            self.logger.error(f"Failed to read plugin settings audit: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_settings_audit_failed",
-                message="Failed to read plugin settings audit trail"
-            )
+        entries = self.repository.get_setting_audit(plugin_id, limit)
+        return self.success_response(data=entries)
 
+    @guarded(_SETTINGS_UPDATE, Fail("plugin_settings_update_failed", "Failed to update plugin settings", 500))
     async def update_plugin_settings(
         self,
         plugin_id: str,
@@ -408,106 +281,61 @@ class PluginController(BaseController):
         actor_username: Optional[str] = None
     ) -> APIResponse:
         """Update plugin settings (batch update)"""
+        updated_settings = operations.update_plugin_settings(
+            self.repository,
+            self.registry,
+            plugin_id,
+            settings_data.settings,
+            user_id,
+            actor_user_id=actor_user_id,
+            actor_username=actor_username,
+        )
+
         try:
-            updated_settings = operations.update_plugin_settings(
-                self.repository,
-                self.registry,
-                plugin_id,
-                settings_data.settings,
-                user_id,
-                actor_user_id=actor_user_id,
-                actor_username=actor_username,
-            )
-
-            try:
-                await refresh_provider_for_plugin(plugin_id)
-            except Exception as e:
-                self.logger.warning(
-                    f"Saved settings for plugin {plugin_id} but failed to refresh its "
-                    f"live provider instance: {e}"
-                )
-
-            return self.success_response(
-                data=[s.model_dump() for s in updated_settings],
-                message=f"Updated {len(updated_settings)} settings"
-            )
-        except PluginManifestUnavailableError as e:
-            # 409, not 404 or 500: the plugin is there, the request was
-            # well-formed, and retrying after a reload is the fix.
-            self.logger.warning(str(e))
-            return self.error_response(
-                error="plugin_manifest_unavailable",
-                message=str(e),
-                status_code=409
-            )
-        except ValueError as e:
-            return self.error_response(
-                error="plugin_not_found",
-                message=str(e),
-                status_code=404
-            )
+            await refresh_provider_for_plugin(plugin_id)
         except Exception as e:
-            self.logger.error(f"Failed to update plugin settings {plugin_id}: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="plugin_settings_update_failed",
-                message="Failed to update plugin settings"
+            self.logger.warning(
+                f"Saved settings for plugin {plugin_id} but failed to refresh its "
+                f"live provider instance: {e}"
             )
+
+        return self.success_response(
+            data=[s.model_dump() for s in updated_settings],
+            message=f"Updated {len(updated_settings)} settings"
+        )
 
     # ========== Frontend Extensions ==========
 
+    @guarded(fallback=Fail("frontend_extensions_get_failed", "Failed to get frontend extensions", 500))
     async def get_frontend_extensions(self) -> APIResponse:
         """Get manifest-declared renderers + extension slot contributions from enabled plugins."""
-        try:
-            extensions = operations.get_frontend_extensions(self.repository, self.registry)
-            return self.success_response(data=extensions)
-        except Exception as e:
-            self.logger.error(f"Failed to get frontend extensions: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="frontend_extensions_get_failed",
-                message="Failed to get frontend extensions"
-            )
+        extensions = operations.get_frontend_extensions(self.repository, self.registry)
+        return self.success_response(data=extensions)
 
     # ========== Frontend Hooks ==========
 
+    @guarded(fallback=Fail("frontend_hooks_get_failed", "Failed to get frontend hooks", 500))
     async def get_frontend_hooks(self) -> APIResponse:
         """Get all frontend hooks (for frontend component loading)"""
-        try:
-            hooks = self.repository.get_hooks_by_type("frontend")
+        hooks = self.repository.get_hooks_by_type("frontend")
 
-            grouped_hooks: dict = {}
-            for hook in hooks:
-                plugin = self.repository.get_plugin_by_id(hook.plugin_id)
-                hook_response = hook_to_response(hook, plugin)
-                grouped_hooks.setdefault(hook.hook_name, []).append(hook_response)
+        grouped_hooks: dict = {}
+        for hook in hooks:
+            plugin = self.repository.get_plugin_by_id(hook.plugin_id)
+            hook_response = hook_to_response(hook, plugin)
+            grouped_hooks.setdefault(hook.hook_name, []).append(hook_response)
 
-            # Convert hook responses to dicts
-            result = {
-                hook_name: [h.model_dump() for h in hooks]
-                for hook_name, hooks in grouped_hooks.items()
-            }
-            return self.success_response(data=result)
-        except Exception as e:
-            self.logger.error(f"Failed to get frontend hooks: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="frontend_hooks_get_failed",
-                message="Failed to get frontend hooks"
-            )
+        result = {
+            hook_name: [h.model_dump() for h in hooks]
+            for hook_name, hooks in grouped_hooks.items()
+        }
+        return self.success_response(data=result)
 
+    @guarded(fallback=Fail("hooks_catalog_get_failed", "Failed to get hooks catalog", 500))
     async def get_hooks_catalog(self) -> APIResponse:
         """Get the full catalog of declared hook points (core + plugin-provided)."""
-        try:
-            catalog = operations.get_hooks_catalog()
-            return self.success_response(data=catalog)
-        except Exception as e:
-            self.logger.error(f"Failed to get hooks catalog: {str(e)}")
-            return self.handle_exception(
-                e,
-                error_code="hooks_catalog_get_failed",
-                message="Failed to get hooks catalog"
-            )
+        catalog = operations.get_hooks_catalog()
+        return self.success_response(data=catalog)
 
     # ========== Plugin Assets ==========
 

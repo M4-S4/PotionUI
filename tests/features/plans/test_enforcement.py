@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.bootstrap.errors import register_error_handlers
@@ -209,12 +209,12 @@ async def test_the_generation_route_answers_403_with_the_refusal():
         orchestrator, Mock(spec=GenerationHistoryFacade), Mock(spec=FileStore), Mock(spec=RunReportRecorder),
     )
 
-    with pytest.raises(HTTPException) as raised:
+    with pytest.raises(LimitExceeded) as raised:
         await controller.start_generation(GenerationRequest(preset_id="p1", prompt="x", form_data={}), Mock(id="u1"))
 
     assert raised.value.status_code == 403
-    assert raised.value.detail["error"] == "limit_exceeded"
-    assert raised.value.detail["kinds"][0]["code"] == "daily_generations_exceeded"
+    assert raised.value.payload()["error"] == "limit_exceeded"
+    assert raised.value.payload()["kinds"][0]["code"] == "daily_generations_exceeded"
 
 
 def media_store(tmp_path, guard):
@@ -293,6 +293,7 @@ def test_the_upload_route_answers_403(plans):
     store.upload_media = AsyncMock(side_effect=error)
     controller = MediaController(store, Mock())
     app = FastAPI()
+    register_error_handlers(app)
 
     @app.post("/upload")
     async def route():
@@ -545,11 +546,11 @@ async def test_every_editor_route_answers_403_with_the_refusal(method, request_b
     setattr(manager, method, AsyncMock(side_effect=LimitExceeded([STORAGE_REFUSAL], "upload", "")))
     controller = MediaEditController(manager)
 
-    with pytest.raises(HTTPException) as raised:
+    with pytest.raises(LimitExceeded) as raised:
         await getattr(controller, method)("item", request_body, Mock(id="u1"))
 
     assert raised.value.status_code == 403
-    assert raised.value.detail["code"] == "storage_quota_exceeded"
+    assert raised.value.payload()["code"] == "storage_quota_exceeded"
 
 
 def history_archive(guard):
@@ -600,11 +601,11 @@ async def test_the_history_upload_route_answers_403_with_the_refusal():
     orchestrator.status_tracker = Mock()
     controller = GenerationController(orchestrator, facade, Mock(spec=FileStore), Mock(spec=RunReportRecorder))
 
-    with pytest.raises(HTTPException) as raised:
+    with pytest.raises(LimitExceeded) as raised:
         await controller.upload_generations([Mock()], [], Mock(id="u1"))
 
     assert raised.value.status_code == 403
-    assert raised.value.detail["code"] == "storage_quota_exceeded"
+    assert raised.value.payload()["code"] == "storage_quota_exceeded"
 
 
 def cloud_orchestrator(backend, guard, engine):

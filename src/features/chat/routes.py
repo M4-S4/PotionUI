@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded, raw_detail
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.chat.dto import (
     AdminBulkDeleteSessionsRequest,
@@ -58,6 +59,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+SESSION_NOT_FOUND = Fail("session_not_found", "Session not found")
+ACCESS_DENIED = Fail("access_denied", "You don't have access to this session")
+SESSION_ERRORS = {
+    SessionNotFoundException: SESSION_NOT_FOUND,
+    AccessDeniedException: ACCESS_DENIED,
+}
+ACCESS_ERRORS = {
+    SessionNotFoundException: SESSION_NOT_FOUND,
+    AccessDeniedException: Fail("access_denied"),
+}
+RAW_SESSION_ERRORS = {
+    SessionNotFoundException: Fail("session_not_found"),
+    AccessDeniedException: Fail("access_denied"),
+}
+
+
 class ChatController(BaseController):
     """Thin controller for chat endpoints.
 
@@ -84,43 +101,31 @@ class ChatController(BaseController):
         if mode is not None and mode.admin_only and user.account_type != AccountType.ADMIN:
             raise AdminOnlyModeException(f"Chat mode '{mode_id}' is restricted to administrators")
 
+    @guarded(
+        {
+            AdminOnlyModeException: Fail("admin_only_mode", status=403),
+            UnknownChatModeException: Fail("unknown_mode"),
+            SessionCreationFailedException: Fail("session_creation_failed"),
+        },
+        Fail("session_creation_failed", "Failed to create session", detail=failure_detail),
+        admin="user",
+    )
     def create_session(self, request: CreateSessionRequest, user: User) -> APIResponse:
         """Create a new chat session."""
-        try:
-            self._require_mode_access(request.mode, user)
-            session = self.chat_runtime.create_session(
-                user_id=user.id,
-                original_text=request.original_text,
-                llm_config_id=request.llm_config_id,
-                mode=request.mode,
-                name=request.name,
-                system_message=request.system_message,
-                tools_enabled=request.tools_enabled,
-                disabled_tools=request.disabled_tools,
-            )
-            return self.success_response(
-                data=session.model_dump(),
-                message="Session created successfully"
-            )
-        except AdminOnlyModeException as e:
-            return self.error_response(error="admin_only_mode", message=str(e), status_code=403)
-        except UnknownChatModeException as e:
-            return self.error_api_response(
-                error="unknown_mode",
-                message=str(e)
-            )
-        except SessionCreationFailedException as e:
-            return self.error_api_response(
-                error="session_creation_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error creating session: {e}")
-            return self.error_api_response(
-                error="session_creation_failed",
-                message=f"Failed to create session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        self._require_mode_access(request.mode, user)
+        session = self.chat_runtime.create_session(
+            user_id=user.id,
+            original_text=request.original_text,
+            llm_config_id=request.llm_config_id,
+            mode=request.mode,
+            name=request.name,
+            system_message=request.system_message,
+            tools_enabled=request.tools_enabled,
+            disabled_tools=request.disabled_tools,
+        )
+        return self.success_response(data=session.model_dump(), message="Session created successfully")
 
+    @guarded(fallback=Fail("get_sessions_failed", "Failed to get sessions", detail=failure_detail), admin="user")
     def get_sessions(
         self,
         user: User,
@@ -130,28 +135,21 @@ class ChatController(BaseController):
         offset: int = 0
     ) -> APIResponse:
         """List sessions for the history view (filterable, paginated)."""
-        try:
-            sessions, total = self.chat_runtime.list_sessions(
-                user_id=user.id,
-                mode=mode,
-                search=search,
-                limit=limit,
-                offset=offset
-            )
-            return self.success_response(
-                data={
-                    'sessions': [s.model_dump() for s in sessions],
-                    'total': total,
-                    'limit': limit,
-                    'offset': offset,
-                }
-            )
-        except Exception as e:
-            logger.exception(f"Error getting sessions: {e}")
-            return self.error_api_response(
-                error="get_sessions_failed",
-                message=f"Failed to get sessions: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        sessions, total = self.chat_runtime.list_sessions(
+            user_id=user.id,
+            mode=mode,
+            search=search,
+            limit=limit,
+            offset=offset
+        )
+        return self.success_response(
+            data={
+                'sessions': [s.model_dump() for s in sessions],
+                'total': total,
+                'limit': limit,
+                'offset': offset,
+            }
+        )
 
     def get_modes(self, user: User) -> APIResponse:
         """List all registered chat modes, omitting admin_only modes for non-admins."""
@@ -179,75 +177,44 @@ class ChatController(BaseController):
             return []
         return self.chat_runtime.tool_executor.tool_registry.get_for_mode(mode)
 
+    @guarded(SESSION_ERRORS, Fail("get_session_failed", "Failed to get session", detail=failure_detail), admin="user")
     def get_session(self, session_id: str, user: User, tail: Optional[int] = None) -> APIResponse:
         """Get a session with its messages.
 
         `tail`, when given, returns only the session's last `tail` messages.
         """
-        try:
-            session = self.chat_runtime.get_session(session_id, user.id, tail=tail)
-            # Surface an in-flight turn so the client can reattach to its live
-            # stream on reload instead of dead-ending on a lost response.
-            active = self.turn_registry.active(session_id)
-            return self.success_response(
-                data={
-                    **session.model_dump(),
-                    "active_turn": active.status_snapshot() if active else None,
-                }
-            )
-        except SessionNotFoundException:
-            return self.error_api_response(
-                error="session_not_found",
-                message="Session not found"
-            )
-        except AccessDeniedException:
-            return self.error_api_response(
-                error="access_denied",
-                message="You don't have access to this session"
-            )
-        except Exception as e:
-            logger.exception(f"Error getting session: {e}")
-            return self.error_api_response(
-                error="get_session_failed",
-                message=f"Failed to get session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        session = self.chat_runtime.get_session(session_id, user.id, tail=tail)
+        active = self.turn_registry.active(session_id)
+        return self.success_response(
+            data={
+                **session.model_dump(),
+                "active_turn": active.status_snapshot() if active else None,
+            }
+        )
 
+    @guarded(
+        {
+            SessionNotFoundException: SESSION_NOT_FOUND,
+            MessageNotFoundException: Fail("message_not_found", "Message not found in this session"),
+            AccessDeniedException: ACCESS_DENIED,
+        },
+        Fail("get_session_messages_failed", "Failed to get session messages", detail=failure_detail),
+        admin="user",
+    )
     def get_session_messages(
         self, session_id: str, user: User, before: Optional[str] = None, limit: int = 60
     ) -> APIResponse:
         """Return the `limit` messages immediately preceding `before` (or the
         session's tail when `before` is omitted), ascending."""
-        try:
-            messages, has_earlier = self.chat_runtime.get_session_messages(
-                session_id, user.id, before=before, limit=limit
-            )
-            return self.success_response(
-                data={
-                    "messages": [m.model_dump() for m in messages],
-                    "has_earlier": has_earlier,
-                }
-            )
-        except SessionNotFoundException:
-            return self.error_api_response(
-                error="session_not_found",
-                message="Session not found"
-            )
-        except MessageNotFoundException:
-            return self.error_api_response(
-                error="message_not_found",
-                message="Message not found in this session"
-            )
-        except AccessDeniedException:
-            return self.error_api_response(
-                error="access_denied",
-                message="You don't have access to this session"
-            )
-        except Exception as e:
-            logger.exception(f"Error getting session messages: {e}")
-            return self.error_api_response(
-                error="get_session_messages_failed",
-                message=f"Failed to get session messages: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        messages, has_earlier = self.chat_runtime.get_session_messages(
+            session_id, user.id, before=before, limit=limit
+        )
+        return self.success_response(
+            data={
+                "messages": [m.model_dump() for m in messages],
+                "has_earlier": has_earlier,
+            }
+        )
 
     async def send_message(
         self,
@@ -262,69 +229,35 @@ class ChatController(BaseController):
                 message="A turn can only be continued through the streaming endpoint",
                 status_code=400,
             )
-        try:
-            session = self.chat_runtime.get_session(session_id, user.id)
-            self._require_mode_access(session.mode, user)
-            result = await self.chat_runtime.send_message(
-                session_id=session_id,
-                user_id=user.id,
-                content=request.content,
-                image_data=request.image_data,
-                context_metadata=request.context_metadata,
-                resources=[r.uri for r in request.resources] if request.resources else None,
-                is_admin=user.account_type == AccountType.ADMIN,
-            )
-            return self.success_response(
-                data=result.model_dump()
-            )
-        except AdminOnlyModeException as e:
-            return self.error_response(error="admin_only_mode", message=str(e), status_code=403)
-        except SessionNotFoundException:
-            return self.error_api_response(
-                error="session_not_found",
-                message="Session not found"
-            )
-        except AccessDeniedException:
-            return self.error_api_response(
-                error="access_denied",
-                message="You don't have access to this session"
-            )
-        except SessionClosedException:
-            return self.error_api_response(
-                error="session_closed",
-                message="Cannot send messages to a closed session"
-            )
-        except InvalidLLMConfigException:
-            return self.error_api_response(
-                error="no_llm_config",
-                message="Session has no LLM configuration"
-            )
-        except UnknownChatModeException as e:
-            return self.error_api_response(
-                error="unknown_mode",
-                message=str(e)
-            )
-        except MessageCreationFailedException as e:
-            return self.error_api_response(
-                error="message_creation_failed",
-                message=str(e)
-            )
-        except (ContextBudgetExceededException, context_budget.ContextBudgetExceededError) as e:
-            return self.error_api_response(
-                error="context_budget_exceeded",
-                message=str(e)
-            )
-        except ValueError as e:
-            return self.error_api_response(
-                error="llm_error",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error sending message: {e}")
-            return self.error_api_response(
-                error="send_message_failed",
-                message=f"Failed to send message: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        return await self._deliver_message(session_id, request, user)
+
+    @guarded(
+        {
+            AdminOnlyModeException: Fail("admin_only_mode", status=403),
+            **SESSION_ERRORS,
+            SessionClosedException: Fail("session_closed", "Cannot send messages to a closed session"),
+            InvalidLLMConfigException: Fail("no_llm_config", "Session has no LLM configuration"),
+            UnknownChatModeException: Fail("unknown_mode"),
+            MessageCreationFailedException: Fail("message_creation_failed"),
+            (ContextBudgetExceededException, context_budget.ContextBudgetExceededError): Fail("context_budget_exceeded"),
+            ValueError: Fail("llm_error"),
+        },
+        Fail("send_message_failed", "Failed to send message", detail=failure_detail),
+        admin="user",
+    )
+    async def _deliver_message(self, session_id: str, request: SendMessageRequest, user: User) -> APIResponse:
+        session = self.chat_runtime.get_session(session_id, user.id)
+        self._require_mode_access(session.mode, user)
+        result = await self.chat_runtime.send_message(
+            session_id=session_id,
+            user_id=user.id,
+            content=request.content,
+            image_data=request.image_data,
+            context_metadata=request.context_metadata,
+            resources=[r.uri for r in request.resources] if request.resources else None,
+            is_admin=user.account_type == AccountType.ADMIN,
+        )
+        return self.success_response(data=result.model_dump())
 
     def _turn_stream_factory(self, session_id: str, request: SendMessageRequest, user: User):
         """Wrap the conversation runner so validation/known errors become SSE
@@ -436,19 +369,15 @@ class ChatController(BaseController):
 
         return self._sse_response(turn.stream())
 
+    @guarded({
+        SessionNotFoundException: Fail("session_not_found", "Session not found", 404),
+        AccessDeniedException: Fail("access_denied", "Access denied", 403),
+        ToolExecutionPendingException: Fail("tool_execution_pending", status=409),
+        ContinuationConflictException: Fail("continuation_conflict", status=409),
+        MessageCreationFailedException: Fail("invalid_continuation", status=400),
+    })
     def _check_continuation(self, session_id: str, request: SendMessageRequest, user: User) -> None:
-        try:
-            self.chat_runtime.check_continuation(session_id, user.id, request.continue_from.model_dump())
-        except SessionNotFoundException:
-            self.error_response(error="session_not_found", message="Session not found", status_code=404)
-        except AccessDeniedException:
-            self.error_response(error="access_denied", message="Access denied", status_code=403)
-        except ToolExecutionPendingException as e:
-            self.error_response(error="tool_execution_pending", message=str(e), status_code=409)
-        except ContinuationConflictException as e:
-            self.error_response(error="continuation_conflict", message=str(e), status_code=409)
-        except MessageCreationFailedException as e:
-            self.error_response(error="invalid_continuation", message=str(e), status_code=400)
+        self.chat_runtime.check_continuation(session_id, user.id, request.continue_from.model_dump())
 
     async def reattach_stream(
         self, session_id: str, user: User, after_seq: Optional[int] = None
@@ -495,54 +424,23 @@ class ChatController(BaseController):
         turn.request_cancel()
         return self.success_response(data={"cancelled": True, "turn_id": turn.turn_id})
 
+    @guarded(ACCESS_ERRORS, Fail("accept_failed", "Failed to accept session", detail=failure_detail), admin="user")
     def accept_session(self, session_id: str, user: User) -> APIResponse:
         """Accept the session's suggestion and close it."""
-        try:
-            self.chat_runtime.accept_session(session_id, user.id)
-            return self.success_response(
-                message="Session accepted and closed"
-            )
-        except SessionNotFoundException:
-            return self.error_api_response(
-                error="session_not_found",
-                message="Session not found"
-            )
-        except AccessDeniedException as e:
-            return self.error_api_response(
-                error="access_denied",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error accepting session: {e}")
-            return self.error_api_response(
-                error="accept_failed",
-                message=f"Failed to accept session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        self.chat_runtime.accept_session(session_id, user.id)
+        return self.success_response(message="Session accepted and closed")
 
+    @guarded(ACCESS_ERRORS, Fail("reject_failed", "Failed to reject session", detail=failure_detail), admin="user")
     def reject_session(self, session_id: str, user: User) -> APIResponse:
         """Reject the session's suggestion and close it."""
-        try:
-            self.chat_runtime.reject_session(session_id, user.id)
-            return self.success_response(
-                message="Session rejected and closed"
-            )
-        except SessionNotFoundException:
-            return self.error_api_response(
-                error="session_not_found",
-                message="Session not found"
-            )
-        except AccessDeniedException as e:
-            return self.error_api_response(
-                error="access_denied",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error rejecting session: {e}")
-            return self.error_api_response(
-                error="reject_failed",
-                message=f"Failed to reject session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        self.chat_runtime.reject_session(session_id, user.id)
+        return self.success_response(message="Session rejected and closed")
 
+    @guarded(
+        {**SESSION_ERRORS, SessionCreationFailedException: Fail("update_failed")},
+        Fail("update_failed", "Failed to update session", detail=failure_detail),
+        admin="user",
+    )
     def update_session(
         self,
         session_id: str,
@@ -550,39 +448,15 @@ class ChatController(BaseController):
         user: User
     ) -> APIResponse:
         """Update session properties (e.g., name)."""
-        try:
-            session = self.chat_runtime.update_session(
-                session_id=session_id,
-                user_id=user.id,
-                name=request.name,
-                llm_config_id=request.llm_config_id,
-            )
-            return self.success_response(
-                data=session.model_dump(),
-                message="Session updated successfully"
-            )
-        except SessionNotFoundException:
-            return self.error_api_response(
-                error="session_not_found",
-                message="Session not found"
-            )
-        except AccessDeniedException:
-            return self.error_api_response(
-                error="access_denied",
-                message="You don't have access to this session"
-            )
-        except SessionCreationFailedException as e:
-            return self.error_api_response(
-                error="update_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error updating session: {e}")
-            return self.error_api_response(
-                error="update_failed",
-                message=f"Failed to update session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        session = self.chat_runtime.update_session(
+            session_id=session_id,
+            user_id=user.id,
+            name=request.name,
+            llm_config_id=request.llm_config_id,
+        )
+        return self.success_response(data=session.model_dump(), message="Session updated successfully")
 
+    @guarded(fallback=Fail("suggest_resources_failed", "Failed to suggest resources", detail=failure_detail), admin="user")
     async def suggest_resources(
         self,
         query: str,
@@ -591,35 +465,28 @@ class ChatController(BaseController):
         user: User,
     ) -> APIResponse:
         """Suggest @resource completions for the chat input dropdown."""
-        try:
-            suggestions = await self.chat_runtime.suggest_resources(
-                query=query,
-                mode_id=mode,
-                user_id=user.id,
-                limit=max(1, min(limit, 50)),
-                is_admin=user.account_type == AccountType.ADMIN,
-            )
-            return self.success_response(data={
-                "suggestions": [
-                    {
-                        "uri": s.uri,
-                        "label": s.label,
-                        "kind": s.kind,
-                        "description": s.description,
-                        "has_children": s.has_children,
-                        "icon": s.icon,
-                        "attachable": s.attachable,
-                        "badge": s.badge,
-                    }
-                    for s in suggestions
-                ]
-            })
-        except Exception as e:
-            logger.exception(f"Error suggesting resources: {e}")
-            return self.error_api_response(
-                error="suggest_resources_failed",
-                message=f"Failed to suggest resources: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        suggestions = await self.chat_runtime.suggest_resources(
+            query=query,
+            mode_id=mode,
+            user_id=user.id,
+            limit=max(1, min(limit, 50)),
+            is_admin=user.account_type == AccountType.ADMIN,
+        )
+        return self.success_response(data={
+            "suggestions": [
+                {
+                    "uri": s.uri,
+                    "label": s.label,
+                    "kind": s.kind,
+                    "description": s.description,
+                    "has_children": s.has_children,
+                    "icon": s.icon,
+                    "attachable": s.attachable,
+                    "badge": s.badge,
+                }
+                for s in suggestions
+            ]
+        })
 
     def list_tools(self, mode: Optional[str] = None) -> APIResponse:
         """List available LLM tools, optionally filtered to a chat mode."""
@@ -673,47 +540,35 @@ class ChatController(BaseController):
             ]
         })
 
+    @guarded(
+        {**RAW_SESSION_ERRORS, MessageCreationFailedException: Fail("tool_resolve_failed")},
+        Fail("tool_resolve_failed", detail=failure_detail),
+        admin="user",
+    )
     async def resolve_tool(
         self,
         session_id: str,
         request: ToolResolveRequest,
         user: User,
     ) -> APIResponse:
-        try:
-            result = await self.chat_runtime.resolve_tool_execution(
-                session_id=session_id,
-                user_id=user.id,
-                message_id=request.message_id,
-                tool_index=request.tool_index,
-                approved=request.approved,
-                reason=request.reason,
-                context_metadata=request.context_metadata,
-                force=request.force,
-                is_admin=user.account_type == AccountType.ADMIN,
-            )
-            return self.success_response(data=result)
-        except SessionNotFoundException as e:
-            return self.error_api_response(
-                error="session_not_found",
-                message=str(e),
-            )
-        except AccessDeniedException as e:
-            return self.error_api_response(
-                error="access_denied",
-                message=str(e),
-            )
-        except MessageCreationFailedException as e:
-            return self.error_api_response(
-                error="tool_resolve_failed",
-                message=str(e),
-            )
-        except Exception as e:
-            logger.exception(f"Error resolving tool execution: {e}")
-            return self.error_api_response(
-                error="tool_resolve_failed",
-                message=failure_detail(e, user.account_type == AccountType.ADMIN),
-            )
+        result = await self.chat_runtime.resolve_tool_execution(
+            session_id=session_id,
+            user_id=user.id,
+            message_id=request.message_id,
+            tool_index=request.tool_index,
+            approved=request.approved,
+            reason=request.reason,
+            context_metadata=request.context_metadata,
+            force=request.force,
+            is_admin=user.account_type == AccountType.ADMIN,
+        )
+        return self.success_response(data=result)
 
+    @guarded(
+        {**RAW_SESSION_ERRORS, MessageCreationFailedException: Fail("prompt_feedback_failed")},
+        Fail("prompt_feedback_failed", detail=failure_detail),
+        admin="user",
+    )
     async def prompt_feedback(
         self,
         session_id: str,
@@ -722,37 +577,15 @@ class ChatController(BaseController):
         user: User,
     ) -> APIResponse:
         """Record an approve/reject verdict on an enhancement-proposed prompt."""
-        try:
-            result = await self.chat_runtime.record_prompt_feedback(
-                session_id=session_id,
-                user_id=user.id,
-                message_id=message_id,
-                action_index=request.action_index,
-                verdict=request.verdict,
-                reason=request.reason,
-            )
-            return self.success_response(data=result)
-        except SessionNotFoundException as e:
-            return self.error_api_response(
-                error="session_not_found",
-                message=str(e),
-            )
-        except AccessDeniedException as e:
-            return self.error_api_response(
-                error="access_denied",
-                message=str(e),
-            )
-        except MessageCreationFailedException as e:
-            return self.error_api_response(
-                error="prompt_feedback_failed",
-                message=str(e),
-            )
-        except Exception as e:
-            logger.exception(f"Error recording prompt feedback: {e}")
-            return self.error_api_response(
-                error="prompt_feedback_failed",
-                message=failure_detail(e, user.account_type == AccountType.ADMIN),
-            )
+        result = await self.chat_runtime.record_prompt_feedback(
+            session_id=session_id,
+            user_id=user.id,
+            message_id=message_id,
+            action_index=request.action_index,
+            verdict=request.verdict,
+            reason=request.reason,
+        )
+        return self.success_response(data=result)
 
     def list_memory_notes(
         self,
@@ -776,36 +609,40 @@ class ChatController(BaseController):
         """Create or update a persistent LLM memory note."""
         if not self.chat_runtime.tool_services.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
-        try:
-            note = memory_operations.write_note(
-                self.chat_runtime.tool_services.llm_memory_repository,
-                user_id=user.id,
-                key=request.key,
-                content=request.content,
-                scope=request.scope,
-                scope_ref=request.scope_ref,
-            )
-            return self.success_response(data=note.to_dict())
-        except ValueError as e:
-            return self.error_api_response(error="invalid_memory_note", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error writing memory note: {e}")
-            return self.error_api_response(error="memory_write_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        return self._store_note(request, user)
+
+    @guarded(
+        {ValueError: Fail("invalid_memory_note")},
+        Fail("memory_write_failed", detail=failure_detail),
+        admin="user",
+    )
+    def _store_note(self, request: MemoryWriteRequest, user: User) -> APIResponse:
+        note = memory_operations.write_note(
+            self.chat_runtime.tool_services.llm_memory_repository,
+            user_id=user.id,
+            key=request.key,
+            content=request.content,
+            scope=request.scope,
+            scope_ref=request.scope_ref,
+        )
+        return self.success_response(data=note.to_dict())
 
     def update_memory_note(self, note_id: str, request: MemoryUpdateRequest, user: User) -> APIResponse:
         """Update an existing persistent LLM memory note's key/content."""
         if not self.chat_runtime.tool_services.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
-        try:
-            note = memory_operations.update_note(
-                self.chat_runtime.tool_services.llm_memory_repository,
-                user_id=user.id, note_id=note_id, key=request.key, content=request.content,
-            )
-        except ValueError as e:
-            return self.error_api_response(error="invalid_memory_note", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error updating memory note: {e}")
-            return self.error_api_response(error="memory_update_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        return self._apply_note_update(note_id, request, user)
+
+    @guarded(
+        {ValueError: Fail("invalid_memory_note")},
+        Fail("memory_update_failed", detail=failure_detail),
+        admin="user",
+    )
+    def _apply_note_update(self, note_id: str, request: MemoryUpdateRequest, user: User) -> APIResponse:
+        note = memory_operations.update_note(
+            self.chat_runtime.tool_services.llm_memory_repository,
+            user_id=user.id, note_id=note_id, key=request.key, content=request.content,
+        )
         if note is None:
             return self.error_api_response(error="note_not_found", message=f"Memory note '{note_id}' not found")
         return self.success_response(data=note.to_dict())
@@ -819,32 +656,15 @@ class ChatController(BaseController):
             return self.error_api_response(error="note_not_found", message=f"Memory note '{note_id}' not found")
         return self.success_response(message="Memory note deleted successfully")
 
+    @guarded(ACCESS_ERRORS, Fail("delete_failed", "Failed to delete session", detail=failure_detail), admin="user")
     def delete_session(self, session_id: str, user: User) -> APIResponse:
         """Delete a session and all its messages."""
-        try:
-            self.chat_runtime.delete_session(session_id, user.id)
-            return self.success_response(
-                message="Session deleted successfully"
-            )
-        except SessionNotFoundException:
-            return self.error_api_response(
-                error="session_not_found",
-                message="Session not found"
-            )
-        except AccessDeniedException as e:
-            return self.error_api_response(
-                error="access_denied",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error deleting session: {e}")
-            return self.error_api_response(
-                error="delete_failed",
-                message=f"Failed to delete session: {failure_detail(e, user.account_type == AccountType.ADMIN)}"
-            )
+        self.chat_runtime.delete_session(session_id, user.id)
+        return self.success_response(message="Session deleted successfully")
 
     # --- Admin session-debug viewer ---
 
+    @guarded(fallback=Fail("list_admin_sessions_failed", "Failed to list sessions", detail=raw_detail))
     def list_admin_sessions(
         self,
         search: Optional[str] = None,
@@ -852,32 +672,17 @@ class ChatController(BaseController):
         offset: int = 0,
     ) -> APIResponse:
         """List chat sessions across all users, for the admin debug viewer."""
-        try:
-            result = self.chat_runtime.list_admin_sessions(search=search, limit=limit, offset=offset)
-            return self.success_response(data={**result, "limit": limit, "offset": offset})
-        except Exception as e:
-            logger.exception(f"Error listing admin sessions: {e}")
-            return self.error_api_response(
-                error="list_admin_sessions_failed",
-                message=f"Failed to list sessions: {str(e)}"
-            )
+        result = self.chat_runtime.list_admin_sessions(search=search, limit=limit, offset=offset)
+        return self.success_response(data={**result, "limit": limit, "offset": offset})
 
+    @guarded(
+        {SessionNotFoundException: SESSION_NOT_FOUND},
+        Fail("get_admin_session_detail_failed", "Failed to get session detail", detail=raw_detail),
+    )
     def get_admin_session_detail(self, session_id: str) -> APIResponse:
         """A session's messages plus every LLM call trace, for the admin debug viewer."""
-        try:
-            result = self.chat_runtime.get_admin_session_detail(session_id)
-            return self.success_response(data=result)
-        except SessionNotFoundException:
-            return self.error_api_response(
-                error="session_not_found",
-                message="Session not found"
-            )
-        except Exception as e:
-            logger.exception(f"Error getting admin session detail: {e}")
-            return self.error_api_response(
-                error="get_admin_session_detail_failed",
-                message=f"Failed to get session detail: {str(e)}"
-            )
+        result = self.chat_runtime.get_admin_session_detail(session_id)
+        return self.success_response(data=result)
 
     def admin_bulk_delete_sessions(self, session_ids: list[str], admin_user: User) -> APIResponse:
         deleted_count = 0
@@ -905,29 +710,17 @@ class ChatController(BaseController):
             }
         )
 
+    @guarded(fallback=Fail("clear_sessions_failed", "Failed to clear chat sessions", detail=raw_detail))
     def clear_sessions(self) -> APIResponse:
         """Delete every chat session of every user (the whole chat history)."""
-        try:
-            deleted = self.chat_runtime.delete_all_sessions()
-            return self.success_response(data={"deleted": deleted})
-        except Exception as e:
-            logger.exception(f"Error clearing chat sessions: {e}")
-            return self.error_api_response(
-                error="clear_sessions_failed",
-                message=f"Failed to clear chat sessions: {str(e)}"
-            )
+        deleted = self.chat_runtime.delete_all_sessions()
+        return self.success_response(data={"deleted": deleted})
 
+    @guarded(fallback=Fail("clear_traces_failed", "Failed to clear traces", detail=raw_detail))
     def clear_traces(self, session_id: Optional[str] = None) -> APIResponse:
         """Delete LLM call traces for one session, or every session when omitted."""
-        try:
-            deleted = self.chat_runtime.clear_traces(session_id)
-            return self.success_response(data={"deleted": deleted})
-        except Exception as e:
-            logger.exception(f"Error clearing call traces: {e}")
-            return self.error_api_response(
-                error="clear_traces_failed",
-                message=f"Failed to clear traces: {str(e)}"
-            )
+        deleted = self.chat_runtime.clear_traces(session_id)
+        return self.success_response(data={"deleted": deleted})
 
 
 def build_router(container: "AppContainer") -> APIRouter:
