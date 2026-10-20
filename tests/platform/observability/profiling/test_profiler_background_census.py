@@ -192,6 +192,7 @@ def test_the_census_counts_arena_pinned_weights_as_pinned(tmp_path, monkeypatch)
         arena.pin([weight])
         assert not weight.data.is_pinned()
 
+        monkeypatch.setattr(gc, "get_objects", lambda *args, **kwargs: [weight])
         rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=30.0)
         pinned_gb = sum(r["nbytes_gb"] for r in rows if r["kind"] == "census_group" and r["is_pinned"])
         assert pinned_gb >= 0.002
@@ -200,7 +201,7 @@ def test_the_census_counts_arena_pinned_weights_as_pinned(tmp_path, monkeypatch)
 
 
 @pytest.mark.skipif(not __import__("torch").cuda.is_available(), reason="needs a CUDA device")
-def test_the_census_counts_a_streamer_pinned_module_as_pinned():
+def test_the_census_counts_a_streamer_pinned_module_as_pinned(monkeypatch):
     import torch
     import torch.nn as nn
 
@@ -213,6 +214,7 @@ def test_the_census_counts_a_streamer_pinned_module_as_pinned():
     streamer = ModuleStreamer(module)
     streamer.apply("cuda:0", plan_residency_split(module, resident_budget_gb=0.0), pin=True)
     try:
+        monkeypatch.setattr(gc, "get_objects", lambda *args, **kwargs: list(module.parameters()))
         rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=30.0)
         pinned_gb = sum(r["nbytes_gb"] for r in rows if r["kind"] == "census_group" and r["is_pinned"])
         assert pinned_gb >= 0.0002
