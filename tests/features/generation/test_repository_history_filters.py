@@ -11,6 +11,8 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from tests.fixtures.persistence_base import PersistenceTestBase
+from src.features.collections.repository import CollectionRepository
+from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.records import Generation, File
 from src.features.generation.repository import GenerationRepository
 from src.platform.util.ids import generate_ulid
@@ -287,3 +289,88 @@ class TestGenerationHistoryFilters(PersistenceTestBase):
 if __name__ == '__main__':
     import unittest
     unittest.main()
+
+
+class TestHistoryFilterObject(PersistenceTestBase):
+
+    def setUp(self):
+        super().setUp()
+        self.repo = GenerationRepository()
+        self.collections = CollectionRepository()
+        self.user_id = self.create_test_user()
+
+    def _make(self):
+        return self.repo.create(Generation(
+            id=generate_ulid(),
+            preset_id="native/SDXL/realistic",
+            form_data={"prompt": "x"},
+            user_id=self.user_id,
+            status="completed",
+        )).id
+
+    def _file(self, generation_id, collection_id):
+        self.collections.add_members(collection_id, [generation_id], self.user_id, "history")
+
+    def _both(self, flt):
+        return {g.id for g in self.repo.get_all(flt)}, self.repo.count_by_status(flt)
+
+    def test_unsorted_excludes_generations_filed_in_a_collection(self):
+        filed, loose = self._make(), self._make()
+        folder = self.collections.create("Folder", self.user_id, "history")
+        self._file(filed, folder.id)
+
+        ids, count = self._both(HistoryFilter(user_id=self.user_id, unsorted=True))
+
+        self.assertEqual(ids, {loose})
+        self.assertEqual(count, 1)
+
+    def test_model_name_matches_only_generations_that_used_it(self):
+        used, other = self._make(), self._make()
+        with self.db.get_cursor() as cursor:
+            for model_id, filename in (("m-1", "dreamshaper.safetensors"), ("m-2", "other.safetensors")):
+                cursor.execute(
+                    "INSERT INTO models (id, filename, model_type) VALUES (?, ?, 'checkpoint')",
+                    (model_id, filename),
+                )
+            cursor.execute("INSERT INTO generation_models (id, generation_id, model_id) VALUES (?, ?, ?)",
+                           (generate_ulid(), used, "m-1"))
+            cursor.execute("INSERT INTO generation_models (id, generation_id, model_id) VALUES (?, ?, ?)",
+                           (generate_ulid(), other, "m-2"))
+
+        ids, count = self._both(HistoryFilter(user_id=self.user_id, model_name="dreamshaper"))
+
+        self.assertEqual(ids, {used})
+        self.assertEqual(count, 1)
+
+    def test_completed_range_is_inclusive_of_whole_days(self):
+        early, inside, late = self._make(), self._make(), self._make()
+        with self.db.get_cursor() as cursor:
+            for generation_id, stamp in ((early, "2026-01-01 10:00:00"), (inside, "2026-01-05 23:30:00"),
+                                         (late, "2026-01-09 08:00:00")):
+                cursor.execute("UPDATE generations SET completed_at = ? WHERE id = ?", (stamp, generation_id))
+
+        ids, count = self._both(HistoryFilter(user_id=self.user_id, completed_from="2026-01-02", completed_to="2026-01-05"))
+
+        self.assertEqual(ids, {inside})
+        self.assertEqual(count, 1)
+
+    def test_collection_filter_honours_include_descendants(self):
+        parent = self.collections.create("Parent", self.user_id, "history")
+        child = self.collections.create("Child", self.user_id, "history", parent_id=parent.id)
+        in_parent, in_child, elsewhere = self._make(), self._make(), self._make()
+        self._file(in_parent, parent.id)
+        self._file(in_child, child.id)
+
+        direct_ids, direct_count = self._both(
+            HistoryFilter(user_id=self.user_id, collection_id=parent.id, include_descendants=False)
+        )
+        rolled_ids, rolled_count = self._both(
+            HistoryFilter(user_id=self.user_id, collection_id=parent.id, include_descendants=True)
+        )
+
+        self.assertEqual(direct_ids, {in_parent})
+        self.assertEqual(direct_count, 1)
+        self.assertEqual(rolled_ids, {in_parent, in_child})
+        self.assertEqual(rolled_count, 2)
+        self.assertNotIn(elsewhere, rolled_ids)
+

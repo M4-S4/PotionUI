@@ -15,6 +15,7 @@ from src.features.generation.exceptions import (
     InvalidDateFilterException,
 )
 from src.features.generation import profile_paths
+from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
 
@@ -191,103 +192,24 @@ class GenerationHistoryQuery:
 
     def get_history(
         self,
-        user_id: Optional[str] = None,
+        flt: Optional[HistoryFilter] = None,
+        *,
         limit: Optional[int] = 50,
         offset: int = 0,
-        status: Optional[str] = None,
-        error_category: Optional[str] = None,
-        created_from: Optional[str] = None,
-        created_to: Optional[str] = None,
-        completed_from: Optional[str] = None,
-        completed_to: Optional[str] = None,
-        tag_ids: Optional[List[str]] = None,
         include_tags: bool = True,
-        media_type: Optional[str] = None,
-        search: Optional[str] = None,
-        mode: Optional[str] = None,
-        preset_id: Optional[str] = None,
-        model_name: Optional[str] = None,
-        min_rating: Optional[int] = None,
-        favorites_only: bool = False,
-        collection_id: Optional[str] = None,
-        used_phrasebook_value_id: Optional[str] = None,
         sort_by: Optional[str] = None,
         sort_dir: Optional[str] = None,
-        system_tag: Optional[str] = None,
-        semantic_query: Optional[str] = None,
-        include_descendants: bool = True,
-        unsorted: bool = False,
         group_grids: bool = False,
-        grid_id: Optional[str] = None
+        **filters: Any,
     ) -> Dict[str, Any]:
-        """Get generation history with optional filtering.
+        flt = HistoryFilter.resolve(flt, filters)
+        self.validate_date_filters(flt.created_from, flt.created_to, flt.completed_from, flt.completed_to)
 
-        Args:
-            user_id: The user ID
-            limit: Maximum number of results
-            offset: Result offset for pagination
-            status: Filter by status
-            error_category: Filter by the failure classification category
-                (`error_code`), for the failed-status admin listing
-            created_from: Filter by creation start date
-            created_to: Filter by creation end date
-            completed_from: Filter by completion start date
-            completed_to: Filter by completion end date
-            tag_ids: Filter by tag IDs
-            include_tags: Whether to include tags in response
-            media_type: Filter by media type (IMAGE, VIDEO, AUDIO, MESH)
-            semantic_query: Free-text visual description ranked against the
-                gallery's image embeddings. When set, results are ordered by
-                visual relevance (``sort_by``/``sort_dir`` are ignored) and
-                the other filters are applied on top of the ranking - see
-                ``_get_semantic_history`` for how the vector query widens so
-                a filter-matching item can never be dropped just for ranking
-                below the initial top-K.
+        if flt.semantic_query and flt.semantic_query.strip():
+            return self._get_semantic_history(flt, limit, offset, include_tags)
 
-        Returns:
-            Dict with generations, total count, and filter info
-
-        Raises:
-            InvalidDateFilterException: If date filters are invalid
-        """
-        # Validate date parameters
-        self.validate_date_filters(created_from, created_to, completed_from, completed_to)
-
-        filter_kwargs = dict(
-            user_id=user_id,
-            status=status,
-            error_category=error_category,
-            tag_ids=tag_ids,
-            created_from=created_from,
-            created_to=created_to,
-            completed_from=completed_from,
-            completed_to=completed_to,
-            media_type=media_type,
-            search=search,
-            mode=mode,
-            preset_id=preset_id,
-            model_name=model_name,
-            min_rating=min_rating,
-            favorites_only=favorites_only,
-            collection_id=collection_id,
-            include_descendants=include_descendants,
-            unsorted=unsorted,
-            used_phrasebook_value_id=used_phrasebook_value_id,
-            system_tag=system_tag,
-            grid_id=grid_id,
-        )
-
-        if semantic_query and semantic_query.strip():
-            return self._get_semantic_history(
-                semantic_query=semantic_query,
-                limit=limit,
-                offset=offset,
-                include_tags=include_tags,
-                filter_kwargs=filter_kwargs,
-            )
-
-        # Request files and tags to be included when fetching generations
         generations = self.generation_repo.get_all(
+            flt,
             limit=limit,
             offset=offset,
             include_files=True,
@@ -295,15 +217,13 @@ class GenerationHistoryQuery:
             sort_by=sort_by,
             sort_dir=sort_dir,
             group_grids=group_grids,
-            **filter_kwargs,
         )
 
-        history_data = self.serialize_generations(generations, include_tags, viewer_id=user_id)
-        if group_grids and not grid_id:
+        history_data = self.serialize_generations(generations, include_tags, viewer_id=flt.user_id)
+        if group_grids and not flt.grid_id:
             self._attach_grid_summaries(history_data)
 
-        # Get total count with tag filtering
-        total_count = self.generation_repo.count_by_status(group_grids=group_grids, **filter_kwargs)
+        total_count = self.generation_repo.count_by_status(flt, group_grids=group_grids)
 
         return {
             'generations': history_data,
@@ -311,12 +231,12 @@ class GenerationHistoryQuery:
             'limit': limit,
             'offset': offset,
             'filters': {
-                'status': status,
-                'tag_ids': tag_ids,
-                'created_from': created_from,
-                'created_to': created_to,
-                'completed_from': completed_from,
-                'completed_to': completed_to
+                'status': flt.status,
+                'tag_ids': flt.tag_ids,
+                'created_from': flt.created_from,
+                'created_to': flt.created_to,
+                'completed_from': flt.completed_from,
+                'completed_to': flt.completed_to
             }
         }
 
@@ -388,11 +308,10 @@ class GenerationHistoryQuery:
 
     def _get_semantic_history(
         self,
-        semantic_query: str,
+        flt: HistoryFilter,
         limit: Optional[int],
         offset: int,
         include_tags: bool,
-        filter_kwargs: Dict[str, Any],
     ) -> Dict[str, Any]:
         """History listing ordered by visual relevance to ``semantic_query``.
 
@@ -428,7 +347,8 @@ class GenerationHistoryQuery:
         """
         from src.features.media_index.indexer import SEMANTIC_TOP_K
 
-        user_id = filter_kwargs.get('user_id')
+        user_id = flt.user_id
+        semantic_query = flt.semantic_query
         needed = (offset + limit) if limit else None
 
         embedding = self._semantic_query_embedding(user_id, semantic_query)
@@ -454,7 +374,7 @@ class GenerationHistoryQuery:
             undecided = [gen_id for gen_id in ranked_ids if gen_id not in decided]
             if undecided:
                 matches = set(
-                    self.generation_repo.matching_generation_ids(undecided, **filter_kwargs)
+                    self.generation_repo.matching_generation_ids(undecided, flt)
                 )
                 for gen_id in undecided:
                     decided[gen_id] = gen_id in matches
@@ -474,7 +394,7 @@ class GenerationHistoryQuery:
             all_ids = self.media_indexer.all_gallery_generation_ids(user_id)
             if all_ids:
                 total_count = len(
-                    self.generation_repo.matching_generation_ids(all_ids, **filter_kwargs)
+                    self.generation_repo.matching_generation_ids(all_ids, flt)
                 )
 
         page_ids = matched_ids[offset:offset + limit] if limit else matched_ids[offset:]
@@ -483,14 +403,13 @@ class GenerationHistoryQuery:
         if page_ids:
             page_order = {gen_id: index for index, gen_id in enumerate(page_ids)}
             page_generations = self.generation_repo.get_all(
-                user_id=user_id,
-                generation_ids=page_ids,
+                HistoryFilter(user_id=user_id, generation_ids=page_ids),
                 include_files=True,
                 include_tags=include_tags,
             )
             page_generations.sort(key=lambda g: page_order.get(g.id, len(page_order)))
             history_data = self.serialize_generations(
-                page_generations, include_tags, viewer_id=filter_kwargs.get('user_id')
+                page_generations, include_tags, viewer_id=user_id
             )
 
         return {
@@ -499,12 +418,12 @@ class GenerationHistoryQuery:
             'limit': limit,
             'offset': offset,
             'filters': {
-                'status': filter_kwargs.get('status'),
-                'tag_ids': filter_kwargs.get('tag_ids'),
-                'created_from': filter_kwargs.get('created_from'),
-                'created_to': filter_kwargs.get('created_to'),
-                'completed_from': filter_kwargs.get('completed_from'),
-                'completed_to': filter_kwargs.get('completed_to'),
+                'status': flt.status,
+                'tag_ids': flt.tag_ids,
+                'created_from': flt.created_from,
+                'created_to': flt.created_to,
+                'completed_from': flt.completed_from,
+                'completed_to': flt.completed_to,
                 'semantic_query': semantic_query,
             }
         }

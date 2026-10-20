@@ -1,8 +1,10 @@
 import hashlib
 import json
 import re
+from dataclasses import replace
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta, timezone
+from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.records import Generation, File, GenerationFile
 from src.features.generation.history_revision_repository import (
     bump_history_revision,
@@ -136,21 +138,20 @@ class GenerationRepository:
 
     def _build_filters(
         self, alias: str = 'g', *,
+        flt: HistoryFilter,
         group_grids: bool = False,
-        grid_id: Optional[str] = None,
-        **filters: Any,
     ) -> Tuple[List[str], List[Any]]:
-        conditions, params = self._build_base_filters(alias, **filters)
+        conditions, params = self._build_base_filters(alias, flt)
         a = f"{alias}." if alias else ""
-        if grid_id:
+        if flt.grid_id:
             conditions.append(f"{a}grid_id = ?")
-            params.append(grid_id)
+            params.append(flt.grid_id)
         elif group_grids:
             representative = (
                 f"(SELECT r0.id FROM generations r0 WHERE r0.grid_id = {a}grid_id "
                 f"ORDER BY r0.grid_y, r0.grid_x LIMIT 1)"
             )
-            rep_conditions, rep_params = self._build_base_filters('r', **filters)
+            rep_conditions, rep_params = self._build_base_filters('r', flt)
             rep_where = " AND ".join(rep_conditions) if rep_conditions else "1 = 1"
             conditions.append(
                 f"({a}grid_id IS NULL OR {a}id = {representative} OR NOT EXISTS ("
@@ -159,63 +160,31 @@ class GenerationRepository:
             params.extend(rep_params)
         return conditions, params
 
-    def _build_base_filters(
-        self, alias: str = 'g', *,
-        user_id: Optional[str] = None,
-        status: Optional[str] = None,
-        error_category: Optional[str] = None,
-        media_type: Optional[str] = None,
-        created_from: Optional[str] = None,
-        created_to: Optional[str] = None,
-        completed_from: Optional[str] = None,
-        completed_to: Optional[str] = None,
-        search: Optional[str] = None,
-        mode: Optional[str] = None,
-        preset_id: Optional[str] = None,
-        model_name: Optional[str] = None,
-        min_rating: Optional[int] = None,
-        favorites_only: bool = False,
-        used_phrasebook_value_id: Optional[str] = None,
-        system_tag: Optional[str] = None,
-        generation_ids: Optional[List[str]] = None,
-        tag_ids: Optional[List[str]] = None,
-        collection_id: Optional[str] = None,
-        include_descendants: bool = True,
-        unsorted: bool = False,
-    ) -> Tuple[List[str], List[Any]]:
-        """Build WHERE conditions + params shared by get_all and count_by_status.
-
-        `alias` is the table alias used in the enclosing query (e.g. 'g').
-        Returns (conditions, params) in matching order.
-
-        Every condition is a scalar predicate on the `generations` row - tag and
-        collection membership are semi-joins, not JOINs - so the result set is one
-        row per generation and neither caller needs DISTINCT to undo fan-out.
-        """
+    def _build_base_filters(self, alias: str, flt: HistoryFilter) -> Tuple[List[str], List[Any]]:
         a = f"{alias}." if alias else ""
         conditions: List[str] = []
         params: List[Any] = []
 
-        if media_type:
+        if flt.media_type:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM generation_files gf
                 JOIN files f ON gf.file_id = f.id
                 WHERE gf.generation_id = {a}id
                 AND f.file_type = ?
             )""")
-            params.append(media_type.upper())
+            params.append(flt.media_type.upper())
 
-        if user_id:
+        if flt.user_id:
             conditions.append(f"{a}user_id = ?")
-            params.append(user_id)
+            params.append(flt.user_id)
 
-        if status:
+        if flt.status:
             conditions.append(f"{a}status = ?")
-            params.append(status)
+            params.append(flt.status)
 
-        if error_category:
+        if flt.error_category:
             conditions.append(f"{a}error_code = ?")
-            params.append(error_category)
+            params.append(flt.error_category)
 
         def _date_cond(value, column, op, day_suffix):
             if not value:
@@ -224,88 +193,88 @@ class GenerationRepository:
             conditions.append(f"datetime({a}{column}) {op} datetime(?)")
             params.append(bound)
 
-        _date_cond(created_from, 'created_at', '>=', ' 00:00:00')
-        _date_cond(created_to, 'created_at', '<=', ' 23:59:59')
-        _date_cond(completed_from, 'completed_at', '>=', ' 00:00:00')
-        _date_cond(completed_to, 'completed_at', '<=', ' 23:59:59')
+        _date_cond(flt.created_from, 'created_at', '>=', ' 00:00:00')
+        _date_cond(flt.created_to, 'created_at', '<=', ' 23:59:59')
+        _date_cond(flt.completed_from, 'completed_at', '>=', ' 00:00:00')
+        _date_cond(flt.completed_to, 'completed_at', '<=', ' 23:59:59')
 
-        if mode:
+        if flt.mode:
             conditions.append(f"{a}mode = ?")
-            params.append(mode)
+            params.append(flt.mode)
 
-        if preset_id:
+        if flt.preset_id:
             conditions.append(f"{a}preset_id = ?")
-            params.append(preset_id)
+            params.append(flt.preset_id)
 
-        if min_rating:
+        if flt.min_rating:
             conditions.append(f"{a}rating >= ?")
-            params.append(min_rating)
+            params.append(flt.min_rating)
 
-        if favorites_only:
+        if flt.favorites_only:
             conditions.append(f"{a}is_favorite = 1")
 
-        if model_name:
+        if flt.model_name:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM generation_models gm
                 JOIN models m ON gm.model_id = m.id
                 WHERE gm.generation_id = {a}id
                 AND m.filename LIKE ?
             )""")
-            params.append(f"%{model_name}%")
+            params.append(f"%{flt.model_name}%")
 
-        if used_phrasebook_value_id:
+        if flt.used_phrasebook_value_id:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM generation_segment_phrasebook ga
                 WHERE ga.generation_id = {a}id
                 AND ga.phrasebook_value_id = ?
             )""")
-            params.append(used_phrasebook_value_id)
+            params.append(flt.used_phrasebook_value_id)
 
-        if tag_ids:
-            placeholders = ','.join('?' * len(tag_ids))
+        if flt.tag_ids:
+            placeholders = ','.join('?' * len(flt.tag_ids))
             conditions.append(f"""{a}id IN (
                 SELECT gt.generation_id FROM generation_tags gt
                 WHERE gt.tag_id IN ({placeholders})
                 GROUP BY gt.generation_id
                 HAVING COUNT(DISTINCT gt.tag_id) = ?
             )""")
-            params.extend(tag_ids)
-            params.append(len(tag_ids))
+            params.extend(flt.tag_ids)
+            params.append(len(flt.tag_ids))
 
-        if collection_id:
+        if flt.collection_id:
             conditions.append(membership_clause(
                 tree_table="collections", member_table="collection_generations",
                 item_column="generation_id", item_ref=f"{a}id",
-                include_descendants=include_descendants,
+                include_descendants=flt.include_descendants,
             ))
-            params.append(collection_id)
+            params.append(flt.collection_id)
 
-        if unsorted:
+        if flt.unsorted:
             conditions.append(unsorted_clause(
                 tree_table="collections", member_table="collection_generations",
                 item_column="generation_id", item_ref=f"{a}id", scope_column="scope",
             ))
-            params.extend([user_id or "", "history"])
+            params.extend([flt.user_id or "", "history"])
 
-        if system_tag:
+        if flt.system_tag:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM media_system_tags mst
                 WHERE mst.generation_id = {a}id
                 AND mst.category != 'rating'
                 AND LOWER(mst.tag) = LOWER(?)
             )""")
-            params.append(system_tag)
+            params.append(flt.system_tag)
 
-        if generation_ids is not None:
-            if generation_ids:
-                placeholders = ','.join('?' * len(generation_ids))
+        if flt.generation_ids is not None:
+            if flt.generation_ids:
+                placeholders = ','.join('?' * len(flt.generation_ids))
                 conditions.append(f"{a}id IN ({placeholders})")
-                params.extend(generation_ids)
+                params.extend(flt.generation_ids)
             else:
                 conditions.append("1 = 0")
 
-        if search:
-            search_conditions, search_params = self._build_search(search, alias)
+        if flt.search:
+            search_conditions, search_params = self._build_search(flt.search, alias)
             conditions.extend(search_conditions)
             params.extend(search_params)
 
@@ -360,37 +329,12 @@ class GenerationRepository:
 
     # --- Listing ----------------------------------------------------------------
 
-    def get_all(self, user_id: Optional[str] = None, limit: Optional[int] = None, offset: int = 0,
-                status: Optional[str] = None, error_category: Optional[str] = None,
-                include_files: bool = False,
-                include_tags: bool = False, tag_ids: Optional[List[str]] = None,
-                created_from: Optional[str] = None, created_to: Optional[str] = None,
-                completed_from: Optional[str] = None, completed_to: Optional[str] = None,
-                media_type: Optional[str] = None,
-                search: Optional[str] = None, mode: Optional[str] = None,
-                preset_id: Optional[str] = None, model_name: Optional[str] = None,
-                min_rating: Optional[int] = None, favorites_only: bool = False,
-                collection_id: Optional[str] = None,
-                include_descendants: bool = True, unsorted: bool = False,
-                used_phrasebook_value_id: Optional[str] = None,
-                system_tag: Optional[str] = None,
-                generation_ids: Optional[List[str]] = None,
-                group_grids: bool = False, grid_id: Optional[str] = None,
-                sort_by: Optional[str] = None, sort_dir: Optional[str] = None) -> List[Generation]:
-        """Get all generations with optional filtering, searching and sorting."""
-
-        conditions, params = self._build_filters(
-            'g', user_id=user_id, status=status, error_category=error_category, media_type=media_type,
-            created_from=created_from, created_to=created_to,
-            completed_from=completed_from, completed_to=completed_to,
-            search=search, mode=mode, preset_id=preset_id, model_name=model_name,
-            min_rating=min_rating, favorites_only=favorites_only,
-            used_phrasebook_value_id=used_phrasebook_value_id,
-            system_tag=system_tag, generation_ids=generation_ids,
-            tag_ids=tag_ids, collection_id=collection_id,
-            include_descendants=include_descendants, unsorted=unsorted,
-            group_grids=group_grids, grid_id=grid_id,
-        )
+    def get_all(self, flt: Optional[HistoryFilter] = None, *, limit: Optional[int] = None, offset: int = 0,
+                include_files: bool = False, include_tags: bool = False, group_grids: bool = False,
+                sort_by: Optional[str] = None, sort_dir: Optional[str] = None,
+                **filters: Any) -> List[Generation]:
+        flt = HistoryFilter.resolve(flt, filters)
+        conditions, params = self._build_filters('g', flt=flt, group_grids=group_grids)
 
         query = "SELECT g.* FROM generations g"
         if conditions:
@@ -409,7 +353,7 @@ class GenerationRepository:
 
             if include_files:
                 generation_ids = [generation.id for generation in generations]
-                files_by_generation = file_repo.get_generation_files_bulk(generation_ids, user_id=user_id)
+                files_by_generation = file_repo.get_generation_files_bulk(generation_ids, user_id=flt.user_id)
                 for generation in generations:
                     generation.files = files_by_generation[generation.id]
 
@@ -422,34 +366,10 @@ class GenerationRepository:
 
             return generations
 
-    def count_by_status(self, user_id: Optional[str] = None, status: Optional[str] = None,
-                        tag_ids: Optional[List[str]] = None,
-                        error_category: Optional[str] = None,
-                        created_from: Optional[str] = None, created_to: Optional[str] = None,
-                        completed_from: Optional[str] = None, completed_to: Optional[str] = None,
-                        media_type: Optional[str] = None,
-                        search: Optional[str] = None, mode: Optional[str] = None,
-                        preset_id: Optional[str] = None, model_name: Optional[str] = None,
-                        min_rating: Optional[int] = None, favorites_only: bool = False,
-                        collection_id: Optional[str] = None,
-                        include_descendants: bool = True, unsorted: bool = False,
-                        used_phrasebook_value_id: Optional[str] = None,
-                        system_tag: Optional[str] = None,
-                        group_grids: bool = False, grid_id: Optional[str] = None) -> int:
-        """Count generations matching the same filters as get_all (for pagination total)."""
-
-        conditions, params = self._build_filters(
-            'g', user_id=user_id, status=status, error_category=error_category, media_type=media_type,
-            created_from=created_from, created_to=created_to,
-            completed_from=completed_from, completed_to=completed_to,
-            search=search, mode=mode, preset_id=preset_id, model_name=model_name,
-            min_rating=min_rating, favorites_only=favorites_only,
-            used_phrasebook_value_id=used_phrasebook_value_id,
-            system_tag=system_tag,
-            tag_ids=tag_ids, collection_id=collection_id,
-            include_descendants=include_descendants, unsorted=unsorted,
-            group_grids=group_grids, grid_id=grid_id,
-        )
+    def count_by_status(self, flt: Optional[HistoryFilter] = None, *, group_grids: bool = False,
+                        **filters: Any) -> int:
+        flt = HistoryFilter.resolve(flt, filters)
+        conditions, params = self._build_filters('g', flt=flt, group_grids=group_grids)
 
         query = "SELECT COUNT(*) FROM generations g"
         if conditions:
@@ -460,7 +380,8 @@ class GenerationRepository:
             cursor.execute(query, params)
             return cursor.fetchone()[0]
 
-    def matching_generation_ids(self, generation_ids: List[str], **filters: Any) -> List[str]:
+    def matching_generation_ids(self, generation_ids: List[str], flt: Optional[HistoryFilter] = None,
+                                **filters: Any) -> List[str]:
         """Which of `generation_ids` pass the same filters as `count_by_status`.
 
         Projected to ids, not rows, so a caller holding a candidate set (a
@@ -475,6 +396,7 @@ class GenerationRepository:
         if not generation_ids:
             return []
 
+        flt = HistoryFilter.resolve(flt, filters)
         ordered: List[str] = []
         seen = set()
         for generation_id in generation_ids:
@@ -487,7 +409,7 @@ class GenerationRepository:
         with db.get_cursor() as cursor:
             for start in range(0, len(ordered), _ID_FILTER_BATCH):
                 batch = ordered[start:start + _ID_FILTER_BATCH]
-                conditions, params = self._build_filters('g', generation_ids=batch, **filters)
+                conditions, params = self._build_filters('g', flt=replace(flt, generation_ids=batch))
                 query = "SELECT g.id FROM generations g"
                 if conditions:
                     query += " WHERE " + " AND ".join(conditions)

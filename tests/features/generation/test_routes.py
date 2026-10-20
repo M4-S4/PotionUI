@@ -11,6 +11,7 @@ from fastapi import HTTPException
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
+from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.routes import GenerationController
 from src.platform.http.base_controller import APIResponse
 from src.platform.filesystem import FileStore
@@ -449,7 +450,7 @@ class TestGenerationController:
         }
 
         # Act
-        result = await controller.get_generation_history(mock_current_user, limit=50, offset=0)
+        result = await controller.get_generation_history(mock_current_user, HistoryFilter(), limit=50, offset=0)
 
         # Assert
         assert isinstance(result, APIResponse)
@@ -466,12 +467,13 @@ class TestGenerationController:
         }
 
         result = await controller.get_generation_history(
-            mock_current_user, semantic_query="red fox in snow"
+            mock_current_user, HistoryFilter(semantic_query="red fox in snow")
         )
 
         assert result.success is True
-        kwargs = controller.history_facade.get_history_async.call_args.kwargs
-        assert kwargs["semantic_query"] == "red fox in snow"
+        flt = controller.history_facade.get_history_async.call_args.args[0]
+        assert flt.semantic_query == "red fox in snow"
+        assert flt.user_id == mock_current_user.id
 
     @pytest.mark.asyncio
     async def test_get_generation_history_with_date_filters(self, controller, mock_current_user):
@@ -495,13 +497,15 @@ class TestGenerationController:
         # Act
         result = await controller.get_generation_history(
             mock_current_user,
+            HistoryFilter(
+                status="completed",
+                created_from="2024-01-01",
+                created_to="2024-01-31",
+                completed_from="2024-01-01 10:00:00",
+                completed_to="2024-01-31 23:59:59",
+            ),
             limit=50,
             offset=0,
-            status="completed",
-            created_from="2024-01-01",
-            created_to="2024-01-31",
-            completed_from="2024-01-01 10:00:00",
-            completed_to="2024-01-31 23:59:59"
         )
 
         # Assert
@@ -515,33 +519,20 @@ class TestGenerationController:
 
         # Verify history_facade was called with correct parameters
         controller.history_facade.get_history_async.assert_called_once_with(
-            user_id=mock_current_user.id,
+            HistoryFilter(
+                user_id=mock_current_user.id,
+                status="completed",
+                created_from="2024-01-01",
+                created_to="2024-01-31",
+                completed_from="2024-01-01 10:00:00",
+                completed_to="2024-01-31 23:59:59",
+            ),
             limit=50,
             offset=0,
-            status="completed",
-            created_from="2024-01-01",
-            created_to="2024-01-31",
-            completed_from="2024-01-01 10:00:00",
-            completed_to="2024-01-31 23:59:59",
-            tag_ids=None,
             include_tags=True,
-            media_type=None,
-            search=None,
-            mode=None,
-            preset_id=None,
-            model_name=None,
-            min_rating=None,
-            favorites_only=False,
-            collection_id=None,
-            include_descendants=True,
-            unsorted=False,
-            used_phrasebook_value_id=None,
             sort_by=None,
             sort_dir=None,
-            system_tag=None,
-            semantic_query=None,
             group_grids=True,
-            grid_id=None
         )
 
     @pytest.mark.asyncio
@@ -557,7 +548,7 @@ class TestGenerationController:
         with pytest.raises(HTTPException) as exc_info:
             await controller.get_generation_history(
                 mock_current_user,
-                created_from="invalid-date"
+                HistoryFilter(created_from="invalid-date"),
             )
 
         assert exc_info.value.status_code == 400
@@ -577,8 +568,7 @@ class TestGenerationController:
         with pytest.raises(HTTPException) as exc_info:
             await controller.get_generation_history(
                 mock_current_user,
-                created_from="2024-01-31",
-                created_to="2024-01-01"  # from > to
+                HistoryFilter(created_from="2024-01-31", created_to="2024-01-01"),
             )
 
         assert exc_info.value.status_code == 400

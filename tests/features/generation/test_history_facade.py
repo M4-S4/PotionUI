@@ -241,10 +241,10 @@ class TestGetHistory:
         )
 
         self.mock_repo.get_all.assert_called_once()
-        call_kwargs = self.mock_repo.get_all.call_args[1]
-        assert call_kwargs["status"] == "completed"
-        assert call_kwargs["created_from"] == "2024-01-01"
-        assert call_kwargs["tag_ids"] == ["tag-1"]
+        flt = self.mock_repo.get_all.call_args[0][0]
+        assert flt.status == "completed"
+        assert flt.created_from == "2024-01-01"
+        assert flt.tag_ids == ["tag-1"]
 
 
 class TestGetById:

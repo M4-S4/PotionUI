@@ -134,7 +134,7 @@ class TestBatching(MatchingIdsTestBase):
         inner = self.repo._build_filters
 
         def counting_build_filters(*args, **kwargs):
-            statements.append(kwargs.get("generation_ids"))
+            statements.append(kwargs["flt"].generation_ids)
             return inner(*args, **kwargs)
 
         self.repo._build_filters = counting_build_filters

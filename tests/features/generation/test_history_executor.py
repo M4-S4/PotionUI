@@ -1,7 +1,6 @@
 """Tests for the bounded off-loop boundary the history endpoints run through."""
 
 import asyncio
-import inspect
 import time
 from unittest.mock import Mock
 
@@ -14,7 +13,7 @@ from src.features.generation.history_executor import (
     HistoryExecutorSaturated,
 )
 from src.features.generation.history_facade import GenerationHistoryFacade
-from src.features.generation.history_query import GenerationHistoryQuery
+from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.routes import GenerationController
 
 
@@ -71,7 +70,7 @@ class TestLoopIsNotBlocked:
         ticker = asyncio.create_task(tick_until(stop))
         await asyncio.sleep(0)
 
-        response = await controller.get_generation_history(current_user=Mock(id="u1"))
+        response = await controller.get_generation_history(Mock(id="u1"), HistoryFilter())
 
         stop.set()
         max_gap = await ticker
@@ -124,22 +123,17 @@ class TestResponseParity:
         controller = make_controller(facade)
 
         response = await controller.get_generation_history(
-            current_user=Mock(id="u1"), status="completed", tag_ids="a, b"
+            Mock(id="u1"), HistoryFilter(status="completed", tag_ids=["a", "b"])
         )
         facade.shutdown()
 
         assert response.success is True
         assert response.data == payload
 
-        # The facade forwards positionally, so bind against the real signature
-        # rather than reading a kwarg that is never passed as one.
-        call = facade._query.get_history.call_args
-        bound = inspect.signature(GenerationHistoryQuery.get_history).bind(
-            facade._query, *call.args, **call.kwargs
-        )
-        assert bound.arguments["tag_ids"] == ["a", "b"]
-        assert bound.arguments["status"] == "completed"
-        assert bound.arguments["user_id"] == "u1"
+        flt = facade._query.get_history.call_args.args[0]
+        assert flt.tag_ids == ["a", "b"]
+        assert flt.status == "completed"
+        assert flt.user_id == "u1"
 
     async def test_invalid_date_filter_still_maps_to_400(self):
         facade = make_facade()
@@ -149,7 +143,7 @@ class TestResponseParity:
         controller = make_controller(facade)
 
         with pytest.raises(HTTPException) as exc_info:
-            await controller.get_generation_history(current_user=Mock(id="u1"))
+            await controller.get_generation_history(Mock(id="u1"), HistoryFilter())
         facade.shutdown()
 
         assert exc_info.value.status_code == 400
@@ -161,7 +155,7 @@ class TestResponseParity:
         controller = make_controller(facade)
 
         with pytest.raises(HTTPException) as exc_info:
-            await controller.get_generation_history(current_user=Mock(id="u1"))
+            await controller.get_generation_history(Mock(id="u1"), HistoryFilter())
         facade.shutdown()
 
         assert exc_info.value.detail["error"] == "history_fetch_failed"
@@ -210,12 +204,12 @@ class TestAdmissionControl:
         controller = make_controller(facade)
 
         first = asyncio.create_task(
-            controller.get_generation_history(current_user=Mock(id="u1"))
+            controller.get_generation_history(Mock(id="u1"), HistoryFilter())
         )
         await asyncio.sleep(0.05)
 
         with pytest.raises(HTTPException) as exc_info:
-            await controller.get_generation_history(current_user=Mock(id="u2"))
+            await controller.get_generation_history(Mock(id="u2"), HistoryFilter())
 
         release.set()
         await first
