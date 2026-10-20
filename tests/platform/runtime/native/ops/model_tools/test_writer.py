@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gc
 import json
 import struct
 import weakref
@@ -191,7 +190,6 @@ def test_writer_holds_at_most_one_tensor(tmp_path):
 
     def stream():
         for spec in plan:
-            gc.collect()
             live_at_yield.append(sum(1 for r in refs if r() is not None))
             tensor = torch.zeros(64, 64)
             refs.append(weakref.ref(tensor))

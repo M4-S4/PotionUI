@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import gc
 import weakref
 
 import pytest
@@ -246,7 +245,6 @@ def test_merge_streams_one_stem_at_a_time(tmp_path):
         plan, tensors, _ = merge_loras([LoraInput(pa, 1.0), LoraInput(pb, 1.0)], mode, rank=rank, min_energy=0.0)
         refs, live, seen = [], [], []
         for key, tensor in tensors:
-            gc.collect()
             live.append(sum(1 for r in refs if r() is not None))
             refs.append(weakref.ref(tensor))
             seen.append(key)
