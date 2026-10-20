@@ -1606,6 +1606,7 @@ def build_container() -> AppContainer:
         step_kind_registry=recipe_step_kind_registry,
         model_scanner=model_index_manager.indexing.scanner,
         type_manager=model_index_manager.types,
+        app_loop=lambda: getattr(_rr._container, "app_loop", None),
     )
     # `workspace.activate` is the first-run wizard's own step, so setup - not
     # recipes - contributes it. Recipes mark it `onboarding_only`, so an admin
