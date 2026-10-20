@@ -93,6 +93,7 @@ import torch
 
 from src.pipelines.outputs import GenerationExecutionError
 from src.platform.observability.profiling import get_profiler
+from src.platform.runtime.native.errors import is_cuda_oom
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
@@ -109,15 +110,7 @@ from vendor.gpl.comfyui.ops import (
 
 logger = logging.getLogger(__name__)
 
-_ACCELERATOR_ERROR = getattr(torch, "AcceleratorError", torch.cuda.OutOfMemoryError)
-_CUDA_OOM_ERRORS = (torch.cuda.OutOfMemoryError, _ACCELERATOR_ERROR)
-
-
-def is_cuda_oom(exc: BaseException) -> bool:
-    if isinstance(exc, torch.cuda.OutOfMemoryError):
-        return True
-    # cudaErrorMemoryAllocation raised by a copy or a kernel launch, not by the caching allocator (WDDM/WSL2).
-    return isinstance(exc, _ACCELERATOR_ERROR) and "out of memory" in str(exc)
+_CUDA_OOM_ERRORS = (torch.cuda.OutOfMemoryError, getattr(torch, "AcceleratorError", torch.cuda.OutOfMemoryError))
 
 
 class SamplingOutOfMemory(GenerationExecutionError):

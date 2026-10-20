@@ -18,6 +18,15 @@ def _fmt_keys(keys: Iterable[str]) -> str:
     return "[" + ", ".join(shown) + "]" + suffix
 
 
+def is_cuda_oom(exc: BaseException) -> bool:
+    import torch
+
+    if isinstance(exc, torch.cuda.OutOfMemoryError):
+        return True
+    accelerator_error = getattr(torch, "AcceleratorError", None)
+    return accelerator_error is not None and isinstance(exc, accelerator_error) and "out of memory" in str(exc)
+
+
 class NativeEngineError(Exception):
     """Base class for every native-engine error."""
 

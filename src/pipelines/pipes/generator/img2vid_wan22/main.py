@@ -14,6 +14,7 @@ naming convention).
 from __future__ import annotations
 
 import tempfile
+import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
@@ -41,7 +42,7 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_concat_i2v_contract_for_experts
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
-from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_wan_vae_encode
+from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_vae_encode, make_wan_vae_encode
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
 from src.pipelines.pipes.generator.txt2vid_wan22.main import (
     _attach_nag,
@@ -308,6 +309,7 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         # is spatial only).
         start = _prep_start_frame(images[0], height, width, device, dtype)
         end = _prep_start_frame(end_images[0], height, width, device, dtype) if end_images else None
+        make_room_for_wan_vae_encode(device, keep=(bundle.vae, bundle.high_dit, bundle.low_dit))
         bundle.vae.move_to(device)
         # try/finally: build_context runs OUTSIDE process()'s own try (it's
         # called before that try opens -- see BaseGeneratorPipe.process), so
@@ -388,6 +390,9 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
                 # ensure_sampler_generator's docstring.
                 **sampler_step_cache_kwargs(self.config, sampler=c.sampler, generator=gen),
             )
+        except BaseException as exc:
+            traceback.clear_frames(exc.__traceback__)
+            raise
         finally:
             if c.forward.router.active is not None:
                 c.forward.router.active.offload()
