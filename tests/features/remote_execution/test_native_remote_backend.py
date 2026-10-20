@@ -350,6 +350,7 @@ class FlagProbePipe:
         return []
 
     def process(self, pipe_input, generation_outputs):
+        import src.platform.runtime.native
         from src.platform.settings.runtime_flags import runtime_flag
         from vendor.gpl.comfyui import ops
 
