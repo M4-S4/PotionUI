@@ -427,3 +427,20 @@ def test_a_placement_that_fails_midway_is_still_torn_down(monkeypatch):
     streamer.teardown()
     assert fake.registered == {}
     assert not streamer.active
+
+
+def test_is_host_pinned_sees_arena_memory_the_driver_flag_misses(monkeypatch):
+    _FakeCudaHost(monkeypatch)
+    plain = torch.randn(16)
+    params = _params(torch.randn(64), torch.randn(8, 8))
+    arena = PinnedArena(segment_bytes=_GB)
+    arena.pin(params)
+
+    assert not params[0].data.is_pinned()
+    assert all(pinned_arena.is_host_pinned(p.data) for p in params)
+    assert not pinned_arena.is_host_pinned(plain)
+
+    assert arena.unpin(params[0])
+    assert not pinned_arena.is_host_pinned(params[0].data)
+    arena.release()
+    assert not pinned_arena.is_host_pinned(params[1].data)

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 ARENA_ALIGNMENT = 4096
 _HOST_REGISTER_PORTABLE = 1
+_LIVE_ARENAS: weakref.WeakSet = weakref.WeakSet()
 
 
 def caching_host_block_bytes(nbytes: int) -> int:
@@ -51,6 +52,12 @@ def _host_unregister(ptr: int) -> None:
 
 def _synchronize(device: torch.device | None) -> None:
     torch.cuda.synchronize(device)
+
+
+def is_host_pinned(tensor: torch.Tensor) -> bool:
+    if any(arena.owns(tensor) for arena in list(_LIVE_ARENAS)):
+        return True
+    return bool(tensor.is_pinned())
 
 
 def _storage_ptr(tensor: torch.Tensor) -> int:
@@ -107,6 +114,7 @@ class PinnedArena:
         self._by_storage: dict[int, _Segment] = {}
         self._finalizer = weakref.finalize(self, _release_segments, self._segments, self._device)
         self._finalizer.atexit = False
+        _LIVE_ARENAS.add(self)
 
     @property
     def pinned_bytes(self) -> int:

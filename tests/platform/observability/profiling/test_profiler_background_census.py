@@ -174,3 +174,45 @@ def test_turning_profiling_off_mid_run_still_closes_that_run(tmp_path, monkeypat
     assert prof._fh is None
     assert prof._thread is None
     assert "generation.end" in [r.get("event") for r in _rows(tmp_path / "profile.jsonl")]
+
+
+def test_the_census_counts_arena_pinned_weights_as_pinned(tmp_path, monkeypatch):
+    import torch
+    import torch.nn as nn
+
+    from src.platform.runtime.native.memory import pinned_arena
+    from src.platform.runtime.native.memory.pinned_arena import PinnedArena
+
+    monkeypatch.setattr(pinned_arena, "_host_register", lambda ptr, nbytes: None)
+    monkeypatch.setattr(pinned_arena, "_host_unregister", lambda ptr: None)
+    monkeypatch.setattr(pinned_arena, "_synchronize", lambda device: None)
+    weight = nn.Parameter(torch.zeros(512, 1024), requires_grad=False)
+    arena = PinnedArena(segment_bytes=1 << 30)
+    arena.pin([weight])
+    assert not weight.data.is_pinned()
+
+    rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=30.0)
+    pinned_gb = sum(r["nbytes_gb"] for r in rows if r["kind"] == "census_group" and r["is_pinned"])
+    assert pinned_gb >= 0.002
+    arena.release()
+
+
+@pytest.mark.skipif(not __import__("torch").cuda.is_available(), reason="needs a CUDA device")
+def test_the_census_counts_a_streamer_pinned_module_as_pinned():
+    import torch
+    import torch.nn as nn
+
+    from src.platform.runtime.native.memory.partial import ModuleStreamer, plan_residency_split
+    from vendor.gpl.comfyui.ops import disable_weight_init
+
+    module = nn.Sequential(*(disable_weight_init.Linear(128, 128) for _ in range(4)))
+    for p in module.parameters():
+        p.requires_grad_(False)
+    streamer = ModuleStreamer(module)
+    streamer.apply("cuda:0", plan_residency_split(module, resident_budget_gb=0.0), pin=True)
+    try:
+        rows = GenerationProfiler()._collect_tensor_census(("cpu",), budget_s=30.0)
+        pinned_gb = sum(r["nbytes_gb"] for r in rows if r["kind"] == "census_group" and r["is_pinned"])
+        assert pinned_gb >= 0.0002
+    finally:
+        streamer.teardown()
