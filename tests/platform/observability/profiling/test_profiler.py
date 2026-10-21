@@ -562,6 +562,7 @@ def test_census_group_dedups_views_of_one_storage(tmp_path, monkeypatch):
     del holder, base, view
 
 
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="pinning host memory needs a CUDA device")
 def test_census_group_separates_pinned_from_unpinned(tmp_path, monkeypatch):
     """A pinned and a non-pinned CPU tensor must land in DIFFERENT groups even
     if dtype/owner otherwise match -- pinned vs. glibc-heap memory are
