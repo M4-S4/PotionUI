@@ -8,6 +8,7 @@
 	import { getEnabledBackends, getModelAssignmentSummary, type AssignmentSummary } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import { formatTagUsageError } from '$lib/utils/tagUsage';
 	import { formatBytes } from '$lib/utils/format';
 	import { isAvailabilityKnown } from '$lib/utils/modelAvailability';
@@ -408,8 +409,7 @@
 
 	async function loadAvailableTags() {
 		try {
-			const response = await api.getTags('MODEL');
-			if (response.success) availableTags = response.data?.tags || [];
+			availableTags = await tagCatalog.get<ModelTag>('MODEL', { fresh: true });
 		} catch (error) {
 			logger.error('Error loading available tags:', error);
 		}
@@ -520,7 +520,7 @@
 			return;
 		deletingTagId = tag.id;
 		try {
-			const response = await api.deleteTag(tag.id);
+			const response = await tagCatalog.remove(tag.id, 'MODEL');
 			if (!response.success) throw new Error(response.message || 'Could not delete tag');
 			availableTags = availableTags.filter((t) => t.id !== tag.id);
 			if (filters.tags.includes(tag.id)) updateFilters({ ...filters, tags: filters.tags.filter((id) => id !== tag.id) });

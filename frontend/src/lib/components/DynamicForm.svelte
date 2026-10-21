@@ -3,6 +3,7 @@
 	import { onDestroy, setContext } from 'svelte';
 	import { writable } from 'svelte/store';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import FormField from './form-fields/FormField.svelte';
 	import {
 		type FieldConfig,
@@ -413,8 +414,8 @@
 	async function searchAutopickSlot(slot: AutopickSlot) {
 		let tagIds: string[] = [];
 		if (slot.tagFilters.length > 0) {
-			const tags = await api.getTags('MODEL');
-			const resolved = resolveSlotTagIds(slot.tagFilters, tags.success ? tags.data?.tags : null);
+			const tags = await tagCatalog.get('MODEL');
+			const resolved = resolveSlotTagIds(slot.tagFilters, tags);
 			if (!resolved) return null;
 			tagIds = resolved;
 		}

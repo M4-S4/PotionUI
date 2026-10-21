@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaPickerFrame from './MediaPickerFrame.svelte';
 	import MediaPickerSelectionBar from './MediaPickerSelectionBar.svelte';
@@ -199,10 +200,7 @@
 	// Load tags
 	async function loadTags() {
 		try {
-			const response = await api.getTags('GENERATION');
-			if (response.success && response.data) {
-				availableTags = response.data.tags || [];
-			}
+			availableTags = await tagCatalog.get('GENERATION', { fresh: true });
 		} catch (error) {
 			logger.error('Failed to load tags:', error);
 		}

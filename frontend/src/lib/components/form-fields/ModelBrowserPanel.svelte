@@ -17,6 +17,7 @@
 	import axios from 'axios';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import { authStore } from '$lib/stores/auth';
 	import { AdminOnlyMark, Badge, Button, Spinner } from '$lib/components/ui';
 	import Icon from '../Icon.svelte';
@@ -131,11 +132,8 @@
 	async function resolveTagIds(names: string[], signal: AbortSignal): Promise<string[]> {
 		if (names.length === 0) return [];
 		try {
-			const response = await api.getTags('MODEL', signal);
-			if (response.success && response.data?.tags) {
-				const allTags = response.data.tags;
-				return names.map((n) => allTags.find((t: any) => t.name === n)?.id).filter(Boolean);
-			}
+			const allTags = await tagCatalog.get('MODEL', { signal });
+			return names.map((n) => allTags.find((t) => t.name === n)?.id).filter(Boolean) as string[];
 		} catch (error) {
 			if (axios.isCancel(error)) throw error;
 			logger.error('[ModelBrowserPanel] Failed to resolve tag filters:', error);

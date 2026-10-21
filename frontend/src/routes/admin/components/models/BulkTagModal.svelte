@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import type { BulkModelTagsResult, ModelSelectionTag } from '$lib/services/api/models';
 	import { toasts } from '$lib/stores/toast';
 	import { getApiErrorMessage } from '$lib/utils/logger';
@@ -68,10 +69,10 @@
 		loading = true;
 		loadError = null;
 		try {
-			const [selection, all] = await Promise.all([api.getModelSelectionTags(ids), api.getTags('MODEL')]);
+			const [selection, all] = await Promise.all([api.getModelSelectionTags(ids), tagCatalog.get<KnownTag>('MODEL', { fresh: true })]);
 			if (!selection.success) throw new Error(selection.message || 'Could not load tags');
 			selectionTags = selection.data?.tags ?? [];
-			knownTags = (all.data?.tags ?? []).map((tag: KnownTag) => ({ id: tag.id, name: tag.name }));
+			knownTags = all.map((tag) => ({ id: tag.id, name: tag.name }));
 		} catch (e) {
 			loadError = getApiErrorMessage(e, 'Could not load tags');
 		} finally {

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { createEventDispatcher, onMount } from 'svelte';
-	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import Icon from '$lib/components/Icon.svelte';
 	import SearchableMultiSelectPopover from '$lib/components/selectors/SearchableMultiSelectPopover.svelte';
 	import { filterBySearch } from '$lib/components/selectors/searchFilter';
@@ -37,7 +37,8 @@
 		usage_count?: number;
 	}
 
-	let availableTags: Tag[] = [];
+	$: catalogTags = tagCatalog.tags(tagType);
+	$: availableTags = $catalogTags as Tag[];
 	let searchQuery: string = '';
 	let isOpen: boolean = false;
 	let isLoading: boolean = false;
@@ -48,10 +49,7 @@
 		if (tagsLoaded) return;
 		isLoading = true;
 		try {
-			const response = await api.getTags(tagType);
-			if (response.success && response.data?.tags) {
-				availableTags = response.data.tags;
-			}
+			await tagCatalog.get(tagType, { fresh: loadOnOpen });
 		} catch (error) {
 			logger.error('[TagSelector] Error loading tags:', error);
 		} finally {
@@ -133,12 +131,8 @@
 
 		isCreating = true;
 		try {
-			const response = await api.createTag(tagName, tagType);
-			if (response.success && response.data?.tag) {
-				const newTag = response.data.tag;
-				availableTags = [...availableTags, newTag];
-				addTag(newTag.id);
-			}
+			const response = await tagCatalog.create(tagName, tagType);
+			if (response.success && response.data?.tag) addTag(response.data.tag.id);
 		} catch (error) {
 			logger.error('[TagSelector] Error creating tag:', error);
 		} finally {

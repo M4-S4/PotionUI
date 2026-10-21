@@ -11,6 +11,7 @@ import type {
 	SortDir
 } from '$lib/types/history';
 import { api } from '$lib/services/api/index';
+import { tagCatalog } from '$lib/stores/tagCatalog';
 import { planBulkDelete } from '$lib/utils/historyDeleteCopy';
 import { deleteGridById } from '$lib/generation/compare/compareApi';
 import type { BulkDeleteByCriteriaRequest } from '$lib/services/api/generations';
@@ -258,6 +259,10 @@ function createHistoryStore() {
 	const { subscribe, set, update } = store;
 	const lifecycle = createRequestLifecycle(() => historyQueryKey(get(store)));
 	let steppingSelection = false;
+
+	tagCatalog.tags('GENERATION').subscribe((tags) => {
+		update((state) => ({ ...state, availableTags: tags as unknown as HistoryPageState['availableTags'] }));
+	});
 
 	return {
 		subscribe,
@@ -756,14 +761,9 @@ function createHistoryStore() {
 			}
 		},
 
-		// Load available generation tags
 		async loadTags() {
 			try {
-				const response = await api.getTags('GENERATION');
-				if (response.success && response.data) {
-					const tags = response.data.tags;
-					update((state) => ({ ...state, availableTags: tags }));
-				}
+				await tagCatalog.get('GENERATION', { fresh: true });
 			} catch (error) {
 				logger.error('Failed to load tags:', error);
 			}
@@ -771,7 +771,7 @@ function createHistoryStore() {
 
 		// Create a new generation tag
 		async createTag(name: string) {
-			const response = await api.createTag(name, 'GENERATION');
+			const response = await tagCatalog.create(name, 'GENERATION');
 			if (response.success) {
 				await this.loadTags();
 			}

@@ -7,6 +7,7 @@
 	import { browser } from '$app/environment';
 	import { isAxiosError } from 'axios';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { authStore } from '$lib/stores/auth';
 	import { resolveInstallModelsTarget } from '$lib/utils/installModelsTarget';
@@ -247,10 +248,7 @@
 
 	async function loadTags() {
 		try {
-			const response = await api.getTags('MODEL');
-			if (response.success && response.data) {
-				availableTags = response.data.tags;
-			}
+			availableTags = await tagCatalog.get('MODEL', { fresh: true });
 		} catch (error) {
 			logger.error('Failed to load tags:', error);
 		}

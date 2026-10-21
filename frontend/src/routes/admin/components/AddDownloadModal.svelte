@@ -3,6 +3,7 @@
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { downloadStore, remoteBackends, type QueueModelDownloadOptions } from '$lib/stores/downloads';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import {
 		AUTO_PROVIDER,
 		NO_PROVIDER,
@@ -11,9 +12,7 @@
 		selectedProviderValue
 	} from '$lib/utils/downloadUrlDetect';
 	import { buildSubdirNodes } from '$lib/utils/subdirTree';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Spinner, Alert, Badge, SegmentedControl } from '$lib/components/ui';
@@ -55,7 +54,6 @@
 	let submitting = false;
 	let errorMessage = '';
 	let advancedOpen = false;
-	const settlementGate = createConfirmSettlementGate();
 
 	// Loaded data
 	let modelTypes: { type: string; directory: string | null; count: number; subdirectories: string[] }[] = [];
@@ -106,7 +104,7 @@
 			const [typesRes, providersRes, tagsRes] = await Promise.all([
 				api.getModelTypes({ include_empty: true }),
 				api.getProviders(),
-				api.getTags('MODEL')
+				tagCatalog.get<ApiTagItem>('MODEL', { fresh: true })
 			]);
 
 			if (typesRes.success && typesRes.data?.types) {
@@ -130,12 +128,7 @@
 				}));
 			}
 
-			if (tagsRes.success && tagsRes.data?.tags) {
-				availableTags = (tagsRes.data.tags as ApiTagItem[]).map((t) => ({
-					id: t.id,
-					name: t.name
-				}));
-			}
+			availableTags = tagsRes.map((t) => ({ id: t.id, name: t.name }));
 		} catch (err) {
 			logger.error('Failed to load initial data:', err);
 		} finally {
@@ -246,11 +239,11 @@
 	async function handleSubmit() {
 		if (!url.trim()) {
 			errorMessage = 'URL is required';
-			return;
+			return false;
 		}
 		if (noWritableFolder) {
 			errorMessage = 'This model type has no writable folder';
-			return;
+			return false;
 		}
 
 		submitting = true;
@@ -278,11 +271,13 @@
 
 			if (result) {
 				dispatch('close');
-			} else {
-				errorMessage = 'Failed to queue download';
+				return true;
 			}
+			errorMessage = 'Failed to queue download';
+			return false;
 		} catch (err: unknown) {
 			errorMessage = getErrorMessage(err, 'Failed to queue download');
+			return false;
 		} finally {
 			submitting = false;
 		}

@@ -2,6 +2,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { onDestroy } from 'svelte';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaPickerFrame from './MediaPickerFrame.svelte';
@@ -109,8 +110,7 @@
 
 	async function loadTags() {
 		try {
-			const response = await api.getTags(LIBRARY_TAG_TYPE);
-			if (response.success && response.data) availableTags = response.data.tags as Tag[];
+			availableTags = await tagCatalog.get<Tag>(LIBRARY_TAG_TYPE, { fresh: true });
 		} catch (error) {
 			logger.error('Failed to load library tags:', error);
 		}
