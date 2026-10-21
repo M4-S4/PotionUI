@@ -10,6 +10,7 @@ vi.mock('$lib/services/api/index', () => ({
 		getGenerationHistory: (...args: unknown[]) => mockGetGenerationHistory(...args),
 		getHistoryFacets: vi.fn(),
 		getTags: vi.fn(),
+		listCollections: vi.fn().mockResolvedValue({ success: true, data: { collections: [], smart_counts: null } }),
 		bulkDeleteGenerations: (...args: unknown[]) => mockBulkDeleteGenerations(...args)
 	}
 }));

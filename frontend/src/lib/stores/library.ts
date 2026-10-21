@@ -3,6 +3,7 @@ import { browser } from '$app/environment';
 import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
 import { tagCatalog } from '$lib/stores/tagCatalog';
+import { libraryCollectionsStore } from '$lib/stores/collections';
 import type { BulkDeleteLibraryByCriteriaRequest, LibraryItem } from '$lib/services/api/library';
 import type { Tag } from '$lib/types/history';
 import {
@@ -266,7 +267,7 @@ function createLibraryStore() {
 					selectedIds: state.selectedIds.filter((id) => id !== itemId)
 				}));
 				await reloadAfterRemoval(1);
-				await this.loadFacets();
+				await Promise.all([this.loadFacets(), libraryCollectionsStore.load()]);
 			}
 			return response;
 		},
@@ -294,7 +295,7 @@ function createLibraryStore() {
 
 			update((state) => ({ ...state, selectedIds: [], selectionMode: false }));
 			await reloadAfterRemoval(deleted);
-			await this.loadFacets();
+			await Promise.all([this.loadFacets(), deleted > 0 ? libraryCollectionsStore.load() : undefined]);
 			return { deleted, failed };
 		},
 
@@ -303,7 +304,7 @@ function createLibraryStore() {
 			const response = await api.bulkDeleteLibraryItemsByCriteria(criteria);
 			if (response.success && response.data) {
 				await reloadAfterRemoval(response.data.deleted_count);
-				await this.loadFacets();
+				await Promise.all([this.loadFacets(), libraryCollectionsStore.load()]);
 			}
 			return response;
 		},

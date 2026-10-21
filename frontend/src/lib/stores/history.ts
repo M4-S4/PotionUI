@@ -11,6 +11,7 @@ import type {
 } from '$lib/types/history';
 import { api } from '$lib/services/api/index';
 import { tagCatalog } from '$lib/stores/tagCatalog';
+import { historyCollectionsStore } from '$lib/stores/collections';
 import { planBulkDelete } from '$lib/utils/historyDeleteCopy';
 import { deleteGridById } from '$lib/generation/compare/compareApi';
 import type { BulkDeleteByCriteriaRequest } from '$lib/services/api/generations';
@@ -584,7 +585,7 @@ function createHistoryStore() {
 				const response = await api.deleteGenerationHistory(generationId);
 				if (response.success) {
 					// Reload generations after deletion
-					await this.loadGenerations();
+					await Promise.all([this.loadGenerations(), historyCollectionsStore.load()]);
 					// Clear selected generation if it was the one deleted
 					update((state) => ({
 						...state,
@@ -630,7 +631,7 @@ function createHistoryStore() {
 				});
 				throw error;
 			}
-			await this.loadGenerations();
+			await Promise.all([this.loadGenerations(), historyCollectionsStore.load()]);
 		},
 
 		// Toggle selection mode
@@ -739,7 +740,7 @@ function createHistoryStore() {
 						if (failure === null) failure = looseError;
 					}
 				}
-				await this.loadGenerations();
+				await Promise.all([this.loadGenerations(), historyCollectionsStore.load()]);
 				const byId = new Map(state.generations.map((gen) => [gen.id, gen]));
 				const remaining = state.selectedGenerationIds.filter((id) => {
 					const gridId = byId.get(id)?.grid?.id;
@@ -779,7 +780,7 @@ function createHistoryStore() {
 		async bulkDeleteByCriteria(criteria: BulkDeleteByCriteriaRequest) {
 			const response = await api.bulkDeleteByCriteria(criteria);
 			if (response.success) {
-				await this.loadGenerations();
+				await Promise.all([this.loadGenerations(), historyCollectionsStore.load()]);
 				await this.loadTags();
 			}
 			return response;
