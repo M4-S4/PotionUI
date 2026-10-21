@@ -1,26 +1,3 @@
-"""The comfyui-backend plugin's own presets follow the same form-layout
-standard as the native Krea-2 preset (`content/presets/marketplace/Krea2`),
-established by the maintainer's preset tab grammar (2026-08-21) and already
-enforced on core presets by `tests/features/presets/test_anima_advanced_tab_layout.py`
-and `tests/features/presets/test_references_tab_layout.py`:
-
-  - Tab order: Generation (icon "generation") -> References (icon "image",
-    only for modes with conditioning media) -> LoRA (icon "lora") -> any
-    family extra tabs -> Advanced (icon "settings", audience "advanced").
-  - Generation tab: an optional top-level profile/select, then a section
-    "Image" (seed + quantity row, then the sizing field), then a section
-    "Models" holding every model picker.
-  - Advanced tab: named `section`s only, "Sampling" first with steps before
-    the rest, no `group`/`header` containers.
-
-The assertions run through the same path that serves `GET /api/presets/{id}/form`
-(PresetTemplateLoader -> PresetFormSerializer.process_form_fields) since a tab
-body arrives as a `children:` Jinja path string and only becomes fields inside
-the loader's `children:` resolution -- a hand-built fixture or a raw
-`yaml.safe_load` of the tab file would assert against a tree the frontend never
-receives, and would pass even if a tab body were unreachable.
-"""
-
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -44,6 +21,37 @@ CASES = [
     ("comfyui-backend/presets/QwenImage", "img2img", None, True),
     ("comfyui-backend/presets/SDXL", "txt2img", None, False),
     ("comfyui-backend/presets/zImage", "txt2img", None, False),
+]
+
+DETAILER_FIELD_NAMES = {"enhancement_strength", "face_detector_model", "hand_detector_model"}
+
+NATIVE_CASES = [
+    ("presets/marketplace/Anima", "txt2img"),
+    ("presets/marketplace/Flux1", "txt2img"),
+    ("presets/marketplace/Flux2", "txt2img"),
+    ("presets/marketplace/SDXL", "txt2img"),
+    ("presets/marketplace/SDXL", "inpaint"),
+    ("presets/marketplace/SeedVR2", "upscale"),
+    ("presets/marketplace/SeedVR2", "video_upscale"),
+    ("presets/marketplace/Wan", "video"),
+    ("presets/marketplace/ZImage", "txt2img"),
+    ("presets/marketplace/LTX-2", "video"),
+]
+
+NATIVE_SAMPLING_CASES = [c for c in NATIVE_CASES if c[0] != "presets/marketplace/SeedVR2"]
+
+GATE_CASES = [
+    ("presets/marketplace/Wan", "video", "Advanced", None, "riflex", {"riflex_trained_frames"}, False),
+    ("presets/marketplace/LTX-2", "video", "Enhance", None, "enhance_faces_hands", DETAILER_FIELD_NAMES, False),
+    ("presets/marketplace/LTX-2", "upscale", "Generation", "Enhancement", "enhance_faces_hands", DETAILER_FIELD_NAMES, False),
+    *[
+        ("presets/marketplace/SDXL", mode, "Advanced", None, gate, children, default)
+        for mode in ("txt2img", "inpaint")
+        for gate, children, default in (
+            ("adm_guidance_enabled", {"adm_positive_scale", "adm_negative_scale", "adm_scaler_end"}, True),
+            ("sag_enabled", {"sag_scale", "sag_sigma", "sag_threshold"}, False),
+        )
+    ],
 ]
 
 
@@ -100,6 +108,33 @@ def _all_field_names(node):
 def _case_id(case):
     suffix, mode, variant, _ = case
     return f"{suffix.rsplit('/', 1)[-1]}-{mode}-{variant or 'default'}"
+
+
+def _native_id(case):
+    return f"{case[0].rsplit('/', 1)[-1]}-{case[1]}"
+
+
+def _gate_id(case):
+    return f"{case[0].rsplit('/', 1)[-1]}-{case[1]}-{case[4]}"
+
+
+def _find(node, predicate):
+    for child in node.get("children") or []:
+        if predicate(child):
+            return child
+        found = _find(child, predicate)
+        if found:
+            return found
+    return None
+
+
+def _names_in_order(node):
+    out = []
+    for child in node.get("children") or []:
+        if child.get("name"):
+            out.append(child["name"])
+        out.extend(_names_in_order(child))
+    return out
 
 
 @pytest.mark.parametrize("suffix,mode,variant,has_references", CASES, ids=[_case_id(c) for c in CASES])
@@ -216,3 +251,32 @@ def test_quantity_is_a_stepper_with_the_original_range(loader, serializer):
         assert quantity["minimum"] == 1
         assert quantity["maximum"] == 4
         assert quantity["step"] == 1
+
+
+@pytest.mark.parametrize("suffix,mode", NATIVE_CASES, ids=[_native_id(c) for c in NATIVE_CASES])
+def test_native_advanced_tab_has_no_group_or_header_containers(loader, serializer, suffix, mode):
+    advanced = _by_title(_tabs(loader, serializer, suffix, mode, None), "Advanced")
+    offender = _find(advanced, lambda c: c.get("type") in {"group", "header"})
+    assert offender is None, f"{suffix}/{mode} Advanced tab has a {offender['type']!r} container"
+
+
+@pytest.mark.parametrize("suffix,mode", NATIVE_SAMPLING_CASES, ids=[_native_id(c) for c in NATIVE_SAMPLING_CASES])
+def test_native_advanced_tab_is_named_sections_sampling_first(loader, serializer, suffix, mode):
+    top_level = _by_title(_tabs(loader, serializer, suffix, mode, None), "Advanced")["children"]
+    assert all(c.get("type") in ("section", "gate") for c in top_level), [c.get("type") for c in top_level]
+    assert top_level[0].get("title") == "Sampling"
+    assert _names_in_order(top_level[0])[0] == "steps"
+
+
+@pytest.mark.parametrize("suffix,mode,tab,section,gate_name,children,default", GATE_CASES, ids=[_gate_id(c) for c in GATE_CASES])
+def test_gate_owns_its_boolean_and_children_carry_no_reactions(
+    loader, serializer, suffix, mode, tab, section, gate_name, children, default
+):
+    container = _by_title(_tabs(loader, serializer, suffix, mode, None), tab)
+    if section:
+        container = _find(container, lambda c: c.get("title") == section)
+    gate = _find(container, lambda c: c.get("name") == gate_name)
+    assert gate["type"] == "gate"
+    assert gate["default"] is default
+    assert _all_field_names(gate) == children
+    assert not [c["name"] for c in gate["children"] if c.get("reactions")]
