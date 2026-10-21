@@ -38,8 +38,10 @@ describe('deriveDeckThumb while running', () => {
 	it("falls back to the target type's icon without a preview or for flagged previews", () => {
 		const video = { ...preset, category: 'video' };
 		expect(deriveDeckThumb({ generation: generation(), isGenerating: true, preset: video })).toMatchObject({ tile: 'icon', kind: 'video', pending: true });
-		const flagged = generation({ currentGeneration: { id: 'g1', current_image: '/p.png', preview_suppressed: true } });
-		expect(deriveDeckThumb({ generation: flagged, isGenerating: true, preset })).toMatchObject({ tile: 'icon', kind: 'image', pending: true });
+		for (const flag of ['preview_suppressed', 'content_flagged', 'nsfw']) {
+			const flagged = generation({ currentGeneration: { id: 'g1', current_image: '/p.png', [flag]: true } });
+			expect(deriveDeckThumb({ generation: flagged, isGenerating: true, preset })).toMatchObject({ tile: 'icon', kind: 'image', pending: true });
+		}
 	});
 });
 
@@ -74,6 +76,13 @@ describe('deriveDeckThumb at rest', () => {
 		expect(deriveDeckThumb({ generation: generation({ batchMeshes: [{ url: '/m.glb' }] }), isGenerating: false, preset })).toMatchObject({ tile: 'icon', kind: 'mesh' });
 		const flagged = generation({ batchImages: [{ url: '/x.png', content_flagged: true }] });
 		expect(deriveDeckThumb({ generation: flagged, isGenerating: false, preset })).toMatchObject({ tile: 'icon', kind: 'image', pending: false });
+	});
+
+	it('uses the type icon for flagged video and NSFW results', () => {
+		const video = generation({ batchVideos: [{ url: '/v.mp4', duration: 5, content_flagged: true }] });
+		expect(deriveDeckThumb({ generation: video, isGenerating: false, preset })).toEqual({ tile: 'icon', kind: 'video', count: 0, duration: 5, pending: false });
+		const nsfw = generation({ batchImages: [{ url: '/n.png', nsfw: true } as never] });
+		expect(deriveDeckThumb({ generation: nsfw, isGenerating: false, preset })).toEqual({ tile: 'icon', kind: 'image', count: 0, duration: null, pending: false });
 	});
 
 	it('maps plugin outputs to the text or other tile', () => {

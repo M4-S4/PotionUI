@@ -140,6 +140,19 @@ describe('createStatusLineRotator', () => {
 		rotator.dispose();
 	});
 
+	it('stops calling back once disposed mid-fade', () => {
+		vi.useFakeTimers();
+		const { lines, fades, rotator } = harness();
+		rotator.sync('running', 'run-1');
+		vi.advanceTimersByTime(STATUS_LINE_MS);
+		expect(fades.at(-1)).toBe(true);
+		rotator.dispose();
+		const counts = [lines.length, fades.length];
+		vi.advanceTimersByTime(STATUS_LINE_MS * 3);
+		expect([lines.length, fades.length]).toEqual(counts);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
 	it('stops when the run ends and starts fresh for the next run', () => {
 		vi.useFakeTimers();
 		const { lines, rotator } = harness();

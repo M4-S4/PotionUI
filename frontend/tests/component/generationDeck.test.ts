@@ -254,10 +254,33 @@ describe('generation deck live region', () => {
 		expect(said).toEqual(['Generation started', '25% generated', '50% generated', '75% generated', 'Generation complete']);
 	});
 
+	it('announces a cancelled run', () => {
+		mounted = mount({ generation: running(0.5), isGenerating: true });
+		mounted.set({
+			generation: generation({ currentGeneration: { id: 'run-1', status: 'cancelled' }, cancelNotice: 'Cancelled', cancelledGenerationId: 'run-1' }),
+			isGenerating: false
+		});
+		expect(live()).toBe('Generation cancelled');
+	});
+
 	it('announces a failure with its message', () => {
 		mounted = mount({ generation: running(0.5), isGenerating: true });
 		mounted.set({ generation: generation({ currentGeneration: { id: 'run-1', status: 'failed', message: 'Out of GPU memory' } }), isGenerating: false });
 		expect(live()).toBe('Generation failed: Out of GPU memory');
+	});
+});
+
+describe('generation deck teardown', () => {
+	it('leaves no timers behind when destroyed mid-run and mid-fade', () => {
+		vi.useFakeTimers();
+		mounted = mount({ generation: running(0.4), isGenerating: true });
+		vi.advanceTimersByTime(STATUS_LINE_MS + 100);
+		flushSync();
+		expect(q('[data-deck-title]')!.classList.contains('is-fading')).toBe(true);
+		expect(vi.getTimerCount()).toBeGreaterThan(0);
+		mounted.destroy();
+		mounted = undefined;
+		expect(vi.getTimerCount()).toBe(0);
 	});
 });
 
