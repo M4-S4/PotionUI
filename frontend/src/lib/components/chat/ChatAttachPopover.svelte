@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	// Vision-image attach surface opened from ChatInput's "Add" button: current-
 	// form thumbnails, the shared MediaLoaderField (upload/library/paste/history
 	// — whatever it already offers, nothing invented here), reuse-last-image,
@@ -58,9 +59,7 @@
 		</div>
 		<span class="capability-badge">VISION</span>
 		<Tooltip text="Close" position="bottom">
-			<button class="tiny-button" aria-label="Close image picker" on:click={onClose}>
-				<Icon name="chat-close" className="icon" strokeWidth={1.8} />
-			</button>
+			<IconButton icon="chat-close" label="Close image picker" size="sm" onclick={onClose} />
 		</Tooltip>
 	</div>
 

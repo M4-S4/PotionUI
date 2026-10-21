@@ -1,4 +1,5 @@
 <script lang="ts" generics="T extends CollectionLike">
+	import { IconButton } from '$lib/components/ui';
 	import { fly, fade } from 'svelte/transition';
 	import { quartOut } from 'svelte/easing';
 	import Icon from '$lib/components/Icon.svelte';
@@ -104,12 +105,6 @@
 
 		<div class="w-px h-6 bg-line-strong"></div>
 
-		<button
-			class="p-2 text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
-			onclick={onClear}
-			aria-label="Exit selection mode"
-		>
-			<Icon name="close" className="w-4 h-4" />
-		</button>
+		<IconButton icon="close" label="Exit selection mode" size="sm" onclick={onClear} />
 	</div>
 </div>

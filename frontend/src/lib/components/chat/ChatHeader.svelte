@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	// Header: rail toggle · title (+ inline rename) · mode chip · context meter ·
 	// model button · more menu · close. Markup ported verbatim from the mock's
 	// .chat-header (chat-rework BRIEF2); the three dropdowns are plain
@@ -124,22 +125,18 @@
 
 <header class="chat-header">
 	<Tooltip text={railCollapsed ? 'Show history' : 'Hide history'} position="bottom">
-		<button
-			type="button"
-			aria-pressed={!railCollapsed}
-			aria-label={railCollapsed ? 'Show history' : 'Hide history'}
-			class="icon-button"
-			on:click={onToggleRail}
-		>
-			<Icon name="chat-menu" className="icon" strokeWidth={1.8} />
-		</button>
+		<IconButton
+			icon="chat-menu"
+			label={railCollapsed ? 'Show history' : 'Hide history'}
+			size="sm"
+			ariaPressed={!railCollapsed}
+			onclick={onToggleRail}
+		/>
 	</Tooltip>
 
 	{#if onNewChat}
 		<Tooltip text="New chat" position="bottom">
-			<button type="button" aria-label="New chat" class="icon-button" on:click={onNewChat}>
-				<Icon name="chat-plus" className="icon" strokeWidth={1.8} />
-			</button>
+			<IconButton icon="chat-plus" label="New chat" size="sm" onclick={onNewChat} />
 		</Tooltip>
 	{/if}
 
@@ -217,9 +214,7 @@
 		{#if onClose}
 			<div class="header-divider"></div>
 			<Tooltip text="Close" kbd="Esc" position="bottom">
-				<button type="button" aria-label="Close chat" class="icon-button" on:click={onClose}>
-					<Icon name="chat-close" className="icon" strokeWidth={1.8} />
-				</button>
+				<IconButton icon="chat-close" label="Close chat" size="sm" onclick={onClose} />
 			</Tooltip>
 		{/if}
 	</div>

@@ -119,14 +119,7 @@
 					onkeydown={handleSearchKeydown}
 				/>
 				{#if search}
-					<button
-						type="button"
-						class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-subtle hover:text-fg"
-						aria-label="Clear search"
-						onclick={clearSearch}
-					>
-						<Icon name="close" className="w-3.5 h-3.5" />
-					</button>
+					<IconButton icon="close" label="Clear search" size="xs" onclick={clearSearch} class="absolute right-2 top-1/2 -translate-y-1/2" />
 				{/if}
 			</div>
 		</div>

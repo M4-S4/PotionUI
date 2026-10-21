@@ -6,7 +6,7 @@
 	import { storage } from '$lib/utils/storage';
 	import type { AudioTrack, AudioTrackType, AudioPlayerState } from '$lib/types/audio';
 	import Waveform from './Waveform.svelte';
-	import { Alert } from '$lib/components/ui';
+	import { Alert, IconButton } from '$lib/components/ui';
 
 	const dispatch = createEventDispatcher();
 
@@ -525,22 +525,7 @@
 
 			<!-- Download button -->
 			{#if showDownload && currentTrack}
-				<button
-					type="button"
-					class="flex-shrink-0 w-8 h-8 flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-3 rounded transition-colors"
-					on:click={downloadTrack}
-					title="Download {playerState.selectedTrack} track"
-					aria-label="Download {playerState.selectedTrack} track"
-				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-						/>
-					</svg>
-				</button>
+				<IconButton icon="download" label="Download {playerState.selectedTrack} track" size="sm" onclick={downloadTrack} class="flex-shrink-0" />
 			{/if}
 		</div>
 

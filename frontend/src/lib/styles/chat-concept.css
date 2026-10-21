@@ -125,7 +125,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       letter-spacing: -0.01em;
     }
 
-.tiny-button, .icon-button {
+.icon-button {
       border: 0;
       background: transparent;
       color: rgb(var(--fg-subtle));
@@ -134,19 +134,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       display: grid;
       place-items: center;
       transition: 120ms ease;
-    }
-
-.tiny-button {
-      width: 30px;
-      height: 30px;
-    }
-
-.icon-button {
       width: 34px;
       height: 34px;
     }
 
-.tiny-button:hover, .icon-button:hover {
+.icon-button:hover {
       color: rgb(var(--fg));
       background: rgb(var(--surface-3));
     }

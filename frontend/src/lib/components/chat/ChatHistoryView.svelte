@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	// The rail: brand + search toggle, new-conversation button, mode filter
 	// chips (real functionality; the prototype's single-mode history never
 	// needs them), and the grouped session list. Markup ported verbatim from
@@ -116,14 +117,7 @@
 		<div class="brand-orb"><Logo size={20} /></div>
 		<div class="brand-name">PotionAI</div>
 		<Tooltip text="Search conversations" position="bottom">
-			<button
-				class="tiny-button"
-				class:active={searchOpen}
-				aria-label="Search conversations"
-				on:click={toggleSearch}
-			>
-				<Icon name="chat-search" className="icon" strokeWidth={1.8} />
-			</button>
+			<IconButton icon="chat-search" label="Search conversations" size="sm" active={searchOpen} onclick={toggleSearch} />
 		</Tooltip>
 	</div>
 

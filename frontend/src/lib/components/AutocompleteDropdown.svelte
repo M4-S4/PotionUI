@@ -1,4 +1,5 @@
 <script context="module" lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	// Types
 	export interface AutocompleteCategory {
 		id: string;
@@ -415,16 +416,7 @@
 				<div class="px-3 py-2 text-sm font-medium text-fg-muted border-b border-line bg-surface-2 flex-shrink-0 flex items-center justify-between gap-2">
 					<div class="flex items-center gap-2 flex-1 min-w-0">
 						{#if canNavigateUp && onNavigateUp}
-							<button
-								type="button"
-								class="h-6 w-6 min-w-6 flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-3 rounded transition-colors duration-100"
-								on:click={onNavigateUp}
-								aria-label="Navigate up"
-							>
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-								</svg>
-							</button>
+							<IconButton icon="arrow-left" label="Navigate up" size="xs" onclick={onNavigateUp} />
 						{/if}
 						<div class="flex-1 min-w-0">
 							{#if currentPath}

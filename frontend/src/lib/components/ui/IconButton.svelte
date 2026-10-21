@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
+	import tooltip from '$lib/actions/tooltip';
 	import Icon from '../Icon.svelte';
 	import { INSIDE_TOOLTIP_CONTEXT_KEY } from '../tooltipContext';
 
 	type Size = 'xs' | 'sm' | 'md';
-	type Variant = 'ghost' | 'secondary';
+	type Variant = 'ghost' | 'secondary' | 'overlay';
 
 	let {
 		icon,
@@ -17,7 +18,8 @@
 		onclick,
 		ariaExpanded,
 		ariaPressed,
-		class: className = ''
+		class: className = '',
+		...rest
 	}: {
 		icon: string;
 		label: string;
@@ -30,13 +32,12 @@
 		ariaExpanded?: boolean;
 		ariaPressed?: boolean;
 		class?: string;
+		[key: string]: unknown;
 	} = $props();
 
-	let isDisabled = $derived(disabled || loading);
-
-	// A wrapping Tooltip already shows `label`; keeping the native title too
-	// renders two tooltips side by side.
 	const insideTooltip = getContext<boolean | undefined>(INSIDE_TOOLTIP_CONTEXT_KEY) === true;
+
+	let isDisabled = $derived(disabled || loading);
 
 	const sizeClasses: Record<Size, string> = {
 		xs: 'min-w-6 min-h-6 p-1',
@@ -52,11 +53,12 @@
 
 	const variantClasses: Record<Variant, string> = {
 		ghost: 'text-fg-muted hover:text-fg hover:bg-surface-3/50',
-		secondary: 'bg-surface-3 text-fg hover:bg-line-hover'
+		secondary: 'bg-surface-3 text-fg hover:bg-line-hover',
+		overlay: 'bg-scrim/60 text-scrim-on backdrop-blur-sm hover:bg-scrim/80'
 	};
 
 	let classes = $derived(
-		`inline-flex items-center justify-center rounded transition-colors duration-100 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed ${sizeClasses[size]} ${active ? 'bg-signal/10 text-signal' : variantClasses[variant]} ${className}`
+		`inline-flex items-center justify-center rounded transition-[color,background-color,opacity] duration-100 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed ${sizeClasses[size]} ${active ? 'bg-signal/10 text-signal' : variantClasses[variant]} ${className}`
 	);
 </script>
 
@@ -67,9 +69,10 @@
 	aria-expanded={ariaExpanded}
 	aria-pressed={ariaPressed}
 	aria-busy={loading}
-	title={insideTooltip ? undefined : label}
+	use:tooltip={insideTooltip ? undefined : label}
 	disabled={isDisabled}
 	{onclick}
+	{...rest}
 >
 	{#if loading}
 		<span

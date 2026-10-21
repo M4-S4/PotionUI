@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	import { onMount } from 'svelte';
 	import { logger } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
@@ -346,9 +347,7 @@
 			<span>What PotionAI carries into replies</span>
 		</div>
 		<Tooltip text="Close" position="bottom">
-			<button class="tiny-button" aria-label="Close" on:click={onClose}>
-				<Icon name="chat-close" className="icon" strokeWidth={1.8} />
-			</button>
+			<IconButton icon="chat-close" label="Close" size="sm" onclick={onClose} />
 		</Tooltip>
 	</div>
 

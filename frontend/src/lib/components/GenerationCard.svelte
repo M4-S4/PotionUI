@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher } from 'svelte';
 	import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 	import MediaPreview from './MediaPreview.svelte';
@@ -9,7 +10,7 @@
 	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
 	import StarRating from './StarRating.svelte';
 	import FavoriteButton from './FavoriteButton.svelte';
-	import { Badge, CopyButton } from '$lib/components/ui';
+	import { Badge, CopyButton, IconButton } from '$lib/components/ui';
 	import { historyStore } from '$lib/stores/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { generationRunLabel } from '$lib/utils/generationTime';
@@ -491,20 +492,8 @@
 							/>
 						</div>
 						{#if density.actionMode === 'full'}
-							<button
-								class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-								on:click={handleViewClick}
-								aria-label="View generation details"
-							>
-								<Icon name="eyes" className="h-3.5 w-3.5" />
-							</button>
-							<button
-								class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-								on:click={handleDeleteClick}
-								aria-label="Delete generation"
-							>
-								<Icon name="trash" className="h-3.5 w-3.5" />
-							</button>
+							<IconButton icon="eyes" label="View generation details" size="xs" variant="overlay" onclick={handleViewClick} class="opacity-0 group-hover:opacity-100" />
+							<IconButton icon="trash" label="Delete generation" size="xs" variant="overlay" onclick={handleDeleteClick} class="opacity-0 group-hover:opacity-100 hover:!bg-danger-solid" />
 						{/if}
 					</div>
 				{/if}
@@ -576,7 +565,7 @@
 			{#if tile && chromeBucket?.showHoverMeta && generation.status === 'completed' && barHoverMetaParts.length > 0}
 				<div
 					class="absolute bottom-1.5 right-1.5 z-20 max-w-[60%] px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-fg-muted font-mono tabular-nums text-2xs tracking-[0.07em] truncate opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-					title={barHoverMetaParts.join(' · ')}
+					use:tooltip={{ text: barHoverMetaParts.join(' · '), truncateOnly: true }}
 				>
 					{barHoverMetaParts.join(' · ')}
 				</div>
@@ -596,14 +585,14 @@
 					{#if density.metadataMode === 'full'}
 						<span
 							class="font-mono text-xs text-white/60 truncate min-w-0"
-							title={topSystemTags.join(' · ')}
+							use:tooltip={{ text: topSystemTags.join(' · '), truncateOnly: true }}
 						>
 							{topSystemTags.join(' · ')}
 						</span>
 					{/if}
 					<span
 						class="font-mono tabular-nums text-xs uppercase tracking-[0.07em] text-white/90 truncate min-w-0 shrink-0"
-						title={metaParts.join(' · ')}
+						use:tooltip={{ text: metaParts.join(' · '), truncateOnly: true }}
 					>
 						{metaParts.join(' · ')}
 					</span>
@@ -612,20 +601,8 @@
 
 			<!-- File navigation -->
 			{#if mediaFiles.length > 1 && density.showCarouselArrows}
-				<button
-					class="absolute left-1.5 top-1/2 -translate-y-1/2 z-30 bg-black/60 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-100 rounded p-1.5"
-					on:click={handlePrevImage}
-					aria-label="Previous image"
-				>
-					<Icon name="chevron-left" className="h-3.5 w-3.5" />
-				</button>
-				<button
-					class="absolute right-1.5 top-1/2 -translate-y-1/2 z-30 bg-black/60 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-100 rounded p-1.5"
-					on:click={handleNextImage}
-					aria-label="Next image"
-				>
-					<Icon name="chevron-right" className="h-3.5 w-3.5" />
-				</button>
+				<IconButton icon="chevron-left" label="Previous image" size="xs" variant="overlay" onclick={handlePrevImage} class="absolute left-1.5 top-1/2 -translate-y-1/2 z-30 opacity-0 group-hover:opacity-100" />
+				<IconButton icon="chevron-right" label="Next image" size="xs" variant="overlay" onclick={handleNextImage} class="absolute right-1.5 top-1/2 -translate-y-1/2 z-30 opacity-0 group-hover:opacity-100" />
 			{/if}
 			{#if showCarouselCounter}
 				<div
@@ -709,13 +686,13 @@
 					{:else}
 						<span
 							class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotClass}"
-							title={generation.status}
+							use:tooltip={generation.status}
 						></span>
 					{/if}
 				</div>
 				<div class="flex items-center gap-1.5 ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em]">
 					{#if barResolutionText && !durationReplacesResolution}
-						<span class="text-fg-muted whitespace-nowrap" title={fullResolutionTitle}>{barResolutionText}</span>
+						<span class="text-fg-muted whitespace-nowrap" use:tooltip={fullResolutionTitle}>{barResolutionText}</span>
 					{/if}
 					{#if barRunLabel}
 						{#if barResolutionText && !durationReplacesResolution}<span class="text-line-hover">·</span>{/if}

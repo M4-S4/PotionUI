@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { formatTimecode } from '$lib/media/editors/timecode';
 	import {
@@ -37,7 +38,7 @@
 	import AudioPreview from '$lib/components/workbench/renderers/AudioPreview.svelte';
 	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import '$lib/components/workbench/renderers/builtin'; // registers the image/video/audio core defaults
-	import { Button, CopyButton, Badge } from '$lib/components/ui';
+	import { Button, CopyButton, Badge, IconButton } from '$lib/components/ui';
 	import FailureTechnicalDetails from '$lib/components/FailureTechnicalDetails.svelte';
 	import FailureNotice from '$lib/components/FailureNotice.svelte';
 	import { isContentPolicyCode, policyShowsErrorId, firstHintLine } from '$lib/generation/failurePolicy';
@@ -756,7 +757,8 @@
 				<button
 					on:click={handlePrevious}
 					class="absolute left-4 z-20 bg-black/90 backdrop-blur-sm hover:bg-black/70 shadow-lg border border-white/10 w-12 h-12 rounded-full opacity-80 hover:opacity-100 transition-all duration-200 flex items-center justify-center"
-					title="Previous image"
+					use:tooltip={'Previous image'}
+					aria-label="Previous image"
 				>
 					<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -769,7 +771,8 @@
 				<button
 					on:click={handleNext}
 					class="absolute right-4 z-20 bg-black/90 backdrop-blur-sm hover:bg-black/70 shadow-lg border border-white/10 w-12 h-12 rounded-full opacity-80 hover:opacity-100 transition-all duration-200 flex items-center justify-center"
-					title="Next image"
+					use:tooltip={'Next image'}
+					aria-label="Next image"
 				>
 					<svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
@@ -1348,28 +1351,12 @@
 	>
 		<!-- Left Navigation Arrow -->
 		{#if effectiveTotal > 1 && workbenchIndex > 0}
-			<button
-				on:click|stopPropagation={handlePrevious}
-				class="absolute left-4 top-1/2 -translate-y-1/2 z-10 bg-black/50 hover:bg-black/70 text-white p-3 rounded-full shadow-lg backdrop-blur-sm transition-colors"
-				aria-label="Previous item"
-			>
-				<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-				</svg>
-			</button>
+			<IconButton icon="chevron-left" label="Previous item" variant="overlay" onclick={(e) => { e.stopPropagation(); handlePrevious(); }} class="absolute left-4 top-1/2 -translate-y-1/2 z-10" />
 		{/if}
 
 		<!-- Right Navigation Arrow -->
 		{#if effectiveTotal > 1 && workbenchIndex < effectiveTotal - 1}
-			<button
-				on:click|stopPropagation={handleNext}
-				class="absolute right-4 top-1/2 -translate-y-1/2 z-10 bg-black/50 hover:bg-black/70 text-white p-3 rounded-full shadow-lg backdrop-blur-sm transition-colors"
-				aria-label="Next item"
-			>
-				<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-				</svg>
-			</button>
+			<IconButton icon="chevron-right" label="Next item" variant="overlay" onclick={(e) => { e.stopPropagation(); handleNext(); }} class="absolute right-4 top-1/2 -translate-y-1/2 z-10" />
 		{/if}
 
 		<!-- Ambient "screen extend" background echo behind the full-screen media.
@@ -1408,7 +1395,8 @@
 			<button
 				on:click={() => showImageModal = false}
 				class="absolute top-4 right-4 z-10 bg-black/50 hover:bg-black/70 text-white p-3 rounded-full shadow-lg backdrop-blur-sm transition-colors"
-				title="Close (Esc)"
+				use:tooltip={'Close (Esc)'}
+				aria-label="Close (Esc)"
 			>
 				<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />

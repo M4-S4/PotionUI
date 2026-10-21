@@ -1,7 +1,7 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	import CustomSelect from '$lib/components/CustomSelect.svelte';
 	import FieldShell from './FieldShell.svelte';
-	import Icon from '../Icon.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
 	import { formatSelectOptions } from './selectOptions';
@@ -72,14 +72,7 @@
 	{#if example}
 		<div class="mt-2 flex items-center justify-between gap-2 px-2.5 py-1.5 bg-surface-2/50 border border-line-strong rounded">
 			<span class="min-w-0 truncate font-mono text-xs text-fg-muted">{example}</span>
-			<button
-				type="button"
-				on:click={copyExample}
-				class="shrink-0 text-fg-subtle hover:text-fg-muted transition-colors"
-				title="Copy to clipboard"
-			>
-				<Icon name={copied ? 'check' : 'copy'} className="w-3.5 h-3.5" />
-			</button>
+			<IconButton icon={copied ? 'check' : 'copy'} label="Copy to clipboard" size="xs" onclick={copyExample} class="shrink-0" />
 		</div>
 	{/if}
 </FieldShell>

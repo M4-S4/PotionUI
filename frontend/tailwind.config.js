@@ -31,6 +31,7 @@ export default {
 					active: t('accent-active'),
 					contrast: t('accent-contrast')
 				},
+				scrim: { DEFAULT: t('scrim'), on: t('on-scrim') },
 				signal: { DEFAULT: t('signal'), solid: t('signal-solid') },
 				success: { DEFAULT: t('success'), solid: t('success-solid') },
 				danger: { DEFAULT: t('danger'), solid: t('danger-solid') },

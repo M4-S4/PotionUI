@@ -37,6 +37,8 @@
 
 	/* Signal — blue = "where you are / what's chosen". Never a white link. */
 	--signal: 91 157 255; /* #5B9DFF links, active nav, selection, progress */
+	--scrim: 0 0 0;
+	--on-scrim: 255 255 255;
 	--signal-solid: 61 127 232; /* #3D7FE8 solid fills needing white labels */
 
 	/* Status — text role (DEFAULT) + solid fills; tints via alpha utilities */

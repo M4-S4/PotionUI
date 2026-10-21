@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { formatBytes } from '$lib/utils/format';
@@ -687,23 +688,11 @@
 				{#if currentFile}
 					<!-- Navigation Arrows -->
 					{#if canGoPrev}
-						<button
-							class="absolute left-4 top-1/2 transform -translate-y-1/2 z-10 p-3 rounded bg-black/70 hover:bg-black/80 text-white transition-colors"
-							on:click={goToPreviousFile}
-							aria-label="Previous file"
-						>
-							<Icon name="chevron-left" className="w-6 h-6" />
-						</button>
+						<IconButton icon="chevron-left" label="Previous file" variant="overlay" onclick={goToPreviousFile} class="absolute left-4 top-1/2 -translate-y-1/2 z-10" />
 					{/if}
 
 					{#if canGoNext}
-						<button
-							class="absolute right-4 top-1/2 transform -translate-y-1/2 z-10 p-3 rounded bg-black/70 hover:bg-black/80 text-white transition-colors"
-							on:click={goToNextFile}
-							aria-label="Next file"
-						>
-							<Icon name="chevron-right" className="w-6 h-6" />
-						</button>
+						<IconButton icon="chevron-right" label="Next file" variant="overlay" onclick={goToNextFile} class="absolute right-4 top-1/2 -translate-y-1/2 z-10" />
 					{/if}
 
 					<div class="absolute top-4 left-4 z-20 max-w-[calc(100%-2rem)] opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -820,7 +809,8 @@
 							<button
 								on:click={() => dispatch('reuse', activeGeneration)}
 								class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-								title="Reuse this generation's settings"
+								use:tooltip={"Reuse this generation's settings"}
+								aria-label="Reuse this generation's settings"
 							>
 								<Icon name="refresh" className="h-6 w-6" />
 							</button>
@@ -830,9 +820,10 @@
 						     distinct from the plain media "Download" button above -->
 						<button
 							on:click={handleExportBundle}
+							aria-label="Export this generation as a portable bundle"
 							disabled={exportingBundle}
 							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors disabled:opacity-50"
-							title="Export this generation as a portable bundle"
+							use:tooltip={'Export this generation as a portable bundle'}
 						>
 							{#if exportingBundle}
 								<Spinner size="sm" />
@@ -844,30 +835,18 @@
 						<button
 							on:click={() => (showPublishModal = true)}
 							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-							title="Publish to Inspirations"
+							use:tooltip={'Publish to Inspirations'}
+							aria-label="Publish to Inspirations"
 						>
 							<Icon name="lightbulb" className="h-6 w-6" />
 						</button>
 
 						<!-- Download button -->
-						<button
-							on:click={downloadCurrentFile}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-							title="Download"
-						>
-							<Icon name="download" className="h-6 w-6" />
-						</button>
+						<IconButton icon="download" label="Download" variant="overlay" onclick={downloadCurrentFile} />
 
 						<!-- Copy this file into the private library (a copy - the generation stays) -->
 						{#if canCopyToLibrary}
-							<button
-								on:click={handleCopyToLibrary}
-								disabled={copyingToLibrary}
-								class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors disabled:opacity-50"
-								title="Copy this file to your library (the generation stays in history)"
-							>
-								<Icon name="photo" className="h-6 w-6" />
-							</button>
+							<IconButton icon="photo" label="Copy this file to your library (the generation stays in history)" variant="overlay" onclick={handleCopyToLibrary} disabled={copyingToLibrary} />
 						{/if}
 
 						{#if canEditImage}
@@ -885,13 +864,7 @@
 						{/if}
 
 						<!-- Open in new tab button -->
-						<button
-							on:click={openCurrentFileInTab}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-							title="Display in new tab"
-						>
-							<Icon name="external-link" className="h-6 w-6" />
-						</button>
+						<IconButton icon="external-link" label="Display in new tab" variant="overlay" onclick={openCurrentFileInTab} />
 
 						<!-- Plugin actions slot -->
 						<PluginSlot
@@ -1100,7 +1073,7 @@
 											<div class="flex flex-wrap gap-1 mt-1.5">
 												{#each seg.phrasebooks as ac}
 													<Badge variant="info" size="sm">
-														<span title={ac.category_path ? `${ac.category_path} → ${ac.value}` : ac.value}>
+														<span use:tooltip={ac.category_path ? `${ac.category_path} → ${ac.value}` : ac.value}>
 															{#if ac.category_path}
 																<span class="text-fg-subtle">{ac.category_path}</span>
 																<span class="text-fg-subtle mx-0.5">·</span>
@@ -1210,7 +1183,7 @@
 									<button
 										type="button"
 										class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-line hover:border-line-hover bg-surface-3 text-2xs text-fg-muted hover:text-fg transition-colors"
-										title="Filter history by “{st.tag}”"
+										use:tooltip={`Filter history by “${st.tag}”`}
 										on:click={() => handleSystemTagClick(st.tag)}
 									>
 										<span class="truncate max-w-[10rem]">{st.tag.replace(/_/g, ' ')}</span>
@@ -1265,7 +1238,7 @@
 										</div>
 										<div
 											class="font-mono tabular-nums text-xs font-semibold text-fg truncate"
-											title={typeof value === 'object' ? JSON.stringify(value) : String(value)}
+											use:tooltip={{ text: typeof value === 'object' ? JSON.stringify(value) : String(value), truncateOnly: true }}
 										>
 											{typeof value === 'object' ? JSON.stringify(value) : String(value)}
 										</div>

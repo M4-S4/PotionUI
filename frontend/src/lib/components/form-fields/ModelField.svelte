@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
@@ -426,7 +427,8 @@
 								type="button"
 								on:click={() => removeTagFilter(index)}
 								class="hover:opacity-70"
-								title="Remove filter"
+								use:tooltip={'Remove filter'}
+								aria-label="Remove filter"
 							>
 								<svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -489,7 +491,7 @@
 
 			<!-- Model info - horizontal -->
 			<div class="flex-1 min-w-0">
-				<div class="text-sm font-semibold text-fg truncate" title={displayName(selectedModelData)}>
+				<div class="text-sm font-semibold text-fg truncate" use:tooltip={{ text: displayName(selectedModelData), truncateOnly: true }}>
 					{displayName(selectedModelData)}
 				</div>
 				{#if originLine(selectedModelData)}
@@ -501,7 +503,7 @@
 				{/if}
 				<div class="mt-1 flex min-w-0 items-center gap-1 overflow-hidden">
 					{#each summaryParts(selectedModelData) as part, index}
-						<span class="max-w-[9rem] truncate rounded bg-surface-3 px-1.5 py-0.5 text-2xs text-fg-muted" title={index === 0 ? modelPurpose(selectedModelData) : part}>
+						<span class="max-w-[9rem] truncate rounded bg-surface-3 px-1.5 py-0.5 text-2xs text-fg-muted" use:tooltip={{ text: index === 0 ? modelPurpose(selectedModelData) : part, truncateOnly: true }}>
 							{part}
 						</span>
 					{/each}
@@ -513,7 +515,8 @@
 				type="button"
 				on:click={(e) => toggleModelFavorite(selectedModelData, e)}
 				class="shrink-0 p-1.5 hover:bg-surface-3 rounded {selectedModelData.is_favorite ? 'text-warning' : 'text-fg-muted'}"
-				title={selectedModelData.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+				use:tooltip={selectedModelData.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+				aria-label={selectedModelData.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
 			>
 				<Icon name="star" className="w-4 h-4" />
 			</button>
@@ -527,7 +530,7 @@
 				type="button"
 				on:click|stopPropagation={handleClearSearch}
 				class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 border border-line-strong rounded text-xs font-medium text-fg-muted hover:bg-surface-3 hover:text-fg hover:border-line-hover transition-colors"
-				title="Swap for a different model"
+				use:tooltip={'Swap for a different model'}
 			>
 				Swap
 			</button>
@@ -559,34 +562,22 @@
 						type="button"
 						on:click={() => (favoritesOnly = !favoritesOnly)}
 						class="p-1 hover:bg-surface-3 rounded {favoritesOnly ? 'text-warning' : 'text-fg-muted'}"
-						title={favoritesOnly ? 'Showing favorites only' : 'Show favorites only'}
+						use:tooltip={favoritesOnly ? 'Showing favorites only' : 'Show favorites only'}
 						aria-pressed={favoritesOnly}
+						aria-label={favoritesOnly ? 'Showing favorites only' : 'Show favorites only'}
 					>
 						<Icon name="star" className="w-4 h-4" />
 					</button>
 					{#if searchQuery}
-						<button
-							type="button"
-							on:click={handleClearSearch}
-							class="p-1 hover:bg-surface-3 rounded text-fg-muted"
-							title="Clear"
-						>
-							<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M6 18L18 6M6 6l12 12"
-								/>
-							</svg>
-						</button>
+						<IconButton icon="close" label="Clear" size="xs" onclick={handleClearSearch} />
 					{/if}
 					<button
 						type="button"
 						on:click={() => browserPanel?.refresh()}
 						class="p-1 hover:bg-surface-3 rounded text-fg-muted"
-						title="Refresh models"
+						use:tooltip={'Refresh models'}
 						disabled={loading}
+						aria-label="Refresh models"
 					>
 						<svg
 							class="w-4 h-4"

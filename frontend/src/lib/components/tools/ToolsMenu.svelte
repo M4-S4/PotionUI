@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Kbd } from '$lib/components/ui';
+	import { Kbd, IconButton } from '$lib/components/ui';
 	import { getIconPath } from '$lib/utils/IconLibrary';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
@@ -420,14 +420,7 @@
 								<p class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle truncate">{subtitle}</p>
 							{/if}
 						</div>
-						<button
-							type="button"
-							class="p-2 rounded text-fg-muted hover:text-fg hover:bg-surface-2"
-							aria-label="Close menu"
-							onclick={onClose}
-						>
-							<Icon name="close" className="w-4 h-4" />
-						</button>
+						<IconButton icon="close" label="Close menu" size="sm" onclick={onClose} />
 					</div>
 				{/if}
 				{@render rows()}

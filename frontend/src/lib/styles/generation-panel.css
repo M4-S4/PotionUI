@@ -162,10 +162,6 @@ button.readout:hover { background: rgb(var(--surface-3)); }
 
 .icon-button:hover, .icon-button[aria-expanded="true"] { border-color: rgb(var(--line)); background: rgb(var(--surface-3)); }
 
-.icon-button::after { content: attr(data-tooltip); position: absolute; right: 0; bottom: calc(100% + 9px); padding: 5px 7px; border: 1px solid rgb(var(--line)); border-radius: 6px; background: rgb(var(--surface-2)); box-shadow: 0 5px 14px rgba(0, 0, 0, .22); color: rgb(var(--fg)); font-size: 10px; opacity: 0; pointer-events: none; transform: translateY(3px); transition: 130ms ease; white-space: nowrap; }
-
-.icon-button:hover::after { opacity: 1; transform: translateY(0); }
-
 .mode-button {
       position: relative;
       height: 46px;
@@ -194,10 +190,6 @@ button.readout:hover { background: rgb(var(--surface-3)); }
 .mode-button.is-stopping { color: rgb(var(--fg-muted)); cursor: wait; }
 
 .mode-button .icon { width: 16px; height: 16px; }
-
-.mode-button::after { content: attr(data-tooltip); position: absolute; right: 0; bottom: calc(100% + 9px); padding: 5px 7px; border: 1px solid rgb(var(--line)); border-radius: 6px; background: rgb(var(--surface-2)); box-shadow: 0 5px 14px rgba(0, 0, 0, .22); color: rgb(var(--fg)); font-size: 10px; font-weight: 500; opacity: 0; pointer-events: none; transform: translateY(3px); transition: 130ms ease; white-space: nowrap; }
-
-.mode-button:hover::after, .mode-button:focus-visible::after { opacity: 1; transform: translateY(0); }
 
 .generate-button {
       height: 48px;
@@ -335,16 +327,6 @@ button.readout:hover { background: rgb(var(--surface-3)); }
 }
 
 /* additions */
-
-/* The mock's own CSS tooltip (`content: attr(data-tooltip)`, positioned
-   relative to the button alone) rendered in the wrong place once this
-   docked bar was `position: fixed` with its own stacking context —
-   superseded by the app's real Tooltip component (GenerationPanel.svelte),
-   which computes a `position: fixed` rect from the trigger's live bounding
-   box instead. Neutralized here rather than deleted from the generated
-   block, per the port rules. */
-& .icon-button::after,
-& .mode-button::after { content: none; display: none; }
 
 /* Maintainer ruling: the OUTER `.generation-panel` is a plain full-width
    strip — fixed, flush to the bottom edge, surface-1 background, a top

@@ -4,7 +4,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import dismiss from '$lib/actions/dismiss';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
-	import { Button, Kbd } from '$lib/components/ui';
+	import { Button, Kbd, IconButton } from '$lib/components/ui';
 	import type { PhrasebookBatchOp } from '$lib/types/api';
 
 	let {
@@ -227,14 +227,7 @@
 
 			<div class="w-px h-6 bg-line-strong"></div>
 
-			<button
-				type="button"
-				class="p-2 text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors"
-				onclick={onClear}
-				aria-label="Clear selection"
-			>
-				<Icon name="close" className="w-4 h-4" />
-			</button>
+			<IconButton icon="close" label="Clear selection" size="sm" onclick={onClear} />
 		</div>
 	</div>
 {/if}

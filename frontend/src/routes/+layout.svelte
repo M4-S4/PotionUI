@@ -24,7 +24,7 @@
 	import { themeStore } from '$lib/stores/theme';
 	import { printStartupBanner } from '$lib/utils/startupBanner';
 	import { resolveAuthLayoutMode } from '$lib/utils/authLayout';
-	import { Spinner } from '$lib/components/ui';
+	import { Spinner, IconButton } from '$lib/components/ui';
 	import '../app.css';
 
 	let mounted = false;
@@ -295,15 +295,7 @@
 					>
 						Install
 					</button>
-					<button
-						on:click={dismissInstallPrompt}
-						class="p-1 text-fg-subtle hover:text-fg-muted flex-shrink-0"
-						aria-label="Dismiss install prompt"
-					>
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-						</svg>
-					</button>
+					<IconButton icon="close" label="Dismiss install prompt" size="xs" onclick={dismissInstallPrompt} class="flex-shrink-0" />
 				</div>
 			</div>
 		{/if}
