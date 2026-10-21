@@ -1,5 +1,5 @@
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import type { SortOption } from '$lib/components/library/librarySection';
 import type { Backend } from '$lib/services/admin-api';
 
 export type BackendSortBy = 'name';
@@ -36,22 +36,6 @@ export const backendsFilters = createFilterCodec<BackendsFilters>({
 	fields: FIELDS,
 	sortValues: ['name']
 });
-
-export function backendsFilterChips(filters: BackendsFilters): FilterChip[] {
-	return backendsFilters.chips(filters);
-}
-
-export function clearBackendsFilterChip(filters: BackendsFilters, key: string): BackendsFilters {
-	return backendsFilters.clearChip(filters, key);
-}
-
-export function clearAllBackendsFilters(filters: BackendsFilters): BackendsFilters {
-	return backendsFilters.clearAll(filters);
-}
-
-export function backendsFilterActiveCount(filters: BackendsFilters): number {
-	return backendsFilters.activeCount(filters);
-}
 
 export function applyBackendsFilters(
 	backends: readonly Backend[],

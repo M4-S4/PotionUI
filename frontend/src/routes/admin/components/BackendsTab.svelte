@@ -42,12 +42,9 @@
 		applyBackendsFilters,
 		backendEngineCounts,
 		backendEngines,
-		backendsFilterActiveCount,
-		backendsFilterChips,
-		clearAllBackendsFilters,
-		clearBackendsFilterChip,
 		type BackendSortBy,
-		type BackendsFilters
+		type BackendsFilters,
+		backendsFilters
 	} from './backendsFilters';
 	import BackendOptimizations from './BackendOptimizations.svelte';
 	import BackendQuickActions from './BackendQuickActions.svelte';
@@ -202,8 +199,8 @@
 	const editDirty = $derived(JSON.stringify(editFormData) !== editSnapshot);
 
 	const filteredBackends = $derived(applyBackendsFilters(backends, filters, formatEngineName));
-	const filterChips = $derived(backendsFilterChips(filters));
-	const activeFilterCount = $derived(backendsFilterActiveCount(filters));
+	const filterChips = $derived(backendsFilters.chips(filters));
+	const activeFilterCount = $derived(backendsFilters.activeCount(filters));
 	const engineList = $derived(backendEngines(backends));
 	const engineCounts = $derived(backendEngineCounts(backends));
 	const activeBackend = $derived(backends.find((b) => b.id === selectedBackendId) ?? null);
@@ -763,8 +760,8 @@
 	count={filteredBackends.length}
 	{detailOpen}
 	filterChips={filterChips}
-	onRemoveChip={(key) => (filters = clearBackendsFilterChip(filters, key))}
-	onClearFilters={() => (filters = clearAllBackendsFilters(filters))}
+	onRemoveChip={(key) => (filters = backendsFilters.clearChip(filters, key))}
+	onClearFilters={() => (filters = backendsFilters.clearAll(filters))}
 	loadedCount={filteredBackends.length}
 	total={backends.length}
 >
@@ -1146,7 +1143,7 @@
 				{#snippet filteredEmptyState()}
 					<EmptyState icon="search" title="No backends match" description="Try a different name or engine." compact>
 						{#snippet actions()}
-							<Button variant="ghost" size="sm" onclick={() => (filters = clearAllBackendsFilters(filters))}>Clear filters</Button>
+							<Button variant="ghost" size="sm" onclick={() => (filters = backendsFilters.clearAll(filters))}>Clear filters</Button>
 						{/snippet}
 					</EmptyState>
 				{/snippet}

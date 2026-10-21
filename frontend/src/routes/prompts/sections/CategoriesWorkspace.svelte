@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { onMount, untrack } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { createUrlState } from '$lib/utils/urlState';
 	import { api } from '$lib/services/api';
 	import Icon from '$lib/components/Icon.svelte';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
@@ -21,20 +22,15 @@
 	import {
 		CATEGORY_SORT_OPTIONS,
 		applyCategoryFilters,
-		categoryFilterActiveCount,
-		categoryFilterChips,
-		categoryFiltersFromSearchParams,
-		categoryFiltersToSearchParams,
-		clearAllCategoryFilters,
-		clearCategoryFilterChip,
 		type CategoryFilters,
-		type CategorySortBy
+		type CategorySortBy,
+		categoryFilters
 	} from './categoryFilters';
 
 	const DEFAULT_COLOR = '#3B82F6';
 
 	const params = $derived($page.url.searchParams);
-	const filters = $derived(categoryFiltersFromSearchParams(params));
+	const filters = $derived(categoryFilters.fromSearchParams(params));
 	const viewId = $derived(params.get('id'));
 	const viewIsNew = $derived(params.get('new') === '1');
 	const detailOpen = $derived(!!viewId || viewIsNew);
@@ -46,12 +42,12 @@
 
 	const counts = $derived(segmentCountsByCategory(segments));
 	const visible = $derived(applyCategoryFilters(categories, counts, filters));
-	const chips = $derived(categoryFilterChips(filters));
-	const filterCount = $derived(categoryFilterActiveCount(filters));
+	const chips = $derived(categoryFilters.chips(filters));
+	const filterCount = $derived(categoryFilters.activeCount(filters));
 	const filtersActive = $derived(filterCount > 0 || !!filters.q.trim());
 
 	function buildUrl(overrides: { filters?: CategoryFilters; id?: string | null; isNew?: boolean } = {}): string {
-		const next = categoryFiltersToSearchParams(overrides.filters ?? filters);
+		const next = categoryFilters.toSearchParams(overrides.filters ?? filters);
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		const isNew = overrides.isNew !== undefined ? overrides.isNew : viewIsNew;
 		if (id) next.set('id', id);
@@ -59,25 +55,23 @@
 		return `/prompts?${withSection(next, 'categories').toString()}`;
 	}
 
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	const urlState = createUrlState({ href: buildUrl });
+	onDestroy(urlState.cancel);
 
 	function updateFilters(next: CategoryFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ filters: next });
 	}
 
 	function openCategory(category: SegmentCategory) {
-		void goto(buildUrl({ id: category.id, isNew: false }));
+		void urlState.go({ id: category.id, isNew: false });
 	}
 
 	function backToGrid() {
-		void goto(buildUrl({ id: null, isNew: false }));
+		void urlState.go({ id: null, isNew: false });
 	}
 
 	function startNew() {
-		void goto(buildUrl({ id: null, isNew: true }));
+		void urlState.go({ id: null, isNew: true });
 	}
 
 	async function loadAll() {
@@ -191,7 +185,7 @@
 			toasts.success(selected ? 'Category updated' : 'Category created');
 			await loadAll();
 			if (mode === 'create') {
-				void goto(buildUrl({ id: response.data.id, isNew: false }));
+				void urlState.go({ id: response.data.id, isNew: false });
 			} else {
 				selected = response.data;
 				fillFrom(response.data);
@@ -378,8 +372,8 @@
 	count={visible.length}
 	{detailOpen}
 	filterChips={chips}
-	onRemoveChip={(key) => updateFilters(clearCategoryFilterChip(filters, key))}
-	onClearFilters={() => updateFilters(clearAllCategoryFilters(filters))}
+	onRemoveChip={(key) => updateFilters(categoryFilters.clearChip(filters, key))}
+	onClearFilters={() => updateFilters(categoryFilters.clearAll(filters))}
 	loadedCount={visible.length}
 	total={categories.length}
 >
@@ -438,7 +432,7 @@
 						>
 							{#snippet actions()}
 								{#if filtersActive}
-									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...clearAllCategoryFilters(filters), q: '' })}>
+									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...categoryFilters.clearAll(filters), q: '' })}>
 										Clear filters
 									</Button>
 								{:else}

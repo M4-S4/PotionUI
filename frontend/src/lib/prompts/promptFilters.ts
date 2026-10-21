@@ -104,22 +104,10 @@ export const promptFilters = createFilterCodec<PromptFilters>({
 	sortValues: ['last_used_at', 'created_at', 'name', 'usage_count']
 });
 
-export function promptFilterActiveCount(filters: PromptFilters): number {
-	return promptFilters.activeCount(filters);
-}
-
 export type PromptFilterChip = FilterChip;
 
 export function promptFilterChips(filters: PromptFilters, modelLabel?: string): PromptFilterChip[] {
 	return promptFilters.chips(filters, modelLabel ? { modelId: () => `model = ${modelLabel}` } : undefined);
-}
-
-export function clearPromptFilterChip(filters: PromptFilters, key: string): PromptFilters {
-	return promptFilters.clearChip(filters, key);
-}
-
-export function clearAllPromptFilters(filters: PromptFilters): PromptFilters {
-	return promptFilters.clearAll(filters);
 }
 
 function lastUsedAfterIso(lastUsed: PromptLastUsedFilter, now: Date): string | undefined {

@@ -17,12 +17,10 @@
 	import PromptFiltersPopover from '$lib/prompts/PromptFiltersPopover.svelte';
 	import {
 		DEFAULT_PROMPT_FILTERS,
-		promptFilterActiveCount,
 		promptFilterChips,
-		clearPromptFilterChip,
-		clearAllPromptFilters,
 		type PromptFilters,
-		type PromptSortBy
+		type PromptSortBy,
+		promptFilters
 	} from '$lib/prompts/promptFilters';
 	import { queryPromptLibrary } from '$lib/prompts/promptLibraryQuery';
 	import { promptCardTitle, summarizePromptVariables } from '$lib/prompts/promptCardDisplay';
@@ -86,7 +84,7 @@
 			: items;
 	$: selectedItem = visibleItems.find((item) => item.id === selectedId) || null;
 	$: hasMore = kind === 'prompt' && loadedItems.length < total;
-	$: filterCount = promptFilterActiveCount(filters);
+	$: filterCount = promptFilters.activeCount(filters);
 	$: modelLabel = filters.modelId
 		? modelDisplayName(models.find((model) => model.id === filters.modelId)) || 'Selected model'
 		: 'Any';
@@ -232,11 +230,11 @@
 	}
 
 	function removeChip(key: string) {
-		updateFilters(clearPromptFilterChip(filters, key));
+		updateFilters(promptFilters.clearChip(filters, key));
 	}
 
 	function clearFilters() {
-		updateFilters(clearAllPromptFilters(filters));
+		updateFilters(promptFilters.clearAll(filters));
 	}
 
 	function selectModelForFilter(model: { id: string } | null) {
