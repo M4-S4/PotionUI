@@ -14,6 +14,7 @@ from src.features.models.search_filter import (
     USAGE_SELECT,
     USAGE_SORT_FIELDS,
     search_filter_clauses,
+    substring_search_clause,
 )
 import json
 from src.platform.database.collection_tree import subtree_ids_sql
@@ -324,8 +325,9 @@ class ModelRepository:
                 additional_clauses.append("m.model_type != ?")
                 params.append(UNDEFINED_MODEL_TYPE)
             if search:
-                additional_clauses.append("LOWER(m.filename) LIKE LOWER(?)")
-                params.append(f"%{search}%")
+                search_sql, search_params = substring_search_clause(search, bool(library_user_id))
+                additional_clauses.append(search_sql)
+                params.extend(search_params)
             if use_in_any_collection:
                 additional_clauses.append(in_any_collection_sql)
                 params.append(library_user_id)
@@ -381,8 +383,9 @@ class ModelRepository:
                 where_clauses.append("m.model_type != ?")
                 params.append(UNDEFINED_MODEL_TYPE)
             if search:
-                where_clauses.append("LOWER(m.filename) LIKE LOWER(?)")
-                params.append(f"%{search}%")
+                search_sql, search_params = substring_search_clause(search, bool(library_user_id))
+                where_clauses.append(search_sql)
+                params.extend(search_params)
             if use_in_any_collection:
                 where_clauses.append(in_any_collection_sql)
                 params.append(library_user_id)
@@ -949,8 +952,9 @@ class ModelRepository:
         where_clauses.extend(advanced_clauses)
         params.extend(advanced_params)
         if search:
-            where_clauses.append("LOWER(m.filename) LIKE LOWER(?)")
-            params.append(f"%{search}%")
+            search_sql, search_params = substring_search_clause(search, bool(library_user_id))
+            where_clauses.append(search_sql)
+            params.extend(search_params)
         if in_any_collection and library_user_id:
             where_clauses.append(
                 "m.id IN (SELECT mcm2.model_id FROM model_collection_members mcm2 "
