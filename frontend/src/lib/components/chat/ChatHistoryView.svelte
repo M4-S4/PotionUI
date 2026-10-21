@@ -6,6 +6,7 @@
 	// component IS that aside; UnifiedAIChat renders it as a direct child of
 	// .chat-shell so its own `&.rail-collapsed .history-rail` CSS rule applies.
 	import { onMount, tick } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import { api } from '$lib/services/api';
 	import { chatModes, resolveModeName } from '$lib/stores/chatModes';
 	import { chatSession } from '$lib/stores/chatSession';
@@ -32,7 +33,7 @@
 	let searchOpen = false;
 	let searchInputEl: HTMLInputElement | undefined;
 	let modeFilter: string | null = null;
-	let searchTimer: ReturnType<typeof setTimeout> | null = null;
+	const scheduleSearch = debounce(() => fetchSessions(), 250);
 	let requestSeq = 0;
 
 	$: activeSessionId = $chatSession.sessionId;
@@ -69,8 +70,7 @@
 	}
 
 	function handleSearchInput() {
-		if (searchTimer) clearTimeout(searchTimer);
-		searchTimer = setTimeout(fetchSessions, 250);
+		scheduleSearch();
 	}
 
 	async function toggleSearch() {
@@ -106,7 +106,7 @@
 	onMount(() => {
 		fetchSessions();
 		return () => {
-			if (searchTimer) clearTimeout(searchTimer);
+			scheduleSearch.cancel();
 		};
 	});
 </script>
