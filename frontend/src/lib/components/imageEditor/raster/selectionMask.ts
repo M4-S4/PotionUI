@@ -46,9 +46,3 @@ export function maskBounds(mask: Uint8ClampedArray, width: number, height: numbe
 	if (maxX < 0) return null;
 	return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
-
-export function invertMask(mask: Uint8ClampedArray): Uint8ClampedArray {
-	const out = new Uint8ClampedArray(mask.length);
-	for (let i = 0; i < mask.length; i++) out[i] = 255 - mask[i];
-	return out;
-}

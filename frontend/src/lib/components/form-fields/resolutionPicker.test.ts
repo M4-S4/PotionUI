@@ -4,8 +4,7 @@ import {
 	groupOptionsByTier,
 	matchesResolutionQuery,
 	optionTier,
-	parseCustomResolution,
-	parseResolutionValue
+	parseCustomResolution
 } from './resolutionPicker';
 
 const FLUX_OPTIONS = [
@@ -15,20 +14,6 @@ const FLUX_OPTIONS = [
 	{ value: '1024x576', ratio: [16, 9], description: 'Widescreen (Compact)', tier: 'Compact' },
 	{ value: '512x512', ratio: [1, 1], description: 'Square (Minimum)', tier: 'Minimum' }
 ];
-
-describe('parseResolutionValue', () => {
-	it('parses a WIDTHxHEIGHT string', () => {
-		expect(parseResolutionValue('1216x832')).toEqual({ width: 1216, height: 832 });
-	});
-
-	it('returns null for a value with no x separator', () => {
-		expect(parseResolutionValue('1216')).toBeNull();
-	});
-
-	it('returns null for a non-numeric value', () => {
-		expect(parseResolutionValue('widthxheight')).toBeNull();
-	});
-});
 
 describe('optionTier', () => {
 	it("uses the option's own tier when present", () => {

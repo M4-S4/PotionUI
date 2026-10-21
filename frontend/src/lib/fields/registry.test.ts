@@ -11,7 +11,6 @@ import {
 	unregisterFieldComponent,
 	resolveFieldComponent,
 	hasFieldComponent,
-	listFieldTypes,
 	fieldOwnsErrors
 } from './registry';
 
@@ -65,11 +64,6 @@ describe('fields/registry', () => {
 
 		expect(hasFieldComponent('carousel')).toBe(false);
 		await expect(resolveFieldComponent('carousel')).resolves.toBeNull();
-	});
-
-	it('listFieldTypes reflects registered types', () => {
-		registerFieldComponent('select', { component: {} });
-		expect(listFieldTypes()).toContain('select');
 	});
 
 	it('reports which field types render their own validation errors', () => {

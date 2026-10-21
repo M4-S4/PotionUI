@@ -174,7 +174,7 @@ describe('retireConfirmedCancellations', () => {
 
 	it('never resolves a shot resubmitted under a new generation id (identity guard) even though the OLD id is being cancelled', () => {
 		const tabId = defaultTabId();
-		const { ws, unsubscribe } = makeOwner();
+		const { unsubscribe } = makeOwner();
 		// 'gen-old' is being cancelled, but the shot was already resubmitted
 		// under 'gen-new' -- directorRunLinks still maps BOTH (see
 		// directorRuns.ts's header), but the run itself now tracks 'gen-new'.
@@ -191,7 +191,6 @@ describe('retireConfirmedCancellations', () => {
 	});
 
 	it('does not retire an id another tab still claims', () => {
-		const tabId = defaultTabId();
 		const { unsubscribe } = makeOwner();
 		tabsStore.addTabWithData('Second tab', { activeGenerationId: 'gen-shared' });
 		setGenerationOutputs('gen-shared', { images: [], videos: [], audios: [], meshes: [] });

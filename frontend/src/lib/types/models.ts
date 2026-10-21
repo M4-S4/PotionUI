@@ -173,40 +173,6 @@ export interface ModelType {
 	size_gb: number;
 }
 
-export interface ModelStats {
-	total_models_db: number;
-	total_files_fs: number;
-	total_size_bytes: number;
-	total_size_mb: number;
-	total_size_gb: number;
-	by_type: Record<
-		string,
-		{
-			count: number;
-			size_bytes: number;
-			size_mb: number;
-		}
-	>;
-	models_missing_hashes: number;
-	models_without_civitai: number;
-}
-
-// Form Field Types
-
-export interface ModelFieldValue {
-	modelPath: string;
-	tagFilters: string[];
-}
-
-export interface ModelFieldConfig {
-	model_type?: 'checkpoint' | 'lora' | 'embedding' | 'upscaler' | 'vae' | 'controlnet' | 'adetailer' | 'text_encoder';
-	allow_tag_filters?: boolean;
-	limit?: number;
-	placeholder?: string;
-	tags?: string[]; // Default tag filters
-	allow_info_modal?: boolean;
-}
-
 export interface LoraPickerItem {
 	model: string;
 	strength: number;
@@ -224,19 +190,4 @@ export interface LoraPickerRowFieldSchema {
 	default?: unknown;
 	configuration?: Record<string, unknown>;
 	[key: string]: unknown;
-}
-
-export interface LoraPickerConfig {
-	model_type?: 'lora';
-	placeholder?: string;
-	strength_min?: number;
-	strength_max?: number;
-	strength_step?: number;
-	strength_default?: number;
-	max_items?: number | null;
-	allow_info_modal?: boolean;
-	show_triggers?: boolean;
-	allow_tag_filters?: boolean;
-	tags?: string[]; // Default/preseeded tag filters
-	row_fields?: LoraPickerRowFieldSchema[];
 }

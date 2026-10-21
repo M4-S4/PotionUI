@@ -29,13 +29,6 @@ export interface ModelPreviewMedia {
 	file_id?: string;
 }
 
-/** What the frontend sends to set a preview: a storage-relative source path + type. */
-export interface ModelPreviewInput {
-	source_path: string;
-	type: 'image' | 'video' | 'audio';
-	name?: string;
-}
-
 /**
  * One row of a model's preview list. `position` 0 is the primary
  * preview - the backend mirrors it onto `model.preview_media`, so every

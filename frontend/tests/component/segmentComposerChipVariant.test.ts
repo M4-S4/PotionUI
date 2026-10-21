@@ -73,7 +73,7 @@ describe('InlinePopoverChip variant', () => {
 	});
 
 	it('segment-composer popover uses the mock\'s popover-head anatomy, not the bare panel', () => {
-		const root = mountEl(InlinePopoverChip, {
+		mountEl(InlinePopoverChip, {
 			variant: 'segment-composer',
 			kind: 'variable',
 			popoverLabel: 'Test popover',

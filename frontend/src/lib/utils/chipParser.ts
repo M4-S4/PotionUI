@@ -159,18 +159,6 @@ function generateChipId(): string {
 }
 
 /**
- * Parse chips from text and merge with existing chips
- * This preserves existing chip configurations while adding new ones
- */
-export async function mergeChipsFromText(
-	text: string,
-	existingChips: Record<string, ChipData> = {}
-): Promise<Record<string, ChipData>> {
-	const newChips = await parseChipsFromText(text);
-	return { ...existingChips, ...newChips };
-}
-
-/**
  * Hydrate a single segment with chips if it has chip markers but no chips
  * Useful for segments loaded from storage that might be missing chip data
  */

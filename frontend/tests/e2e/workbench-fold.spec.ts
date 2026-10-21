@@ -17,7 +17,6 @@ import { loginAsOwner, ownerToken } from './helpers';
 // AND mode are selected, so this installs and selects a real preset first,
 // the same way floating-workbench.spec.ts does.
 
-const JOURNEY = 'workbench-fold';
 // The collapsed rail is a header-style strip (w-8, 32px) with a label + chevron,
 // wide enough to click but still unambiguously a rail rather than an expanded pane.
 const RAIL_MAX_WIDTH_PX = 40;

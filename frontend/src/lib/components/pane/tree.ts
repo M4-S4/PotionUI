@@ -51,26 +51,6 @@ export function flattenTree<T>(nodes: PaneTreeNode<T>[]): PaneTreeNode<T>[] {
 	return out;
 }
 
-// Same DFS walk, but only descends into a node's children when the node's id
-// is in `expanded` — the flat row list a virtualized/keyboard-navigable pane
-// body renders.
-export function flattenVisible<T extends TreeItem>(
-	nodes: PaneTreeNode<T>[],
-	expanded: ReadonlySet<string>
-): PaneTreeNode<T>[] {
-	const out: PaneTreeNode<T>[] = [];
-	const walk = (list: PaneTreeNode<T>[]) => {
-		for (const n of list) {
-			out.push(n);
-			if (n.children.length > 0 && expanded.has(n.item.id)) {
-				walk(n.children);
-			}
-		}
-	};
-	walk(nodes);
-	return out;
-}
-
 // The id plus every descendant id under it. Used to keep a "Move to…" picker
 // from offering a target that would create a cycle. The result-set membership
 // check also makes this cycle-safe against malformed parent_id loops.

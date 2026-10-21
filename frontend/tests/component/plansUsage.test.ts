@@ -185,7 +185,7 @@ describe('generate refusal', () => {
 
 	it('shows the notice with the countdown and no cleanup action for the daily limit', () => {
 		reportLimitRefusal(refusal);
-		const target = render(LimitNotice, {});
+		render(LimitNotice, {});
 		flushSync();
 
 		const notice = document.body.querySelector('[data-limit-notice]')!;
@@ -197,7 +197,7 @@ describe('generate refusal', () => {
 
 	it('offers freeing space when storage is full', () => {
 		reportLimitRefusal({ error: 'limit_exceeded', kind: 'storage_bytes', label: 'Storage', format: 'bytes' });
-		const target = render(LimitNotice, {});
+		render(LimitNotice, {});
 		flushSync();
 
 		expect(document.body.textContent).toContain('Storage is full');

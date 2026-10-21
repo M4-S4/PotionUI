@@ -702,7 +702,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		const host = stubChatHost();
 		const instance = await mountOnFormStep(el);
 
-		const { card, select } = await mapSamplerNameAndGetTransformSelect(el);
+		const { select } = await mapSamplerNameAndGetTransformSelect(el);
 		expect(select.value).toBe('none');
 
 		const provider = host.providers.get('comfyui_import')!;

@@ -44,5 +44,3 @@ export const PAINT_ICONS = {
 	pen: EDITOR_ICONS.brush,
 	dots: 'M5 12h.01M12 12h.01M19 12h.01'
 } as const;
-
-export type PaintIconName = keyof typeof PAINT_ICONS;

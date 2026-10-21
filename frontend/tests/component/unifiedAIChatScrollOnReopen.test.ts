@@ -65,7 +65,6 @@ class FakeResizeObserver {
 	}
 }
 
-const { api } = await import('$lib/services/api/index');
 const { chatSession } = await import('$lib/stores/chatSession');
 const { default: UnifiedAIChat } = await import('$lib/components/UnifiedAIChat.svelte');
 const { createClassComponent } = await import('svelte/legacy');

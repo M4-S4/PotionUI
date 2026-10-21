@@ -613,12 +613,6 @@ export interface PhrasebookBatchOp {
 	source: string;
 }
 
-export interface PhrasebookBatchRequest {
-	op: string;
-	value_ids: string[];
-	params: Record<string, unknown>;
-}
-
 export interface PhrasebookBatchOutcome {
 	updated: PhrasebookValue[];
 	skipped: string[];

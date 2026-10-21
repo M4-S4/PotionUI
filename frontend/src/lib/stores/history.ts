@@ -5,7 +5,6 @@ import type {
 	GenerationHistoryItem,
 	GenerationHistoryFilters,
 	HistoryPageState,
-	Tag,
 	DatePreset,
 	SortBy,
 	SortDir
@@ -404,12 +403,10 @@ function createHistoryStore() {
 
 		// Set a generation's rating (optimistic; reload on failure)
 		async setRating(generationId: string, rating: number) {
-			let previous: number | undefined;
 			update((state) => ({
 				...state,
 				generations: state.generations.map((gen) => {
 					if (gen.id !== generationId) return gen;
-					previous = gen.rating;
 					return { ...gen, rating };
 				}),
 				selectedGeneration:

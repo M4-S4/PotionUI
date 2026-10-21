@@ -3,7 +3,6 @@ import {
 	acceptAttribute,
 	describeDropTarget,
 	describeFormats,
-	describeKinds,
 	itemLimitFor,
 	readAcceptedKinds,
 	readMediaLoaderConfig
@@ -126,11 +125,6 @@ describe('readMediaLoaderConfig', () => {
 });
 
 describe('copy', () => {
-	it('names the accepted kinds in prose', () => {
-		expect(describeKinds(['image'])).toBe('images');
-		expect(describeKinds(['image', 'video'])).toBe('images and videos');
-		expect(describeKinds(['image', 'video', 'audio'])).toBe('images, videos and audio');
-	});
 
 	it('names the drop target in the singular', () => {
 		expect(describeDropTarget(['image'])).toBe('an image');

@@ -32,10 +32,6 @@ const TYPE_LABELS: Record<VariablePickerType, string> = {
 
 const PREVIEW_OPTION_COUNT = 3;
 
-export function variableTypeLabel(type: VariablePickerType): string {
-	return TYPE_LABELS[type];
-}
-
 export function variableModeLabel(def: VariableDef): string {
 	if (def.type === 'text') return '';
 	if (def.mode === 'pin') return 'pinned';

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTree, flattenTree, flattenVisible, descendantIds } from './tree';
+import { buildTree, flattenTree, descendantIds } from './tree';
 import type { TreeItem } from './types';
 
 interface Item extends TreeItem {
@@ -60,28 +60,6 @@ describe('flattenTree', () => {
 		const tree = buildTree(items);
 		const flat = flattenTree(tree);
 		expect(flat.map((n) => n.item.id)).toEqual(['root', 'child-a', 'grandchild', 'child-b']);
-	});
-});
-
-describe('flattenVisible', () => {
-	const items = [
-		item('root', null, 'Root'),
-		item('child', 'root', 'Child'),
-		item('grandchild', 'child', 'Grandchild')
-	];
-	const tree = buildTree(items);
-
-	it('collapses everything when nothing is expanded', () => {
-		expect(flattenVisible(tree, new Set()).map((n) => n.item.id)).toEqual(['root']);
-	});
-
-	it('descends one level per expanded ancestor', () => {
-		expect(flattenVisible(tree, new Set(['root'])).map((n) => n.item.id)).toEqual(['root', 'child']);
-		expect(flattenVisible(tree, new Set(['root', 'child'])).map((n) => n.item.id)).toEqual([
-			'root',
-			'child',
-			'grandchild'
-		]);
 	});
 });
 

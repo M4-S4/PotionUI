@@ -53,10 +53,3 @@ export const groupedByKind = derived(automationNodeTypes, ($types) => {
 	}
 	return groups;
 });
-
-export function findNodeTypeDef(
-	types: NodeTypeDef[],
-	key: string
-): NodeTypeDef | undefined {
-	return types.find((t) => t.key === key);
-}

@@ -611,14 +611,6 @@ export async function unassignLLMFromGroup(
 	return response.data;
 }
 
-// Admin API - User-Model Assignments
-export async function getUserModelAssignments(
-	userId: string
-): Promise<APIResponse<{ user_id: string; assignments: ModelAssignment[] }>> {
-	const response = await api.getClient().get(`/api/models/user-assignments/${userId}`);
-	return response.data;
-}
-
 export async function assignModelToUser(userId: string, modelId: string): Promise<APIResponse> {
 	const response = await api.getClient().post(`/api/models/user-assignments`, {
 		user_id: userId,
@@ -660,12 +652,6 @@ export async function unassignModelFromGroup(
 	const response = await api.getClient().delete(
 		`/api/user-groups/${groupId}/models/${modelId}`
 	);
-	return response.data;
-}
-
-// Admin API - Dictionaries
-export async function getModelsDictionary(): Promise<APIResponse<{ models: string[] }>> {
-	const response = await api.getClient().get('/api/dictionaries/models');
 	return response.data;
 }
 
@@ -843,21 +829,9 @@ export async function getEnabledBackends(): Promise<APIResponse<Backend[]>> {
 	return response.data;
 }
 
-// Get default backend for an engine
-export async function getDefaultBackend(engine: string): Promise<APIResponse<Backend>> {
-	const response = await api.getClient().get('/api/backends/default', { params: { engine } });
-	return response.data;
-}
-
 // Set a backend as the default for its engine
 export async function setDefaultBackend(backendId: string): Promise<APIResponse<Backend>> {
 	const response = await api.getClient().post(`/api/backends/${backendId}/set-default`);
-	return response.data;
-}
-
-// Get specific backend
-export async function getBackend(backendId: string): Promise<APIResponse<Backend>> {
-	const response = await api.getClient().get(`/api/backends/${backendId}`);
 	return response.data;
 }
 
@@ -882,18 +856,6 @@ export async function deleteBackend(backendId: string): Promise<APIResponse> {
 // Test backend connection
 export async function testBackend(backendId: string): Promise<APIResponse> {
 	const response = await api.getClient().post(`/api/backends/${backendId}/test`);
-	return response.data;
-}
-
-// Get backend health
-export async function getBackendHealth(backendId: string): Promise<APIResponse> {
-	const response = await api.getClient().get(`/api/backends/${backendId}/health`);
-	return response.data;
-}
-
-// Get backend system info
-export async function getBackendSystemInfo(backendId: string): Promise<APIResponse> {
-	const response = await api.getClient().get(`/api/backends/${backendId}/system-info`);
 	return response.data;
 }
 

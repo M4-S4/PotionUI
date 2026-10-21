@@ -43,7 +43,7 @@ const { default: VideoDirectorEditor } = await import(
 const { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission } =
 	await import('$lib/utils/videoDirector');
 
-import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
+import type { VideoDirectorValue, ChainSegment } from '$lib/types/videoDirector';
 
 function baseDoc(): VideoDirectorValue {
 	return {

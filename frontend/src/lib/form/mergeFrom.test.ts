@@ -25,7 +25,6 @@ const schema = {
 
 const image = { path: 'uploads/a.png', type: 'image' };
 const video = { path: 'uploads/v.mp4', type: 'video' };
-const audio = { path: 'uploads/t.wav', type: 'audio' };
 
 describe('schemaMergeFrom', () => {
 	it('finds merge_from on nested fields', () => {

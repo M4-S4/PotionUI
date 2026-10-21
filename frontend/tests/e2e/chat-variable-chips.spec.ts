@@ -32,7 +32,6 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	test.setTimeout(120000);
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
-	const headers = { Authorization: `Bearer ${token}` };
 	await seedFakeLlmConfig(page.request, BACKEND, token, fake.url);
 
 	const preset = await installAndSelectImagePreset(page);

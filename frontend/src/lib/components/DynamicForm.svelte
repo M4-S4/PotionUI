@@ -590,11 +590,6 @@
 		}
 	}
 
-	// Expose method to get current form data
-	export function getFormData(): Record<string, any> {
-		return flattenFormData(formData);
-	}
-
 	// Expose method to force schema reload (used by preset reload)
 	export function forceReload(): void {
 		clearFormulaDeclarations();

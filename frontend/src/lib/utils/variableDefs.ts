@@ -232,10 +232,6 @@ export function numberGridSize(def: NumberRange): number {
 	return result.issue === 'too-large' ? (result.count ?? 0) : 0;
 }
 
-export function isNumberGridTooLarge(def: NumberRange): boolean {
-	return numberGridIssue(def) === 'too-large';
-}
-
 export function numberGridValue(def: NumberRange, index: number): string {
 	const grid = numberGridOf(def);
 	return grid ? formatGridIndex(grid, index) : '';

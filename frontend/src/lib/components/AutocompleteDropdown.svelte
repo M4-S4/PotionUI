@@ -33,13 +33,6 @@
 		description?: string;
 		kind?: 'image' | 'video' | 'audio';
 	}
-
-	export interface AutocompleteCurrentValue {
-		label: string;
-		value?: string;
-		imageUrl?: string;
-		categoryLabel?: string;
-	}
 </script>
 
 <script lang="ts">

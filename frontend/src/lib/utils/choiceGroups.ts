@@ -216,8 +216,3 @@ export function countChoiceGroups(text: string): number {
 export function spliceGroupText(text: string, token: Pick<GroupToken, 'start' | 'end'>, newRaw: string): string {
 	return text.slice(0, token.start) + newRaw + text.slice(token.end);
 }
-
-/** Build the raw `{...}` text for a fresh, empty two-option group — used when inserting a new one. */
-export function emptyGroupRaw(): string {
-	return serializeGroup({ options: [{ text: '', weight: null }, { text: '', weight: null }], count: null, countMax: null, separator: null });
-}

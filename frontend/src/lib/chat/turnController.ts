@@ -33,8 +33,6 @@ import {
 } from '$lib/utils/chatStream';
 import { createStreamCoalescer } from './streamCoalescer';
 
-type Messages = UnifiedChatMessageData[];
-
 /** The transport methods a turn controller needs — the real `api` object
  * (from `$lib/services/api`) satisfies this directly; a test supplies fakes. */
 export interface ChatApiLike {

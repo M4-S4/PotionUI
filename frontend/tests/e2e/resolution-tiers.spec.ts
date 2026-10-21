@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
 // Resolution picker rework: box mode is now a sunken trigger that opens a
 // floating, searchable, tier-grouped panel (the old flat "aspect grid + tier

@@ -7,8 +7,8 @@ import { describe, expect, it, vi, beforeAll, afterAll, afterEach } from 'vitest
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { stagePluginDist } from './helpers/stagePluginDist';
-import { installPluginHost, removePluginHost, type PluginHostStubs } from './helpers/installPluginHost';
-import { mount, unmount, flushSync } from 'svelte';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
+import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
@@ -35,10 +35,9 @@ function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
 }
 
 let ImportedPresetsTab: any;
-let host: PluginHostStubs;
 
 beforeAll(async () => {
-	host = await installPluginHost();
+	await installPluginHost();
 	if (!existsSync(resolve(REPO_ROOT, DIST_PATH))) {
 		throw new Error(`${DIST_PATH} is missing - run \`node scripts/build-plugins.mjs comfyui-backend\` first.`);
 	}

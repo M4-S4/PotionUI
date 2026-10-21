@@ -4,10 +4,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
 const JOURNEY = 'media-loader-reload';
 const PRESET_ID = '01M31Y6WNM07EHAXXCDV1QVJVX';
-const SIZES = [
-	{ tag: '1440', width: 1440, height: 900 },
-	{ tag: '390', width: 390, height: 844 }
-];
 
 function crc32(buf: Buffer): number {
 	let c = ~0;
