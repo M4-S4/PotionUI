@@ -20,7 +20,7 @@
 	async function addTo(collectionId: string) {
 		busyId = collectionId;
 		try {
-			const response = await inspirationsCollectionsStore.addItem(collectionId, inspirationId);
+			const response = await inspirationsCollectionsStore.addMembers(collectionId, [inspirationId]);
 			if (response.success) {
 				toasts.success('Added to collection');
 				onClose();
