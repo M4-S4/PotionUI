@@ -107,4 +107,42 @@ describe('ChatChipInput attaching a resource', () => {
 		expect(editor.querySelectorAll('.inline-chip-container')).toHaveLength(1);
 		expect(editor.querySelector('.inline-chip')?.textContent).toContain('Portrait');
 	});
+
+	for (const key of ['ArrowDown', 'ArrowUp']) {
+		it(`keeps the selection on the first row when ${key} is pressed before @ suggestions load`, async () => {
+			suggestChatResources.mockResolvedValue({
+				success: true,
+				data: {
+					suggestions: [
+						{ uri: 'presets.portrait', label: 'Portrait', kind: 'preset', has_children: false, icon: 'box', badge: 'preset' },
+						{ uri: 'presets.product', label: 'Product', kind: 'preset', has_children: false, icon: 'box', badge: 'preset' }
+					]
+				}
+			});
+			const target = document.body.appendChild(document.createElement('div'));
+			const component = createClassComponent({
+				component: ChatChipInput as never,
+				target,
+				props: { value: '', resources: {}, mode: 'generation', formData: {}, loraSelections: {} }
+			});
+			cleanup = () => component.$destroy();
+			const editor = target.querySelector('.chat-chip-input') as HTMLElement;
+
+			typeInto(editor, '@pro');
+			const arrow = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+			editor.dispatchEvent(arrow);
+			expect(arrow.defaultPrevented).toBe(true);
+			await vi.advanceTimersByTimeAsync(260);
+
+			const options = document.querySelectorAll('[role="listbox"][aria-label="Suggestions"] [role="option"]');
+			expect(options).toHaveLength(2);
+			expect(options[0].getAttribute('aria-selected')).toBe('true');
+
+			editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+			await vi.advanceTimersByTimeAsync(0);
+
+			expect(editor.querySelectorAll('.inline-chip-container')).toHaveLength(1);
+			expect(editor.querySelector('.inline-chip')?.textContent).toContain('Portrait');
+		});
+	}
 });

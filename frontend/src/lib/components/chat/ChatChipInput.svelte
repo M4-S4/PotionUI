@@ -146,12 +146,12 @@
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				autocompleteSelectedIndex = (autocompleteSelectedIndex + 1) % totalItems;
+				if (totalItems > 0) autocompleteSelectedIndex = (autocompleteSelectedIndex + 1) % totalItems;
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				autocompleteSelectedIndex =
-					autocompleteSelectedIndex === 0 ? totalItems - 1 : autocompleteSelectedIndex - 1;
+				if (totalItems > 0)
+					autocompleteSelectedIndex = autocompleteSelectedIndex === 0 ? totalItems - 1 : autocompleteSelectedIndex - 1;
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
