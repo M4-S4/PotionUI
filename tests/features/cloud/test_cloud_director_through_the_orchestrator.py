@@ -14,17 +14,10 @@ from src.features.generation.status_tracker import GenerationState
 from src.features.video_director import VideoDirectorValidationError
 from src.pipelines.outputs import ProgressGenerationOutput
 from tests.features.cloud.cloud_generation_harness import USER_ID, CloudGeneration
+from tests.fixtures.seed import seed_user
 
 SOURCE = Path("content/plugins/marketplace/openrouter-provider/presets/VideoGeneration/standard")
 DIRECTOR_PRESET_ID = "01KCLOUDDIRECTORPRESET000A"
-
-
-def add_user(db):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (USER_ID, USER_ID, f"{USER_ID}@example.test"),
-        )
 
 
 class DirectorGeneration(CloudGeneration):
@@ -45,7 +38,7 @@ class DirectorGeneration(CloudGeneration):
 
 @pytest.fixture
 async def make(mock_db, tmp_path):
-    add_user(mock_db)
+    seed_user(mock_db, USER_ID)
 
     async def build(provider_model="fake/director-1", **behaviour):
         behaviour = FakeBehaviour(

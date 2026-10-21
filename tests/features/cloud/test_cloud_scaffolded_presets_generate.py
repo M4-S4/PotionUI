@@ -7,23 +7,16 @@ from src.features.generation.model_repository import generation_model_repo
 from src.features.generation.repository import generation_repo
 from src.features.generation.status_tracker import GenerationState
 from tests.features.cloud.cloud_generation_harness import USER_ID, CloudGeneration
+from tests.fixtures.seed import seed_user
 
 IMAGE = "fake/image-1"
 VIDEO = "fake/video-1"
 MODES = ["txt2img", "edit", "txt2video", "img2video"]
 
 
-def add_user(db):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (USER_ID, USER_ID, f"{USER_ID}@example.test"),
-        )
-
-
 @pytest.fixture
 async def make(mock_db, tmp_path):
-    add_user(mock_db)
+    seed_user(mock_db, USER_ID)
 
     async def build(provider_model=IMAGE, **behaviour):
         return await CloudGeneration(

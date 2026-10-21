@@ -10,15 +10,12 @@ from src.features.cloud.session import UNCONFIRMED_CANCEL_MESSAGE
 from src.features.cloud.testing.fake import FakeBehaviour, FakeCloudProvider
 from src.features.generation.status_tracker import GenerationState, GenerationStatusTracker
 from tests.features.cloud.cloud_generation_harness import USER_ID, CloudGeneration
+from tests.fixtures.seed import seed_user
 
 
 @pytest.fixture
 async def started(mock_db, tmp_path):
-    with mock_db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (USER_ID, USER_ID, f"{USER_ID}@example.test"),
-        )
+    seed_user(mock_db, USER_ID)
 
     async def start_run(supports_cancel=True, submitted=True):
         run = await CloudGeneration(

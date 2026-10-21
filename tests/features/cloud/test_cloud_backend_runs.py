@@ -9,19 +9,12 @@ from src.features.cloud.clock import MonotonicClock
 from src.features.cloud.testing.fake import FakeBehaviour
 from src.features.generation.status_tracker import GenerationState
 from tests.features.cloud.cloud_generation_harness import SECRET, USER_ID, CloudGeneration
-
-
-def add_user(db):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (USER_ID, USER_ID, f"{USER_ID}@example.test"),
-        )
+from tests.fixtures.seed import seed_user
 
 
 @pytest.fixture
 async def run(mock_db, tmp_path):
-    add_user(mock_db)
+    seed_user(mock_db, USER_ID)
     started = await CloudGeneration(
         tmp_path, FakeBehaviour(mode="async", duration_s=100_000, poll_after_s=300), max_parallel=2
     ).start()

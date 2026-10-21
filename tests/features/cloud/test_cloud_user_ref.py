@@ -4,14 +4,7 @@ from src.platform.security.secrets import SecretCipher, generate_key
 from src.platform.security.user_ref import cloud_user_ref
 from src.features.cloud.testing.fake import FakeBehaviour
 from tests.features.cloud.cloud_generation_harness import USER_ID, CloudGeneration
-
-
-def add_user(db):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (USER_ID, USER_ID, f"{USER_ID}@example.test"),
-        )
+from tests.fixtures.seed import seed_user
 
 
 def cipher():
@@ -52,7 +45,7 @@ def test_the_subkey_is_derived_per_purpose_and_is_never_the_raw_key():
 
 
 async def run_twice(mock_db, tmp_path, send_user_hash=True):
-    add_user(mock_db)
+    seed_user(mock_db, USER_ID)
     run = await CloudGeneration(tmp_path, FakeBehaviour(mode="sync"), send_user_hash=send_user_hash).start()
     await run.run()
     run.collected.done.clear()

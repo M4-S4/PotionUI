@@ -22,6 +22,7 @@ from src.pipelines.outputs import CostGenerationOutput
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from tests.features.cloud.conftest import returning
+from tests.fixtures.seed import seed_user
 
 IMAGE = "fake/image-1"
 VIDEO = "fake/video-1"
@@ -118,10 +119,7 @@ def test_a_model_with_no_prices_has_no_estimate():
 
 @pytest.fixture
 def generation(mock_db):
-    with mock_db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES ('u1', 'u1', 'u1@example.test', 'x', 'USER')"
-        )
+    seed_user(mock_db)
     return generation_repo.create(Generation(id="g1", preset_id="p", form_data={}, user_id="u1", backend_id="cloud-1"))
 
 

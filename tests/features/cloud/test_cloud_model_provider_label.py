@@ -9,6 +9,7 @@ from src.features.models.catalog import ListModelsParams, ModelCatalog
 from src.features.models.records import Model, ModelInfo
 from src.features.models.repository import model_repo
 from src.platform.security.user import AccountType
+from tests.fixtures.seed import seed_user
 
 IMAGE = "fake/image-1"
 PRICE_WORDS = ("pricing", "price", "usd", "cost", "0.04")
@@ -16,14 +17,6 @@ PRICE_WORDS = ("pricing", "price", "usd", "cost", "0.04")
 
 def user(account_type, user_id="u1"):
     return MagicMock(account_type=account_type, id=user_id)
-
-
-def add_user(db, user_id="u1"):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (user_id, user_id, f"{user_id}@example.test"),
-        )
 
 
 def assign(db, model_id, user_id="u1"):
@@ -68,7 +61,7 @@ async def test_the_picker_listing_carries_the_provider_label_and_vendor(refreshe
 
 
 async def test_a_users_library_rows_carry_the_provider_label_and_vendor(refreshed, mock_db):
-    add_user(mock_db)
+    seed_user(mock_db)
     slug, model_id = await enabled(refreshed)
     assign(mock_db, model_id)
 
@@ -89,7 +82,7 @@ async def test_an_admins_library_rows_carry_them_too(refreshed):
 
 @pytest.mark.parametrize("account", [AccountType.USER, AccountType.ADMIN])
 async def test_get_by_id_carries_them_for_users_and_admins(refreshed, mock_db, account):
-    add_user(mock_db)
+    seed_user(mock_db)
     _, model_id = await enabled(refreshed)
     assign(mock_db, model_id)
 
@@ -100,7 +93,7 @@ async def test_get_by_id_carries_them_for_users_and_admins(refreshed, mock_db, a
 
 
 async def test_the_rest_of_the_payload_keeps_its_shape(refreshed, mock_db):
-    add_user(mock_db)
+    seed_user(mock_db)
     _, model_id = await enabled(refreshed)
     assign(mock_db, model_id)
     plain = model_repo.get_by_id(model_id, include_providers=False).to_dict(include_providers=False, admin=False)
@@ -112,7 +105,7 @@ async def test_the_rest_of_the_payload_keeps_its_shape(refreshed, mock_db):
 
 
 async def test_non_cloud_models_get_neither_field_anywhere(refreshed, mock_db):
-    add_user(mock_db)
+    seed_user(mock_db)
     lora = model_repo.create(Model(filename="a.safetensors", model_type="lora"))
     assign(mock_db, lora.id)
     catalog = catalog_for(refreshed)

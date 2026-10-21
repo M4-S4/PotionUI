@@ -17,22 +17,15 @@ from src.features.generation.routes import GenerationController
 from src.features.generation.status_tracker import GenerationState
 from src.pipelines.outputs import CostGenerationOutput
 from tests.features.cloud.cloud_generation_harness import BACKEND_ID, USER_ID, CloudGeneration
+from tests.fixtures.seed import seed_user
 
 AMOUNT = "0.0731"
 SEED = 5
 
 
-def add_user(db, user_id=USER_ID):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (user_id, user_id, f"{user_id}@example.test"),
-        )
-
-
 @pytest.fixture
 async def make(mock_db, tmp_path):
-    add_user(mock_db)
+    seed_user(mock_db, USER_ID)
 
     async def build_run(**behaviour):
         return await CloudGeneration(tmp_path, FakeBehaviour(**behaviour)).start()

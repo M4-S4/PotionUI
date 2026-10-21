@@ -12,14 +12,7 @@ from src.features.generation.status_tracker import GenerationState
 from src.pipelines.outputs import GalleryGenerationOutput, ProgressGenerationOutput
 from tests.features.cloud.cloud_generation_harness import SECRET, USER_ID, CloudGeneration
 from tests.features.content_safety.fakes import build
-
-
-def add_user(db, user_id=USER_ID):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (user_id, user_id, f"{user_id}@example.test"),
-        )
+from tests.fixtures.seed import seed_user
 
 
 def saved_files(db, generation_id="gen-1"):
@@ -28,7 +21,7 @@ def saved_files(db, generation_id="gen-1"):
 
 @pytest.fixture
 async def make(mock_db, tmp_path):
-    add_user(mock_db)
+    seed_user(mock_db, USER_ID)
 
     async def build_run(content_safety=None, timeout_seconds=1800, emit_model=False, **behaviour):
         return await CloudGeneration(

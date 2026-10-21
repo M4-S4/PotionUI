@@ -12,6 +12,7 @@ from src.features.models.repository import model_repo
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from tests.features.cloud.conftest import returning
+from tests.fixtures.seed import seed_user
 
 IMAGE = "fake/image-1"
 VIDEO = "fake/video-1"
@@ -26,14 +27,6 @@ def client_as(container, account, user_id="u1"):
     app.include_router(build_router(container))
     app.dependency_overrides[get_current_active_user] = lambda: user(account, user_id)
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
-
-
-def add_user(db, user_id="u1"):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (user_id, user_id, f"{user_id}@example.test"),
-        )
 
 
 async def enabled_model(env, provider_model_id):
@@ -113,7 +106,7 @@ async def test_the_capabilities_carry_no_price(refreshed, container):
 
 
 async def test_a_user_without_access_to_the_model_gets_a_404(refreshed, container, mock_db):
-    add_user(mock_db)
+    seed_user(mock_db)
     model_id = await enabled_model(refreshed, IMAGE)
 
     async with client_as(container, AccountType.USER) as client:
@@ -124,7 +117,7 @@ async def test_a_user_without_access_to_the_model_gets_a_404(refreshed, containe
 
 
 async def test_a_user_assigned_the_model_can_read_its_capabilities(refreshed, container, mock_db):
-    add_user(mock_db)
+    seed_user(mock_db)
     model_id = await enabled_model(refreshed, IMAGE)
     with mock_db.get_cursor() as cursor:
         cursor.execute("INSERT INTO user_models (id, user_id, model_id) VALUES ('um1', 'u1', ?)", (model_id,))
@@ -223,7 +216,7 @@ async def test_a_local_model_is_a_quiet_404(refreshed, container, caplog):
 
 
 async def test_a_model_the_user_may_not_read_is_still_logged_as_an_error(refreshed, container, mock_db, caplog):
-    add_user(mock_db)
+    seed_user(mock_db)
     model_id = await enabled_model(refreshed, IMAGE)
 
     with caplog.at_level(logging.DEBUG, logger="CloudCapabilitiesController"):
