@@ -18,7 +18,6 @@ const { default: SaveSegmentModal } = await import('$lib/components/modals/SaveS
 const { createClassComponent } = await import('svelte/legacy');
 
 let target: HTMLDivElement;
-let component: ReturnType<typeof createClassComponent> | undefined;
 
 const specs: PromptResourceSpec[] = [{ field: 'references', kind: 'image', label: 'Pictures', token: '<Picture @>' }];
 
@@ -36,7 +35,7 @@ function baseSegment(overrides: Partial<Segment> = {}): Segment {
 function mount(props: Record<string, unknown>) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	component = createClassComponent({ component: SaveSegmentModal as never, target, props: { isOpen: true, ...props } });
+	createClassComponent({ component: SaveSegmentModal as never, target, props: { isOpen: true, ...props } });
 	flushSync();
 }
 

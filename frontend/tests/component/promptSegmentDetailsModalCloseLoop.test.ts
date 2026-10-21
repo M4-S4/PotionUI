@@ -29,12 +29,11 @@ function segment() {
 }
 
 let target: HTMLDivElement;
-let component: ReturnType<typeof createClassComponent> | undefined;
 
 function mount() {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	component = createClassComponent({
+	createClassComponent({
 		component: PromptSegment as never,
 		target,
 		props: { segment: segment(), index: 0, total: 3 }

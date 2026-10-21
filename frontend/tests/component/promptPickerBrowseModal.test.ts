@@ -73,7 +73,7 @@ describe('PromptPickerBrowseModal', () => {
 			data: { child_categories: [], values: [] }
 		} as never);
 
-		const editor = mountEditor({ value: 'a woman standing near the harbor at dusk wrapped in #li light, low key fog' });
+		mountEditor({ value: 'a woman standing near the harbor at dusk wrapped in #li light, low key fog' });
 		flushSync();
 
 		const editorEl = document.querySelector('.inline-chip-editor')!;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { Backend, EngineDescriptor } from '$lib/services/admin-api';
+import type { EngineDescriptor } from '$lib/services/admin-api';
 
 vi.mock('$lib/services/admin-api', () => ({
 	indexBackendModels: vi.fn(),
