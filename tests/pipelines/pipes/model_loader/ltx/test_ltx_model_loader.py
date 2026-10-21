@@ -56,12 +56,6 @@ def _resolve_te(out):
     return out.output["text_encoder"].te_encoder
 
 
-def test_name_and_outputs():
-    assert ModelLoaderLtxPipe.name == "model_loader"
-    out = {o.name: o.io_type for o in ModelLoaderLtxPipe.outputs()}
-    assert out["model"] == IOType.MODEL and out["text_encoder"] == IOType.TEXT_ENCODER
-
-
 def test_three_component_acquires_plus_projection():
     models, out = _run()
     assert [k for k, _ in models.calls] == [

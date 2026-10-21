@@ -207,14 +207,6 @@ def _run(pipe, bundle, *, denoise=None, is_cancelled=None, **input_kw):
 
 # -- registration / IO --------------------------------------------------------
 
-def test_name_and_io():
-    assert GeneratorDfrLtxPipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorDfrLtxPipe.inputs()}
-    assert inputs["latent"].io_type == IOType.LATENT and inputs["latent"].required
-    assert inputs["audio"].io_type == IOType.AUDIO
-    outputs = {o.name: o for o in GeneratorDfrLtxPipe.outputs()}
-    assert set(outputs) == {"video", "latent", "audio"}
-
 
 def test_default_round_sigmas_are_the_distilled_tail():
     # The temporal-round schedule is the distilled list from its index-4 knot

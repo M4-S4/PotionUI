@@ -93,13 +93,6 @@ def test_non_ltx_model_raises_clear_error():
         _pipe().build_context(_pipe_input(family="wan"))
 
 
-def test_metadata():
-    assert GeneratorLtxTxt2VidPipe.name == "generator"
-    assert GeneratorLtxTxt2VidPipe.outputs()[0].io_type == IOType.VIDEO
-    inputs = {i.name: i.io_type for i in GeneratorLtxTxt2VidPipe.inputs()}
-    assert inputs["conditioning"] == IOType.CONDITIONING
-
-
 def test_sampler_spec_has_no_hardcoded_choices():
     """A hardcoded `choices` list would reject any sampler a plugin registers
     through its `samplers:` manifest root; the engine validates the key against

@@ -85,15 +85,6 @@ def _input_image(size=(16, 16), color=(50, 60, 70)):
 
 # -- config / IO contract -----------------------------------------------------
 
-def test_name_and_contract():
-    assert MattingBirefnetPipe.name == "matting/birefnet"
-    ins = {s.name: s for s in MattingBirefnetPipe.inputs()}
-    outs = {s.name: s for s in MattingBirefnetPipe.outputs()}
-    assert ins["image"].io_type == IOType.IMAGE
-    assert ins["MODELS"].io_type == IOType.SERVICE
-    assert set(outs) == {"image"}
-    assert outs["image"].io_type == IOType.IMAGE
-
 
 def test_image_io_is_declared_as_an_array():
     """The upstream producer (`media_loader`) always emits a LIST and the

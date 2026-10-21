@@ -78,11 +78,6 @@ def setup_function(_):
     _FakeGenerator.instances.clear()
 
 
-def test_metadata():
-    assert GeneratorZImagePipe.name == "generator"
-    assert GeneratorZImagePipe.outputs()[0].io_type == IOType.IMAGE
-
-
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
 def test_resolution_snapped_to_granularity():

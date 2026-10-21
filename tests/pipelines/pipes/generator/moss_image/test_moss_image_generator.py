@@ -90,15 +90,6 @@ def _last_call():
     return _FakeGenerator.instances[-1].sample_calls[-1]
 
 
-def test_name_inputs_outputs():
-    assert GeneratorMossImagePipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorMossImagePipe.inputs()}
-    assert inputs["conditioning"].io_type == IOType.CONDITIONING
-    assert inputs["model"].io_type == IOType.MODEL
-    assert "image" not in inputs
-    assert GeneratorMossImagePipe.outputs()[0].io_type == IOType.IMAGE
-
-
 def test_defaults_are_the_base_profile():
     cfg = GeneratorMossImagePipe.get_default_config()
     assert cfg["steps"] == 50

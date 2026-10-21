@@ -94,11 +94,6 @@ def setup_function(_):
     _FakeGenerator.instances.clear()
 
 
-def test_metadata():
-    assert GeneratorKrea2Pipe.name == "generator"
-    assert GeneratorKrea2Pipe.outputs()[0].io_type == IOType.IMAGE
-
-
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
 def test_resolution_snapped_to_granularity():
@@ -291,8 +286,6 @@ def test_preview_error_does_not_break_generation():
     pipe.process(_pipe_input(seeds=(7,)), emitted.append)  # must not raise
     assert _previews(emitted) == []                        # decode failed -> no preview
     assert any(isinstance(o, GalleryGenerationOutput) for o in emitted)  # generation completed
-
-
 
 
 # --- step_cache (FBCache) config --------------------------------

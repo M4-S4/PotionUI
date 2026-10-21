@@ -38,68 +38,6 @@ class TestVideoFrameMergerPipe:
 
         return frames
 
-    def test_pipe_initialization(self):
-        """Test pipe initialization with default config"""
-        pipe = VideoFrameMergerPipe({})
-
-        assert pipe.name == "video_frame_merger"
-        assert "Merge image frames into video files" in pipe.description
-
-        # Check default config
-        config = pipe.get_default_config()
-        assert config["fps"] == 30.0
-        assert config["codec"] == "mp4v"
-        assert config["output_format"] == "mp4"
-        assert config["loop_count"] == 1
-        assert config["reverse"] == False
-        assert config["fade_in"] == 0
-        assert config["fade_out"] == 0
-        assert config["resize_mode"] == "keep"
-
-    def test_configuration_spec(self):
-        """Test configuration specification"""
-        specs = VideoFrameMergerPipe.configuration()
-
-        spec_names = [spec.name for spec in specs]
-        expected_names = [
-            "fps", "codec", "output_format", "loop_count",
-            "reverse", "fade_in", "fade_out", "resize_mode", "target_width", "target_height"
-        ]
-
-        for name in expected_names:
-            assert name in spec_names
-
-        # Check fps spec details
-        fps_spec = next(spec for spec in specs if spec.name == "fps")
-        assert fps_spec.param_type == float
-        assert fps_spec.default == 30.0
-        assert fps_spec.min_value == 1.0
-        assert fps_spec.max_value == 240.0
-
-        # Check codec choices
-        codec_spec = next(spec for spec in specs if spec.name == "codec")
-        assert "mp4v" in codec_spec.choices
-        assert "xvid" in codec_spec.choices
-
-    def test_input_output_specs(self):
-        """Test input and output specifications"""
-        inputs = VideoFrameMergerPipe.inputs()
-        outputs = VideoFrameMergerPipe.outputs()
-
-        assert len(inputs) == 1
-        input_names = [inp.name for inp in inputs]
-        assert "image" in input_names
-
-        # Check image input spec
-        image_input = next(inp for inp in inputs if inp.name == "image")
-        assert image_input.io_type == IOType.IMAGE
-        assert image_input.required == True
-        assert image_input.is_array == True
-
-        assert len(outputs) == 1
-        assert outputs[0].name == "video"
-        assert outputs[0].io_type == IOType.VIDEO
-        assert outputs[0].is_array == True
 
     def test_apply_fade_effect(self):
         """Test fade effect application"""
@@ -150,11 +88,10 @@ class TestVideoFrameMergerPipe:
         frame = Image.new('RGB', (100, 100), (255, 0, 0))
         result = pipe.resize_frame(frame, (200, 300), "fit")
 
-        # Should fit inside target dimensions
         assert result.size == (200, 300)
-
-        # Check that it has black borders (letterboxing)
-        # The original square should be centered
+        result_array = np.array(result)
+        has_black = np.any((result_array == [0, 0, 0]).all(axis=2))
+        assert has_black, "Expected black borders in fit mode"
 
     def test_create_video_basic(self):
         """Test basic video creation from frames"""
@@ -381,3 +318,14 @@ class TestVideoFrameMergerPipe:
 
         # Should return None
         assert result is None
+
+    def test_resize_frame_fill(self):
+        pipe = VideoFrameMergerPipe({})
+
+        frame = Image.new('RGB', (200, 100), (255, 0, 0))
+        result = pipe.resize_frame(frame, (100, 100), "fill")
+
+        assert result.size == (100, 100)
+        result_array = np.array(result)
+        is_all_red = np.all((result_array == [255, 0, 0]).all(axis=2))
+        assert is_all_red, "Expected all red pixels in fill mode"

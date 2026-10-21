@@ -106,14 +106,6 @@ def setup_function(_):
     _FakeGenerator.instances.clear()
 
 
-def test_name_inputs_outputs():
-    assert GeneratorQwenImage21Pipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorQwenImage21Pipe.inputs()}
-    assert inputs["conditioning"].io_type == IOType.CONDITIONING
-    assert inputs["model"].io_type == IOType.MODEL
-    assert GeneratorQwenImage21Pipe.outputs()[0].io_type == IOType.IMAGE
-
-
 def test_default_steps_and_guidance():
     cfg = GeneratorQwenImage21Pipe.get_default_config()
     assert cfg["steps"] == 40

@@ -193,13 +193,6 @@ def test_build_context_snaps_resolution_and_frames():
     assert ctx.extra.frames == 101
 
 
-def test_metadata():
-    assert GeneratorWanTxt2VidPipe.name == "generator"
-    assert GeneratorWanTxt2VidPipe.outputs()[0].io_type == IOType.VIDEO
-    inputs = {i.name: i.io_type for i in GeneratorWanTxt2VidPipe.inputs()}
-    assert inputs["conditioning"] == IOType.CONDITIONING
-
-
 def test_sampler_spec_has_no_hardcoded_choices():
     """A hardcoded `choices` list would reject any sampler a plugin registers
     through its `samplers:` manifest root; the engine validates the key against

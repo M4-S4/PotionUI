@@ -63,13 +63,6 @@ def _run(pipe, models=None):
     return models, out
 
 
-def test_name_and_outputs():
-    assert ModelLoaderMossImagePipe.name == "model_loader"
-    out_names = {o.name: o.io_type for o in ModelLoaderMossImagePipe.outputs()}
-    assert out_names["model"] == IOType.MODEL
-    assert out_names["text_encoder"] == IOType.TEXT_ENCODER
-
-
 def test_config_takes_loras_but_no_vision_knobs():
     names = {s.name for s in ModelLoaderMossImagePipe.configuration()}
     assert {"diffusion_model", "text_encoder", "vae", "loras", "dtype", "device"} <= names

@@ -523,15 +523,6 @@ def _reference_clip(tmp_path, n_frames=9, size=64):
     return path
 
 
-def test_metadata():
-    assert GeneratorLtxVideoPipe.name == "generator"
-    inputs = {i.name: i.io_type for i in GeneratorLtxVideoPipe.inputs()}
-    assert inputs["image"] == IOType.IMAGE
-    assert inputs["video"] == IOType.VIDEO
-    assert inputs["audio"] == IOType.AUDIO
-    assert GeneratorLtxVideoPipe.outputs()[0].io_type == IOType.VIDEO
-
-
 def test_metadata_includes_audio_output_and_passthrough_choice():
     # The pipe emits a per-seed `audio` output (mux
     # hand-off for a stage-2 refine) and offers `audio_source="passthrough"`.

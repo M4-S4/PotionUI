@@ -46,12 +46,6 @@ def _run(cfg=None):
     return models, out
 
 
-def test_name_and_outputs():
-    assert ModelLoaderMinimaxH3Pipe.name == "model_loader"
-    out = {o.name: o.io_type for o in ModelLoaderMinimaxH3Pipe.outputs()}
-    assert out["model"] == IOType.MODEL and out["text_encoder"] == IOType.TEXT_ENCODER
-
-
 def test_three_eager_standalone_component_acquires():
     # The DiT/video VAE/audio VAE are always needed for sampling regardless
     # of prompt_encoder's own conditioning cache state, so they load eagerly

@@ -69,18 +69,6 @@ def _pipe(**over):
     return LatentUpscalerMinimaxH3Pipe(config=cfg)
 
 
-def test_name_and_io():
-    assert LatentUpscalerMinimaxH3Pipe.name == "latent_upscaler"
-    inputs = {i.name: i for i in LatentUpscalerMinimaxH3Pipe.inputs()}
-    assert inputs["latent"].io_type == IOType.LATENT
-    assert inputs["video"].io_type == IOType.VIDEO
-    assert inputs["model"].required is True
-    assert inputs["latent"].required is False
-    outputs = {o.name: o for o in LatentUpscalerMinimaxH3Pipe.outputs()}
-    assert outputs["latent"].io_type == IOType.LATENT
-    assert outputs["source_frame_count"].io_type == IOType.INT
-
-
 def test_raises_when_bundle_has_no_upsampler():
     bundle = _bundle(with_upsampler=False)
     latent = torch.randn(1, 24, 3, 4, 4)

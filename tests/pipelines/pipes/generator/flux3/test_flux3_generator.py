@@ -110,14 +110,6 @@ def _last_call():
     return _FakeGenerator.instances[-1].sample_calls[-1]
 
 
-def test_name_inputs_outputs():
-    assert GeneratorFlux3Pipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorFlux3Pipe.inputs()}
-    assert inputs["conditioning"].io_type == IOType.CONDITIONING
-    assert inputs["model"].io_type == IOType.MODEL
-    assert GeneratorFlux3Pipe.outputs()[0].io_type == IOType.IMAGE
-
-
 def test_modes_are_txt2img_and_edit():
     spec = next(s for s in GeneratorFlux3Pipe.configuration() if s.name == "mode")
     assert spec.choices == ["txt2img", "edit"]

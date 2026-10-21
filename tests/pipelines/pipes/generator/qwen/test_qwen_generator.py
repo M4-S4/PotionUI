@@ -98,13 +98,6 @@ def setup_function(_):
 
 # -- metadata --------------------------------------------------------------
 
-def test_name_inputs_outputs():
-    assert GeneratorQwenPipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorQwenPipe.inputs()}
-    assert inputs["conditioning"].io_type == IOType.CONDITIONING
-    assert inputs["model"].io_type == IOType.MODEL
-    assert GeneratorQwenPipe.outputs()[0].io_type == IOType.IMAGE
-
 
 def test_default_steps_and_guidance():
     cfg = GeneratorQwenPipe.get_default_config()

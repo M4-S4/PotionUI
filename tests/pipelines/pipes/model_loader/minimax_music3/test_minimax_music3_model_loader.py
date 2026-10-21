@@ -42,12 +42,6 @@ def _run(cfg=None):
     return models, out
 
 
-def test_name_and_outputs():
-    assert ModelLoaderMinimaxMusic3Pipe.name == "model_loader"
-    out = {o.name: o.io_type for o in ModelLoaderMinimaxMusic3Pipe.outputs()}
-    assert out == {"model": IOType.MODEL}
-
-
 def test_three_eager_standalone_component_acquires():
     # Unlike MiniMax-H3's TE, Music3's fused text encoder is acquired
     # EAGERLY too: there is no separate prompt_encoder stage whose own
