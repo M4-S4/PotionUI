@@ -312,12 +312,23 @@ jobs:
         run: call npm run build:plugins || exit /b 1
 
       - name: plugin dist drift check
+        id: plugin-drift
+        continue-on-error: true
         shell: bash
         run: |
           git status --porcelain -- content/plugins
           git diff --stat -- 'content/plugins/*/*/frontend/dist/*'
+          git diff -U0 -- 'content/plugins/*/*/frontend/dist/*' | cut -c1-400 | head -200
           test -z "$(git diff --stat -- 'content/plugins/*/*/frontend/dist/*')"
           test -z "$(git ls-files --others --exclude-standard -- content/plugins)"
+
+      - name: upload Windows-built plugin dists
+        if: steps.plugin-drift.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-dist-windows
+          path: content/plugins/*/*/frontend/dist/**
+          retention-days: 7
 
   frontend-build:
     name: frontend build (Windows, shared by e2e shards)

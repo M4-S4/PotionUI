@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import type { PresetInfo } from '$lib/types/api';
 
+vi.mock('$lib/utils/presetHardware', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/utils/presetHardware')>()),
+	fetchDetectedVramGb: vi.fn().mockResolvedValue(null)
+}));
+
+const { fetchDetectedVramGb } = await import('$lib/utils/presetHardware');
 const { default: PresetPicker } = await import('$lib/components/preset/PresetPicker.svelte');
 
 const presets = [
@@ -44,6 +50,7 @@ function rowTitles(): string[] {
 describe('PresetPicker Tools chip', () => {
 	it('renders a Tools chip after the media chips', async () => {
 		await openPicker();
+		expect(fetchDetectedVramGb).toHaveBeenCalledTimes(1);
 		const labels = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-pressed]')).map((button) =>
 			button.textContent?.trim() ?? ''
 		);
