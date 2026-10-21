@@ -4,6 +4,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { generationIdOf } from '$lib/generation/messages/wire';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
+	import { get } from 'svelte/store';
 	import {
 		historyStore,
 		selectedPosition,
@@ -22,6 +24,9 @@
 	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import GenerationDetailsModal from '$lib/components/modals/GenerationDetailsModal.svelte';
+	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
+	import { createUrlState } from '$lib/utils/urlState';
+	import { generationIdFromUrl, hrefWithGeneration } from '$lib/utils/deepLink';
 	import UploadGenerationModal from '$lib/components/modals/UploadGenerationModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import HistoryToolbar from './components/HistoryToolbar.svelte';
@@ -75,6 +80,62 @@
 	let activeToolContext: MediaToolContext | null = null;
 
 	$: currentState = $historyStore;
+	$: currentUrl = $page.url;
+
+	let linkedMissingId: string | null = null;
+	let lastUrlId: string | null = null;
+	let lastSelectedId: string | null = null;
+
+	const generationUrl = createUrlState<string | null>({
+		href: (id) => hrefWithGeneration(currentUrl, id)
+	});
+
+	async function openLinkedGeneration(id: string) {
+		const known = get(historyStore).generations.find((gen) => gen.id === id);
+		if (known) {
+			historyStore.setSelectedGeneration(known);
+			return;
+		}
+		try {
+			const response = await api.getGenerationById(id, true, true);
+			if (lastUrlId !== id) return;
+			if (response.success && response.data) historyStore.setSelectedGeneration(response.data);
+			else linkedMissingId = id;
+		} catch (error) {
+			logger.error('Failed to load the linked generation:', error);
+			if (lastUrlId === id) linkedMissingId = id;
+		}
+	}
+
+	function syncFromUrl(urlId: string | null) {
+		if (urlId === lastUrlId) return;
+		lastUrlId = urlId;
+		linkedMissingId = null;
+		const selectedId = get(historyStore).selectedGeneration?.id ?? null;
+		if (!urlId) {
+			if (selectedId) historyStore.setSelectedGeneration(null);
+			return;
+		}
+		if (selectedId !== urlId) void openLinkedGeneration(urlId);
+	}
+
+	function syncToUrl(selectedId: string | null) {
+		if (selectedId === lastSelectedId) return;
+		lastSelectedId = selectedId;
+		if (selectedId === lastUrlId) return;
+		if (!selectedId && linkedMissingId) return;
+		lastUrlId = selectedId;
+		void generationUrl.replace(selectedId);
+	}
+
+	function closeMissingLink() {
+		linkedMissingId = null;
+		lastUrlId = null;
+		void generationUrl.replace(null);
+	}
+
+	$: syncFromUrl(generationIdFromUrl($page.url));
+	$: syncToUrl(currentState.selectedGeneration?.id ?? null);
 	$: availableTags = currentState.availableTags;
 
 	let detailGrid: ActiveGrid | null = null;
@@ -385,6 +446,18 @@
 			{/if}
 		</svelte:fragment>
 	</GenerationDetailsModal>
+{/if}
+
+{#if linkedMissingId}
+	<ConfirmModal
+		isOpen={true}
+		title="Generation not found"
+		message="This generation does not exist, or you do not have access to it."
+		variant="info"
+		confirmLabel="Back to History"
+		on:confirm={closeMissingLink}
+		on:cancel={closeMissingLink}
+	/>
 {/if}
 
 {#if $openGridId}

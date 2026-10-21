@@ -186,7 +186,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 			if (includeFiles) searchParams.append('include_files', 'true');
 			const queryString = searchParams.toString();
 			const response = await client.get(
-				`/api/generations/history/${generationId}${queryString ? `?${queryString}` : ''}`
+				`/api/generations/history/${encodeURIComponent(generationId)}${queryString ? `?${queryString}` : ''}`
 			);
 			return response.data;
 		},
