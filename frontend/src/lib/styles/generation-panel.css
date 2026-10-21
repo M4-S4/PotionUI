@@ -25,7 +25,7 @@
     bottom: 0;
     height: var(--dock-height);
     border-top: 1px solid rgb(var(--line));
-    background: rgb(var(--surface-1));
+    background: rgb(var(--canvas));
     color: rgb(var(--fg));
     font-size: 13px;
     line-height: 20px;
