@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Session, SessionVersionSummary } from '$lib/types/api';
 	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
+	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -8,35 +8,20 @@
 	import { sideDrawer } from '$lib/stores/sideDrawer';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 
-	export let enabled = false;
+	export let session: SessionPanelState;
+	export let actions: SessionPanelActions;
 	export let fieldLabels: FieldLabels = {};
 	export let compact = false;
-	export let sessions: Session[] = [];
-	export let currentSession: Session | null = null;
-	export let selectedSessionId = '';
-	export let loading = false;
-	export let saving = false;
-	export let dirty = false;
-	export let lastSavedTime: Date | null = null;
-	export let autoSaveEnabled = false;
-	export let autoSaveInterval = 10000;
-	export let historySessionId: string | null = null;
-	export let historyVersions: SessionVersionSummary[] = [];
-	export let historyLoading = false;
-	export let historyError: string | null = null;
-	export let restoringVersion = false;
-	export let onSelect: (sessionId: string) => void;
-	export let onSave: () => void;
-	export let onSaveAs: () => void;
-	export let onNew: () => void;
-	export let onRename: () => void;
-	export let onDelete: () => void;
-	export let onTogglePin: (sessionId: string) => void;
-	export let onToggleAutoSave: () => void;
-	export let onIntervalChange: (interval: number) => void;
-	export let onOpenHistory: (sessionId: string) => void;
-	export let onCloseHistory: () => void;
-	export let onRestoreVersion: (sessionId: string, versionNumber: number) => void;
+
+	$: ({
+		sessionControlsEnabled: enabled,
+		currentSession,
+		isQuickSaving: saving,
+		hasUnsavedChanges: dirty,
+		lastSavedTime,
+		autoSaveEnabled,
+		autoSaveInterval
+	} = session);
 
 	let open = false;
 	$: if ($sideDrawer === 'formulas') open = false;
@@ -120,7 +105,7 @@
 			<button
 				type="button"
 				class="inline-flex items-center justify-center gap-1.5 rounded-r-lg border-l border-line-strong text-xs font-semibold text-signal transition-colors hover:bg-signal/10 disabled:cursor-wait disabled:opacity-60 {compact ? 'px-2.5' : 'min-w-16 px-3'}"
-				on:click={onSave}
+				on:click={actions.save}
 				disabled={saving}
 				aria-label={saving ? 'Saving session' : 'Save session'}
 			>
@@ -133,7 +118,7 @@
 			<button
 				type="button"
 				class="inline-flex items-center justify-center gap-1.5 rounded-r-lg border-l border-line-strong text-xs font-semibold text-signal transition-colors hover:bg-signal/10 {compact ? 'px-2.5' : 'px-3'}"
-				on:click={onSaveAs}
+				on:click={actions.saveAs}
 				aria-label="Save as a new session"
 			>
 				{#if !compact}<Icon name="plus" className="h-3.5 w-3.5" />{/if}
@@ -143,34 +128,6 @@
 	{/if}
 
 	{#if open}
-		<SessionDrawer
-			{fieldLabels}
-			{sessions}
-			{currentSession}
-			{selectedSessionId}
-			{loading}
-			{saving}
-			{dirty}
-			{autoSaveEnabled}
-			{autoSaveInterval}
-			{historySessionId}
-			{historyVersions}
-			{historyLoading}
-			{historyError}
-			{restoringVersion}
-			{onSelect}
-			{onSave}
-			{onSaveAs}
-			{onNew}
-			{onRename}
-			{onDelete}
-			{onTogglePin}
-			{onToggleAutoSave}
-			{onIntervalChange}
-			{onOpenHistory}
-			{onCloseHistory}
-			{onRestoreVersion}
-			onClose={() => (open = false)}
-		/>
+		<SessionDrawer {fieldLabels} {session} {actions} onClose={() => (open = false)} />
 	{/if}
 </div>

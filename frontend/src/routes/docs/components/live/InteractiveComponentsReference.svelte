@@ -10,6 +10,7 @@
 	import GenerationLayoutPicker from '$lib/components/layout/GenerationLayoutPicker.svelte';
 	import GenerationPanel from '$lib/components/GenerationPanel.svelte';
 	import type { Session } from '$lib/types/api';
+	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
 	import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 	import type { GenerationState } from '$lib/types/tabs';
 	import type { ChipData } from '$lib/types/segments';
@@ -70,6 +71,43 @@
 		{ id: 'session-2', preset_id: 'potion-xl', name: 'Blue glass variations', data: {}, created_at: '2026-07-09T12:00:00Z', updated_at: '2026-07-10T15:15:00Z' }
 	];
 	$: demoSession = demoSessions.find((session) => session.id === demoSessionId) ?? null;
+	$: demoSessionPanel = {
+		sessionControlsEnabled: true,
+		sessions: demoSessions,
+		currentSession: demoSession,
+		selectedSessionId: demoSessionId,
+		hasUnsavedChanges: demoSessionDirty,
+		lastSavedTime: demoLastSaved,
+		isSessionLoading: false,
+		isQuickSaving: false,
+		autoSaveEnabled: demoAutoSave,
+		autoSaveInterval: demoAutoSaveInterval,
+		historySessionId: null,
+		historyVersions: [],
+		isHistoryLoading: false,
+		historyError: null,
+		isRestoringVersion: false
+	} satisfies SessionPanelState;
+	const demoSessionActions: SessionPanelActions = {
+		select: async (id) => {
+			demoSessionId = id;
+			demoSessionDirty = false;
+		},
+		save: () => {
+			demoSessionDirty = false;
+			demoLastSaved = new Date();
+		},
+		saveAs: () => undefined,
+		startNew: () => undefined,
+		rename: () => undefined,
+		remove: () => undefined,
+		togglePin: async () => undefined,
+		toggleAutosave: () => (demoAutoSave = !demoAutoSave),
+		setAutosaveInterval: (interval) => (demoAutoSaveInterval = interval),
+		openHistory: async () => undefined,
+		closeHistory: () => undefined,
+		restoreVersion: async () => undefined
+	};
 	const demoPresets = [
 		{
 			id: 'potion-xl',
@@ -184,31 +222,10 @@
 	<ComponentExample
 		title="SessionControl"
 		description="A compound session trigger with explicit save state, session switching, auto-save configuration, and management actions in one place."
-		code={`<SessionControl\n  enabled\n  {sessions}\n  {currentSession}\n  dirty={hasUnsavedChanges}\n  onSave={saveSession}\n  onSelect={selectSession}\n/>`}
+		code={`<SessionControl\n  {session}\n  {actions}\n/>`}
 	>
 		<div class="flex w-full flex-wrap items-center gap-3">
-			<SessionControl
-				enabled
-				sessions={demoSessions}
-				currentSession={demoSession}
-				selectedSessionId={demoSessionId}
-				dirty={demoSessionDirty}
-				lastSavedTime={demoLastSaved}
-				autoSaveEnabled={demoAutoSave}
-				autoSaveInterval={demoAutoSaveInterval}
-				onSelect={(id) => { demoSessionId = id; demoSessionDirty = false; }}
-				onSave={() => { demoSessionDirty = false; demoLastSaved = new Date(); }}
-				onSaveAs={() => undefined}
-				onNew={() => undefined}
-				onRename={() => undefined}
-				onDelete={() => undefined}
-				onTogglePin={() => undefined}
-				onToggleAutoSave={() => (demoAutoSave = !demoAutoSave)}
-				onIntervalChange={(interval) => (demoAutoSaveInterval = interval)}
-				onOpenHistory={() => undefined}
-				onCloseHistory={() => undefined}
-				onRestoreVersion={() => undefined}
-			/>
+			<SessionControl session={demoSessionPanel} actions={demoSessionActions} />
 			<Button variant="secondary" size="xs" onclick={() => (demoSessionDirty = true)}>Simulate edit</Button>
 		</div>
 	</ComponentExample>

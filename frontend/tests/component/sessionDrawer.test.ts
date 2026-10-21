@@ -57,6 +57,44 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+function drawerProps(p: ReturnType<typeof baseProps>) {
+	return {
+		fieldLabels: (p as { fieldLabels?: unknown }).fieldLabels,
+		onClose: p.onClose,
+		session: {
+			sessions: p.sessions,
+			currentSession: p.currentSession,
+			selectedSessionId: p.selectedSessionId,
+			isSessionLoading: p.loading,
+			isQuickSaving: p.saving,
+			hasUnsavedChanges: p.dirty,
+			lastSavedTime: null,
+			sessionControlsEnabled: true,
+			autoSaveEnabled: p.autoSaveEnabled,
+			autoSaveInterval: p.autoSaveInterval,
+			historySessionId: p.historySessionId,
+			historyVersions: p.historyVersions,
+			isHistoryLoading: p.historyLoading,
+			historyError: p.historyError,
+			isRestoringVersion: p.restoringVersion
+		},
+		actions: {
+			select: p.onSelect,
+			save: p.onSave,
+			saveAs: p.onSaveAs,
+			startNew: p.onNew,
+			rename: p.onRename,
+			remove: p.onDelete,
+			togglePin: p.onTogglePin,
+			toggleAutosave: p.onToggleAutoSave,
+			setAutosaveInterval: p.onIntervalChange,
+			openHistory: p.onOpenHistory,
+			closeHistory: p.onCloseHistory,
+			restoreVersion: p.onRestoreVersion
+		}
+	};
+}
+
 let instance: ReturnType<typeof mount> | undefined;
 let trigger: HTMLButtonElement | undefined;
 
@@ -66,7 +104,7 @@ function open(overrides: Record<string, unknown> = {}) {
 	document.body.appendChild(trigger);
 	trigger.focus();
 	const props = baseProps(overrides);
-	instance = mount(SessionDrawer as never, { target: document.body, props });
+	instance = mount(SessionDrawer as never, { target: document.body, props: drawerProps(props) });
 	flushSync();
 	return props;
 }

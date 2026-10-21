@@ -22,6 +22,7 @@
 		type DiscardAction,
 		type FieldLabels
 	} from '$lib/session/sessionDrawerModel';
+	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
 
 	const KEEP_OPEN_KEY = 'sessions-drawer-keep-open';
 	const INLINE_VERSIONS = 5;
@@ -29,61 +30,31 @@
 
 	let {
 		fieldLabels = {},
+		session,
+		actions,
+		onClose
+	}: {
+		fieldLabels?: FieldLabels;
+		session: SessionPanelState;
+		actions: SessionPanelActions;
+		onClose: () => void;
+	} = $props();
+
+	let {
 		sessions,
 		currentSession,
 		selectedSessionId,
-		loading,
-		saving,
-		dirty,
+		isSessionLoading: loading,
+		isQuickSaving: saving,
+		hasUnsavedChanges: dirty,
 		autoSaveEnabled,
 		autoSaveInterval,
 		historySessionId,
 		historyVersions,
-		historyLoading,
+		isHistoryLoading: historyLoading,
 		historyError,
-		restoringVersion,
-		onSelect,
-		onSave,
-		onSaveAs,
-		onNew,
-		onRename,
-		onDelete,
-		onTogglePin,
-		onToggleAutoSave,
-		onIntervalChange,
-		onOpenHistory,
-		onCloseHistory,
-		onRestoreVersion,
-		onClose
-	}: {
-		fieldLabels?: FieldLabels;
-		sessions: Session[];
-		currentSession: Session | null;
-		selectedSessionId: string;
-		loading: boolean;
-		saving: boolean;
-		dirty: boolean;
-		autoSaveEnabled: boolean;
-		autoSaveInterval: number;
-		historySessionId: string | null;
-		historyVersions: SessionVersionSummary[];
-		historyLoading: boolean;
-		historyError: string | null;
-		restoringVersion: boolean;
-		onSelect: (sessionId: string) => void;
-		onSave: () => void;
-		onSaveAs: () => void;
-		onNew: () => void;
-		onRename: () => void;
-		onDelete: () => void;
-		onTogglePin: (sessionId: string) => void;
-		onToggleAutoSave: () => void;
-		onIntervalChange: (interval: number) => void;
-		onOpenHistory: (sessionId: string) => void;
-		onCloseHistory: () => void;
-		onRestoreVersion: (sessionId: string, versionNumber: number) => void;
-		onClose: () => void;
-	} = $props();
+		isRestoringVersion: restoringVersion
+	} = $derived(session);
 
 	const intervals = [
 		{ id: '5000', label: '5s' },
@@ -128,7 +99,7 @@
 	);
 
 	onMount(() => {
-		return () => onCloseHistory();
+		return () => actions.closeHistory();
 	});
 
 	$effect(() => {
@@ -136,7 +107,7 @@
 		if (!id || id === autoOpenedFor) return;
 		untrack(() => {
 			autoOpenedFor = id;
-			onOpenHistory(id);
+			actions.openHistory(id);
 		});
 	});
 
@@ -161,14 +132,14 @@
 			return;
 		}
 		guarded({ kind: 'load' }, async () => {
-			await onSelect(sessionId);
+			await actions.select(sessionId);
 			afterLoad();
 		});
 	}
 
 	function restore(sessionId: string, versionNumber: number) {
 		guarded({ kind: 'restore', versionNumber }, async () => {
-			await onRestoreVersion(sessionId, versionNumber);
+			await actions.restoreVersion(sessionId, versionNumber);
 			view = 'list';
 			afterLoad();
 		});
@@ -176,23 +147,23 @@
 
 	function startNew() {
 		guarded({ kind: 'new' }, () => {
-			onNew();
+			actions.startNew();
 			afterLoad();
 		});
 	}
 
 	function toggleCurrentHistory(sessionId: string) {
 		historyOpen = !historyOpen;
-		if (historyOpen && historySessionId !== sessionId) onOpenHistory(sessionId);
+		if (historyOpen && historySessionId !== sessionId) actions.openHistory(sessionId);
 	}
 
 	function toggleVersions(sessionId: string) {
-		if (historySessionId === sessionId) onCloseHistory();
-		else onOpenHistory(sessionId);
+		if (historySessionId === sessionId) actions.closeHistory();
+		else actions.openHistory(sessionId);
 	}
 
 	async function showAllVersions(sessionId: string) {
-		if (historySessionId !== sessionId) onOpenHistory(sessionId);
+		if (historySessionId !== sessionId) actions.openHistory(sessionId);
 		versionsShown = VERSION_PAGE;
 		view = 'versions';
 		await tick();
@@ -223,10 +194,10 @@
 		const rowId = target.dataset?.sessionRow;
 		if (rowId && event.key === 'ArrowRight' && historySessionId !== rowId) {
 			event.preventDefault();
-			onOpenHistory(rowId);
+			actions.openHistory(rowId);
 		} else if (rowId && event.key === 'ArrowLeft' && historySessionId === rowId) {
 			event.preventDefault();
-			onCloseHistory();
+			actions.closeHistory();
 		}
 
 		if (event.key === 'Enter' && target === searchEl && filtered.length > 0) {
@@ -302,14 +273,14 @@
 									size="sm"
 									active={currentPinned}
 									ariaPressed={currentPinned}
-									onclick={() => onTogglePin(currentSession.id)}
+									onclick={() => actions.togglePin(currentSession.id)}
 								/>
 							</Tooltip>
 							<Tooltip text="Rename session" position="bottom" delay={150}>
-								<IconButton icon="edit" label="Rename session" size="sm" onclick={onRename} />
+								<IconButton icon="edit" label="Rename session" size="sm" onclick={actions.rename} />
 							</Tooltip>
 							<Tooltip text="Delete session" position="bottom" delay={150}>
-								<IconButton icon="trash" label="Delete session" size="sm" onclick={onDelete} />
+								<IconButton icon="trash" label="Delete session" size="sm" onclick={actions.remove} />
 							</Tooltip>
 						{/if}
 					</div>
@@ -319,10 +290,10 @@
 					</div>
 					<div class="my-2.5 flex gap-1.5">
 						{#if currentSession}
-							<Button variant="primary" size="sm" class="flex-1" disabled={!dirty || saving} loading={saving} onclick={onSave}>Save</Button>
-							<Button variant="secondary" size="sm" class="flex-1" onclick={onSaveAs}>Save as new</Button>
+							<Button variant="primary" size="sm" class="flex-1" disabled={!dirty || saving} loading={saving} onclick={actions.save}>Save</Button>
+							<Button variant="secondary" size="sm" class="flex-1" onclick={actions.saveAs}>Save as new</Button>
 						{:else}
-							<Button variant="primary" size="sm" class="flex-1" onclick={onSaveAs}>Save as new</Button>
+							<Button variant="primary" size="sm" class="flex-1" onclick={actions.saveAs}>Save as new</Button>
 						{/if}
 						<Button variant="secondary" size="sm" class="flex-1" icon="plus" onclick={startNew}>New</Button>
 					</div>
@@ -392,7 +363,7 @@
 				label="Toggle auto-save"
 				checked={autoSaveEnabled}
 				disabled={!currentSession}
-				onchange={() => onToggleAutoSave()}
+				onchange={() => actions.toggleAutosave()}
 			/>
 			{#if autoSaveEnabled && currentSession}
 				<SegmentedControl
@@ -400,7 +371,7 @@
 					ariaLabel="Auto-save interval"
 					items={intervals}
 					selected={String(autoSaveInterval)}
-					onSelect={(id) => onIntervalChange(Number(id))}
+					onSelect={(id) => actions.setAutosaveInterval(Number(id))}
 				/>
 			{/if}
 		</footer>
@@ -430,7 +401,7 @@
 				size="sm"
 				active={!!session.pinned}
 				ariaPressed={!!session.pinned}
-				onclick={() => onTogglePin(session.id)}
+				onclick={() => actions.togglePin(session.id)}
 			/>
 		</Tooltip>
 		<Tooltip text={expanded ? 'Hide versions' : 'Show versions'} position="left" delay={150}>

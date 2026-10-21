@@ -1,0 +1,136 @@
+import { get, writable, type Writable } from 'svelte/store';
+import {
+	saveOrPrompt,
+	type SessionController,
+	type SessionControllerState
+} from './sessionController';
+
+export type SessionPanelState = Pick<
+	SessionControllerState,
+	| 'sessions'
+	| 'selectedSessionId'
+	| 'currentSession'
+	| 'hasUnsavedChanges'
+	| 'lastSavedTime'
+	| 'isSessionLoading'
+	| 'isQuickSaving'
+	| 'historySessionId'
+	| 'historyVersions'
+	| 'isHistoryLoading'
+	| 'historyError'
+	| 'isRestoringVersion'
+	| 'autoSaveEnabled'
+	| 'autoSaveInterval'
+	| 'sessionControlsEnabled'
+>;
+
+export type SessionPanelActions = Pick<
+	SessionController,
+	| 'select'
+	| 'startNew'
+	| 'togglePin'
+	| 'toggleAutosave'
+	| 'setAutosaveInterval'
+	| 'openHistory'
+	| 'closeHistory'
+	| 'restoreVersion'
+> & {
+	save: () => void | Promise<void>;
+	saveAs: () => void;
+	rename: () => void;
+	remove: () => void;
+};
+
+export interface SessionDialogsState {
+	saveOpen: boolean;
+	saveAsOpen: boolean;
+	deleteOpen: boolean;
+	name: string;
+}
+
+export interface SessionDialogs {
+	state: Writable<SessionDialogsState>;
+	actions: SessionPanelActions;
+	quickSave(): Promise<void>;
+	openSave(): void;
+	openSaveAs(): void;
+	openDelete(): void;
+	confirmSave(isSaveAs: boolean): Promise<void>;
+	confirmDelete(): Promise<void>;
+	close(): void;
+}
+
+const CLOSED: SessionDialogsState = { saveOpen: false, saveAsOpen: false, deleteOpen: false, name: '' };
+
+export function createSessionDialogs(controller: SessionController): SessionDialogs {
+	const state = writable<SessionDialogsState>({ ...CLOSED });
+
+	function close() {
+		state.set({ ...CLOSED });
+		controller.closeDialog('save');
+		controller.closeDialog('delete');
+		controller.clearFeedback();
+	}
+
+	function openSaveAs() {
+		state.update((s) => ({ ...s, saveAsOpen: true, name: '' }));
+		controller.openDialog('save');
+		controller.clearNameError();
+	}
+
+	function openSave() {
+		const current = get(controller.state).currentSession;
+		if (current) {
+			state.update((s) => ({ ...s, saveOpen: true, name: current.name }));
+			controller.openDialog('save');
+			controller.clearNameError();
+		} else {
+			openSaveAs();
+		}
+	}
+
+	function openDelete() {
+		state.update((s) => ({ ...s, deleteOpen: true }));
+		controller.openDialog('delete');
+	}
+
+	async function confirmSave(isSaveAs: boolean) {
+		if (await controller.saveAs(get(state).name, isSaveAs ? 'save-as' : 'rename')) close();
+	}
+
+	async function confirmDelete() {
+		if (await controller.deleteSession()) {
+			state.update((s) => ({ ...s, deleteOpen: false }));
+			controller.closeDialog('delete');
+		}
+	}
+
+	function quickSave() {
+		return saveOrPrompt(controller, openSaveAs);
+	}
+
+	return {
+		state,
+		actions: {
+			select: controller.select,
+			startNew: controller.startNew,
+			togglePin: controller.togglePin,
+			toggleAutosave: controller.toggleAutosave,
+			setAutosaveInterval: controller.setAutosaveInterval,
+			openHistory: controller.openHistory,
+			closeHistory: controller.closeHistory,
+			restoreVersion: controller.restoreVersion,
+			save: quickSave,
+			saveAs: openSaveAs,
+			rename: openSave,
+			remove: openDelete
+		},
+		quickSave,
+		openSave,
+		openSaveAs,
+		openDelete,
+		confirmSave,
+		confirmDelete,
+		close
+	};
+}
