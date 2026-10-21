@@ -14,7 +14,6 @@ async function setup(page: Page): Promise<boolean> {
 	await expect(page.locator('.book-tab')).toHaveCount(2, { timeout: 10000 });
 	await page.locator('.book-tab').filter({ hasText: 'Generation 1' }).click();
 	await expect(page.locator('button[aria-label="Save as a new session"]')).toBeVisible({ timeout: 15000 });
-	await page.waitForTimeout(500);
 	return true;
 }
 

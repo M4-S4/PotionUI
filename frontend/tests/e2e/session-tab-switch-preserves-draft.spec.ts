@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished, apiGet, apiPost } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, screenshot, waitForFormPublished } from './helpers';
+import { installAndSelectImagePreset } from './presetPreamble';
 
 // Regression: db97094/b3ad9d3 stopped +page.svelte's own onMount from
 // re-applying a saved session over a tab's live draft on SPA remount. But
@@ -31,37 +32,15 @@ async function pickPreset(page: Page, presetName: string) {
 
 test('editing a segment after loading a session survives switching tabs and back', async ({ page }) => {
 	await loginAsOwner(page);
-	const token = await ownerToken(page);
-
-	const me = await apiGet(page, '/api/auth/me', token);
-	const userId = me.data.id as string;
-
-	const list = await apiGet(page, '/api/presets?include_uninstalled=true', token);
-	const presets = (list.data || []) as Array<{ id: string; name: string; engine?: string; category?: string; installed?: boolean }>;
-	const imagePreset =
-		presets.find((p) => /sdxl/i.test(p.id)) ||
-		presets.find((p) => p.engine === 'native' && p.category === 'image');
-
+	const imagePreset = await installAndSelectImagePreset(page);
 	if (!imagePreset) {
 		test.skip(true, 'No native image preset available on this throwaway instance.');
 		return;
 	}
-
-	if (!imagePreset.installed) {
-		await apiPost(page, `/api/presets/${imagePreset.id}/install`, token);
-	}
-	await apiPost(page, `/api/presets/${imagePreset.id}/assign`, token, { user_ids: [userId] });
-
 	await page.setViewportSize({ width: 1440, height: 960 });
-	await page.goto('/generate');
-	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
-
-	await pickPreset(page, imagePreset.name);
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A lighthouse on a stormy cliff.');
 
@@ -126,38 +105,15 @@ test('editing a segment after loading a session survives switching tabs and back
 // same edit + tab-switch round trip as the test above.
 test('loading an existing session on a second tab, then editing it, survives switching tabs and back', async ({ page }) => {
 	await loginAsOwner(page);
-	const token = await ownerToken(page);
-
-	const me = await apiGet(page, '/api/auth/me', token);
-	const userId = me.data.id as string;
-
-	const list = await apiGet(page, '/api/presets?include_uninstalled=true', token);
-	const presets = (list.data || []) as Array<{ id: string; name: string; engine?: string; category?: string; installed?: boolean }>;
-	const imagePreset =
-		presets.find((p) => /sdxl/i.test(p.id)) ||
-		presets.find((p) => p.engine === 'native' && p.category === 'image');
-
+	const imagePreset = await installAndSelectImagePreset(page);
 	if (!imagePreset) {
 		test.skip(true, 'No native image preset available on this throwaway instance.');
 		return;
 	}
-
-	if (!imagePreset.installed) {
-		await apiPost(page, `/api/presets/${imagePreset.id}/install`, token);
-	}
-	await apiPost(page, `/api/presets/${imagePreset.id}/assign`, token, { user_ids: [userId] });
-
 	await page.setViewportSize({ width: 1440, height: 960 });
-	await page.goto('/generate');
-	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
-
-	// Tab 1: create and save a session to load later.
-	await pickPreset(page, imagePreset.name);
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A quiet harbor at dawn.');
 
@@ -178,7 +134,6 @@ test('loading an existing session on a second tab, then editing it, survives swi
 
 	await pickPreset(page, imagePreset.name);
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await page.getByRole('button', { name: 'Session', exact: true }).click();
 	await page.locator('[data-session-row]', { hasText: sessionName }).click();

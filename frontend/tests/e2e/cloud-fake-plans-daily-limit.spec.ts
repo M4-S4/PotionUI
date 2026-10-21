@@ -5,7 +5,6 @@ const JOURNEY = 'cloud-fake-plans-daily-limit';
 const BACKEND_NAME = 'E2E Fake Cloud';
 const PRESET_NAME = 'Fake Studio';
 const PLAN_NAME = 'E2E daily limit 1';
-const BEAT = 400;
 
 const field = (page: Page, name: string) => page.locator(`[data-field-name="${name}"]`);
 
@@ -53,14 +52,12 @@ async function pickModel(page: Page, label: string) {
 	if (await swap.isVisible().catch(() => false)) await swap.click();
 	await field(page, 'model').locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
-	await page.waitForTimeout(BEAT);
 }
 
 async function typePrompt(page: Page, text: string) {
 	const editor = page.locator('[contenteditable="true"]').first();
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(BEAT);
 }
 
 test.describe.configure({ mode: 'serial' });

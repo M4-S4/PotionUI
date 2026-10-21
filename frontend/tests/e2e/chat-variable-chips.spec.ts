@@ -4,7 +4,6 @@ import { installAndSelectImagePreset } from './presetPreamble';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-variable-chips';
-const BEAT = 450;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 // ${var} awareness in chat messages: a name defined in the generate tab's
@@ -52,7 +51,6 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 		}
 		await variablesButton.waitFor({ state: 'visible', timeout: 10000 });
 	}
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'generate-with-preset');
 
 	// Define a text variable through the real Variable Manager.
@@ -61,7 +59,6 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	await expect(modal).toBeVisible({ timeout: 10000 });
 	await modal.getByLabel('Variable name').fill(VARIABLE_NAME);
 	await modal.getByLabel('Variable value').fill(VARIABLE_VALUE);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'variable-defined');
 	await modal.getByRole('button', { name: 'Done' }).click();
 	await expect(modal).toBeHidden();
@@ -94,10 +91,8 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	await expect(page.getByText('${nope}')).toBeVisible();
 	await expect(page.getByText('${style}')).toHaveCount(0);
 
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'variable-chip-rendered');
 	await chip.hover();
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'conversation-final');
 
 	console.log(

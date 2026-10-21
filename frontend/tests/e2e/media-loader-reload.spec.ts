@@ -63,9 +63,7 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 		await sheet.getByTestId('preset-header-mode').getByRole('button').first().click();
 		await page.getByRole('option', { name: /^Control/ }).first().click();
-		await page.waitForTimeout(600);
 		await page.keyboard.press('Escape');
-		await page.waitForTimeout(400);
 		if (!(await page.getByRole('dialog', { name: 'Settings' }).isVisible())) {
 			await page.getByRole('button', { name: 'Settings' }).first().click();
 		}
@@ -80,7 +78,6 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 	const tab = page.getByRole('tab', { name: 'Control', exact: true }).first();
 	await expect(tab).toBeVisible({ timeout: 20000 });
 	await tab.click();
-	await page.waitForTimeout(400);
 	return root;
 }
 

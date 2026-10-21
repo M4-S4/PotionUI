@@ -42,7 +42,6 @@ test('trigger word registers the potionui-trigger-word CSS highlight', async ({ 
 
 	await segmentEditor.click();
 	await page.keyboard.type('trigger');
-	await page.waitForTimeout(500);
 
 	const registered = await page.evaluate(() => (CSS as any).highlights.has('potionui-trigger-word'));
 	await screenshot(page, JOURNEY, 'segment-editor-highlight');

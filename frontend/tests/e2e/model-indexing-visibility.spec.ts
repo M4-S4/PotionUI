@@ -254,7 +254,6 @@ test.describe('model indexing visibility - wizard', () => {
 		await expect(toggle).toBeVisible({ timeout: 10000 });
 		await toggle.click();
 		await page.getByText('broken-checkpoint-file').hover();
-		await page.waitForTimeout(400);
 		await screenshot(page, JOURNEY, 'wizard-failed-files-expanded');
 	});
 
@@ -365,7 +364,6 @@ test.describe('model indexing visibility - admin panel', () => {
 		const failedRow = page.getByText('broken-checkpoint-file');
 		await failedRow.scrollIntoViewIfNeeded();
 		await failedRow.hover();
-		await page.waitForTimeout(400);
 		await screenshot(page, JOURNEY, 'admin-failed-files-expanded');
 	});
 });

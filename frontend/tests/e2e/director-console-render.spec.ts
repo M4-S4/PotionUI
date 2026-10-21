@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { selectPresetInPicker } from './presetPreamble';
 
 // W1 Shot Console render check (PLAN.md §C W1's E2E line) — an HTTP-only
 // unit/component test can't catch a stuck spinner, an $effect request loop,
@@ -17,40 +18,9 @@ import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers
 
 const JOURNEY = 'director-console-render';
 
-interface DiscoveredPreset {
-	id: string;
-	name: string;
-}
-
 async function ensureAssigned(page: Page, token: string, userId: string, preset: { id: string; installed?: boolean }) {
 	if (!preset.installed) await apiPost(page, `/api/presets/${preset.id}/install`, token);
 	await apiPost(page, `/api/presets/${preset.id}/assign`, token, { user_ids: [userId] });
-}
-
-/** Selects `preset` through the real picker on an already-loaded /generate
- * page — mirrors presetPreamble.ts's `installAndSelectImagePreset`, which
- * only ever discovers/selects an IMAGE preset; there is no video-preset
- * equivalent there yet, so this spec carries its own copy of the selection
- * half rather than widening that helper's contract for one caller. */
-async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promise<boolean> {
-	const pickerTrigger = page.locator('button[aria-haspopup="dialog"]').first();
-	await pickerTrigger.click();
-	const presetList = page.getByRole('listbox', { name: 'Presets' });
-	const opened = await presetList.isVisible({ timeout: 15000 }).catch(() => false);
-	if (!opened) return false;
-	const entry = presetList.getByText(preset.name, { exact: true });
-	if ((await entry.count()) === 0) return false;
-	await entry.click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(1500);
-	// A segmented mode selector may still be showing (e.g. an image/video
-	// split on the same preset family) — land on "Video" if one exists.
-	const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
-	if (await videoModeBtn.count() > 0) {
-		await videoModeBtn.click();
-		await page.waitForTimeout(500);
-	}
-	return true;
 }
 
 test.describe('Video Director shot console', () => {
@@ -137,7 +107,6 @@ test.describe('Video Director shot console', () => {
 		const firstBeat = director.locator('.beat-b').first();
 		if (await firstBeat.count() > 0) {
 			await firstBeat.click();
-			await page.waitForTimeout(300);
 		}
 
 		// Wan/chain-routed profile only: a join's Continue|Fresh cut toggle
@@ -148,17 +117,15 @@ test.describe('Video Director shot console', () => {
 			const joinBlock = director.locator('.seam').filter({ has: freshCutBtn }).first();
 			const before = await joinBlock.textContent();
 			await freshCutBtn.click();
-			await page.waitForTimeout(300);
+			await expect(joinBlock.getByText('Starts fresh')).toBeVisible();
 			const after = await joinBlock.textContent();
 			expect(after).not.toBe(before);
-			await expect(joinBlock.getByText('Starts fresh')).toBeVisible();
 		}
 
 		// LoRAs stage tab only exists on a per-segment-LoRA chain profile.
 		const lorasTab = director.getByRole('tab', { name: /LoRAs/ });
 		if (await lorasTab.count() > 0) {
 			await lorasTab.click();
-			await page.waitForTimeout(200);
 		}
 
 		{
@@ -171,7 +138,6 @@ test.describe('Video Director shot console', () => {
 		// still renders (gutter/label narrow to the @container variant, no
 		// horizontal overflow of the body).
 		await page.setViewportSize({ width: 1440, height: 960 });
-		await page.waitForTimeout(300);
 		await expect(director).toBeVisible();
 		{
 			const shot = await screenshot(page, JOURNEY, `03-${videoPreset.id.replace(/[^a-z0-9-]/gi, '_')}-1440`);

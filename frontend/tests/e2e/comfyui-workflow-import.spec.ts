@@ -112,7 +112,6 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await pointPluginAtMockComfyUI(page, token);
 
 		await page.goto('/admin?tab=plugins');
-		await page.waitForTimeout(500);
 
 		const pluginListRow = page.getByText('ComfyUI Backend', { exact: false }).first();
 		if ((await pluginListRow.count()) === 0) {
@@ -135,7 +134,6 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		const settingsTab = tabNav.getByText('Settings', { exact: false });
 		if ((await settingsTab.count()) > 0) {
 			await settingsTab.click();
-			await page.waitForTimeout(300);
 			await screenshot(page, JOURNEY, '01b-settings-tab');
 		}
 
@@ -332,13 +330,11 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await openLink.click();
 
 		await expect(page).toHaveURL(/tab=presets/);
-		await page.waitForTimeout(500);
 		await screenshot(page, JOURNEY, '07-opened-in-presets');
 		await expect(page.getByText('E2E imported SDXL', { exact: false }).first()).toBeVisible({ timeout: 10000 });
 
 		// The "Imported presets" tab lists the same preset back on the plugin page.
 		await page.goto('/admin?tab=plugins');
-		await page.waitForTimeout(500);
 		await pluginListRow.click();
 		await tabNav.getByText('Imported presets', { exact: false }).click();
 		// Other leftover imported presets may already exist in this checkout's
@@ -422,7 +418,6 @@ test('Admin > Plugins > ComfyUI Backend - "Add LoRA picker" wires a picker into 
 		await pointPluginAtMockComfyUI(page, token);
 
 		await page.goto('/admin?tab=plugins');
-		await page.waitForTimeout(500);
 
 		const pluginListRow = page.getByText('ComfyUI Backend', { exact: false }).first();
 		if ((await pluginListRow.count()) === 0) {

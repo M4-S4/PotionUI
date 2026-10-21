@@ -23,7 +23,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from 
 // rework — see stage-rail/StageShot.svelte for the current call site).
 
 const JOURNEY = 'director-history-pick';
-const BEAT = 400;
 
 const TINY_PNG_BASE64 =
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
@@ -34,7 +33,6 @@ async function checkSlotAtBothWidths(page: Page, field: Locator, state: string) 
 		['390', 390, 844]
 	] as const) {
 		await page.setViewportSize({ width, height });
-		await page.waitForTimeout(BEAT);
 		await field.scrollIntoViewIfNeeded();
 		const box = await field.boundingBox();
 		expect(box, `${state} slot at ${tag} has a box`).not.toBeNull();
@@ -45,7 +43,6 @@ async function checkSlotAtBothWidths(page: Page, field: Locator, state: string) 
 		await screenshot(page, JOURNEY, `slot-${state}-${tag}`);
 	}
 	await page.setViewportSize({ width: 1440, height: 900 });
-	await page.waitForTimeout(BEAT);
 }
 
 test('director history pick — i2v leading-frame media slot renders the picked image', async ({ page }) => {
@@ -97,14 +94,12 @@ test('director history pick — i2v leading-frame media slot renders the picked 
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
 	await page.getByText(videoPreset.name, { exact: true }).first().click();
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(BEAT);
 
 	// The modeless Stage & Rail editor has no mode tabs: a fresh document's
 	// default (first, auto-selected) shot shows its leading media well
 	// directly whenever the preset's capabilities make one legal there (e.g.
 	// Wan's first_only keyframes) -- the same compact call site the old i2v
 	// mode used.
-	await page.waitForTimeout(BEAT);
 
 	const slotDropzone = page.locator('[data-media-dropzone]').first();
 	if ((await slotDropzone.count()) === 0 || !(await slotDropzone.isVisible().catch(() => false))) {
@@ -120,14 +115,12 @@ test('director history pick — i2v leading-frame media slot renders the picked 
 
 	const historyModal = page.getByText('Select Image from Generation History');
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	const thumbnail = page.locator(`img[src*="${generationId}"]`).first();
 	await expect(thumbnail, 'seeded generation should appear in the history grid').toBeVisible({ timeout: 20000 });
 	await thumbnail.locator('xpath=ancestor::button[1]').click();
 
 	await expect(historyModal).not.toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	await expect(slotField.locator('[data-media-dropzone]')).not.toBeVisible();
 	const previewImage = page.locator(`img[src*="${generationId}"]`).first();

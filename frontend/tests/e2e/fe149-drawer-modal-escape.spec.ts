@@ -85,7 +85,6 @@ test('generation details modal opened from the Last Generations drawer escapes t
 	// page shows, not clipped to the drawer's ~480px panel.
 	const dialog = page.getByRole('dialog', { name: 'Generation Details' });
 	await expect(dialog).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(300); // let the open transition settle before measuring
 	await screenshot(page, JOURNEY, '02-details-modal-open');
 
 	const box = await dialog.boundingBox();

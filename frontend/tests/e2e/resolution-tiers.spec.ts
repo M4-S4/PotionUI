@@ -9,7 +9,6 @@ import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers
 // removal of the old List/Grid toggle.
 
 const JOURNEY = 'resolution-tiers';
-const BEAT = 300;
 
 test('resolution picker — search panel, tier sections, custom entry', async ({ page }) => {
 	await loginAsOwner(page);
@@ -47,7 +46,6 @@ test('resolution picker — search panel, tier sections, custom entry', async ({
 	if ((await generationTab.count()) > 0) {
 		await generationTab.click();
 	}
-	await page.waitForTimeout(BEAT);
 
 	const resolutionCard = page
 		.locator('.field-card')
@@ -77,7 +75,6 @@ test('resolution picker — search panel, tier sections, custom entry', async ({
 	// Search by a resolution fragment every family's list carries (the Full
 	// tier's Square entry, 1024x1024).
 	await searchInput.fill('1024');
-	await page.waitForTimeout(BEAT);
 	const fragmentFilteredCount = await rows.count();
 	expect(fragmentFilteredCount, 'searching "1024" should narrow the row list').toBeGreaterThan(0);
 	expect(fragmentFilteredCount, 'searching "1024" should narrow the row list').toBeLessThanOrEqual(unfilteredCount);
@@ -86,7 +83,6 @@ test('resolution picker — search panel, tier sections, custom entry', async ({
 	// Search by ratio ("16:9") - Flux ships literal 16:9 entries; SDXL's own
 	// ratio set doesn't, so only assert the narrowing when it's present.
 	await searchInput.fill('16:9');
-	await page.waitForTimeout(BEAT);
 	const ratioFilteredCount = await rows.count();
 	if (ratioFilteredCount > 0) {
 		expect(ratioFilteredCount, 'searching "16:9" should narrow the row list').toBeLessThanOrEqual(unfilteredCount);
@@ -94,7 +90,6 @@ test('resolution picker — search panel, tier sections, custom entry', async ({
 	} else {
 		console.log(`[${JOURNEY}] preset "${preset.name}" has no literal 16:9 ratio entry - ratio search left 0 rows as expected.`);
 		await searchInput.fill('1024');
-		await page.waitForTimeout(BEAT);
 	}
 
 	// Pick the first visible row; the trigger should reflect the new value.

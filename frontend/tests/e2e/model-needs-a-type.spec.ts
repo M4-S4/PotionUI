@@ -259,7 +259,6 @@ test.describe('needs a type - desktop', () => {
 		await expect(select).toBeDisabled();
 		await select.locator('xpath=..').hover({ force: true });
 		await expect(page.getByText('no content hash yet')).toBeVisible({ timeout: 5000 });
-		await page.waitForTimeout(600);
 		await screenshot(page, JOURNEY, 'desktop-detail-no-hash');
 	});
 
@@ -385,7 +384,6 @@ test.describe('detect type from file - folders', () => {
 
 		await page.getByText('Detect type from file', { exact: true }).hover();
 		await expect(page.getByText(/Pickle files keep the folder's type/)).toBeVisible({ timeout: 5000 });
-		await page.waitForTimeout(600);
 		await screenshot(page, JOURNEY, 'desktop-folders-switch-tooltip');
 
 		await toggles.click({ force: true });
@@ -420,7 +418,6 @@ test.describe('needs a type - mobile', () => {
 
 		await page.goto('/admin?tab=models&id=m1');
 		await expect(page.locator('#model-type')).toBeVisible({ timeout: 15000 });
-		await page.waitForTimeout(800);
 		await page.locator('#model-type').scrollIntoViewIfNeeded();
 		await screenshot(page, JOURNEY, 'mobile-detail-type');
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

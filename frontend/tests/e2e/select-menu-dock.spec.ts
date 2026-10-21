@@ -38,9 +38,7 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 		await sheet.getByTestId('preset-header-mode').getByRole('button').first().click();
 		await page.getByRole('option', { name: /^Control/ }).first().click();
-		await page.waitForTimeout(600);
 		await page.keyboard.press('Escape');
-		await page.waitForTimeout(400);
 		if (!(await page.getByRole('dialog', { name: 'Settings' }).isVisible())) {
 			await page.getByRole('button', { name: 'Settings' }).first().click();
 		}
@@ -56,7 +54,6 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 	await expect(tab).toBeVisible({ timeout: 20000 });
 	await tab.click();
 	await expect(root.getByText('Guide', { exact: true }).first()).toBeVisible();
-	await page.waitForTimeout(400);
 	return root;
 }
 
@@ -79,7 +76,6 @@ for (const size of SIZES) {
 				if (node) node.scrollBy(0, el.getBoundingClientRect().bottom - target);
 			});
 		}
-		await page.waitForTimeout(300);
 		if (!mobile) {
 			const b = (await trigger.boundingBox())!;
 			expect(b.y + b.height).toBeGreaterThan(size.height * 0.5);
@@ -89,7 +85,6 @@ for (const size of SIZES) {
 
 		const menu = page.locator('[role="listbox"][data-dropdown="true"]');
 		await expect(menu).toBeVisible();
-		await page.waitForTimeout(300);
 
 		const dockTop = await page.evaluate(() => {
 			const dock = document.querySelector('.generation-panel');
@@ -117,7 +112,6 @@ for (const size of SIZES) {
 			await page.keyboard.press('ArrowDown');
 			await page.waitForTimeout(60);
 		}
-		await page.waitForTimeout(200);
 		await expect(last).toHaveAttribute('data-active', 'true');
 		const lastBox = (await last.boundingBox())!;
 		const menuBox = (await menu.boundingBox())!;

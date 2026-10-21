@@ -27,7 +27,6 @@ test('a manually authored prompt saves and appears in the list', async ({ page }
 	await segmentEditor.click();
 	await page.keyboard.type('a hand-typed manual prompt, not imported');
 
-	await page.waitForTimeout(300);
 	await screenshot(page, JOURNEY, 'filled-before-save');
 
 	const createResponse = page.waitForResponse(
@@ -54,7 +53,6 @@ test('a manually authored prompt saves and appears in the list', async ({ page }
 	await page.getByRole('button', { name: 'Back to Prompts' }).click();
 	await expect(page.getByText(uniqueName)).toBeVisible({ timeout: 10000 });
 
-	await page.waitForTimeout(300);
 	await screenshot(page, JOURNEY, 'saved-in-list');
 
 	const listResponse = page.waitForResponse(

@@ -4,7 +4,6 @@ import { loginAsOwner, ownerToken, screenshot, apiGet } from './helpers';
 const JOURNEY = 'cloud-fake-generate';
 const BACKEND_NAME = 'E2E Fake Cloud';
 const PRESET_NAME = 'Fake Studio';
-const BEAT = 400;
 
 async function backendId(page: Page, token: string): Promise<string> {
 	const list = await apiGet(page, '/api/backends', token);
@@ -42,13 +41,11 @@ async function pickModel(page: Page, label: string) {
 	if (await swap.isVisible().catch(() => false)) await swap.click();
 	await field(page, 'model').locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
-	await page.waitForTimeout(BEAT);
 }
 
 async function choose(page: Page, name: string, option: string) {
 	await field(page, name).locator('button[aria-haspopup="listbox"]').click();
 	await page.getByRole('option', { name: option, exact: true }).click();
-	await page.waitForTimeout(BEAT);
 }
 
 async function expectChosen(page: Page) {
@@ -60,7 +57,6 @@ async function typePrompt(page: Page, text: string) {
 	const editor = page.locator('[contenteditable="true"]').first();
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(BEAT);
 }
 
 async function latestGeneration(page: Page, token: string) {
@@ -160,7 +156,6 @@ test.describe('cloud generation against the fake provider', () => {
 		await expectChosen(page);
 		await screenshot(page, JOURNEY, 'generating-1440');
 		await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible({ timeout: 60000 });
-		await page.waitForTimeout(BEAT);
 		await expectChosen(page);
 		const generation = await latestGeneration(page, token);
 		expect(generation.status).toBe('completed');
@@ -265,7 +260,6 @@ test.describe('cloud form on a phone', () => {
 		await expect(sheet).toBeHidden({ timeout: 5000 });
 		await page.getByRole('button', { name: 'Settings', exact: true }).click();
 		await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible({ timeout: 5000 });
-		await page.waitForTimeout(1200);
 		await pickModel(page, 'Fake Lite');
 		await expect(field(page, 'quality')).toHaveCount(0);
 		await screenshot(page, JOURNEY, 'form-fake-lite-390');

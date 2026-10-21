@@ -6,7 +6,6 @@ const JOURNEY = 'chat-composer';
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 // Deliberate pause so the recorded clip reads well for a human reviewer.
-const BEAT = 450;
 
 // The LLM chat composer keeps its @-resource attach affordance, drops the
 // slash-command picker, and gathers the tools / memory / pin controls into the
@@ -42,7 +41,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 
 	const composer = page.locator('.composer:has(button[aria-label="Send message"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
-	await page.waitForTimeout(BEAT);
 
 	await composer.screenshot({ path: shotPath(JOURNEY, 'composer-bottom-bar') });
 	await screenshot(page, JOURNEY, 'chat-panel-open');
@@ -73,7 +71,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	expect(btnBox, 'tools button has a box').not.toBeNull();
 	expect(popBox!.y, 'tools popover should open upward (above its button)').toBeLessThan(btnBox!.y);
 
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'tools-popover-open');
 
 	// Tools arrive grouped behind a drill-down: the top level renders one row
@@ -90,7 +87,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	const groupNames = await groupRows.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-group')));
 	expect(groupNames).toContain('Memory');
 	expect(groupNames, 'grouping must not collapse into a lone Other bucket').not.toEqual(['Other']);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'tools-top-level');
 
 	function groupRow(groupName: string) {
@@ -110,7 +106,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 		await expect(toolRows.first()).toBeVisible();
 		// Every tool row still carries its user-facing description below the name.
 		expect(await toolRows.count()).toBeGreaterThan(0);
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, `tools-group-${groupName}`.toLowerCase().replace(/[^a-z0-9-]+/g, '-'));
 
 		return { detail, toolRows, countBefore };
@@ -121,7 +116,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	// Back out returns to the group list.
 	await toolsPopover.locator('[data-testid="tool-group-back"]').click();
 	await expect(groupList).toBeVisible();
-	await page.waitForTimeout(BEAT);
 
 	const memory = await drillInto('Memory');
 
@@ -140,7 +134,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 		const memoryCheckbox = memoryRow.locator('input[type="checkbox"]');
 		expect(await memoryCheckbox.evaluate((el: HTMLInputElement) => el.indeterminate)).toBe(true);
 	}
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'tools-tristate-indeterminate');
 
 	// Restore: drill back in and re-toggle the same tool.
@@ -149,7 +142,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await detail.locator('[data-testid="tool-row"]').first().locator('input[type="checkbox"]').click();
 	await toolsPopover.locator('[data-testid="tool-group-back"]').click();
 	await expect(groupList).toBeVisible();
-	await page.waitForTimeout(BEAT);
 
 	// Toggle the master "Enable tools" checkbox and show the state change (the
 	// checkbox itself reflects ON <-> OFF, not a button title). Per-tool rows
@@ -159,7 +151,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	const enabledBeforeFlip = await masterToggle.isChecked();
 	await masterToggle.click();
 	await expect(masterToggle).toHaveJSProperty('checked', !enabledBeforeFlip);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'tools-toggled');
 
 	// Restore + close (Escape closes the dropdown without closing the panel —
@@ -167,32 +158,27 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await toolsPopover.locator('input[type="checkbox"]').first().click();
 	await page.keyboard.press('Escape');
 	await expect(toolsPopover).toBeHidden();
-	await page.waitForTimeout(BEAT);
 
 	// --- 2. Memory panel (docked inspector beside the transcript) ---
 	await composer.locator('button.composer-tool').filter({ hasText: 'Memory' }).click();
 	const memoryPanel = page.locator('[aria-label="Memory"]');
 	await expect(memoryPanel).toBeVisible();
 	await expect(memoryPanel.getByText('Memory', { exact: true })).toBeVisible();
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'memory-panel-open');
 	// Close is an IconButton wrapped in a Tooltip, so its accessible name comes
 	// from aria-label, not a native title attribute.
 	await memoryPanel.getByRole('button', { name: 'Close' }).click();
 	await expect(memoryPanel).toBeHidden();
-	await page.waitForTimeout(BEAT);
 
 	// --- 3. Pin toggle (the picker itself lives in the context strip now) ---
 	const pinToggle = page.locator('[data-testid="chat-context-strip"] button[aria-pressed]');
 	await pinToggle.click();
 	await expect(pinToggle).toHaveAttribute('aria-pressed', 'true');
 	await expect(page.locator('[data-testid="chat-context-strip"]')).toHaveAttribute('data-strip-state', 'pinned-active');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'pin-toggle-pinned');
 	await pinToggle.click();
 	await expect(pinToggle).toHaveAttribute('aria-pressed', 'false');
 	await expect(page.locator('[data-testid="chat-context-strip"]')).toHaveAttribute('data-strip-state', 'following');
-	await page.waitForTimeout(BEAT);
 
 	// --- 4. Final full-composer screenshot of the settled bottom row ---
 	await composer.screenshot({ path: shotPath(JOURNEY, 'composer-full-row') });

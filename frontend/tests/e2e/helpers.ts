@@ -19,7 +19,8 @@ export function shotPath(journey: string, label: string): string {
 /** Save a full-page screenshot of the decisive state. Returns its path. */
 export async function screenshot(page: Page, journey: string, label: string): Promise<string> {
 	const path = shotPath(journey, label);
-	await page.screenshot({ path, fullPage: true });
+	await page.evaluate(() => document.fonts.ready);
+	await page.screenshot({ path, fullPage: true, animations: 'disabled' });
 	return path;
 }
 

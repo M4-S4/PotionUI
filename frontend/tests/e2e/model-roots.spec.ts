@@ -102,6 +102,11 @@ async function mockReadiness(page: Page) {
 	);
 }
 
+async function expectNoHorizontalOverflow(page: Page) {
+	const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+	expect(overflow).toBeLessThanOrEqual(0);
+}
+
 async function gotoSetup(page: Page) {
 	await page.goto('/setup');
 	await expect(page.getByText('Models location')).toBeVisible({ timeout: 15000 });
@@ -281,7 +286,6 @@ test.describe('model roots - admin folders', () => {
 		await gotoAdminFolders(page);
 		await expect(page.getByText('Offline')).toBeVisible();
 		await page.getByText('Offline').hover();
-		await page.waitForTimeout(300);
 		await screenshot(page, JOURNEY, 'admin-offline-root');
 	});
 
@@ -398,6 +402,8 @@ test.describe('model roots - phone', () => {
 		await mockIndexingStatus(page);
 		await mockReadiness(page);
 		await gotoSetup(page);
+		await expect(page.getByLabel('Folder path')).toBeVisible();
+		await expectNoHorizontalOverflow(page);
 		await screenshot(page, JOURNEY, 'wizard-phone');
 	});
 });

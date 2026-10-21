@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
-import { installAndSelectImagePreset } from './presetPreamble';
+import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { expectPresetPersisted, installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'sessions-drawer-long-lists';
 const SESSION_COUNT = 25;
@@ -36,23 +36,16 @@ async function seedSessions(page: Page, presetId: string): Promise<void> {
 	}
 }
 
-async function expectPresetPersisted(page: Page, presetId: string): Promise<void> {
-	const tabsKey = await scopedStorageKey(page, 'potionui_tabs_state');
-	await expect
-		.poll(() =>
-			page.evaluate(({ id, key }) => {
-				const raw = localStorage.getItem(key);
-				const state = raw ? JSON.parse(raw) : null;
-				return Boolean(state?.tabs?.some((t: { selectedPreset: unknown }) => JSON.stringify(t.selectedPreset ?? '').includes(id)));
-			}, { id: presetId, key: tabsKey })
-		)
-		.toBe(true);
-}
-
 async function expectInsideViewport(page: Page, drawer: Locator): Promise<void> {
-	await page.waitForTimeout(300);
-	const box = await drawer.boundingBox();
 	const viewport = page.viewportSize()!;
+	await expect
+		.poll(async () => {
+			const first = await drawer.boundingBox();
+			await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+			return JSON.stringify(first) === JSON.stringify(await drawer.boundingBox());
+		})
+		.toBe(true);
+	const box = await drawer.boundingBox();
 	expect(box, 'drawer has a box').not.toBeNull();
 	expect(box!.y).toBeGreaterThanOrEqual(0);
 	expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -138,7 +131,6 @@ test('the sessions drawer stays inside the viewport and scrolls a long list and 
 	await expect(page.locator('button[aria-label="Session"]').first()).toBeFocused();
 
 	await page.setViewportSize({ width: 390, height: 844 });
-	await page.waitForTimeout(400);
 	await page.getByRole('button', { name: 'Open preset and session' }).click();
 	const sheet = page.getByRole('dialog', { name: 'Preset and session' });
 	await expect(sheet).toBeVisible();

@@ -3,7 +3,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-chip-input-interactions';
-const BEAT = 350;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 // The four ChatChipInput.svelte behaviors that genuinely need a
@@ -93,7 +92,6 @@ test.describe('ChatChipInput browser interactions', () => {
 		await page.keyboard.type('X');
 
 		await expect(chipInput).toHaveText('before PASTEDX');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'paste-inserted-at-cursor');
 	});
 
@@ -118,13 +116,11 @@ test.describe('ChatChipInput browser interactions', () => {
 
 		await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
 		await expect(options.nth(1)).toHaveAttribute('aria-selected', 'false');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'suggest-dropdown-open');
 
 		await page.keyboard.press('ArrowDown');
 		await expect(options.nth(0)).toHaveAttribute('aria-selected', 'false');
 		await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'suggest-dropdown-arrow-down');
 
 		await page.keyboard.press('ArrowUp');
@@ -140,7 +136,6 @@ test.describe('ChatChipInput browser interactions', () => {
 		expect(text.startsWith('@'), `expected editor text to still start with '@', got ${JSON.stringify(text)}`).toBe(
 			true
 		);
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'suggest-dropdown-navigated-into-namespace');
 		console.log(`[${JOURNEY}] navigated into root namespace option labeled ${JSON.stringify(firstLabel)}`);
 	});
@@ -149,7 +144,6 @@ test.describe('ChatChipInput browser interactions', () => {
 		test.setTimeout(120000);
 		const chipInput = await openGlobalChat(page);
 		await attachFirstFormSuggestion(page, chipInput);
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'chip-attached-before-backspace');
 
 		// attachResource() leaves the caret right after the newly-inserted chip
@@ -158,7 +152,6 @@ test.describe('ChatChipInput browser interactions', () => {
 		await page.keyboard.press('Backspace');
 
 		await expect(chipInput.locator('.inline-chip-container')).toHaveCount(0);
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'chip-removed-after-backspace');
 	});
 
@@ -181,11 +174,9 @@ test.describe('ChatChipInput browser interactions', () => {
 		await attachFirstFormSuggestion(page, chipInput);
 		await page.keyboard.type('c');
 		await page.keyboard.press('ArrowLeft');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'chip-before-delete');
 
 		await page.keyboard.press('Delete');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'chip-after-delete');
 
 		// PREDICTION: native atomic-void deletion removes the whole chip.
@@ -202,7 +193,6 @@ test.describe('ChatChipInput browser interactions', () => {
 		const chip = chipInput.locator('.inline-chip').first();
 		await expect(chip).toBeVisible();
 		await expect(chip.locator('button')).toBeVisible();
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'resource-chip-mounted');
 
 		// unmount(): ChatChipInput has no InlineChipEditor-style
@@ -212,7 +202,6 @@ test.describe('ChatChipInput browser interactions', () => {
 		// props" scenario to exercise here; this only covers mount + unmount.
 		await chip.locator('button').click();
 		await expect(chipInput.locator('.inline-chip-container')).toHaveCount(0);
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'resource-chip-unmounted');
 	});
 });

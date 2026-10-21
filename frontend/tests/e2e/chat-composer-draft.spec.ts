@@ -3,7 +3,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-composer-draft';
-const BEAT = 350;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 // GlobalChatPanel.svelte unmounts UnifiedAIChat on close (only the sliding
@@ -43,14 +42,12 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	await chipInput.click();
 	await page.keyboard.type('Draft I do not want to lose');
 	await expect(chipInput).toContainText('Draft I do not want to lose');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '00-drafted-before-close');
 
 	// Close via the header's X button (aria-label="Close chat") — the path that
 	// used to reset userInput itself, on top of the unmount.
 	await page.locator('button[aria-label="Close chat"]').click();
 	await expect(composer).toBeHidden();
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '01-drawer-closed');
 
 	// Reopen via the sidebar AI Chat button — a fresh UnifiedAIChat instance.
@@ -60,7 +57,6 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	const reopenedChipInput = reopenedComposer.locator('[role="textbox"][aria-placeholder]');
 	await expect(reopenedChipInput).toHaveAttribute('contenteditable', 'true');
 	await expect(reopenedChipInput).toContainText('Draft I do not want to lose');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '02-draft-restored');
 
 	// Sending clears the draft — closing and reopening again must not bring
@@ -69,7 +65,6 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	await reopenedComposer.locator('button[aria-label="Send message"]').click();
 	await expect(page.getByText('Acknowledged.')).toBeVisible({ timeout: 30000 });
 	await expect(reopenedChipInput).toHaveText('');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '03-sent-composer-empty');
 
 	await page.locator('button[aria-label="Close chat"]').click();

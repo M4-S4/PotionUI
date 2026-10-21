@@ -37,7 +37,6 @@ test('negative editor marks itself inert at guidance <= 1', async ({ page }) => 
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await page.goto('/generate');
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
 
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
 	await page.getByRole('listbox', { name: 'Presets' }).getByText(zimage.name, { exact: true }).click();
@@ -45,13 +44,11 @@ test('negative editor marks itself inert at guidance <= 1', async ({ page }) => 
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(800);
 
 	// Default profile is turbo -> cfg resolves to 1.0 -> the negative is never
 	// encoded, so the footer carries the inert notice.
 	const negativeList = page.locator('div[role="list"][aria-label="Negative segments"]');
 	await expect(negativeList).toHaveCount(0, { timeout: 10000 });
-	await page.waitForTimeout(300);
 	// Element-scoped capture of the prompt panel so the negative footer + notice
 	// are actually framed (the panel lives in a below-the-fold scroll container).
 	// `.prompt-panel` was renamed `.prompt-editor` in bbff1e9f.
@@ -68,13 +65,11 @@ test('negative editor marks itself inert at guidance <= 1', async ({ page }) => 
 		.first();
 	await speedTrigger.click();
 	await page.getByRole('option').filter({ hasText: 'Base' }).filter({ hasText: '30 steps' }).click();
-	await page.waitForTimeout(600);
 
 	await expect(negativeList).toBeVisible({ timeout: 10000 });
 	// The negative region is no longer collapsible (bbff1e9f) — scroll its
 	// always-visible section header into view instead of a toggle button.
 	const negativeHeader = page.locator('.negative-header').first();
 	await negativeHeader.scrollIntoViewIfNeeded();
-	await page.waitForTimeout(300);
 	await promptPanel.screenshot({ path: shotPath(JOURNEY, '01-zimage-base-negative-applied') });
 });

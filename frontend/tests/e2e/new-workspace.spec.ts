@@ -48,7 +48,6 @@ test('New workspace warns and discards on a dirty, never-saved tab', async ({ pa
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await page.goto('/generate');
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
 
 	// Clicking "New workspace" on a pristine app (single default tab, nothing
 	// picked or typed) must wipe with no modal at all.
@@ -64,7 +63,6 @@ test('New workspace warns and discards on a dirty, never-saved tab', async ({ pa
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A lighthouse on a stormy cliff.');
 	await expect(mainList).toContainText('A lighthouse on a stormy cliff.');
@@ -132,13 +130,11 @@ test('New workspace "Save & create new" saves a dirty existing session before wi
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await page.goto('/generate');
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
 
 	await pickPreset(page, imagePreset.name);
 
 	const mainList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(mainList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	await typeIntoSegment(page, 'Positive segments', 0, 'A quiet harbor at dawn.');
 

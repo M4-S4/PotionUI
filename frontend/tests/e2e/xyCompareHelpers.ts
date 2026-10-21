@@ -1,9 +1,9 @@
 import { expect, type Page } from '@playwright/test';
+import { apiGet } from './helpers';
 
 export const BACKEND_NAME = 'E2E Fake Cloud';
 export const PRESET_NAME = 'Fake Studio';
 export const GRIDS = '/api/generations/grids';
-export const BEAT = 400;
 
 export const field = (page: Page, name: string) => page.locator(`[data-field-name="${name}"]`);
 
@@ -79,12 +79,6 @@ export async function turnOffCompare(page: Page) {
 	if (await drawer.isVisible()) await closeCompareDrawer(page);
 }
 
-export async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
 export async function backendId(page: Page, token: string): Promise<string> {
 	const list = await apiGet(page, '/api/backends', token);
 	const backend = (list.data as Array<{ id: string; name: string }>).find((b) => b.name === BACKEND_NAME);
@@ -135,14 +129,12 @@ export async function pickModel(page: Page, label: string) {
 	if (await swap.isVisible().catch(() => false)) await swap.click();
 	await field(page, 'model').locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
-	await page.waitForTimeout(BEAT);
 }
 
 export async function typePrompt(page: Page, text: string) {
 	const editor = page.locator('[contenteditable="true"]').first();
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(BEAT);
 }
 
 export async function captureStartRequest(page: Page): Promise<Record<string, any>> {

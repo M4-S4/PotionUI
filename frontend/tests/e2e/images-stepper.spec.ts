@@ -8,7 +8,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from 
 // the bumped value, and assert the bound value actually changed.
 
 const JOURNEY = 'images-stepper';
-const BEAT = 400;
 
 test('images stepper — SDXL batch count renders and steps as a compact control', async ({ page }) => {
 	await loginAsOwner(page);
@@ -46,12 +45,10 @@ test('images stepper — SDXL batch count renders and steps as a compact control
 
 	const tablist = page.locator('[role="tablist"]').first();
 	await expect(tablist).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	// The Quantity stepper lives on the "Generation" tab (first tab, icon-only).
 	const generationTab = page.locator('[role="tab"]').first();
 	await generationTab.click();
-	await page.waitForTimeout(BEAT);
 
 	const quantityLabel = page.getByText('Quantity', { exact: true }).first();
 	await expect(quantityLabel).toBeVisible({ timeout: 10000 });
@@ -69,9 +66,7 @@ test('images stepper — SDXL batch count renders and steps as a compact control
 
 	const incrementButton = stepperCard.getByRole('button', { name: 'Increase value' });
 	await incrementButton.click();
-	await page.waitForTimeout(BEAT);
 	await incrementButton.click();
-	await page.waitForTimeout(BEAT);
 
 	await expect(valueInput).toHaveValue('3');
 

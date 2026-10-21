@@ -55,7 +55,6 @@ for (const [name, remote] of [['single', false], ['remote', true]] as const) {
 		expect(Math.abs(url!.width - type!.width)).toBeLessThan(2);
 		if (SHOTS) {
 			await page.mouse.move(0, 0);
-			await page.waitForTimeout(500);
 			await page.screenshot({ path: `${SHOTS}/${name}-1440.png` });
 			await page.setViewportSize({ width: 390, height: 844 });
 			await page.screenshot({ path: `${SHOTS}/${name}-390.png` });

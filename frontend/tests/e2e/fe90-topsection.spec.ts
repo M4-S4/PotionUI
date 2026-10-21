@@ -7,7 +7,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from 
 // and the left settings pane opens with the relocated preset card + mode
 // segmented row (PresetSessionBar deleted, its 15 controls re-homed).
 const JOURNEY = 'fe90-topsection';
-const BEAT = 400;
 
 test('top section — tabs row cluster + relocated preset header', async ({ page }) => {
 	await loginAsOwner(page);
@@ -44,7 +43,6 @@ test('top section — tabs row cluster + relocated preset header', async ({ page
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 
 	await expect(page.locator('[role="tablist"]').first()).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	// 1. Full page — the decisive comparison against generate_1a.png's top strip.
 	await screenshot(page, JOURNEY, '01-generate-full');
@@ -71,17 +69,14 @@ test('top section — tabs row cluster + relocated preset header', async ({ page
 	const sessionTrigger = page.getByRole('button', { name: 'Session', exact: true });
 	await expect(sessionTrigger).toBeVisible();
 	await sessionTrigger.click();
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '04-session-panel-open');
 	await page.keyboard.press('Escape');
-	await page.waitForTimeout(BEAT);
 
 	// 5. Open "…" overflow menu - must show BOTH the Simple/Advanced toggle
 	// (now a labeled "Field visibility" section) and the view-layout picker.
 	const overflowTrigger = page.getByRole('button', { name: 'More view options' });
 	await expect(overflowTrigger).toBeVisible();
 	await overflowTrigger.click();
-	await page.waitForTimeout(BEAT);
 	const overflowMenu = page.getByRole('menu', { name: 'More view options' });
 	await expect(overflowMenu).toBeVisible();
 	await expect(overflowMenu.getByText('Field visibility')).toBeVisible();
@@ -94,20 +89,16 @@ test('top section — tabs row cluster + relocated preset header', async ({ page
 	// pick does), so this stays in the same open state as step 5.
 	const advancedButton = overflowMenu.getByRole('button', { name: 'Advanced' });
 	await advancedButton.click();
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '06-advanced-audience');
 	await overflowTrigger.click(); // close
-	await page.waitForTimeout(BEAT);
 
 	// 7. Mobile: the Studio "preset & session" sheet now mounts PresetHeader +
 	// SessionPill in place of the deleted PresetSessionBar / mobile carousel
 	// panel - not redesigned, just re-homed, so confirm it still renders both.
 	await page.setViewportSize({ width: 390, height: 844 });
-	await page.waitForTimeout(BEAT);
 	const presetSheetTrigger = page.getByRole('button', { name: 'Open preset and session' });
 	await expect(presetSheetTrigger).toBeVisible();
 	await presetSheetTrigger.click();
-	await page.waitForTimeout(BEAT);
 	const presetSheet = page.getByRole('dialog', { name: 'Preset and session' });
 	await expect(presetSheet).toBeVisible();
 	await expect(presetSheet.getByRole('button', { name: imagePreset.name, exact: false }).first()).toBeVisible();

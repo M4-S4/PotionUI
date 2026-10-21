@@ -53,7 +53,6 @@ async function typeChainShotPrompt(director: ReturnType<Page['locator']>, page: 
 	await expect(editor).toBeVisible({ timeout: 5000 });
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(300);
 }
 
 test.describe('Video Director shot console: per-shot generation', () => {
@@ -113,23 +112,19 @@ test.describe('Video Director shot console: per-shot generation', () => {
 			return;
 		}
 		await addShotBtn.click();
-		await page.waitForTimeout(300);
 		await expect(director.getByText(/2 shots? · [\d.]+ s/)).toBeVisible({ timeout: 10000 });
 
 		// Every segment needs a prompt before the page's Generate control
 		// enables (validateDirector's chain branch) — shot 1 starts expanded.
 		await typeChainShotPrompt(director, page, 'First shot, lanterns in the rain');
 		await director.getByRole('button', { name: /^Expand / }).first().click();
-		await page.waitForTimeout(300);
 		await typeChainShotPrompt(director, page, 'Second shot, steam fills the frame');
 
 		// Every row carries its checkbox in stack order (01 then 02), whether
 		// collapsed or expanded: check shot 2 then shot 1.
 		const checkboxes = director.getByRole('button', { name: 'Select for generation' });
 		await checkboxes.nth(1).click();
-		await page.waitForTimeout(150);
 		await checkboxes.nth(0).click();
-		await page.waitForTimeout(150);
 
 		await expect(director.getByText('2 selected')).toBeVisible({ timeout: 5000 });
 

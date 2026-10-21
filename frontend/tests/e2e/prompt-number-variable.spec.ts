@@ -109,6 +109,7 @@ test.describe('number variable', () => {
 
 		const modal = await openVariableManager(page);
 		await defineNumber(modal, 'age');
+		await modal.getByRole('radio', { name: 'Shuffle' }).click();
 		await setNumberField(modal, 'Minimum', '18');
 		await setNumberField(modal, 'Maximum', '80');
 		await expect(modal.getByTestId('number-preview-note')).toContainText('from 63 values');

@@ -9,7 +9,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from 
 // This journey enables krea2-edit through the real admin API so the repro is
 // the actual bug surface, not a synthetic stand-in.
 const JOURNEY = 'fe90-mode-row-krea2';
-const BEAT = 400;
 const KREA2_PRESET_ID = '4TK1KBQZ2XMB8ME0PTMXS1YJQP';
 const PLUGIN_ID = 'krea2-edit';
 
@@ -58,7 +57,6 @@ test('mode row — Krea-2 with krea2-edit enabled (plugin-contributed mode)', as
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 
 	await expect(page.locator('[role="tablist"]').first()).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	await screenshot(page, JOURNEY, '01-generate-full');
 

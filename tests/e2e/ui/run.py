@@ -123,8 +123,32 @@ LOCK_POLL_SECONDS = 5.0
 UNREADABLE_LOCK_GRACE_SECONDS = 10.0
 
 
+def ignored_paths(paths: List[Path], cwd: Path) -> set:
+    if not paths:
+        return set()
+    try:
+        proc = subprocess.run(
+            ["git", "check-ignore", "--stdin", "-z"],
+            cwd=str(cwd),
+            input="\0".join(str(p) for p in paths) + "\0",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return {Path(item) for item in proc.stdout.split("\0") if item}
+
+
+def spec_filters(names: List[str]) -> List[str]:
+    return [f"{name}\\.spec\\.ts" for name in names]
+
+
 def discover_specs() -> List[str]:
-    return sorted(p.name[: -len(".spec.ts")] for p in SPECS_DIR.glob("*.spec.ts"))
+    specs = list(SPECS_DIR.glob("*.spec.ts"))
+    skipped = ignored_paths(specs, REPO_ROOT)
+    return sorted(p.name[: -len(".spec.ts")] for p in specs if p not in skipped)
 
 
 FRESH_INSTANCE_SPECS = {"empty-group-tabs"}
@@ -623,7 +647,7 @@ def run_chunk(
             env["E2E_ARTIFACTS_DIR"] = str(ARTIFACTS_DIR)
             env["E2E_DB_PATH"] = str(app.instance.db_path)
 
-            cmd = [NPX, "playwright", "test", *chunk_names]
+            cmd = [NPX, "playwright", "test", *spec_filters(chunk_names)]
             if args.headed:
                 cmd.append("--headed")
             log(f"Running: {' '.join(cmd)}")

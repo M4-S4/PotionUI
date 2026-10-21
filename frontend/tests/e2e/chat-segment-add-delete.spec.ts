@@ -4,7 +4,6 @@ import { installAndSelectImagePreset } from './presetPreamble';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-segment-add-delete';
-const BEAT = 450;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 const FIRST = 'portrait of a lighthouse keeper';
@@ -79,7 +78,6 @@ test('assistant adds a segment after #1 and deletes another, and the delete can 
 	await expect(lastReplyButtons(page).nth(2)).toHaveText(/Added/);
 	await expect(lastReplyButtons(page).nth(2)).toBeDisabled();
 	await expect.poll(() => promptOrder(page)).toEqual([FIRST, SECOND, THIRD]);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'three-segments-added');
 
 	fake.enqueue({
@@ -95,7 +93,6 @@ test('assistant adds a segment after #1 and deletes another, and the delete can 
 	await expect(reply.getByText('Delete Segment #3')).toBeVisible({ timeout: 30000 });
 	await expect(reply.getByText('Add Segment')).toBeVisible();
 	await expect(reply.locator('[data-testid="segment-removed-text"]')).toContainText(THIRD);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'delete-and-add-proposed');
 
 	await lastReplyButtons(page).nth(0).click();
@@ -107,18 +104,15 @@ test('assistant adds a segment after #1 and deletes another, and the delete can 
 	await lastReplyButtons(page).nth(1).click();
 	await expect(lastReplyButtons(page).nth(1)).toHaveText(/Added/);
 	await expect.poll(() => promptOrder(page)).toEqual([FIRST, INSERTED, SECOND]);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'delete-and-add-applied-1440');
 
 	await reply.locator('[data-testid="segment-action-undo"]').click();
 	await expect.poll(() => promptOrder(page)).toEqual([FIRST, INSERTED, SECOND, THIRD]);
 	await expect(reply.locator('[data-testid="segment-action-undo"]')).toHaveCount(0);
 	await expect(lastReplyButtons(page).nth(0)).toHaveText('Delete');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'delete-undone');
 
 	await page.setViewportSize({ width: 390, height: 844 });
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'delete-undone-390');
 
 	console.log(

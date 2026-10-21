@@ -1,5 +1,5 @@
 import { expect, type Page } from '@playwright/test';
-import { ownerToken } from './helpers';
+import { ownerToken, scopedStorageKey } from './helpers';
 
 export interface DiscoveredPreset {
 	id: string;
@@ -71,8 +71,22 @@ export async function installAndSelectImagePreset(page: Page): Promise<Discovere
 	await expect(presetList).toBeVisible({ timeout: 15000 });
 	await presetList.getByText(preset.name, { exact: true }).click();
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await expectPresetPersisted(page, preset.id);
 
 	return { id: preset.id, name: preset.name };
+}
+
+export async function expectPresetPersisted(page: Page, presetId: string): Promise<void> {
+	const tabsKey = await scopedStorageKey(page, 'potionui_tabs_state');
+	await expect
+		.poll(() =>
+			page.evaluate(({ id, key }) => {
+				const raw = localStorage.getItem(key);
+				const state = raw ? JSON.parse(raw) : null;
+				return Boolean(state?.tabs?.some((t: { selectedPreset: unknown }) => JSON.stringify(t.selectedPreset ?? '').includes(id)));
+			}, { id: presetId, key: tabsKey })
+		)
+		.toBe(true);
 }
 
 export async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promise<boolean> {
@@ -84,12 +98,13 @@ export async function selectPresetInPicker(page: Page, preset: DiscoveredPreset)
 	const entry = presetList.getByText(preset.name, { exact: true });
 	if ((await entry.count()) === 0) return false;
 	await entry.click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(1500);
+	const confirm = page.getByRole('button', { name: /Use this preset|Keep selected/ });
+	await confirm.click();
+	await expect(confirm).toBeHidden();
+	await page.waitForLoadState('networkidle');
 	const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
 	if ((await videoModeBtn.count()) > 0) {
 		await videoModeBtn.click();
-		await page.waitForTimeout(500);
 	}
 	return true;
 }

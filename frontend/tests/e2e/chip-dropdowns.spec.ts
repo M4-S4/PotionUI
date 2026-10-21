@@ -147,7 +147,6 @@ async function revealEditor(page: Page): Promise<Locator> {
 	if ((await pill.count()) > 0 && (await pill.first().isVisible()) && !(await sheet.isVisible())) {
 		await pill.first().click();
 		await expect(sheet).toBeVisible();
-		await page.waitForTimeout(500);
 	}
 	return segmentEditor(page);
 }
@@ -177,7 +176,6 @@ for (const viewport of VIEWPORTS) {
 		await modal.getByRole('button', { name: /^Done/ }).click();
 		await expect(modal).toBeHidden();
 
-		await page.waitForTimeout(500);
 		let editor = await revealEditor(page);
 		await editor.click();
 		await page.keyboard.type('portrait of a woman, $mo');

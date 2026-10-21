@@ -152,7 +152,6 @@ test.describe('add folder with layout profiles - desktop', () => {
 		await expect(page.getByText('LyCORIS', { exact: true })).toBeVisible();
 		await expect(page.getByLabel('Downloads go here')).toHaveCount(2);
 		await page.getByText('Detected: StabilityMatrix').hover();
-		await page.waitForTimeout(600);
 		await screenshot(page, JOURNEY, 'desktop-stabilitymatrix');
 
 		await page.getByRole('radio').nth(1).check();

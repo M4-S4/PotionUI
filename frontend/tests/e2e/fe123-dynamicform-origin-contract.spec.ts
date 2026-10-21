@@ -2,7 +2,6 @@ import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
 
 const JOURNEY = 'fe123-dynamicform-origin-contract';
-const BEAT = 400;
 
 // MediaLoaderField sends provenance (`${name}__origin`) through a
 // dedicated `onOriginChange` callback instead of overloading `onChange` -
@@ -76,17 +75,14 @@ test('DynamicForm image field survives a History pick alongside onOriginChange',
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
 	await page.getByText(preset.name, { exact: true }).first().click();
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(BEAT);
 
 	const modeLabel = img2img.label || img2img.name;
 	await page.getByTestId('preset-header-mode').getByRole('button').first().click();
 	await page.getByRole('option', { name: new RegExp(`^${modeLabel}`) }).first().click();
-	await page.waitForTimeout(BEAT);
 
 	// 04f53dc7 ("Reference media gets its own tab, out of the generation tab")
 	// moved source_image out of the Generation tab into its own References tab.
 	await page.getByRole('tab', { name: 'References' }).click();
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, '01-img2img-selected');
 
 	// --- Open History from the source_image field and pick the seeded
@@ -103,7 +99,6 @@ test('DynamicForm image field survives a History pick alongside onOriginChange',
 
 	const historyModal = page.getByText('Select Image from Generation History');
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	const thumbnail = page.locator(`img[src*="${generationId}"]`).first();
 	await expect(thumbnail, 'seeded generation should appear in the history grid').toBeVisible({
@@ -112,7 +107,6 @@ test('DynamicForm image field survives a History pick alongside onOriginChange',
 	await thumbnail.locator('xpath=ancestor::button[1]').click();
 
 	await expect(historyModal).not.toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	// --- Decisive assertion: the field shows the picked image. MediaLoaderField
 	// fires onChange(name, value) then onOriginChange(name, origin) for this

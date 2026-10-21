@@ -85,8 +85,6 @@ test('FE tag-clear — opening the generation details modal drops previously-ass
 	const tagButton = page.getByRole('button', { name: 'Manage tags' });
 	await expect(tagButton).toBeVisible({ timeout: 20000 });
 
-	// Let the modal's detail fetch (segments/tags) resolve.
-	await page.waitForTimeout(1500);
 	await screenshot(page, JOURNEY, '01-modal-open-after-detail-fetch');
 
 	// Symptom (1): the tag badge on the button should read 2 (both tags
@@ -104,12 +102,10 @@ test('FE tag-clear — opening the generation details modal drops previously-ass
 	const optionA = page.getByRole('option').filter({ hasText: /repro-tag-a-/ });
 	if ((await optionA.count()) > 0) {
 		await optionA.first().click();
-		await page.waitForTimeout(800);
 	}
 
 	// Close the modal.
 	await page.keyboard.press('Escape');
-	await page.waitForTimeout(300);
 
 	const after = await apiGet(page, `/api/generations/${generationId}/tags`, token);
 	const afterIds = (after.data.tags || []).map((t: any) => t.id).sort();

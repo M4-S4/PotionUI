@@ -3,7 +3,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-conditions-cards';
-const BEAT = 450;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 const BLOCK = '<<if $age > 65>>grey hair<<else>>auburn hair<<end>>';
 
@@ -162,7 +161,6 @@ for (const viewport of VIEWPORTS) {
 			await card.locator('[data-testid="segment-action-apply"]').scrollIntoViewIfNeeded();
 			await expect(card.locator('[data-testid="segment-action-apply"]')).toBeInViewport();
 			await expectFitsViewport(page, card);
-			await page.waitForTimeout(BEAT);
 			await screenshot(page, JOURNEY, `version-card-${viewport.label}`);
 		});
 
@@ -187,7 +185,6 @@ for (const viewport of VIEWPORTS) {
 			await apply.scrollIntoViewIfNeeded();
 			await expect(apply).toBeInViewport();
 			await expectFitsViewport(page, card);
-			await page.waitForTimeout(BEAT);
 			await screenshot(page, JOURNEY, `malformed-card-${viewport.label}`);
 		});
 
@@ -219,7 +216,6 @@ for (const viewport of VIEWPORTS) {
 			await expect(segment).not.toContainText('<<if');
 			await expectFitsViewport(page, variable);
 			await expectFitsViewport(page, segment);
-			await page.waitForTimeout(BEAT);
 			await screenshot(page, JOURNEY, `approval-cards-${viewport.label}`);
 		});
 	});

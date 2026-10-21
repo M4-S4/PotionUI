@@ -45,12 +45,10 @@ test('camera orbit — drag direction, face visibility, live caption', async ({ 
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await page.goto('/generate');
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
 
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
 	await page.getByRole('listbox', { name: 'Presets' }).getByText(sdxl.name, { exact: true }).click();
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(1000);
 
 	await page.getByRole('tab', { name: 'Enhance' }).click();
 	await page.getByRole('button', { name: '3D' }).click();

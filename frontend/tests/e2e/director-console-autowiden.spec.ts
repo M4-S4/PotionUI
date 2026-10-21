@@ -118,9 +118,10 @@ test.describe('Video Director prompts-pane auto-widen', () => {
 		}
 		const director = page.locator('section.video-director[aria-label="Video Director"]');
 		await expect(director).toBeVisible({ timeout: 15000 });
-		// The widen runs after a DOM tick following activation; give it a beat.
-		await page.waitForTimeout(500);
 
+		await expect
+			.poll(async () => (await readPromptPaneGeometry(page))?.promptWidth ?? 0)
+			.toBeGreaterThan(before!.promptWidth);
 		const widened = await readPromptPaneGeometry(page);
 		expect(widened, 'prompts pane must be measurable once the Director is active').not.toBeNull();
 		const expectedMax = Math.max(
@@ -145,8 +146,10 @@ test.describe('Video Director prompts-pane auto-widen', () => {
 			return;
 		}
 		await expect(director).toHaveCount(0, { timeout: 15000 });
-		await page.waitForTimeout(300);
 
+		await expect
+			.poll(async () => Math.abs(((await readPromptPaneGeometry(page))?.promptWidth ?? Infinity) - before!.promptWidth))
+			.toBeLessThanOrEqual(MAX_WIDTH_TOLERANCE_PX);
 		const restored = await readPromptPaneGeometry(page);
 		expect(restored, 'prompts pane must be measurable after restoring').not.toBeNull();
 		expect(

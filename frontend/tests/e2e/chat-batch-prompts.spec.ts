@@ -4,7 +4,6 @@ import { installAndSelectImagePreset } from './presetPreamble';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-batch-prompts';
-const BEAT = 450;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 const NIGHT = 'a quiet village at night, lit windows';
@@ -83,7 +82,6 @@ test('assistant adds a second prompt, the Prompt header shows 2 prompts, and the
 	const reply = page.locator('.assistant-message').last();
 	await expect(reply.getByText('Add prompt 2 · Night version')).toBeVisible({ timeout: 30000 });
 	await expect(applyButtons(page)).toHaveCount(1);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'add-prompt-proposed-1440');
 
 	await applyButtons(page).click();
@@ -96,12 +94,10 @@ test('assistant adds a second prompt, the Prompt header shows 2 prompts, and the
 	const menu = page.getByRole('dialog', { name: 'Prompts' });
 	await expect(menu).toContainText('2 prompts');
 	await expect(menu).toContainText('Night version');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'two-prompts-1440');
 	await page.keyboard.press('Escape');
 
 	await page.setViewportSize({ width: 390, height: 844 });
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'two-prompts-390');
 
 	await page.setViewportSize({ width: 1440, height: 900 });
@@ -109,7 +105,6 @@ test('assistant adds a second prompt, the Prompt header shows 2 prompts, and the
 	await reply.locator('[data-testid="segment-action-undo"]').click();
 	await expect(page.locator('[data-prompt-picker]')).toHaveText(/1 prompt/);
 	await expect(applyButtons(page)).toHaveText('Add');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'add-undone');
 
 	console.log(
@@ -151,7 +146,6 @@ test('prompt actions render at phone width', async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await openChat(page);
 	await expect(applyButtons(page)).toHaveCount(3);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'prompt-actions-390');
 
 	await applyButtons(page).nth(0).click();
@@ -160,6 +154,5 @@ test('prompt actions render at phone width', async ({ page }) => {
 	await page.getByRole('button', { name: 'Close chat', exact: true }).click();
 	await page.getByRole('button', { name: 'Prompt', exact: true }).click();
 	await expect(page.locator('[data-prompt-picker]')).toHaveAttribute('aria-label', 'Prompt 1 of 2');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'prompt-actions-applied-390');
 });

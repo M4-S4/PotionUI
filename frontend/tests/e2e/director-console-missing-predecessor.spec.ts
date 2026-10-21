@@ -40,7 +40,6 @@ async function typeChainShotPrompt(director: ReturnType<Page['locator']>, page: 
 	await expect(editor).toBeVisible({ timeout: 5000 });
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(300);
 }
 
 /** Discovers a Wan-style chain preset, builds a 2-shot film with both shots
@@ -85,12 +84,10 @@ async function setUpTwoShotFilm(page: Page): Promise<ReturnType<Page['locator']>
 		return null;
 	}
 	await addShotBtn.click();
-	await page.waitForTimeout(300);
 	await expect(director.getByText(/2 shots? · [\d.]+ s/)).toBeVisible({ timeout: 10000 });
 
 	await typeChainShotPrompt(director, page, 'First shot, lanterns in the rain');
 	await director.getByRole('button', { name: /^Expand / }).first().click();
-	await page.waitForTimeout(300);
 	await typeChainShotPrompt(director, page, 'Second shot, steam fills the frame');
 
 	// A freshly-added chain shot defaults to a NATIVE CONTINUATION join (no
@@ -118,7 +115,6 @@ test.describe('Video Director shot console: missing-predecessor join', () => {
 		// unchecked. Nothing has ever rendered, so shot 1 (the predecessor) has
 		// no run: the join must now read as missing.
 		await director.getByRole('button', { name: 'Select for generation' }).nth(1).click();
-		await page.waitForTimeout(150);
 		await expect(director.getByText('1 selected')).toBeVisible({ timeout: 5000 });
 
 		await expect(director.getByText('MISSING PREDECESSOR')).toBeVisible({ timeout: 10000 });
@@ -154,7 +150,6 @@ test.describe('Video Director shot console: missing-predecessor join', () => {
 		if (!director) return;
 
 		await director.getByRole('button', { name: 'Select for generation' }).nth(1).click();
-		await page.waitForTimeout(150);
 		await expect(director.getByText('MISSING PREDECESSOR')).toBeVisible({ timeout: 10000 });
 
 		let startRequests = 0;
@@ -168,7 +163,6 @@ test.describe('Video Director shot console: missing-predecessor join', () => {
 		});
 
 		await director.getByRole('button', { name: 'Convert to fresh cut' }).click();
-		await page.waitForTimeout(300);
 
 		// The join is now a hard cut -- no more warning, no toggle "Continue"
 		// half stays active, and never a generation as a side effect of the

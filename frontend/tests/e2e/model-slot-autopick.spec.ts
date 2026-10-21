@@ -2,7 +2,6 @@ import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
 const JOURNEY = 'model-slot-autopick';
-const BEAT = 400;
 const SLOTS = ['diffusion_model', 'text_encoder', 'vae'] as const;
 
 async function json(route: Route, data: unknown, status = 200) {
@@ -179,7 +178,6 @@ for (const viewport of [
 			await expect(field(page, 'vae')).toContainText('flux3-vae', { timeout: 10000 });
 			await fillPrompt(page, viewport.width < 600);
 			await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeEnabled({ timeout: 10000 });
-			await page.waitForTimeout(BEAT);
 			for (const slot of SLOTS) expect(requests[slot], `${slot} slot requests`).toBeLessThanOrEqual(3);
 			await screenshot(page, JOURNEY, `single-candidates-${viewport.name}`);
 		});

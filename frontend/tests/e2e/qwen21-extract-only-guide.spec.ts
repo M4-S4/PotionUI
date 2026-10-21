@@ -4,6 +4,7 @@ import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 import { chunk } from './mediaFieldHelpers';
 
+const TABS_SAVE_DEBOUNCE_MS = 700;
 const JOURNEY = 'qwen21-extract-only-guide';
 const PRESET_ID = '01M31Y6WNM07EHAXXCDV1QVJVX';
 const TABS_STORAGE_KEY = 'potionui_tabs_state';
@@ -96,13 +97,11 @@ async function openControlTab(page: Page, name: string): Promise<Locator> {
 	await expect(tab).toBeVisible({ timeout: 20000 });
 	await tab.click();
 	await expect(page.getByText('Guide', { exact: true }).first()).toBeVisible();
-	await page.waitForTimeout(400);
 	return page.locator('body');
 }
 
 async function shoot(page: Page, label: string) {
 	await page.mouse.move(page.viewportSize()!.width - 2, 2);
-	await page.waitForTimeout(600);
 	await screenshot(page, JOURNEY, label);
 }
 
@@ -157,6 +156,7 @@ test('only extracting the guide needs no prompt and saves a labelled map', async
 	await only.evaluate((el) => el.scrollIntoView({ block: 'center' }));
 	await shoot(page, '02-only-extract-no-prompt-needed');
 
+	await page.waitForTimeout(TABS_SAVE_DEBOUNCE_MS);
 	await page.evaluate(
 		({ key, genId }) => {
 			const raw = localStorage.getItem(key);

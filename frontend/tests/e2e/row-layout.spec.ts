@@ -18,7 +18,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from 
 // asserting the row keeps sharing one line at all of them.
 
 const JOURNEY = 'row-layout';
-const BEAT = 300;
 const SDXL_PRESET_ID = '01K0W24A3RADXXABH16YQ7KE90';
 
 const DESKTOP_VIEWPORTS = [
@@ -67,7 +66,6 @@ test('row layout — Seed and Quantity share one line at every desktop viewport 
 	if ((await generationTab.count()) > 0) {
 		await generationTab.click();
 	}
-	await page.waitForTimeout(BEAT);
 
 	const seedLabel = page.locator('label', { hasText: /^Seed$/ }).first();
 	const quantityLabel = page.locator('label', { hasText: /^Quantity$/ }).first();
@@ -81,7 +79,6 @@ test('row layout — Seed and Quantity share one line at every desktop viewport 
 
 	for (const viewport of DESKTOP_VIEWPORTS) {
 		await page.setViewportSize({ width: viewport.width, height: viewport.height });
-		await page.waitForTimeout(BEAT);
 		await rowGrid.scrollIntoViewIfNeeded();
 
 		await screenshot(page, JOURNEY, `01-${viewport.label}-full-page`);

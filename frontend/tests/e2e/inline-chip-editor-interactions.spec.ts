@@ -3,7 +3,6 @@ import { loginAsOwner, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'inline-chip-editor-interactions';
-const BEAT = 350;
 
 // The four InlineChipEditor.svelte behaviors that genuinely
 // need a browser (can't be pure-function-characterized) — see chipSegments.ts
@@ -87,7 +86,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 		await page.keyboard.type('X');
 
 		await expect(editor).toHaveText('before PASTEDX');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'paste-inserted-at-cursor');
 	});
 
@@ -100,7 +98,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 		// The closing '}' synchronously chipifies the group (chipifyNewTokens).
 		await expect(editor.locator('.choice-group-container')).toHaveCount(1);
 		await expect(editor.locator('.choice-group-chip')).toBeVisible();
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'group-chip-before-backspace');
 
 		// Caret was restored to right after the newly-mounted chip (the
@@ -110,7 +107,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 
 		await expect(editor.locator('.choice-group-container')).toHaveCount(0);
 		await expect(editor).toHaveText('a ');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'group-chip-after-backspace');
 	});
 
@@ -140,11 +136,9 @@ test.describe('InlineChipEditor browser interactions', () => {
 		await page.keyboard.press('Home');
 		await page.keyboard.press('ArrowRight'); // past 'a'
 		await page.keyboard.press('ArrowRight'); // past the space, now right before the chip
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'group-chip-before-delete');
 
 		await page.keyboard.press('Delete');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'group-chip-after-delete');
 
 		// PREDICTION (corrected construction, not yet re-verified): forward-
@@ -159,7 +153,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 		const modal = await openVariableManager(page);
 		await fillVariableRow(modal, 0, 'style', 'oil painting, warm light');
 		await fillVariableRow(modal, 1, 'mood', 'dramatic lighting');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'two-variables-defined');
 		await modal.getByRole('button', { name: 'Done' }).click();
 		await expect(modal).toBeHidden();
@@ -173,13 +166,11 @@ test.describe('InlineChipEditor browser interactions', () => {
 		await expect(options).toHaveCount(2, { timeout: 5000 });
 		await expect(options.nth(0)).toHaveAttribute('aria-selected', 'true');
 		await expect(options.nth(1)).toHaveAttribute('aria-selected', 'false');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-picker-open');
 
 		await page.keyboard.press('ArrowDown');
 		await expect(options.nth(0)).toHaveAttribute('aria-selected', 'false');
 		await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-picker-arrow-down');
 
 		// One more ArrowDown wraps back to index 0 ((selectedIndex + 1) % length).
@@ -205,7 +196,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 		await page.keyboard.press('Enter');
 		await expect(editor.locator('.variable-usage-container')).toHaveCount(1);
 		await expect(editor.locator('.variable-usage-chip')).toContainText(expectedName!);
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-picker-enter-inserted');
 	});
 
@@ -226,7 +216,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 		await expect(editor.locator('.variable-usage-container')).toHaveCount(1);
 		const chipButton = editor.locator('.variable-usage-chip button').first();
 		await expect(chipButton).toBeVisible();
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-chip-mounted');
 
 		await chipButton.click();
@@ -239,7 +228,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 		const popover = page.getByRole('dialog', { name: 'Variable style' });
 		await expect(popover).toBeVisible();
 		await expect(popover).toContainText('oil painting, warm light');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-chip-popover-original-value');
 		await page.keyboard.press('Escape');
 		await expect(popover).toBeHidden();
@@ -258,7 +246,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 		await chipButton.click();
 		await expect(popover).toBeVisible();
 		await expect(popover).toContainText('watercolor, soft light');
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-chip-popover-after-remount');
 		await page.keyboard.press('Escape');
 		await expect(popover).toBeHidden();
@@ -273,7 +260,6 @@ test.describe('InlineChipEditor browser interactions', () => {
 		await expect(popover).toBeVisible();
 		await popover.getByRole('button', { name: 'Remove usage' }).click();
 		await expect(editor.locator('.variable-usage-container')).toHaveCount(0);
-		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-chip-unmounted');
 	});
 });

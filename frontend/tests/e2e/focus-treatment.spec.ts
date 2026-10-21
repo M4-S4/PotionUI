@@ -172,7 +172,6 @@ test('preset form frames and the prompt segment editor', async ({ page }) => {
 	await expect(modalSearch).toBeVisible({ timeout: 10000 });
 	const modalInput = modalSearch.locator('input');
 	await modalInput.click();
-	await page.waitForTimeout(250);
 	await page.screenshot({ path: shotPath(JOURNEY, 'picker-modal-search-focus') });
 	await expectNoRing(modalInput);
 	await expectRing(modalSearch, signal);

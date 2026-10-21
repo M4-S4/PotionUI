@@ -217,7 +217,6 @@ test.describe('Formulas drawer', () => {
 		await resolutionTrigger(page).click();
 		await page.getByRole('option').nth(1).click();
 		await expect(apply).toBeDisabled();
-		await page.waitForTimeout(600);
 		await expect(apply).toBeDisabled();
 
 		release();
@@ -427,7 +426,6 @@ test.describe('Formulas drawer on a phone', () => {
 
 		const button = page.getByTestId('formulas-button');
 		await expect(button).toBeVisible();
-		await page.waitForTimeout(500);
 		await page.screenshot({ path: shotPath(JOURNEY, 'phone-sheet') });
 		await button.click();
 
