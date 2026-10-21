@@ -270,6 +270,47 @@ describe('generation deck live region', () => {
 	});
 });
 
+describe('generation deck with a floating workbench', () => {
+	const queueButton = () => q<HTMLButtonElement>('button[aria-label="Generation queue"]')!;
+	const queuePopover = () => document.querySelector('[role="dialog"][aria-label="Generation queue"]');
+
+	function hoverTooltip(button: HTMLElement) {
+		button.parentElement!.dispatchEvent(new MouseEvent('mouseenter'));
+		vi.advanceTimersByTime(150);
+		flushSync();
+		const text = document.querySelector('[role="tooltip"]')?.textContent?.trim() ?? '';
+		button.parentElement!.dispatchEvent(new MouseEvent('mouseleave'));
+		flushSync();
+		return text;
+	}
+
+	it('makes Queue unavailable the same way as the drawers', () => {
+		vi.useFakeTimers();
+		mounted = mount({ workbenchFloating: true, generation: generation({ queue: [{ generation_id: 'q-1', queue_position: 1, status: 'pending' }] as never }) });
+		const settings = q<HTMLButtonElement>('button[aria-label="Generation settings"]')!;
+		expect(queueButton().disabled).toBe(true);
+		expect(hoverTooltip(queueButton())).toBe('Unavailable while the workbench is floating');
+		expect(hoverTooltip(queueButton())).toBe(hoverTooltip(settings));
+		queueButton().click();
+		flushSync();
+		expect(queuePopover()).toBeNull();
+		q<HTMLButtonElement>('[data-deck-more]')!.click();
+		flushSync();
+		const row = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes('Queue'));
+		expect(row?.disabled).toBe(true);
+	});
+
+	it('closes an open queue popover when the workbench starts floating', () => {
+		mounted = mount();
+		expect(queueButton().disabled).toBe(false);
+		queueButton().click();
+		flushSync();
+		expect(queuePopover()).not.toBeNull();
+		mounted.set({ workbenchFloating: true });
+		expect(queuePopover()).toBeNull();
+	});
+});
+
 describe('generation deck teardown', () => {
 	it('leaves no timers behind when destroyed mid-run and mid-fade', () => {
 		vi.useFakeTimers();

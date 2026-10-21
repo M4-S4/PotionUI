@@ -113,6 +113,10 @@
 		showQueuePopover = false;
 	}
 
+	$: if (workbenchFloating && showQueuePopover) {
+		showQueuePopover = false;
+	}
+
 	$: markState = deriveMarkState({ isGenerating, canGenerate: mounted && markCanGenerate, mode: $generationMode });
 	$: modeChromeGlyph = deriveModeChromeGlyph({
 		isGenerating,
@@ -591,8 +595,8 @@
 					</button>
 				</Tooltip>
 			{/if}
-			<Tooltip text="Queue" position="top" delay={150} wrapperClass="hidden lg:inline-flex lg:items-center">
-				<button type="button" class="icon-button" aria-label="Generation queue" aria-expanded={showQueuePopover} on:click={toggleQueuePopover}>
+			<Tooltip text={drawerUnavailable || 'Queue'} position="top" delay={150} wrapperClass="hidden lg:inline-flex lg:items-center">
+				<button type="button" class="icon-button" aria-label="Generation queue" aria-expanded={showQueuePopover} disabled={workbenchFloating} on:click={toggleQueuePopover}>
 					<Icon name="list-plus" className="icon" strokeWidth={1.8} />
 					{#if queueDepth > 0}<span class="queue-count">{queueDepth}</span>{/if}
 				</button>
@@ -654,6 +658,7 @@
 						type="button"
 						role="menuitem"
 						class="{MENU_ROW} lg:hidden"
+						disabled={workbenchFloating}
 						on:click={() => {
 							menu.close();
 							toggleQueuePopover();
