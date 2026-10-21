@@ -5,9 +5,6 @@ rather than materializing and type-converting every row in `settings` via
 dict. `get_all_settings()`/`get_effective_settings()` stay unchanged for
 callers that genuinely need a full snapshot.
 """
-import statistics
-import sys
-import time
 from unittest.mock import patch
 
 import pytest
@@ -18,7 +15,6 @@ from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
 
 SETTING_COUNT = 200
-REPS = 25
 TRACE_READS = 8
 
 
@@ -142,53 +138,3 @@ class TestGetSettingKeyedRead:
 
         assert len(old_conversions) == TRACE_READS * total_rows
         assert len(new_conversions) == TRACE_READS
-
-    def test_scaling_measurement(self, bulk_settings):
-        """Informational only (see test_connection_setup_overhead.py for why
-        absolute timings aren't asserted on a shared box): prints the
-        before/after wall time for a single read and for PERF-09B's 8-read
-        trace-setting path, separating remaining per-call connection setup
-        from the removed O(row count) conversion work."""
-        settings = Settings(bulk_settings)
-
-        def old_single_read():
-            return bulk_settings.get_effective_settings(None).get("bench_setting_99", None)
-
-        def new_single_read():
-            return settings.get_setting("bench_setting_99")
-
-        def old_trace_reads():
-            for _ in range(TRACE_READS):
-                bulk_settings.get_effective_settings(None).get("bench_trace_flag", True)
-
-        def new_trace_reads():
-            for _ in range(TRACE_READS):
-                settings.get_setting("bench_trace_flag", True)
-
-        def median_time(fn):
-            times = []
-            for _ in range(REPS):
-                t0 = time.perf_counter()
-                fn()
-                times.append(time.perf_counter() - t0)
-            return statistics.median(times)
-
-        old_single = median_time(old_single_read)
-        new_single = median_time(new_single_read)
-        old_trace = median_time(old_trace_reads)
-        new_trace = median_time(new_trace_reads)
-
-        print(
-            f"\n--- PERF-11 keyed-read measurement ({SETTING_COUNT + 1} rows, {REPS} reps, median) ---",
-            file=sys.stderr,
-        )
-        print(
-            f"single read              before(full-table): {old_single * 1000:.3f} ms   "
-            f"after(keyed): {new_single * 1000:.3f} ms",
-            file=sys.stderr,
-        )
-        print(
-            f"trace path x{TRACE_READS} reads    before(full-table): {old_trace * 1000:.3f} ms   "
-            f"after(keyed): {new_trace * 1000:.3f} ms",
-            file=sys.stderr,
-        )

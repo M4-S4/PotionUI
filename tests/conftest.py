@@ -347,8 +347,6 @@ def mock_settings():
 
 # Import all fixtures from fixture modules so they're available to tests
 pytest_plugins = [
-    'tests.fixtures.generation_fixtures',
-    'tests.fixtures.user_fixtures',
     'tests.fixtures.preset_fixtures',
     'tests.fixtures.image_fixtures',
     'tests.fixtures.mesh_fixtures',

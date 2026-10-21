@@ -220,18 +220,6 @@ def test_riflex_temporal_rope_touches_only_the_intrinsic_component():
             assert torch.equal(standard[:, :, idx], riflex_out[:, :, idx])
 
 
-def test_riflex_modified_component_period_covers_test_length():
-    """The modified component's period must be >= L_test (eq. 8's
-    non-repetition condition) — verified by recovering theta_k from the
-    rotation angle at position 1 and checking round(2*pi/theta_k) >= L_test."""
-    dim, theta = 8, 10000.0
-    k = 1
-    l_test = 200
-    theta_k = 0.9 * 2.0 * math.pi / l_test
-    period = round(2.0 * math.pi / theta_k)
-    assert period >= l_test
-
-
 # -- RIFLEx clamps downward only, never accelerates (roadmap S14/#14) --------
 
 def test_riflex_clamps_downward_never_accelerates_an_already_safe_component():
