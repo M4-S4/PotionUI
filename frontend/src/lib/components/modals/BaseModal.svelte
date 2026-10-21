@@ -4,6 +4,7 @@
 	import focusTrap from '$lib/actions/focusTrap';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss from '$lib/actions/dismiss';
 	import { IconButton } from '$lib/components/ui';
 
 	// Size presets
@@ -86,16 +87,7 @@
 		if (e.target === e.currentTarget) handleClose();
 	}
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (!isOpen || !handleEscapeKey) return;
-		if (e.key === 'Escape') {
-			e.preventDefault();
-			handleClose();
-		}
-	}
 </script>
-
-<svelte:window on:keydown|capture={handleKeydown} />
 
 {#if isOpen}
 	<!-- Backdrop. Portaled to <body> — callers mount BaseModal from all over
@@ -106,6 +98,7 @@
 	<div
 		use:portal
 		use:overlayLayer
+		use:dismiss={{ onDismiss: handleClose, outside: false, escape: handleEscapeKey }}
 		class="fixed inset-0 z-overlay flex {compact ? 'items-end' : ''} md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
 		role="button"
 		tabindex="-1"

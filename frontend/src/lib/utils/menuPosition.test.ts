@@ -1,7 +1,7 @@
 // The suite runs in the 'node' environment (no DOM), so we stub globalThis.window
 // with just the bits these functions read (innerWidth, and innerHeight for the
 // vertical-flip helpers).
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	computeAnchoredMenuPosition,
 	computeFlippedMenuPosition,
@@ -9,7 +9,8 @@ import {
 	MENU_EDGE_GUTTER,
 	MENU_GAP,
 	MENU_HEIGHT_ESTIMATE,
-	MENU_MIN_HEIGHT
+	MENU_MIN_HEIGHT,
+	trackMenuPosition
 } from './menuPosition';
 
 function fakeTrigger(rect: { top: number; bottom: number; left: number; right: number }): HTMLElement {
@@ -285,5 +286,29 @@ describe('computeFlippedMenuPosition with a bottom inset', () => {
 		const docked = computeFlippedMenuPosition(trigger, { heightEstimate: 220, bottomInset: 82 });
 		expect(free).toEqual({ left: 100, top: 640 + MENU_GAP, maxHeight: 900 - 640 - MENU_GAP - MENU_EDGE_GUTTER });
 		expect(docked).toEqual({ left: 100, bottom: 900 - 600 + MENU_GAP, maxHeight: 600 - MENU_GAP - MENU_EDGE_GUTTER });
+	});
+});
+
+describe('trackMenuPosition', () => {
+	it('applies once, re-applies on resize and scroll, and stops after teardown', () => {
+		const listeners = new Map<string, EventListener>();
+		(globalThis as { window: unknown }).window = {
+			innerWidth: 1200,
+			innerHeight: 900,
+			addEventListener: (type: string, fn: EventListener) => listeners.set(type, fn),
+			removeEventListener: (type: string) => listeners.delete(type)
+		};
+		const trigger = fakeTrigger({ top: 100, bottom: 130, left: 100, right: 140 });
+		const apply = vi.fn();
+
+		const stop = trackMenuPosition(trigger, () => ({ heightEstimate: 100, bottomInset: 0 }), apply);
+		expect(apply).toHaveBeenCalledTimes(1);
+
+		listeners.get('resize')!(new Event('resize'));
+		listeners.get('scroll')!(new Event('scroll'));
+		expect(apply).toHaveBeenCalledTimes(3);
+
+		stop();
+		expect(listeners.size).toBe(0);
 	});
 });
