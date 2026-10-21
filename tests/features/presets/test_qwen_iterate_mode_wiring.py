@@ -21,6 +21,7 @@ from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 
 from ._bound_form import bound_form_data
+from tests.fixtures.form_lookup import field_by_name
 
 PRESET_DIR = Path("content/presets/marketplace/QwenImage")
 
@@ -68,20 +69,9 @@ def test_iterate_mode_on_reaches_the_generator(qwen_template):
     assert cfg["iterate_mode"] is True
 
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 def test_iterate_mode_checkbox_is_present():
     tab = yaml.safe_load((PRESET_DIR / "modes/txt2img/tabs/advanced.yml").read_text())
-    field = _field_by_name(tab["fields"], "iterate_mode")
+    field = field_by_name(tab["fields"], "iterate_mode")
     assert field is not None
     assert field["type"] == "checkbox"
     assert field["default"] is False

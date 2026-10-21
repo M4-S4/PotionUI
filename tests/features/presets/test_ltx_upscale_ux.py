@@ -45,6 +45,7 @@ from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
 
 from ._bound_form import bound_form_data
+from tests.fixtures.form_lookup import field_by_name
 
 STRONG_RECIPE = "0.909375, 0.725, 0.421875, 0.0"
 BALANCED_RECIPE = "0.725, 0.421875, 0.0"
@@ -228,17 +229,6 @@ def test_upscale_mode_advanced_override_still_wins_over_select(ltx_template):
 
 # -- form-definition UX assertions (the raw field is advanced-only) -----------
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 @pytest.mark.parametrize(
     "tab_path,field_name",
     [
@@ -248,7 +238,7 @@ def _field_by_name(fields, name):
 )
 def test_raw_sigma_field_is_advanced_audience_with_empty_default(tab_path, field_name):
     data = yaml.safe_load(tab_path.read_text())
-    field = _field_by_name(data["fields"], field_name)
+    field = field_by_name(data["fields"], field_name)
     assert field is not None, f"{field_name} not found in {tab_path}"
     assert field.get("audience") == "advanced"
     assert field.get("default") == ""
@@ -263,7 +253,7 @@ def test_raw_sigma_field_is_advanced_audience_with_empty_default(tab_path, field
 )
 def test_refine_strength_select_exists_with_strong_default_and_three_options(tab_path):
     data = yaml.safe_load(tab_path.read_text())
-    field = _field_by_name(data["fields"], "refine_strength")
+    field = field_by_name(data["fields"], "refine_strength")
     assert field is not None, f"refine_strength not found in {tab_path}"
     assert field["type"] == "select"
     assert field["default"] == "strong"
@@ -274,7 +264,7 @@ def test_refine_strength_select_exists_with_strong_default_and_three_options(tab
 def test_video_refine_strength_hidden_when_upscale_off():
     tab_path = PRESET_DIR / "modes/video/tabs/enhance.yml"
     data = yaml.safe_load(tab_path.read_text())
-    field = _field_by_name(data["fields"], "refine_strength")
+    field = field_by_name(data["fields"], "refine_strength")
     reactions = field.get("reactions", [])
     off_reaction = next(r for r in reactions if r["when"] == {"field": "upscale", "equals": "off"})
     assert off_reaction["then"] == {"set_visibility": False}
@@ -288,7 +278,7 @@ def test_video_upscale_has_no_generate_audio_interlock():
     # longer carry a `generate_audio` reaction that force-disables it.
     tab_path = PRESET_DIR / "modes/video/tabs/enhance.yml"
     data = yaml.safe_load(tab_path.read_text())
-    field = _field_by_name(data["fields"], "upscale")
+    field = field_by_name(data["fields"], "upscale")
     reactions = field.get("reactions", [])
     assert not any(r["when"].get("field") == "generate_audio" for r in reactions)
 
@@ -345,7 +335,7 @@ def test_upscale_mode_quality_prompt_disabled_with_empty_prompt_sends_empty_stri
 def test_upscale_mode_apply_quality_prompt_field_is_advanced_checkbox_default_true():
     tab_path = SHARED_UPSCALE_ADVANCED
     data = yaml.safe_load(tab_path.read_text())
-    field = _field_by_name(data["fields"], "apply_quality_prompt")
+    field = field_by_name(data["fields"], "apply_quality_prompt")
     assert field is not None
     assert field["type"] == "checkbox"
     assert field.get("audience") == "advanced"

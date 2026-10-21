@@ -8,6 +8,7 @@ from src.features.presets.repository import DatabasePresetRepository
 from src.features.user_groups.repository import UserGroupRepository
 from src.platform.security.user import AccountType, User
 from src.platform.util.ids import generate_ulid
+from tests.fixtures.seed import seed_user
 
 ASSIGNMENTS = {
     "native/both": (["ann", "bob"], ["artists"]),
@@ -20,12 +21,7 @@ UNINSTALLED = "native/not-installed"
 
 def _user(mock_db, name):
     user_id = generate_ulid()
-    with mock_db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-            (user_id, name, f"{name}@test.com", "hash"),
-        )
-    return user_id
+    return seed_user(mock_db, user_id, username=name)
 
 
 @pytest.fixture

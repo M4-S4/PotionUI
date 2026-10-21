@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.fixtures.form_lookup import all_field_names
 
 from unittest.mock import Mock
 
@@ -39,15 +40,6 @@ def controlnet_tab(loader, serializer):
     return tabs[titles.index("ControlNet")]
 
 
-def _all_field_names(node):
-    found = set()
-    for child in node.get("children") or []:
-        if child.get("name"):
-            found.add(child["name"])
-        found |= _all_field_names(child)
-    return found
-
-
 def _section(controlnet_tab, title):
     return next(c for c in controlnet_tab["children"] if c.get("title") == title)
 
@@ -60,7 +52,7 @@ def test_controlnet_tab_top_level_is_the_general_and_units_sections(controlnet_t
 
 def test_general_section_holds_the_toggles(controlnet_tab):
     general = _section(controlnet_tab, "General")
-    assert _all_field_names(general) == {"enable_controlnet", "controlnet_auto_preprocess"}
+    assert all_field_names(general) == {"enable_controlnet", "controlnet_auto_preprocess"}
 
 
 def test_controlnet_units_section_still_expands_to_three_accordions(controlnet_tab):
@@ -68,4 +60,4 @@ def test_controlnet_units_section_still_expands_to_three_accordions(controlnet_t
     accordions = units["children"]
     assert [a.get("type") for a in accordions] == ["accordion", "accordion", "accordion"]
     assert [a.get("title") for a in accordions] == ["ControlNet 1", "ControlNet 2", "ControlNet 3"]
-    assert _all_field_names(units) == EXPECTED_LOOP_FIELD_NAMES
+    assert all_field_names(units) == EXPECTED_LOOP_FIELD_NAMES

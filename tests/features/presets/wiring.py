@@ -52,13 +52,3 @@ def render(
 
 def pipe(pipes: List[Dict[str, Any]], name: str) -> Dict[str, Any]:
     return next(p for p in pipes if p.get("id") == name or p["name"] == name)
-
-
-def field_by_name(fields: List[Dict[str, Any]], name: str) -> Optional[Dict[str, Any]]:
-    for field in fields:
-        if field.get("name") == name:
-            return field
-        found = field_by_name(field.get("children") or [], name)
-        if found is not None:
-            return found
-    return None

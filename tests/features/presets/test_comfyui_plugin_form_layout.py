@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.fixtures.form_lookup import all_field_names
 
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -96,15 +97,6 @@ def _by_title(tabs, title):
     return tabs[titles.index(title)]
 
 
-def _all_field_names(node):
-    found = set()
-    for child in node.get("children") or []:
-        if child.get("name"):
-            found.add(child["name"])
-        found |= _all_field_names(child)
-    return found
-
-
 def _case_id(case):
     suffix, mode, variant, _ = case
     return f"{suffix.rsplit('/', 1)[-1]}-{mode}-{variant or 'default'}"
@@ -174,7 +166,7 @@ def test_generation_tab_has_image_then_models_sections(loader, serializer, suffi
     model_field_names = {c["name"] for c in models_section["children"] if c.get("type") == "model"}
     assert model_field_names, f"{suffix}/{mode}/{variant} Models section has no model pickers"
     # Every model field lives in the Models section, none stray elsewhere on the tab.
-    assert _all_field_names(generation) & model_field_names == model_field_names
+    assert all_field_names(generation) & model_field_names == model_field_names
 
 
 @pytest.mark.parametrize("suffix,mode,variant,has_references", CASES, ids=[_case_id(c) for c in CASES])
@@ -217,12 +209,12 @@ def test_no_group_or_header_containers_anywhere_on_the_form(
 
 def test_qwenimage_references_tab_holds_only_media_fields(loader, serializer):
     references = _by_title(_tabs(loader, serializer, "comfyui-backend/presets/QwenImage", "img2img", None), "References")
-    assert _all_field_names(references) == {"source_image", "ref_image_2", "ref_image_3"}
+    assert all_field_names(references) == {"source_image", "ref_image_2", "ref_image_3"}
 
 
 def test_fluxklein9b_references_tab_holds_only_media_fields(loader, serializer):
     references = _by_title(_tabs(loader, serializer, "comfyui-backend/presets/FluxKlein9b", "img2img", None), "References")
-    assert _all_field_names(references) == {"input_image", "input_image_2"}
+    assert all_field_names(references) == {"input_image", "input_image_2"}
 
 
 def test_quantity_is_a_stepper_with_the_original_range(loader, serializer):
@@ -231,7 +223,7 @@ def test_quantity_is_a_stepper_with_the_original_range(loader, serializer):
     to the native-preset convention of 10)."""
     for suffix, mode, variant, _ in CASES:
         preset = _preset(loader, suffix)
-        if "quantity" not in _all_field_names({"children": _tabs(loader, serializer, suffix, mode, variant)}):
+        if "quantity" not in all_field_names({"children": _tabs(loader, serializer, suffix, mode, variant)}):
             continue
         generation = _by_title(_tabs(loader, serializer, suffix, mode, variant), "Generation")
 
@@ -278,5 +270,5 @@ def test_gate_owns_its_boolean_and_children_carry_no_reactions(
     gate = _find(container, lambda c: c.get("name") == gate_name)
     assert gate["type"] == "gate"
     assert gate["default"] is default
-    assert _all_field_names(gate) == children
+    assert all_field_names(gate) == children
     assert not [c["name"] for c in gate["children"] if c.get("reactions")]

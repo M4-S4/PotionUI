@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.fixtures.form_lookup import field_by_name
 
 from pathlib import Path
 from unittest.mock import Mock
@@ -66,24 +67,13 @@ def test_iterate_mode_on_reaches_the_generator(flux_template):
 
 # -- form definition ---------------------------------------------------------
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 @pytest.fixture(scope="module")
 def advanced_tab():
     return yaml.safe_load((PRESET_DIR / "modes/txt2img/tabs/advanced.yml").read_text())
 
 
 def test_iterate_mode_checkbox_is_present(advanced_tab):
-    field = _field_by_name(advanced_tab["fields"], "iterate_mode")
+    field = field_by_name(advanced_tab["fields"], "iterate_mode")
     assert field is not None
     assert field["type"] == "checkbox"
     assert field["default"] is False

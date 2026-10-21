@@ -26,6 +26,7 @@ from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
 
 from ._bound_form import bound_form_data
+from tests.fixtures.form_lookup import field_by_name
 
 PRESET_DIR = Path("content/presets/marketplace/LTX-2")
 
@@ -151,17 +152,6 @@ def test_upscale_off_stage2_config_still_unrendered(ltx_template):
 
 # -- form definition --------------------------------------------------------
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 @pytest.fixture(scope="module")
 def enhance_tab():
     # NAG lives on the Enhance tab now, not Advanced (Krea-2 canon layout --
@@ -175,7 +165,7 @@ def enhance_tab():
     ("nag_alpha", 0.5, 0.0, 1.0, 0.05),
 ])
 def test_nag_sliders_match_wan_shape_and_ranges(enhance_tab, name, default, min_v, max_v, step):
-    field = _field_by_name(enhance_tab["fields"], name)
+    field = field_by_name(enhance_tab["fields"], name)
     assert field is not None
     assert field["type"] == "slider"
     assert field["default"] == default
@@ -187,7 +177,7 @@ def test_nag_sliders_match_wan_shape_and_ranges(enhance_tab, name, default, min_
 def test_nag_scale_min_equals_off_value(enhance_tab):
     # A min below 1.0 would let the user pick a value the pipe treats as "off"
     # while the slider suggests it is doing something.
-    field = _field_by_name(enhance_tab["fields"], "nag_scale")
+    field = field_by_name(enhance_tab["fields"], "nag_scale")
     assert field["configuration"]["min"] == field["default"] == 1.0
 
 
@@ -195,7 +185,7 @@ def test_nag_scale_description_explains_the_cfg_one_case(enhance_tab):
     # The reason to reach for NAG at all. `description` was stripped repo-wide
     # by the canon pass -- this guidance now lives in `ai_hint` only, and
     # `description` must be ABSENT so the canon can't silently regress.
-    field = _field_by_name(enhance_tab["fields"], "nag_scale")
+    field = field_by_name(enhance_tab["fields"], "nag_scale")
     assert "description" not in field
     ai_hint = field["ai_hint"]
     assert "CFG 1.0" in ai_hint

@@ -8,7 +8,9 @@ from typing import Any, Callable, Dict, Optional
 import pytest
 import yaml
 
-from .wiring import field_by_name, find_template, pipe, render
+from tests.fixtures.form_lookup import field_by_name
+
+from .wiring import find_template, pipe, render
 
 KEYS = ("step_cache_threshold", "step_cache_warmup_steps", "step_cache_max_skips")
 

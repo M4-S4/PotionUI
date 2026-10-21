@@ -37,6 +37,7 @@ from src.features.presets import PresetTemplateLoader
 from src.features.presets.form_serializer import PresetFormSerializer
 from src.platform.plugins.loader import PluginLoader
 from src.platform.templating.processor import TemplateProcessor
+from tests.fixtures.form_lookup import all_field_names
 
 MEDIA_TYPES = {"image", "video", "audio", "media"}
 
@@ -148,15 +149,6 @@ def _field_names_by_type(node, types):
     return found
 
 
-def _all_field_names(node):
-    found = set()
-    for child in node.get("children") or []:
-        if child.get("name"):
-            found.add(child["name"])
-        found |= _all_field_names(child)
-    return found
-
-
 @pytest.mark.parametrize("suffix,mode,media", CASES, ids=[f"{s}-{m}" for s, m, _ in CASES])
 def test_references_tab_exists_and_holds_the_media_loaders(loader, serializer, suffix, mode, media):
     tabs = _tabs(loader, serializer, suffix, mode)
@@ -194,7 +186,7 @@ def test_reference_related_setting_moved_onto_the_tab(loader, serializer, suffix
     tabs = _tabs(loader, serializer, suffix, mode)
     titles = _titles(tabs)
     tab = tabs[titles.index("References")]
-    assert field in _all_field_names(tab)
+    assert field in all_field_names(tab)
 
 
 @pytest.mark.parametrize("suffix,mode", UNTOUCHED_CASES, ids=[f"{s}-{m}" for s, m in UNTOUCHED_CASES])
