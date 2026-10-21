@@ -1,3 +1,5 @@
+import { jsonEqual } from '$lib/utils/equal';
+
 /**
  * Pure helper for DynamicForm.svelte: decides whether reaction-computed
  * `set_value` corrections (see `$lib/form/reactions`' `valueChanges`) need to
@@ -21,7 +23,7 @@
 export function valuesEqual(a: unknown, b: unknown): boolean {
 	if (a === b) return true;
 	if (a && b && typeof a === 'object' && typeof b === 'object') {
-		return JSON.stringify(a) === JSON.stringify(b);
+		return jsonEqual(a, b);
 	}
 	return false;
 }

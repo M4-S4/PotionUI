@@ -2,6 +2,7 @@
 // so it's unit-testable without mounting a component.
 
 import type { AttributeDefinition } from '$lib/types/models';
+import { jsonEqual } from '$lib/utils/equal';
 import { formatRange, normalizeRange } from '$lib/utils/attributeRange';
 
 export type AttributeInputType = 'number' | 'text' | 'checkbox' | 'select' | 'tags' | 'range';
@@ -178,5 +179,5 @@ export function attributeDraftsAreDirty(
 	editValues: Record<string, DraftValue>,
 	baselineValues: Record<string, DraftValue>
 ): boolean {
-	return JSON.stringify(editValues) !== JSON.stringify(baselineValues);
+	return !jsonEqual(editValues, baselineValues);
 }

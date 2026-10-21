@@ -1,4 +1,5 @@
 import { loraKey, loraName, loraStrength } from './format';
+import { jsonEqual } from '$lib/utils/equal';
 import type { AppliedChange, AppliedSnapshot, PlanChange, PlanSame, PlanSkip, ServerPlan } from './types';
 
 export type CapabilityCheck = (patch: Record<string, unknown>) => Record<string, string[]>;
@@ -160,7 +161,7 @@ export function diffLoraRows(oldRows: unknown, newRows: unknown): LoraRowDiff[] 
 		if (prior === undefined) {
 			diffs.push({ key, name: loraName(row), status: 'added', oldStrength: null, newStrength: loraStrength(row) });
 		} else {
-			const same = JSON.stringify(prior) === JSON.stringify(row);
+			const same = jsonEqual(prior, row);
 			diffs.push({
 				key,
 				name: loraName(row),

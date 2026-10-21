@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
+	import { jsonEqual } from '$lib/utils/equal';
 	import { page } from '$app/stores';
 	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { parseServerDate } from '$lib/utils/relativeTime';
@@ -97,7 +98,7 @@
 	const settingsDirtyKeys = $derived.by(() => {
 		const before = JSON.parse(settingsSnapshot) as Record<string, any>;
 		const keys = new Set([...Object.keys(before), ...Object.keys(settingsValues)]);
-		return [...keys].filter((k) => JSON.stringify(settingsValues[k]) !== JSON.stringify(before[k]));
+		return [...keys].filter((k) => !jsonEqual(settingsValues[k], before[k]));
 	});
 	const activeContributedTab = $derived(detailTabs.find((t) => t.id === detailTab && t.componentPath));
 	const activeTabComponentPromise = $derived(

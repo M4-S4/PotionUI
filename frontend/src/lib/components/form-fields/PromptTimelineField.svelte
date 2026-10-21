@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { chipIndicatorColor } from '$lib/utils/chipIndicatorColor';
+	import { jsonEqual } from '$lib/utils/equal';
 	import {
 		sortByStart,
 		buildTicks,
@@ -71,7 +72,7 @@
 		if (
 			next.duration !== tv.duration ||
 			next.fps !== tv.fps ||
-			JSON.stringify(next.segments) !== JSON.stringify(tv.segments)
+			!jsonEqual(next.segments, tv.segments)
 		) {
 			tv = next;
 		}

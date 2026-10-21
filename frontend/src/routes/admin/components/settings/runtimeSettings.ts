@@ -1,3 +1,5 @@
+import { jsonEqual } from '$lib/utils/equal';
+
 export type RuntimeSettingApplies = 'live' | 'next_load' | 'restart';
 export type RuntimeSettingGroup = 'speed' | 'memory' | 'debug' | 'diagnostics';
 export type RuntimeSettingScope = 'app' | 'backend';
@@ -312,5 +314,5 @@ export function changedKeysSince(
 	current: Record<string, unknown>,
 	baseline: Record<string, unknown>
 ): string[] {
-	return keys.filter((key) => JSON.stringify(current[key]) !== JSON.stringify(baseline[key]));
+	return keys.filter((key) => !jsonEqual(current[key], baseline[key]));
 }

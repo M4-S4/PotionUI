@@ -1,5 +1,6 @@
 <script lang="ts">
 	import MediaLoaderField from './form-fields/MediaLoaderField.svelte';
+	import { jsonEqual } from '$lib/utils/equal';
 	import type {
 		PromptRelayTimeline,
 		PromptRelaySegment,
@@ -63,7 +64,7 @@
 	// Re-sync from the external value only when structurally different.
 	$: {
 		const next = normalize(value);
-		if (JSON.stringify(next) !== JSON.stringify(tl)) {
+		if (!jsonEqual(next, tl)) {
 			tl = next;
 		}
 	}

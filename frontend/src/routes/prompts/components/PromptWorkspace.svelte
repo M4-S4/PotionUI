@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { jsonEqual } from '$lib/utils/equal';
 	import { get } from 'svelte/store';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
@@ -288,8 +289,8 @@
 			if (before.name !== after.name) count++;
 			if (before.usageHint !== after.usageHint) count++;
 			if (before.editModelId !== after.editModelId) count++;
-			if (JSON.stringify(before.segments) !== JSON.stringify(after.segments)) count++;
-			if (JSON.stringify(before.variables) !== JSON.stringify(after.variables)) count++;
+			if (!jsonEqual(before.segments, after.segments)) count++;
+			if (!jsonEqual(before.variables, after.variables)) count++;
 			return count;
 		} catch {
 			return 0;

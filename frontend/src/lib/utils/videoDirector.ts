@@ -3,6 +3,7 @@
 // sent to the backend as `form_data.video_director`. No Svelte imports.
 
 import type { MediaRef } from '$lib/types/tabs';
+import { jsonEqual } from '$lib/utils/equal';
 import type { Segment } from '$lib/types/segments';
 import { sortByStart } from '$lib/components/video-director/timelineCore';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
@@ -1049,7 +1050,7 @@ function omitUiState(value: VideoDirectorValue): Omit<VideoDirectorValue, 'ui'> 
 export function isDefaultDirectorDocument(value: unknown, caps: DirectorCapabilities): boolean {
 	const normalized = omitUiState(normalizeDirectorValue(value, caps));
 	const def = omitUiState(createDefaultDirectorValue(caps));
-	return JSON.stringify(normalized) === JSON.stringify(def);
+	return jsonEqual(normalized, def);
 }
 
 /**

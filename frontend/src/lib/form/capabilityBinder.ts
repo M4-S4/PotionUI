@@ -1,3 +1,5 @@
+import { jsonEqual } from '$lib/utils/equal';
+
 export interface CapabilityParam {
 	name: string;
 	kind: 'enum' | 'range' | 'boolean' | 'text';
@@ -350,7 +352,7 @@ export function capabilityValueChanges(
 					next[param.name] = value;
 				}
 			}
-			if (JSON.stringify(next) !== JSON.stringify(current)) changes[node.name] = next;
+			if (!jsonEqual(next, current)) changes[node.name] = next;
 			return;
 		}
 		if (!binding.param) return;
