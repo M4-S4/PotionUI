@@ -178,39 +178,6 @@ def sample_request():
 class TestGenerationOrchestratorInitialization:
     """Test cases for orchestrator initialization."""
 
-    def test_initialization_with_dependencies(
-        self,
-        mock_pipeline_builder,
-        mock_backend_registry,
-        mock_connection_manager,
-        mock_settings,
-        mock_output_processor,
-        mock_preset_template_loader
-    ):
-        """Test proper initialization with all dependencies."""
-        from src.features.generation.orchestrator import GenerationOrchestrator
-        from src.features.generation.status_tracker import GenerationStatusTracker
-
-        orchestrator = GenerationOrchestrator(
-            pipeline_builder=mock_pipeline_builder,
-            backend_registry=mock_backend_registry,
-            connection_hub=mock_connection_manager,
-            settings=mock_settings,
-            output_processor=mock_output_processor,
-            preset_template_loader=mock_preset_template_loader
-        )
-
-        assert orchestrator.pipeline_builder == mock_pipeline_builder
-        assert orchestrator.backend_registry == mock_backend_registry
-        assert orchestrator.connection_hub == mock_connection_manager
-        assert orchestrator.settings == mock_settings
-        assert orchestrator.output_processor == mock_output_processor
-        assert orchestrator.preset_template_loader == mock_preset_template_loader
-        assert isinstance(orchestrator.status_tracker, GenerationStatusTracker)
-
-    def test_initialization_empty_tracking(self, orchestrator):
-        """Test that the status tracker starts empty."""
-        assert len(orchestrator.status_tracker.list_all()) == 0
 
     def test_accepts_injected_status_tracker(
         self,

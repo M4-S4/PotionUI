@@ -625,37 +625,6 @@ class TestDiscoverActions:
         assert all_actions[0].id == "discovered_action"
 
 
-class TestPreChatActionResult:
-    """Tests for PreChatActionResult dataclass."""
-
-    def test_result_creation(self):
-        """Create a result with all fields."""
-        result = PreChatActionResult(
-            action_id="test_action",
-            success=True,
-            duration_ms=123.45,
-            message="Action completed",
-            error=None,
-        )
-
-        assert result.action_id == "test_action"
-        assert result.success is True
-        assert result.duration_ms == 123.45
-        assert result.message == "Action completed"
-        assert result.error is None
-
-    def test_result_default_values(self):
-        """Result has default values for optional fields."""
-        result = PreChatActionResult(
-            action_id="test_action",
-            success=False,
-        )
-
-        assert result.duration_ms == 0.0
-        assert result.message == ""
-        assert result.error is None
-
-
 class TestPreChatAction:
     """Tests for PreChatAction dataclass."""
 

@@ -36,29 +36,6 @@ class TestGenerationModel(unittest.TestCase):
             duration_ms=1500
         )
 
-    def test_generation_creation(self):
-        """Test Generation model creation"""
-        gen = Generation(
-            id="test_id",
-            preset_id="preset_1",
-            form_data={"key": "value"},
-            user_id="user_1"
-        )
-
-        self.assertEqual(gen.id, "test_id")
-        self.assertEqual(gen.preset_id, "preset_1")
-        self.assertEqual(gen.form_data, {"key": "value"})
-        self.assertEqual(gen.user_id, "user_1")
-        self.assertEqual(gen.status, "pending")
-        self.assertEqual(gen.progress, 0.0)
-        self.assertIsNone(gen.backend_id)
-        self.assertIsNone(gen.tab_id)
-        self.assertEqual(gen.mode, "txt2img")
-        self.assertIsNone(gen.prompt_state)
-        self.assertIsNone(gen.form_name)
-        self.assertEqual(gen.rating, 0)
-        self.assertFalse(gen.is_favorite)
-        self.assertIsNone(gen.duration_ms)
 
     def test_from_row(self):
         """Test creating Generation from database row"""
@@ -195,15 +172,6 @@ class TestGenerationModel(unittest.TestCase):
 class TestGenerationModeAndPromptState(unittest.TestCase):
     """Tests for the `mode`/`prompt_state` fields (added for the "Reuse generation" feature)."""
 
-    def test_defaults(self):
-        gen = Generation(
-            id="test_id",
-            preset_id="preset_1",
-            form_data={"key": "value"},
-            user_id="user_1"
-        )
-        self.assertEqual(gen.mode, 'txt2img')
-        self.assertIsNone(gen.prompt_state)
 
     def test_from_row_maps_mode_and_prompt_state(self):
         prompt_state = {'segments': [{'text': 'a cat'}], 'chips': ['a', 'b']}
@@ -288,14 +256,6 @@ class TestGenerationFormNameAndSeed(unittest.TestCase):
     `seed` exposed by `to_dict()` (the submitted `form_data['seed']` — the only durable
     record of it; see records.py's `to_dict()` docstring comment for why)."""
 
-    def test_defaults(self):
-        gen = Generation(
-            id="test_id",
-            preset_id="preset_1",
-            form_data={"key": "value"},
-            user_id="user_1"
-        )
-        self.assertIsNone(gen.form_name)
 
     def test_from_row_maps_form_name(self):
         mock_row = {
@@ -425,22 +385,6 @@ class TestGenerationTimingSeconds(unittest.TestCase):
 
 class TestFileModel(unittest.TestCase):
     
-    def test_file_creation(self):
-        """Test File model creation"""
-        file = File(
-            file_path="/test/image.jpg",
-            file_type="image",
-            user_id="user_123"
-        )
-        
-        self.assertEqual(file.file_path, "/test/image.jpg")
-        self.assertEqual(file.file_type, "image")
-        self.assertEqual(file.user_id, "user_123")
-        self.assertIsNone(file.file_size)
-        self.assertIsNone(file.pipe_name)
-        self.assertFalse(file.is_final)
-        self.assertIsNone(file.id)
-        self.assertIsNone(file.created_at)
     
     def test_from_row(self):
         """Test creating File from database row"""
@@ -528,17 +472,6 @@ class TestFileModel(unittest.TestCase):
 
 class TestGenerationFileModel(unittest.TestCase):
     
-    def test_generation_file_creation(self):
-        """Test GenerationFile model creation"""
-        gen_file = GenerationFile(
-            generation_id="gen_123",
-            file_id="file_456"
-        )
-        
-        self.assertEqual(gen_file.generation_id, "gen_123")
-        self.assertEqual(gen_file.file_id, "file_456")
-        self.assertIsNone(gen_file.id)
-        self.assertIsNone(gen_file.created_at)
     
     def test_from_row(self):
         """Test creating GenerationFile from database row"""

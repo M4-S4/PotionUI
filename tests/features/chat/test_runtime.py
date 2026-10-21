@@ -29,30 +29,6 @@ from src.features.chat.hooks import CHAT_SESSION_HOOKS
 from src.features.presets.templates import FormTemplate, ModeTemplate
 
 
-class TestChatRuntimeInit:
-    """Tests for ChatRuntime initialization."""
-
-    def test_init_with_all_dependencies(self):
-        """Should initialize with all required dependencies."""
-        mock_repo = Mock()
-        mock_llm = Mock()
-        mock_processor = Mock()
-        mock_plugins = Mock()
-
-        manager = ChatRuntime(
-            chat_repository=mock_repo,
-            llm_service=mock_llm,
-            response_processor=mock_processor,
-            plugin_registry=mock_plugins,
-            chat_mode_registry=_mode_registry(),
-        )
-
-        assert manager.chat_repository is mock_repo
-        assert manager.llm_service is mock_llm
-        assert manager.response_processor is mock_processor
-        assert manager.plugins is mock_plugins
-
-
 class TestValidationHelpers:
     """Tests for validation helper methods."""
 

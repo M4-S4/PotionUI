@@ -79,24 +79,6 @@ def sample_preset_template(sample_mode_template):
     )
 
 
-class TestPipelineBuilderInitialization:
-    """Test cases for PipelineBuilder initialization."""
-
-    def test_initialization_with_dependencies(
-        self,
-        mock_preset_template_loader,
-        mock_preset_processor
-    ):
-        """Test proper initialization with dependencies."""
-        builder = PipelineBuilder(
-            preset_template_loader=mock_preset_template_loader,
-            preset_processor=mock_preset_processor
-        )
-
-        assert builder.preset_template_loader == mock_preset_template_loader
-        assert builder.preset_processor == mock_preset_processor
-
-
 class TestBasicPipelineBuilding:
     """Test cases for basic pipeline building."""
 

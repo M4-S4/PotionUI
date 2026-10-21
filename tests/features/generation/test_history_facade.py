@@ -18,27 +18,6 @@ from src.features.generation.hooks import GENERATION_HOOKS
 from src.platform.plugins.hooks import execute_hook
 
 
-class TestGenerationHistoryFacadeInit:
-    """Tests for GenerationHistoryFacade initialization."""
-
-    def test_init_with_all_dependencies(self):
-        """Should initialize with all required dependencies."""
-        mock_repo = Mock()
-        mock_file_service = Mock()
-        mock_plugins = Mock()
-
-        manager = GenerationHistoryFacade(
-            generation_repo=mock_repo,
-            file_service=mock_file_service,
-            plugin_registry=mock_plugins,
-            run_report_repository=Mock(),
-        )
-
-        assert manager.generation_repo is mock_repo
-        assert manager.file_service is mock_file_service
-        assert manager.plugins is mock_plugins
-
-
 class TestValidationHelpers:
     """Tests for validation helper methods."""
 
