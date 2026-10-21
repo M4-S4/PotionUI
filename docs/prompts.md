@@ -96,6 +96,8 @@ inside `expand_prompts`, so every generation path (Generate, batch, X/Y, both Di
 
 - Spaces around every operator are required (`$age > 65`, never `$age>65`). Keywords are lowercase.
 - A head holds 1 to 6 tests joined by `and` or by `or`, never both; use another `else if` for mixed cases.
+- A quoted value holds 1 to 300 characters, the longest a choice option can be; a longer one makes the
+  head malformed. A head holds at most 1,024 characters; a longer `<<if …>>` is not a tag and is removed.
 - The first true branch wins; `<<else>>` is optional; there is no nesting.
 - Numbers compare exactly (`Decimal`), so `$age > 9` is true for `10`. `=` on text is exact and
   case-sensitive on the trimmed value; `contains` ignores case.

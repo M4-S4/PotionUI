@@ -1,5 +1,7 @@
+import json
 import random
 import time
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +15,7 @@ from src.features.prompt.conditions import (
     render_conditions,
     splice,
 )
+from src.platform.resources.prompt_variables import MAX_OPTION_CHARS
 
 
 def kinds(errors):
@@ -43,8 +46,8 @@ class TestParseCondition:
         assert parse_condition("$a = " + "1" * 21) is None
 
     def test_string_length_cap(self):
-        assert parse_condition('$a = "' + "x" * 80 + '"') is not None
-        assert parse_condition('$a = "' + "x" * 81 + '"') is None
+        assert parse_condition('$a = "' + "x" * cond.MAX_STRING_CHARS + '"') is not None
+        assert parse_condition('$a = "' + "x" * (cond.MAX_STRING_CHARS + 1) + '"') is None
         assert parse_condition('$a = ""') is None
 
     @pytest.mark.parametrize("head", [
@@ -125,10 +128,12 @@ class TestBlockStructure:
         assert "<<" not in text
 
     def test_head_length_limit(self):
-        ok = "<<if $x in " + ",".join('"' + "v" * 17 + '"' for _ in range(12)) + ">>A<<else>>B<<end>>"
-        assert render_conditions(ok, {"x": "v" * 17})[0] == "A"
-        long_head = "<<if $x in " + ",".join('"' + "v" * 20 + '"' for _ in range(12)) + ">>A<<else>>B<<end>>"
-        text, errors = render_conditions(long_head, {"x": "v" * 20})
+        def block(length):
+            head = '$x in "v", "w"'
+            return "<<if " + head + " " * (length - len(head)) + ">>A<<else>>B<<end>>"
+
+        assert render_conditions(block(cond.MAX_HEAD_CHARS), {"x": "v"})[0] == "A"
+        text, errors = render_conditions(block(cond.MAX_HEAD_CHARS + 1), {"x": "v"})
         assert "malformed_tag" in kinds(errors)
         assert "<<if" not in text
 
@@ -145,6 +150,56 @@ class TestBlockStructure:
         assert parsed.blocks == ()
         assert sorted(kinds(parsed.errors)) == ["limit", "unclosed"]
         assert "<<" not in parsed.skeleton
+
+
+def _option(length, lead="a "):
+    text = (lead + "long hooded cloak woven from silver thread and moonlight, trimmed with fox fur, " * 8)
+    return text[: length - 1] + "s"
+
+
+def _quoted(value):
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+class TestLongChoiceOptions:
+    def test_value_cap_holds_the_longest_choice_option(self):
+        assert cond.MAX_STRING_CHARS == MAX_OPTION_CHARS
+
+    def test_head_cap_holds_the_longest_escaped_value(self):
+        head = "$" + "n" * cond.MAX_NAME_CHARS + " not in " + _quoted('"' * cond.MAX_STRING_CHARS)
+        assert len(head) <= cond.MAX_HEAD_CHARS
+        assert parse_condition(head).tests[0].strings == ('"' * cond.MAX_STRING_CHARS,)
+
+    @pytest.mark.parametrize("length", [81, 200, MAX_OPTION_CHARS])
+    def test_editor_switch_on_a_long_option_round_trips(self, length):
+        options = [_option(length), _option(length, "b "), _option(length, 'c "quoted" \\ ')]
+        text = (
+            f"<<if $look = {_quoted(options[0])}>>A"
+            f"<<else if $look = {_quoted(options[1])}>>B"
+            f"<<else if $look = {_quoted(options[2])}>>C<<else>>D<<end>>"
+        )
+        (block,) = parse_template(text).blocks
+        assert [b.cond.tests[0].strings for b in block.branches[:3]] == [(o,) for o in options]
+        assert [render_conditions(text, {"look": o}) for o in options] == [("A", []), ("B", []), ("C", [])]
+        assert render_conditions(text, {"look": "plain"}) == ("D", [])
+
+    def test_an_option_over_the_cap_is_a_bad_head(self):
+        option = _option(cond.MAX_STRING_CHARS + 1)
+        text, errors = render_conditions(f"<<if $look = {_quoted(option)}>>A<<else>>B<<end>>", {"look": option})
+        assert (text, kinds(errors)) == ("B", ["bad_head"])
+
+    def test_corpus_holds_the_editor_output_for_long_options(self):
+        corpus = Path(__file__).resolve().parents[2] / "fixtures" / "prompt_conditions" / "evaluate.json"
+        cases = {c["name"]: c for c in json.loads(corpus.read_text(encoding="utf-8"))["cases"]}
+        lengths = [
+            len(cases[name]["values"]["look"])
+            for name in (
+                "editor_switch_option_81_chars",
+                "editor_switch_option_200_chars",
+                "editor_switch_option_at_value_cap",
+            )
+        ]
+        assert lengths == [81, 200, MAX_OPTION_CHARS]
 
 
 class TestSplice:
