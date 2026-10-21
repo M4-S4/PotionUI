@@ -1,7 +1,7 @@
 <script lang="ts">
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
-	import { PLUGIN_STATE_OPTIONS, clearAllPluginFilters, type PluginFilters } from './pluginFilters';
+	import { PLUGIN_STATE_OPTIONS, type PluginFilters, pluginFilters } from './pluginFilters';
 
 	let {
 		filters,
@@ -14,7 +14,7 @@
 	} = $props();
 </script>
 
-<FilterPopoverFrame onClearAll={() => onChange(clearAllPluginFilters(filters))} {onClose}>
+<FilterPopoverFrame onClearAll={() => onChange(pluginFilters.clearAll(filters))} {onClose}>
 	<SegmentedFilterGroup
 		label="State"
 		options={PLUGIN_STATE_OPTIONS}

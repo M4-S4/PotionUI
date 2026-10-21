@@ -1,5 +1,5 @@
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import type { SortOption } from '$lib/components/library/librarySection';
 import { pluginCategories, resolveCategory } from '$lib/plugins/categories';
 import type { Plugin } from '$lib/stores/plugins';
 
@@ -39,35 +39,11 @@ const FIELDS: readonly FilterFieldDescriptor<PluginFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<PluginFilters>({
+export const pluginFilters = createFilterCodec<PluginFilters>({
 	defaults: DEFAULT_PLUGIN_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name', 'category', 'state']
 });
-
-export function pluginFiltersFromSearchParams(params: URLSearchParams): PluginFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function pluginFiltersToSearchParams(filters: PluginFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
-export function pluginFilterActiveCount(filters: PluginFilters): number {
-	return codec.activeCount(filters);
-}
-
-export function pluginFilterChips(filters: PluginFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearPluginFilterChip(filters: PluginFilters, key: string): PluginFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllPluginFilters(filters: PluginFilters): PluginFilters {
-	return codec.clearAll(filters);
-}
 
 function matchesSearch(plugin: Plugin, query: string): boolean {
 	if (!query) return true;

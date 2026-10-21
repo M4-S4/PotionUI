@@ -1,5 +1,4 @@
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip } from '$lib/components/library/librarySection';
 import type { CloudCatalogItem, CloudCatalogQuery, CloudPriceLine } from '$lib/services/admin-api';
 import { parseAmount } from '$lib/utils/cloudCost';
 import type { PresetInfo } from '$lib/types/api';
@@ -115,38 +114,14 @@ const FIELDS: readonly FilterFieldDescriptor<CatalogFilters>[] = [
 	{ kind: 'boolean', key: 'suggestedOnly', param: 'suggested', label: 'Suggested', chipLabel: 'Suggested' }
 ];
 
-const codec = createFilterCodec<CatalogFilters>({
+export const cloudCatalogFilters = createFilterCodec<CatalogFilters>({
 	defaults: DEFAULT_CATALOG_FILTERS,
 	fields: FIELDS,
 	sortValues: ['default']
 });
 
-export function catalogFiltersFromSearchParams(params: URLSearchParams): CatalogFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function catalogFiltersToSearchParams(filters: CatalogFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
-export function catalogFilterActiveCount(filters: CatalogFilters): number {
-	return codec.activeCount(filters);
-}
-
-export function catalogFilterChips(filters: CatalogFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearCatalogFilterChip(filters: CatalogFilters, key: string): CatalogFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllCatalogFilters(filters: CatalogFilters): CatalogFilters {
-	return codec.clearAll(filters);
-}
-
 export function catalogHasFilters(filters: CatalogFilters): boolean {
-	return catalogFilterActiveCount(filters) > 0 || filters.q.trim() !== '';
+	return cloudCatalogFilters.activeCount(filters) > 0 || filters.q.trim() !== '';
 }
 
 export function catalogQuery(filters: CatalogFilters, pageIndex: number, pageSize: number): CloudCatalogQuery {

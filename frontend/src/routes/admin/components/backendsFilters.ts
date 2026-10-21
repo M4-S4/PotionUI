@@ -31,26 +31,26 @@ const FIELDS: readonly FilterFieldDescriptor<BackendsFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<BackendsFilters>({
+export const backendsFilters = createFilterCodec<BackendsFilters>({
 	defaults: DEFAULT_BACKENDS_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name']
 });
 
 export function backendsFilterChips(filters: BackendsFilters): FilterChip[] {
-	return codec.chips(filters);
+	return backendsFilters.chips(filters);
 }
 
 export function clearBackendsFilterChip(filters: BackendsFilters, key: string): BackendsFilters {
-	return codec.clearChip(filters, key);
+	return backendsFilters.clearChip(filters, key);
 }
 
 export function clearAllBackendsFilters(filters: BackendsFilters): BackendsFilters {
-	return codec.clearAll(filters);
+	return backendsFilters.clearAll(filters);
 }
 
 export function backendsFilterActiveCount(filters: BackendsFilters): number {
-	return codec.activeCount(filters);
+	return backendsFilters.activeCount(filters);
 }
 
 export function applyBackendsFilters(

@@ -1,5 +1,5 @@
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import type { SortOption } from '$lib/components/library/librarySection';
 import type { RecipeSummary } from '$lib/services/api/recipes';
 
 export type RecipeSortBy = 'name' | 'category';
@@ -37,35 +37,11 @@ const FIELDS: readonly FilterFieldDescriptor<RecipeFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<RecipeFilters>({
+export const recipeFilters = createFilterCodec<RecipeFilters>({
 	defaults: DEFAULT_RECIPE_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name', 'category']
 });
-
-export function recipeFiltersFromSearchParams(params: URLSearchParams): RecipeFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function recipeFiltersToSearchParams(filters: RecipeFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
-export function recipeFilterChips(filters: RecipeFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearRecipeFilterChip(filters: RecipeFilters, key: string): RecipeFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllRecipeFilters(filters: RecipeFilters): RecipeFilters {
-	return codec.clearAll(filters);
-}
-
-export function recipeFilterActiveCount(filters: RecipeFilters): number {
-	return codec.activeCount(filters);
-}
 
 export function recipeSourceVocabulary(recipes: readonly RecipeSummary[]): string[] {
 	return [...new Set(recipes.map((recipe) => recipe.source).filter(Boolean))].sort((a, b) => a.localeCompare(b));

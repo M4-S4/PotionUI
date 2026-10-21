@@ -2,6 +2,7 @@
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { api } from '$lib/services/api/index';
 	import * as adminApi from '$lib/services/admin-api';
 	import { invalidatePresets } from '$lib/stores/presetsCatalog';
@@ -36,17 +37,12 @@
 	import {
 		PRESET_SORT_OPTIONS,
 		applyPresetFilters,
-		clearAllPresetFilters,
-		clearPresetFilterChip,
 		presetEngineCounts,
 		presetEngines,
-		presetFilterActiveCount,
-		presetFilterChips,
-		presetFiltersFromSearchParams,
-		presetFiltersToSearchParams,
 		presetSectionCounts,
 		type PresetFilters,
-		type PresetSortBy
+		type PresetSortBy,
+		presetFilters
 	} from './presets/presetFilters';
 	import { Badge, Button, EmptyState, Spinner, Alert, IconButton } from '$lib/components/ui';
 	import type { PresetInfo, PresetConfigurationEntry, PresetRecipeLink } from '$lib/types/api';
@@ -76,7 +72,7 @@
 	let formSaving = $state(false);
 
 	const section = $derived(($page.url.searchParams.get('section') as PresetLibrarySection) || 'all');
-	const filters = $derived(presetFiltersFromSearchParams($page.url.searchParams));
+	const filters = $derived(presetFilters.fromSearchParams($page.url.searchParams));
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const detailOpen = $derived(!!viewId);
 
@@ -84,8 +80,8 @@
 	const engineCounts = $derived(presetEngineCounts(presets));
 	const sectionCounts = $derived(presetSectionCounts(presets));
 	const visiblePresets = $derived(applyPresetFilters(presets, filters, section));
-	const chips = $derived(presetFilterChips(filters));
-	const activeFilterCount = $derived(presetFilterActiveCount(filters));
+	const chips = $derived(presetFilters.chips(filters));
+	const activeFilterCount = $derived(presetFilters.activeCount(filters));
 
 	const selectedPreset = $derived(viewId ? (presets.find((preset) => preset.id === viewId) ?? null) : null);
 	const activePreset = $derived(
@@ -246,36 +242,33 @@
 	}
 
 	function buildUrl(overrides: { section?: PresetLibrarySection; id?: string | null; filters?: PresetFilters } = {}): string {
-		const params = presetFiltersToSearchParams(overrides.filters ?? filters);
+		const params = presetFilters.toSearchParams(overrides.filters ?? filters);
 		params.set('tab', 'presets');
 		const nextSection = overrides.section ?? section;
 		if (nextSection !== 'all') params.set('section', nextSection);
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		if (id) params.set('id', id);
-		const query = params.toString();
-		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+		return hrefWithQuery($page.url.pathname, params);
 	}
 
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	const urlState = createUrlState({ href: buildUrl });
+	onDestroy(urlState.cancel);
 
 	function updateFilters(next: PresetFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ filters: next });
 	}
 
 	function selectSection(id: PresetLibrarySection) {
-		void goto(buildUrl({ section: id, id: null }));
+		void urlState.go({ section: id, id: null });
 	}
 
 	function toggleEngineFilter(engine: string) {
 		const nextEngine = filters.engine === engine ? '' : engine;
-		void goto(buildUrl({ id: null, filters: { ...filters, engine: nextEngine } }));
+		void urlState.go({ id: null, filters: { ...filters, engine: nextEngine } });
 	}
 
 	function openPresetId(id: string) {
-		void goto(buildUrl({ id }));
+		void urlState.go({ id });
 	}
 
 	function openPreset(preset: PresetInfo) {
@@ -283,7 +276,7 @@
 	}
 
 	function backToGrid() {
-		void goto(buildUrl({ id: null }));
+		void urlState.go({ id: null });
 	}
 
 	async function handleInstall(preset: PresetInfo) {
@@ -378,8 +371,8 @@
 	count={visiblePresets.length}
 	{detailOpen}
 	filterChips={chips}
-	onRemoveChip={(key) => updateFilters(clearPresetFilterChip(filters, key))}
-	onClearFilters={() => updateFilters(clearAllPresetFilters(filters))}
+	onRemoveChip={(key) => updateFilters(presetFilters.clearChip(filters, key))}
+	onClearFilters={() => updateFilters(presetFilters.clearAll(filters))}
 	loadedCount={visiblePresets.length}
 	total={presets.length}
 >
@@ -714,7 +707,7 @@
 			{:else if visiblePresets.length === 0}
 				<div class="flex h-full items-center justify-center">
 					<EmptyState title="No matching presets" description="Try a different name, category, engine, or installation status." icon="search" compact>
-						{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => updateFilters(clearAllPresetFilters(filters))}>Clear filters</Button>{/snippet}
+						{#snippet actions()}<Button variant="ghost" size="sm" onclick={() => updateFilters(presetFilters.clearAll(filters))}>Clear filters</Button>{/snippet}
 					</EmptyState>
 				</div>
 			{:else}

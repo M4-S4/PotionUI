@@ -39,16 +39,11 @@
 		DEFAULT_RECIPE_FILTERS,
 		RECIPE_SORT_OPTIONS,
 		applyRecipeFilters,
-		clearAllRecipeFilters,
-		clearRecipeFilterChip,
 		recipeEngineVocabulary,
-		recipeFilterActiveCount,
-		recipeFilterChips,
-		recipeFiltersFromSearchParams,
-		recipeFiltersToSearchParams,
 		recipeSourceVocabulary,
 		type RecipeFilters,
-		type RecipeSortBy
+		type RecipeSortBy,
+		recipeFilters
 	} from './recipes/recipeFilters';
 	import RecipeFiltersPopover from './recipes/RecipeFiltersPopover.svelte';
 	import RecipeCard from './recipes/RecipeCard.svelte';
@@ -94,8 +89,8 @@
 	const engines = $derived(recipeEngineVocabulary(recipes));
 	const sectionCounts = $derived(recipeSectionCounts(recipes));
 	const filteredRecipes = $derived(applyRecipeFilters(recipesInSection(recipes, section), filters));
-	const filterCount = $derived(recipeFilterActiveCount(filters));
-	const filterChips = $derived(recipeFilterChips(filters));
+	const filterCount = $derived(recipeFilters.activeCount(filters));
+	const filterChips = $derived(recipeFilters.chips(filters));
 	const detailOpen = $derived(!!selectedRecipeId);
 
 	const selectedRecipe = $derived(recipes.find((r) => r.id === selectedRecipeId) || null);
@@ -155,7 +150,7 @@
 	function buildUrl(): URL {
 		const nextUrl = new URL($page.url);
 		for (const key of MANAGED_URL_PARAMS) nextUrl.searchParams.delete(key);
-		const filterParams = recipeFiltersToSearchParams(filters);
+		const filterParams = recipeFilters.toSearchParams(filters);
 		for (const [key, value] of filterParams) nextUrl.searchParams.set(key, value);
 		if (section !== 'all') nextUrl.searchParams.set('section', section);
 		if (selectedRecipeId) nextUrl.searchParams.set('id', selectedRecipeId);
@@ -187,11 +182,11 @@
 	}
 
 	function removeChip(key: string) {
-		updateFilters(clearRecipeFilterChip(filters, key));
+		updateFilters(recipeFilters.clearChip(filters, key));
 	}
 
 	function clearFilters() {
-		updateFilters(clearAllRecipeFilters(filters));
+		updateFilters(recipeFilters.clearAll(filters));
 	}
 
 	let lastLoadedRecipeId: string | null = null;
@@ -253,7 +248,7 @@
 	}
 
 	onMount(async () => {
-		filters = recipeFiltersFromSearchParams($page.url.searchParams);
+		filters = recipeFilters.fromSearchParams($page.url.searchParams);
 		section = recipeSectionFromParam($page.url.searchParams.get('section'));
 		const { recipeId } = readRecipesUrlState($page.url.searchParams);
 		await loadRecipes();

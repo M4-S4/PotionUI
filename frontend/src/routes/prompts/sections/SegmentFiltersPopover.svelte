@@ -3,11 +3,7 @@
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
 	import TagCloudFilter from '$lib/components/library/TagCloudFilter.svelte';
-	import {
-		clearAllSegmentFilters,
-		type SegmentEnabledFilter,
-		type SegmentFilters
-	} from './segmentFilters';
+	import { type SegmentEnabledFilter, type SegmentFilters, segmentFilters } from './segmentFilters';
 
 	let {
 		filters,
@@ -39,7 +35,7 @@
 	}
 </script>
 
-<FilterPopoverFrame onClearAll={() => onChange(clearAllSegmentFilters(filters))} {onClose}>
+<FilterPopoverFrame onClearAll={() => onChange(segmentFilters.clearAll(filters))} {onClose}>
 	<label class="flex flex-col gap-1.5">
 		<span class="text-xs font-medium text-fg-muted">Category</span>
 		<select

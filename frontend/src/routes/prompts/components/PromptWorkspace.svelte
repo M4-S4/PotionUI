@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onDestroy, onMount, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { api } from '$lib/services/api';
 	import type { PromptImporter } from '$lib/services/api/prompts';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
@@ -51,15 +52,7 @@
 		removePromptsFromDuplicateGroup,
 		type DuplicateGroup
 	} from '$lib/utils/duplicatePrompts';
-	import {
-		promptFiltersFromSearchParams,
-		promptFiltersToSearchParams,
-		promptFilterActiveCount,
-		promptFilterChips,
-		clearPromptFilterChip,
-		clearAllPromptFilters,
-		type PromptSortBy
-	} from '$lib/prompts/promptFilters';
+	import { promptFilterChips, type PromptSortBy, promptFilters } from '$lib/prompts/promptFilters';
 	import { queryPromptLibrary } from '$lib/prompts/promptLibraryQuery';
 
 	const PAGE_SIZE = 48;
@@ -71,7 +64,7 @@
 		{ value: 'usage_count', label: 'Most used' }
 	];
 
-	$: filters = promptFiltersFromSearchParams($page.url.searchParams);
+	$: filters = promptFilters.fromSearchParams($page.url.searchParams);
 	$: collectionId = $page.url.searchParams.get('collection') || undefined;
 	$: favoritesOnly = $page.url.searchParams.get('favorites') === 'true';
 	$: unsorted = $page.url.searchParams.get('unsorted') === 'true';
@@ -79,7 +72,7 @@
 	$: viewId = $page.url.searchParams.get('id');
 	$: viewIsNew = $page.url.searchParams.get('new') === '1';
 	$: detailOpen = !!viewId || viewIsNew;
-	$: filterCount = promptFilterActiveCount(filters);
+	$: filterCount = promptFilters.activeCount(filters);
 	$: filterChips = promptFilterChips(filters, modelLabel !== 'Any' ? modelLabel : undefined);
 
 	function buildUrl(
@@ -93,7 +86,7 @@
 			filters?: import('$lib/prompts/promptFilters').PromptFilters;
 		} = {}
 	): string {
-		const params = withSection(promptFiltersToSearchParams(overrides.filters ?? filters), 'prompts');
+		const params = withSection(promptFilters.toSearchParams(overrides.filters ?? filters), 'prompts');
 		const collection = overrides.collection !== undefined ? overrides.collection : collectionId;
 		if (collection) params.set('collection', collection);
 		if (overrides.favorites !== undefined ? overrides.favorites : favoritesOnly)
@@ -105,16 +98,14 @@
 		const isNew = overrides.isNew !== undefined ? overrides.isNew : viewIsNew;
 		if (id) params.set('id', id);
 		if (isNew) params.set('new', '1');
-		const query = params.toString();
-		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+		return hrefWithQuery($page.url.pathname, params);
 	}
 
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	const urlState = createUrlState({ href: buildUrl });
+	onDestroy(urlState.cancel);
+
 	function updateFilters(next: import('$lib/prompts/promptFilters').PromptFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ filters: next });
 	}
 
 	function updateQuery(value: string) {
@@ -126,19 +117,19 @@
 	}
 
 	function removeChip(key: string) {
-		updateFilters(clearPromptFilterChip(filters, key));
+		updateFilters(promptFilters.clearChip(filters, key));
 	}
 
 	function clearFilters() {
-		updateFilters(clearAllPromptFilters(filters));
+		updateFilters(promptFilters.clearAll(filters));
 	}
 
 	function openPrompt(prompt: Prompt) {
-		void goto(buildUrl({ id: prompt.id, isNew: false }));
+		void urlState.go({ id: prompt.id, isNew: false });
 	}
 
 	function backToGrid() {
-		void goto(buildUrl({ id: null, isNew: false }));
+		void urlState.go({ id: null, isNew: false });
 	}
 
 	let prompts: Prompt[] = [];
@@ -414,7 +405,7 @@
 			toasts.success('Prompt created');
 			lastGridKey = '';
 			await loadGrid(true);
-			void goto(buildUrl({ id: response.data.id, isNew: false }));
+			void urlState.go({ id: response.data.id, isNew: false });
 		} catch (error) {
 			toasts.error(error instanceof Error ? error.message : 'Failed to create prompt');
 		} finally {
@@ -690,7 +681,7 @@
 	}
 
 	export async function startNewPrompt() {
-		await goto(buildUrl({ id: null, isNew: true }));
+		await urlState.go({ id: null, isNew: true });
 	}
 
 	async function reloadPrompts() {
@@ -699,25 +690,19 @@
 	}
 
 	export async function setCollectionFilter(id: string | undefined) {
-		await goto(
-			buildUrl({ collection: id ?? null, favorites: false, unsorted: false, id: null, isNew: false })
-		);
+		await urlState.go({ collection: id ?? null, favorites: false, unsorted: false, id: null, isNew: false });
 	}
 
 	async function setFavoritesFilter() {
-		await goto(
-			buildUrl({ collection: null, favorites: true, unsorted: false, id: null, isNew: false })
-		);
+		await urlState.go({ collection: null, favorites: true, unsorted: false, id: null, isNew: false });
 	}
 
 	async function setUnsortedFilter() {
-		await goto(
-			buildUrl({ collection: null, favorites: false, unsorted: true, id: null, isNew: false })
-		);
+		await urlState.go({ collection: null, favorites: false, unsorted: true, id: null, isNew: false });
 	}
 
 	async function setDirectOnly(value: boolean) {
-		await goto(buildUrl({ direct: value, id: null, isNew: false }));
+		await urlState.go({ direct: value, id: null, isNew: false });
 	}
 
 	let importers: PromptImporter[] = [];

@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { Button, EmptyState, LoadErrorState, Spinner, Switch } from '$lib/components/ui';
 	import { getApiErrorMessage } from '$lib/utils/logger';
@@ -15,6 +14,7 @@
 	import { api } from '$lib/services/api';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
+	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { automationNodeTypes } from '$lib/stores/automationNodeTypes';
 	import { adminSectionIcon } from '../adminSections';
@@ -86,29 +86,27 @@
 		if (nextFilters.sortBy !== DEFAULT_AUTOMATIONS_FILTERS.sortBy) params.set('sortBy', nextFilters.sortBy);
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		if (id) params.set('id', id);
-		const query = params.toString();
-		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+		return hrefWithQuery($page.url.pathname, params);
 	}
 
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	const urlState = createUrlState({ href: buildUrl, delay: 200 });
+	onDestroy(urlState.cancel);
+
 	function updateFilters(next: AutomationsFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 200);
+		urlState.debounced({ filters: next });
 	}
 
 	function selectSection(id: AutomationsLibrarySection) {
 		selected = new Set();
-		void goto(buildUrl({ section: id, id: null }));
+		void urlState.go({ section: id, id: null });
 	}
 
 	function openAutomationId(id: string) {
-		void goto(buildUrl({ id }));
+		void urlState.go({ id });
 	}
 
 	function backToList() {
-		void goto(buildUrl({ id: null }));
+		void urlState.go({ id: null });
 	}
 
 	async function loadAutomations() {
@@ -174,7 +172,7 @@
 			} else {
 				toasts.success(`Created “${automation.name}” disabled`);
 			}
-			await goto(buildUrl({ section: 'automations', id: automation.id }));
+			await urlState.go({ section: 'automations', id: automation.id });
 		} catch {
 			toasts.error('Failed to use automation template');
 		} finally {

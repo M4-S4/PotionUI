@@ -3,15 +3,11 @@ import type { SavedSegment, SegmentCategory } from '$lib/types/segments';
 import {
 	DEFAULT_SEGMENT_FILTERS,
 	applySegmentFilters,
-	clearAllSegmentFilters,
-	clearSegmentFilterChip,
 	segmentCountsByCategory,
-	segmentFilterActiveCount,
 	segmentFilterChips,
-	segmentFiltersFromSearchParams,
-	segmentFiltersToSearchParams,
 	segmentTagVocabulary,
-	type SegmentFilters
+	type SegmentFilters,
+	segmentFilters
 } from './segmentFilters';
 
 const categories: SegmentCategory[] = [
@@ -64,7 +60,7 @@ describe('segment filters URL round-trip', () => {
 		const params = new URLSearchParams(
 			'q=gold&category=cat-light&enabled=off&tags=portrait,motion&sort_by=created'
 		);
-		const filters = segmentFiltersFromSearchParams(params);
+		const filters = segmentFilters.fromSearchParams(params);
 		expect(filters).toEqual<SegmentFilters>({
 			q: 'gold',
 			category: 'cat-light',
@@ -72,16 +68,16 @@ describe('segment filters URL round-trip', () => {
 			tags: ['portrait', 'motion'],
 			sortBy: 'created'
 		});
-		expect(segmentFiltersFromSearchParams(segmentFiltersToSearchParams(filters))).toEqual(filters);
+		expect(segmentFilters.fromSearchParams(segmentFilters.toSearchParams(filters))).toEqual(filters);
 	});
 
 	it('omits defaults from the URL', () => {
-		expect(segmentFiltersToSearchParams(DEFAULT_SEGMENT_FILTERS).toString()).toBe('');
-		expect(segmentFiltersToSearchParams({ ...DEFAULT_SEGMENT_FILTERS, sortBy: 'name' }).has('sort_by')).toBe(false);
+		expect(segmentFilters.toSearchParams(DEFAULT_SEGMENT_FILTERS).toString()).toBe('');
+		expect(segmentFilters.toSearchParams({ ...DEFAULT_SEGMENT_FILTERS, sortBy: 'name' }).has('sort_by')).toBe(false);
 	});
 
 	it('falls back to defaults for unknown values', () => {
-		const filters = segmentFiltersFromSearchParams(new URLSearchParams('enabled=maybe&sort_by=usage'));
+		const filters = segmentFilters.fromSearchParams(new URLSearchParams('enabled=maybe&sort_by=usage'));
 		expect(filters.enabled).toBe('');
 		expect(filters.sortBy).toBe('name');
 	});
@@ -144,16 +140,16 @@ describe('segment filter chips', () => {
 			{ key: 'enabled', label: 'enabled' },
 			{ key: 'tag:portrait', label: '#portrait' }
 		]);
-		expect(segmentFilterActiveCount(filters)).toBe(3);
-		expect(segmentFilterActiveCount(DEFAULT_SEGMENT_FILTERS)).toBe(0);
+		expect(segmentFilters.activeCount(filters)).toBe(3);
+		expect(segmentFilters.activeCount(DEFAULT_SEGMENT_FILTERS)).toBe(0);
 	});
 
 	it('clears one chip at a time and keeps query and sort on clear all', () => {
-		expect(clearSegmentFilterChip(filters, 'category').category).toBe('');
-		expect(clearSegmentFilterChip(filters, 'enabled').enabled).toBe('');
-		expect(clearSegmentFilterChip(filters, 'tag:portrait').tags).toEqual([]);
-		expect(clearSegmentFilterChip(filters, 'unknown')).toBe(filters);
-		expect(clearAllSegmentFilters(filters)).toEqual({ ...DEFAULT_SEGMENT_FILTERS, q: 'keep', sortBy: 'created' });
+		expect(segmentFilters.clearChip(filters, 'category').category).toBe('');
+		expect(segmentFilters.clearChip(filters, 'enabled').enabled).toBe('');
+		expect(segmentFilters.clearChip(filters, 'tag:portrait').tags).toEqual([]);
+		expect(segmentFilters.clearChip(filters, 'unknown')).toBe(filters);
+		expect(segmentFilters.clearAll(filters)).toEqual({ ...DEFAULT_SEGMENT_FILTERS, q: 'keep', sortBy: 'created' });
 	});
 });
 

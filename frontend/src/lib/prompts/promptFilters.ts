@@ -98,36 +98,28 @@ const FIELDS: readonly FilterFieldDescriptor<PromptFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<PromptFilters>({
+export const promptFilters = createFilterCodec<PromptFilters>({
 	defaults: DEFAULT_PROMPT_FILTERS,
 	fields: FIELDS,
 	sortValues: ['last_used_at', 'created_at', 'name', 'usage_count']
 });
 
-export function promptFiltersFromSearchParams(params: URLSearchParams): PromptFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function promptFiltersToSearchParams(filters: PromptFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
 export function promptFilterActiveCount(filters: PromptFilters): number {
-	return codec.activeCount(filters);
+	return promptFilters.activeCount(filters);
 }
 
 export type PromptFilterChip = FilterChip;
 
 export function promptFilterChips(filters: PromptFilters, modelLabel?: string): PromptFilterChip[] {
-	return codec.chips(filters, modelLabel ? { modelId: () => `model = ${modelLabel}` } : undefined);
+	return promptFilters.chips(filters, modelLabel ? { modelId: () => `model = ${modelLabel}` } : undefined);
 }
 
 export function clearPromptFilterChip(filters: PromptFilters, key: string): PromptFilters {
-	return codec.clearChip(filters, key);
+	return promptFilters.clearChip(filters, key);
 }
 
 export function clearAllPromptFilters(filters: PromptFilters): PromptFilters {
-	return codec.clearAll(filters);
+	return promptFilters.clearAll(filters);
 }
 
 function lastUsedAfterIso(lastUsed: PromptLastUsedFilter, now: Date): string | undefined {

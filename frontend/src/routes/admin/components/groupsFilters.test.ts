@@ -3,13 +3,10 @@ import type { UserGroup } from '$lib/services/admin-api';
 import {
 	DEFAULT_GROUPS_FILTERS,
 	applyGroupsFilters,
-	clearAllGroupsFilters,
-	clearGroupsFilterChip,
-	groupsFilterActiveCount,
-	groupsFilterChips,
 	groupsFiltersFromSearchParams,
 	groupsFiltersToSearchParams,
-	type GroupsFilters
+	type GroupsFilters,
+	groupsFilters
 } from './groupsFilters';
 
 function group(overrides: Partial<UserGroup> = {}): UserGroup {
@@ -76,13 +73,13 @@ describe('groupsFiltersFromSearchParams / groupsFiltersToSearchParams', () => {
 
 describe('groups filter chips', () => {
 	it('emits no chips and zero active count for the default filters', () => {
-		expect(groupsFilterChips(DEFAULT_GROUPS_FILTERS)).toEqual([]);
-		expect(groupsFilterActiveCount(DEFAULT_GROUPS_FILTERS)).toBe(0);
+		expect(groupsFilters.chips(DEFAULT_GROUPS_FILTERS)).toEqual([]);
+		expect(groupsFilters.activeCount(DEFAULT_GROUPS_FILTERS)).toBe(0);
 	});
 
 	it('has no filter fields to clear beyond search and sort', () => {
 		const filters: GroupsFilters = { q: 'keep me', sortBy: 'created' };
-		expect(clearGroupsFilterChip(filters, 'nothing')).toBe(filters);
-		expect(clearAllGroupsFilters(filters)).toEqual({ q: 'keep me', sortBy: 'created' });
+		expect(groupsFilters.clearChip(filters, 'nothing')).toBe(filters);
+		expect(groupsFilters.clearAll(filters)).toEqual({ q: 'keep me', sortBy: 'created' });
 	});
 });

@@ -4,9 +4,9 @@
 	import TagCloudFilter from '$lib/components/library/TagCloudFilter.svelte';
 	import {
 		TEMPLATE_SLOT_OPTIONS,
-		clearAllTemplateFilters,
 		type TemplateFilters,
-		type TemplateSlotsFilter
+		type TemplateSlotsFilter,
+		templateFilters
 	} from './templateFilters';
 
 	let {
@@ -31,7 +31,7 @@
 	}
 </script>
 
-<FilterPopoverFrame label="Template filters" onClearAll={() => onChange(clearAllTemplateFilters(filters))} {onClose}>
+<FilterPopoverFrame label="Template filters" onClearAll={() => onChange(templateFilters.clearAll(filters))} {onClose}>
 	<SegmentedFilterGroup
 		label="Slots"
 		options={TEMPLATE_SLOT_OPTIONS}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from 'svelte';
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, pluginSetup, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { setupPendingFor, type SetupStep } from '$lib/plugins/setup';
@@ -39,14 +39,9 @@
 	import {
 		PLUGIN_SORT_OPTIONS,
 		applyPluginFilters,
-		clearAllPluginFilters,
-		clearPluginFilterChip,
 		pluginCategoryCounts,
-		pluginFilterActiveCount,
-		pluginFilterChips,
-		pluginFiltersFromSearchParams,
-		pluginFiltersToSearchParams,
-		type PluginFilters
+		type PluginFilters,
+		pluginFilters
 	} from './plugins/pluginFilters';
 
 
@@ -63,14 +58,14 @@
 
 	const params = $derived($page.url.searchParams);
 	const section = $derived(pluginSectionFromSearchParams(params));
-	const filters = $derived(pluginFiltersFromSearchParams(params));
+	const filters = $derived(pluginFilters.fromSearchParams(params));
 	const selectedPluginId = $derived(params.get('id'));
 	const detailOpen = $derived(!!selectedPluginId);
 
 	const visiblePlugins = $derived(applyPluginFilters($plugins, section, filters));
 	const sectionCounts = $derived(pluginCategoryCounts($plugins));
-	const chips = $derived(pluginFilterChips(filters));
-	const filterCount = $derived(pluginFilterActiveCount(filters));
+	const chips = $derived(pluginFilters.chips(filters));
+	const filterCount = $derived(pluginFilters.activeCount(filters));
 
 	const listMatch = $derived(selectedPluginId ? $plugins.find((p) => p.id === selectedPluginId) : undefined);
 	const liveSelected = $derived(
@@ -218,33 +213,32 @@
 
 	function buildUrl(overrides: { filters?: PluginFilters; section?: PluginSection; id?: string | null } = {}): string {
 		const nextFilters = overrides.filters ?? filters;
-		const next = pluginFiltersToSearchParams(nextFilters);
+		const next = pluginFilters.toSearchParams(nextFilters);
 		next.set('tab', 'plugins');
 		const nextSection = overrides.section !== undefined ? overrides.section : section;
 		if (nextSection !== 'all') next.set('category', nextSection);
 		const id = overrides.id !== undefined ? overrides.id : selectedPluginId;
 		if (id) next.set('id', id);
-		return `/admin?${next.toString()}`;
+		return hrefWithQuery('/admin', next);
 	}
 
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	const urlState = createUrlState({ href: buildUrl });
+	onDestroy(urlState.cancel);
+
 	function updateFilters(next: PluginFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ filters: next });
 	}
 
 	function selectSection(id: PluginSection) {
-		void goto(buildUrl({ section: id, id: null }), { keepFocus: true, noScroll: true });
+		void urlState.go({ section: id, id: null }, { keepFocus: true, noScroll: true });
 	}
 
 	function openPlugin(plugin: Plugin) {
-		void goto(buildUrl({ id: plugin.id }), { noScroll: true });
+		void urlState.go({ id: plugin.id }, { noScroll: true });
 	}
 
 	function backToList() {
-		void goto(buildUrl({ id: null }), { noScroll: true });
+		void urlState.go({ id: null }, { noScroll: true });
 	}
 
 	async function loadDetail(id: string) {
@@ -311,8 +305,8 @@
 			{detailOpen}
 			heightClass="h-full"
 			filterChips={chips}
-			onRemoveChip={(key) => updateFilters(clearPluginFilterChip(filters, key))}
-			onClearFilters={() => updateFilters(clearAllPluginFilters(filters))}
+			onRemoveChip={(key) => updateFilters(pluginFilters.clearChip(filters, key))}
+			onClearFilters={() => updateFilters(pluginFilters.clearAll(filters))}
 			loadedCount={visiblePlugins.length}
 			total={$plugins.length}
 		>
@@ -605,7 +599,7 @@
 							<div class="flex h-full items-center justify-center">
 								<EmptyState icon="search" title="No plugins match" description="No plugins match the current search and filters." compact>
 									{#snippet actions()}
-										<Button variant="ghost" size="sm" onclick={() => updateFilters(clearAllPluginFilters(filters))}>Clear filters</Button>
+										<Button variant="ghost" size="sm" onclick={() => updateFilters(pluginFilters.clearAll(filters))}>Clear filters</Button>
 									{/snippet}
 								</EmptyState>
 							</div>

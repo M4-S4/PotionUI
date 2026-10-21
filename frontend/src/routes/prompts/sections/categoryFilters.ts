@@ -34,18 +34,18 @@ const FIELDS: readonly FilterFieldDescriptor<CategoryFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<CategoryFilters>({
+export const categoryFilters = createFilterCodec<CategoryFilters>({
 	defaults: DEFAULT_CATEGORY_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name', 'count']
 });
 
 export function categoryFiltersFromSearchParams(params: URLSearchParams): CategoryFilters {
-	return codec.fromSearchParams(params);
+	return categoryFilters.fromSearchParams(params);
 }
 
 export function categoryFiltersToSearchParams(filters: CategoryFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
+	return categoryFilters.toSearchParams(filters);
 }
 
 function byName(a: SegmentCategory, b: SegmentCategory): number {
@@ -71,17 +71,17 @@ export function applyCategoryFilters(
 }
 
 export function categoryFilterActiveCount(filters: CategoryFilters): number {
-	return codec.activeCount(filters);
+	return categoryFilters.activeCount(filters);
 }
 
 export function categoryFilterChips(filters: CategoryFilters): FilterChip[] {
-	return codec.chips(filters);
+	return categoryFilters.chips(filters);
 }
 
 export function clearCategoryFilterChip(filters: CategoryFilters, key: string): CategoryFilters {
-	return codec.clearChip(filters, key);
+	return categoryFilters.clearChip(filters, key);
 }
 
 export function clearAllCategoryFilters(filters: CategoryFilters): CategoryFilters {
-	return codec.clearAll(filters);
+	return categoryFilters.clearAll(filters);
 }

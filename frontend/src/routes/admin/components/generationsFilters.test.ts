@@ -1,17 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
 	DEFAULT_GENERATIONS_FILTERS,
-	clearAllGenerationsFilters,
-	clearGenerationsFilterChip,
-	generationsFilterActiveCount,
 	generationsFilterChips,
-	generationsFiltersFromSearchParams,
-	generationsFiltersToSearchParams,
 	generationsSortParams,
-	type GenerationsFilters
+	type GenerationsFilters,
+	generationsFilters
 } from './generationsFilters';
 
-describe('generationsFiltersFromSearchParams / generationsFiltersToSearchParams', () => {
+describe('generationsFilters.fromSearchParams / generationsFilters.toSearchParams', () => {
 	it('round-trips a fully-set filter state through the URL', () => {
 		const filters: GenerationsFilters = {
 			q: 'portrait',
@@ -22,7 +18,7 @@ describe('generationsFiltersFromSearchParams / generationsFiltersToSearchParams'
 			createdTo: '2026-09-20',
 			sortBy: 'created_asc'
 		};
-		const params = generationsFiltersToSearchParams(filters);
+		const params = generationsFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('portrait');
 		expect(params.get('status')).toBe('completed');
 		expect(params.get('category')).toBeNull();
@@ -30,7 +26,7 @@ describe('generationsFiltersFromSearchParams / generationsFiltersToSearchParams'
 		expect(params.get('from')).toBe('2026-09-01');
 		expect(params.get('to')).toBe('2026-09-20');
 		expect(params.get('sort_by')).toBe('created_asc');
-		expect(generationsFiltersFromSearchParams(params)).toEqual(filters);
+		expect(generationsFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('round-trips the category filter through the URL', () => {
@@ -43,18 +39,18 @@ describe('generationsFiltersFromSearchParams / generationsFiltersToSearchParams'
 			createdTo: '',
 			sortBy: 'created_desc'
 		};
-		const params = generationsFiltersToSearchParams(filters);
+		const params = generationsFilters.toSearchParams(filters);
 		expect(params.get('category')).toBe('cuda_oom');
-		expect(generationsFiltersFromSearchParams(params)).toEqual(filters);
+		expect(generationsFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('omits defaults from the URL so a clean list has no query string', () => {
-		expect(generationsFiltersToSearchParams(DEFAULT_GENERATIONS_FILTERS).toString()).toBe('');
+		expect(generationsFilters.toSearchParams(DEFAULT_GENERATIONS_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to the defaults for an unknown status, category or sort value', () => {
 		const params = new URLSearchParams({ status: 'archived', category: 'not_a_real_category', sort_by: 'rating' });
-		const filters = generationsFiltersFromSearchParams(params);
+		const filters = generationsFilters.fromSearchParams(params);
 		expect(filters.status).toBe('');
 		expect(filters.category).toBe('');
 		expect(filters.sortBy).toBe('created_desc');
@@ -80,10 +76,10 @@ describe('generations filter chips', () => {
 			{ key: 'createdFrom', label: 'From 2026-09-01' },
 			{ key: 'createdTo', label: 'To 2026-09-20' }
 		]);
-		expect(clearGenerationsFilterChip(filters, 'status').status).toBe('');
-		expect(clearGenerationsFilterChip(filters, 'category').category).toBe('');
-		expect(clearGenerationsFilterChip(filters, 'userId').userId).toBe('');
-		expect(clearGenerationsFilterChip(filters, 'nothing')).toBe(filters);
+		expect(generationsFilters.clearChip(filters, 'status').status).toBe('');
+		expect(generationsFilters.clearChip(filters, 'category').category).toBe('');
+		expect(generationsFilters.clearChip(filters, 'userId').userId).toBe('');
+		expect(generationsFilters.clearChip(filters, 'nothing')).toBe(filters);
 	});
 
 	it('counts every active field and keeps query and sort when clearing all', () => {
@@ -96,8 +92,8 @@ describe('generations filter chips', () => {
 			createdTo: '',
 			sortBy: 'created_asc'
 		};
-		expect(generationsFilterActiveCount(filters)).toBe(4);
-		expect(clearAllGenerationsFilters(filters)).toEqual({
+		expect(generationsFilters.activeCount(filters)).toBe(4);
+		expect(generationsFilters.clearAll(filters)).toEqual({
 			q: 'keep me',
 			status: '',
 			category: '',
@@ -106,7 +102,7 @@ describe('generations filter chips', () => {
 			createdTo: '',
 			sortBy: 'created_asc'
 		});
-		expect(generationsFilterActiveCount(DEFAULT_GENERATIONS_FILTERS)).toBe(0);
+		expect(generationsFilters.activeCount(DEFAULT_GENERATIONS_FILTERS)).toBe(0);
 	});
 });
 

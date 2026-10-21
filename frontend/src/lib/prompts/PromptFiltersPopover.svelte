@@ -5,7 +5,7 @@
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
 	import TagCloudFilter from '$lib/components/library/TagCloudFilter.svelte';
-	import { clearAllPromptFilters, type PromptFilters, type PromptLastUsedFilter, type PromptSourceFilter, type PromptUsedFilter } from './promptFilters';
+	import { type PromptFilters, type PromptLastUsedFilter, type PromptSourceFilter, type PromptUsedFilter, promptFilters } from './promptFilters';
 
 	let {
 		filters,
@@ -64,7 +64,7 @@
 	];
 </script>
 
-<FilterPopoverFrame width="w-[34rem]" onClearAll={() => onChange(clearAllPromptFilters(filters))} {onClose}>
+<FilterPopoverFrame width="w-[34rem]" onClearAll={() => onChange(promptFilters.clearAll(filters))} {onClose}>
 	<div class="flex flex-col gap-1.5">
 		<span class="text-xs font-medium text-fg-muted">Model</span>
 		<ModelPickTrigger

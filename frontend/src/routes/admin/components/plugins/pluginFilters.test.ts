@@ -4,13 +4,8 @@ import {
 	DEFAULT_PLUGIN_FILTERS,
 	applyPluginFilters,
 	pluginCategoryCounts,
-	pluginFilterActiveCount,
-	pluginFilterChips,
-	pluginFiltersFromSearchParams,
-	pluginFiltersToSearchParams,
-	clearAllPluginFilters,
-	clearPluginFilterChip,
-	type PluginFilters
+	type PluginFilters,
+	pluginFilters
 } from './pluginFilters';
 
 function plugin(overrides: Partial<Plugin> & Pick<Plugin, 'id' | 'name'>): Plugin {
@@ -33,20 +28,20 @@ const plugins: Plugin[] = [
 describe('pluginFilters URL round-trip', () => {
 	it('round-trips every non-default value', () => {
 		const filters: PluginFilters = { q: 'civ', state: 'enabled', sortBy: 'category' };
-		const params = pluginFiltersToSearchParams(filters);
+		const params = pluginFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('civ');
 		expect(params.get('state')).toBe('enabled');
 		expect(params.get('sort_by')).toBe('category');
-		expect(pluginFiltersFromSearchParams(params)).toEqual(filters);
+		expect(pluginFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('omits defaults from the URL', () => {
-		expect(pluginFiltersToSearchParams(DEFAULT_PLUGIN_FILTERS).toString()).toBe('');
+		expect(pluginFilters.toSearchParams(DEFAULT_PLUGIN_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to defaults for unknown values', () => {
 		const params = new URLSearchParams('state=bogus&sort_by=whatever');
-		expect(pluginFiltersFromSearchParams(params)).toEqual(DEFAULT_PLUGIN_FILTERS);
+		expect(pluginFilters.fromSearchParams(params)).toEqual(DEFAULT_PLUGIN_FILTERS);
 	});
 });
 
@@ -77,7 +72,7 @@ describe('applyPluginFilters', () => {
 	});
 
 	it('ignores a leftover type value from an old link', () => {
-		const filters = pluginFiltersFromSearchParams(new URLSearchParams('type=frontend-only'));
+		const filters = pluginFilters.fromSearchParams(new URLSearchParams('type=frontend-only'));
 		expect(filters).toEqual(DEFAULT_PLUGIN_FILTERS);
 		expect(applyPluginFilters(plugins, 'all', filters)).toHaveLength(4);
 	});
@@ -112,17 +107,17 @@ describe('applyPluginFilters', () => {
 describe('plugin filter chips', () => {
 	it('emits a chip for state and clears it by key', () => {
 		const filters: PluginFilters = { ...DEFAULT_PLUGIN_FILTERS, state: 'enabled' };
-		expect(pluginFilterChips(filters)).toEqual([{ key: 'state', label: 'Enabled' }]);
-		expect(pluginFilterActiveCount(filters)).toBe(1);
-		expect(clearPluginFilterChip(filters, 'state')).toEqual({ ...filters, state: '' });
-		expect(clearPluginFilterChip(filters, 'unknown')).toBe(filters);
+		expect(pluginFilters.chips(filters)).toEqual([{ key: 'state', label: 'Enabled' }]);
+		expect(pluginFilters.activeCount(filters)).toBe(1);
+		expect(pluginFilters.clearChip(filters, 'state')).toEqual({ ...filters, state: '' });
+		expect(pluginFilters.clearChip(filters, 'unknown')).toBe(filters);
 	});
 
 	it('clear all keeps the query and the sort', () => {
 		const filters: PluginFilters = { q: 'civ', state: 'enabled', sortBy: 'category' };
-		expect(clearAllPluginFilters(filters)).toEqual({ q: 'civ', state: '', sortBy: 'category' });
-		expect(pluginFilterChips(DEFAULT_PLUGIN_FILTERS)).toEqual([]);
-		expect(pluginFilterActiveCount(DEFAULT_PLUGIN_FILTERS)).toBe(0);
+		expect(pluginFilters.clearAll(filters)).toEqual({ q: 'civ', state: '', sortBy: 'category' });
+		expect(pluginFilters.chips(DEFAULT_PLUGIN_FILTERS)).toEqual([]);
+		expect(pluginFilters.activeCount(DEFAULT_PLUGIN_FILTERS)).toBe(0);
 	});
 });
 

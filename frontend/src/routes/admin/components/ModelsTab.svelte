@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { isAxiosError } from 'axios';
-	import { goto } from '$app/navigation';
+	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { page } from '$app/stores';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
@@ -59,28 +59,24 @@
 	import {
 		ATTRIBUTES_SORT_OPTIONS,
 		applyAttributesFilters,
-		attributesFiltersFromSearchParams,
-		attributesFiltersToSearchParams,
 		type AttributesFilters,
-		type AttributesSortBy
+		type AttributesSortBy,
+		attributesFilters
 	} from './attributesFilters';
 	import AttributeDefinitionForm from './AttributeDefinitionForm.svelte';
 	import {
 		DEFAULT_MODELS_FILTERS,
 		MODELS_SORT_OPTIONS,
-		clearAllModelsFilters,
-		clearModelsFilterChip,
-		modelsFilterActiveCount,
 		modelsFilterChips,
 		modelsFiltersFromSearchParams,
-		modelsFiltersToSearchParams,
 		modelsHasActiveFilters,
 		modelsQueryParams,
 		modelsSortParams,
 		withModelsUsage,
 		type ModelsFilters,
 		type ModelsSortBy,
-		type ModelsUsage
+		type ModelsUsage,
+		modelsFilters
 	} from './modelsFilters';
 
 	interface ModelListItem {
@@ -184,12 +180,12 @@
 	const sectionCounts = $derived(modelLibrarySectionCounts(modelTypes, definitions.length));
 
 	const filters = $derived(modelsFiltersFromSearchParams($page.url.searchParams));
-	const attrFilters = $derived(attributesFiltersFromSearchParams($page.url.searchParams));
+	const attrFilters = $derived(attributesFilters.fromSearchParams($page.url.searchParams));
 
 	const filteredAttributeDefinitions = $derived(applyAttributesFilters(definitions, attrFilters));
 	const attrIsFiltered = $derived(!!attrFilters.q.trim());
 
-	const activeFilterCount = $derived(modelsFilterActiveCount(filters));
+	const activeFilterCount = $derived(modelsFilters.activeCount(filters));
 	const filterChips = $derived(modelsFilterChips(filters, availableTags));
 	const hasActiveFilters = $derived(modelsHasActiveFilters(filters));
 
@@ -202,8 +198,6 @@
 		viewId && isAttributesSection ? (definitions.find((d) => d.id === viewId) ?? null) : null
 	);
 
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
-
 	function buildUrl(
 		overrides: { section?: string; id?: string | null; modelFilters?: ModelsFilters; attrFilters?: AttributesFilters } = {}
 	): string {
@@ -212,48 +206,44 @@
 		params.set('tab', 'models');
 		if (nextSection !== 'all') params.set('view', nextSection);
 		if (nextSection === MODELS_ATTRIBUTES_SECTION) {
-			for (const [key, value] of attributesFiltersToSearchParams(overrides.attrFilters ?? attrFilters)) params.set(key, value);
+			for (const [key, value] of attributesFilters.toSearchParams(overrides.attrFilters ?? attrFilters)) params.set(key, value);
 		} else if (nextSection !== MODELS_FOLDERS_SECTION) {
-			for (const [key, value] of modelsFiltersToSearchParams(overrides.modelFilters ?? filters)) params.set(key, value);
+			for (const [key, value] of modelsFilters.toSearchParams(overrides.modelFilters ?? filters)) params.set(key, value);
 		}
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		if (id) params.set('id', id);
-		const query = params.toString();
-		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+		return hrefWithQuery($page.url.pathname, params);
 	}
 
+	const urlState = createUrlState({ href: buildUrl });
+	onDestroy(urlState.cancel);
+
 	function updateFilters(next: ModelsFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ modelFilters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ modelFilters: next });
 	}
 
 	function updateAttrFilters(next: AttributesFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ attrFilters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ attrFilters: next });
 	}
 
 	function selectSection(id: string) {
 		selectedModelIds = new Set();
 		selectedAttributeIds = new Set();
-		void goto(buildUrl({ section: id, id: null }));
+		void urlState.go({ section: id, id: null });
 	}
 
 	function openModelId(id: string) {
-		void goto(buildUrl({ id }));
+		void urlState.go({ id });
 	}
 
 	function openAttributeId(id: string) {
-		void goto(buildUrl({ id }));
+		void urlState.go({ id });
 	}
 
 	let typeChangedInDetail = false;
 
 	function backToList() {
-		void goto(buildUrl({ id: null }));
+		void urlState.go({ id: null });
 		if (typeChangedInDetail) {
 			typeChangedInDetail = false;
 			void Promise.all([loadModels(), loadModelTypes()]);
@@ -729,8 +719,8 @@
 	count={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
 	{detailOpen}
 	filterChips={isAttributesSection ? [] : filterChips}
-	onRemoveChip={(key) => updateFilters(clearModelsFilterChip(filters, key))}
-	onClearFilters={() => updateFilters(clearAllModelsFilters(filters))}
+	onRemoveChip={(key) => updateFilters(modelsFilters.clearChip(filters, key))}
+	onClearFilters={() => updateFilters(modelsFilters.clearAll(filters))}
 	loadedCount={isAttributesSection ? filteredAttributeDefinitions.length : models.length}
 	total={isAttributesSection ? definitions.length : totalCount}
 >
@@ -792,7 +782,7 @@
 					</Tooltip>
 				{/snippet}
 				{#snippet popover(close: () => void)}
-					<FilterPopoverFrame label="Model filters" onClearAll={() => updateFilters(clearAllModelsFilters(filters))} onClose={close}>
+					<FilterPopoverFrame label="Model filters" onClearAll={() => updateFilters(modelsFilters.clearAll(filters))} onClose={close}>
 						<div class="col-span-2 flex flex-col gap-1.5">
 							<span class="text-xs font-medium text-fg-muted">Tags</span>
 							<div bind:this={tagDropdownRef} class="relative">

@@ -3,13 +3,9 @@ import type { User } from '$lib/stores/auth';
 import {
 	DEFAULT_USERS_FILTERS,
 	applyUsersFilters,
-	clearAllUsersFilters,
-	clearUsersFilterChip,
-	usersFilterActiveCount,
-	usersFilterChips,
 	usersFiltersFromSearchParams,
-	usersFiltersToSearchParams,
-	type UsersFilters
+	type UsersFilters,
+	usersFilters
 } from './usersFilters';
 
 function user(overrides: Partial<User> = {}): User {
@@ -56,10 +52,10 @@ describe('applyUsersFilters', () => {
 	});
 });
 
-describe('usersFiltersFromSearchParams / usersFiltersToSearchParams', () => {
+describe('usersFiltersFromSearchParams / usersFilters.toSearchParams', () => {
 	it('round-trips a non-default filter set', () => {
 		const filters: UsersFilters = { q: 'alice', accountType: 'ADMIN', sortBy: 'created' };
-		const params = usersFiltersToSearchParams(filters);
+		const params = usersFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('alice');
 		expect(params.get('account_type')).toBe('ADMIN');
 		expect(params.get('sort_by')).toBe('created');
@@ -67,7 +63,7 @@ describe('usersFiltersFromSearchParams / usersFiltersToSearchParams', () => {
 	});
 
 	it('serializes the default filters to an empty query string', () => {
-		expect(usersFiltersToSearchParams(DEFAULT_USERS_FILTERS).toString()).toBe('');
+		expect(usersFilters.toSearchParams(DEFAULT_USERS_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to defaults for unknown or missing params', () => {
@@ -79,20 +75,20 @@ describe('usersFiltersFromSearchParams / usersFiltersToSearchParams', () => {
 describe('users filter chips', () => {
 	it('emits an account-type chip and clears it', () => {
 		const filters: UsersFilters = { q: 'x', accountType: 'ADMIN', sortBy: 'username' };
-		expect(usersFilterChips(filters)).toEqual([{ key: 'accountType', label: 'Administrators' }]);
-		expect(clearUsersFilterChip(filters, 'accountType').accountType).toBe('all');
-		expect(clearUsersFilterChip(filters, 'nothing')).toBe(filters);
+		expect(usersFilters.chips(filters)).toEqual([{ key: 'accountType', label: 'Administrators' }]);
+		expect(usersFilters.clearChip(filters, 'accountType').accountType).toBe('all');
+		expect(usersFilters.clearChip(filters, 'nothing')).toBe(filters);
 	});
 
 	it('emits no chips and zero active count for the default filters', () => {
-		expect(usersFilterChips(DEFAULT_USERS_FILTERS)).toEqual([]);
-		expect(usersFilterActiveCount(DEFAULT_USERS_FILTERS)).toBe(0);
+		expect(usersFilters.chips(DEFAULT_USERS_FILTERS)).toEqual([]);
+		expect(usersFilters.activeCount(DEFAULT_USERS_FILTERS)).toBe(0);
 	});
 
 	it('counts account type as one active filter and keeps query and sort when clearing all', () => {
 		const filters: UsersFilters = { q: 'keep me', accountType: 'USER', sortBy: 'created' };
-		expect(usersFilterActiveCount(filters)).toBe(1);
-		expect(clearAllUsersFilters(filters)).toEqual({ q: 'keep me', accountType: 'all', sortBy: 'created' });
+		expect(usersFilters.activeCount(filters)).toBe(1);
+		expect(usersFilters.clearAll(filters)).toEqual({ q: 'keep me', accountType: 'all', sortBy: 'created' });
 	});
 });
 
@@ -100,7 +96,7 @@ describe('usage sort in the url', () => {
 	it('keeps the most-used and per-kind sort values', () => {
 		const filters = usersFiltersFromSearchParams(new URLSearchParams('sort_by=most_used'));
 		expect(filters.sortBy).toBe('most_used');
-		expect(usersFiltersToSearchParams(filters).get('sort_by')).toBe('most_used');
+		expect(usersFilters.toSearchParams(filters).get('sort_by')).toBe('most_used');
 		expect(usersFiltersFromSearchParams(new URLSearchParams('sort_by=kind:storage_bytes')).sortBy).toBe('kind:storage_bytes');
 	});
 
