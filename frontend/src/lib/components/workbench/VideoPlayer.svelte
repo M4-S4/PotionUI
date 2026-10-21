@@ -127,10 +127,6 @@
 		syncVideoPositions();
 	}
 
-	export function getCompareMode() {
-		return compareMode;
-	}
-
 	function startVideoSync() {
 		stopVideoSync();
 		let syncFrameCount = 0;

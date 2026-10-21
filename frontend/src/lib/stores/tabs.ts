@@ -399,10 +399,6 @@ export const activeTab = selectorStore(
 // a handler forgetting to clear/set a shared lock.
 export const generatingTab = selectorStore(($store) => $store.tabs.find((t) => t.generation.isGenerating) || null);
 
-export const isAnyTabGenerating = derived(tabsStore, ($store) => {
-	return $store.tabs.some((t) => t.generation.isGenerating);
-});
-
 export const isActiveTabGenerating = derived(activeTab, ($activeTab) => {
 	return !!$activeTab?.generation.isGenerating;
 });

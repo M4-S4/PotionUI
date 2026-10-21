@@ -32,7 +32,7 @@
 // bounded regardless of payload size, and every input that changes what the
 // shot renders changes the string.
 import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
-import { collectFormMediaOptions, deriveChainSegmentSubType, isFormMediaRef, resolveFormMediaItem } from './videoDirector';
+import { deriveChainSegmentSubType, isFormMediaRef, resolveFormMediaItem } from './videoDirector';
 import { isRecord } from '$lib/utils/records';
 
 /** The active generation context a shot's request would actually be
