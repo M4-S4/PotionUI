@@ -22,6 +22,7 @@ import {
 	clearAxes,
 	compareProgressRevision,
 	compareRevision,
+	getCellEstimateMs,
 	effectiveLockSeed,
 	getActiveGrid,
 	getCompare,
@@ -497,5 +498,62 @@ describe('preset switch', () => {
 		setCompare(tabId, { armed: true, x: prompt });
 		publishCompareSchema(tabId, 'preset-c-txt2img-', schemaWith(['sampler']));
 		expect(getCompare(tabId).x?.field).toBe('__prompt__');
+	});
+});
+
+describe('revision churn', () => {
+	let bumps = 0;
+	let unsubscribe: () => void = () => {};
+
+	beforeEach(() => {
+		bumps = 0;
+		unsubscribe = compareRevision.subscribe(() => bumps++);
+		bumps = 0;
+	});
+
+	afterEach(() => unsubscribe());
+
+	it('ignores tab updates while compare is off', () => {
+		for (let i = 0; i < 10; i++) {
+			tabsStore.updateTab(tabId, { formData: { prompt: 'a'.repeat(i + 1) } as never });
+			tabsStore.updateTab(tabId, { generation: { progress: i + 1 } as never });
+		}
+		expect(bumps).toBe(0);
+	});
+
+	it('ignores form data and progress updates on an armed tab', () => {
+		setCompare(tabId, { armed: true, x: sampler });
+		tabsStore.updateTab(tabId, { formData: { prompt: 'warm up' } as never });
+		bumps = 0;
+		for (let i = 0; i < 10; i++) {
+			tabsStore.updateTab(tabId, { formData: { prompt: 'b'.repeat(i + 1) } as never });
+			tabsStore.updateTab(tabId, { generation: { progress: i + 1 } as never });
+		}
+		expect(bumps).toBe(0);
+	});
+
+	it('bumps once when the last duration of an armed tab changes and the estimate follows', () => {
+		setCompare(tabId, { armed: true, x: sampler });
+		tabsStore.updateTab(tabId, { generation: { lastDurationMs: 1000 } as never });
+		bumps = 0;
+		tabsStore.updateTab(tabId, { generation: { lastDurationMs: 2000 } as never });
+		expect(bumps).toBe(1);
+		expect(getCellEstimateMs(tabId)).toBe(2000);
+	});
+
+	it('bumps when the preset of an armed tab changes', () => {
+		setCompare(tabId, { armed: true, x: sampler });
+		tabsStore.updateTab(tabId, { formData: { prompt: 'warm up' } as never });
+		bumps = 0;
+		tabsStore.updateTab(tabId, { selectedPreset: 'native/Other' });
+		expect(bumps).toBe(1);
+	});
+
+	it('bumps when a tab is added or removed', () => {
+		const second = tabsStore.addTabWithData('Second tab', {});
+		expect(bumps).toBeGreaterThan(0);
+		bumps = 0;
+		tabsStore.removeTab(second);
+		expect(bumps).toBe(1);
 	});
 });
