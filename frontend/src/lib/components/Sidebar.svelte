@@ -354,7 +354,6 @@
 		</div>
 	</nav>
 
-	<!-- Bottom Section: Widgets + Quick Actions + User -->
 	<div class="border-t border-line py-3 px-2 space-y-2">
 		<!-- Dynamic Sidebar Widgets (e.g. System Monitor plugin) -->
 		<SidebarWidgets position="bottom" />
@@ -438,13 +437,13 @@
 
 		<!-- Quick Actions (core palette; plugins are one contributing source) -->
 		<QuickActions />
-
-		{#if $authStore.user}
-			<div class="flex flex-col items-center pt-2 border-t border-line">
-				<UserMenu />
-			</div>
-		{/if}
 	</div>
+
+	{#if $authStore.user}
+		<div class="flex h-[var(--dock-height,92px)] flex-shrink-0 items-center justify-center border-t border-line" data-rail-user>
+			<UserMenu />
+		</div>
+	{/if}
 </aside>
 
 {#if moreOpen}
