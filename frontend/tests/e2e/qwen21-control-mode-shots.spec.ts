@@ -1,7 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
-import { maskChip, pickFieldTool } from './mediaFieldHelpers';
+import { maskChip, pickFieldTool, chunk } from './mediaFieldHelpers';
 
 const JOURNEY = 'qwen21-control-mode-shots';
 const PRESET_ID = '01M31Y6WNM07EHAXXCDV1QVJVX';
@@ -9,24 +9,6 @@ const SIZES = [
 	{ tag: '1440', width: 1440, height: 900 },
 	{ tag: '390', width: 390, height: 844 }
 ];
-
-function crc32(buf: Buffer): number {
-	let c = ~0;
-	for (const b of buf) {
-		c ^= b;
-		for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
-	}
-	return ~c >>> 0;
-}
-
-function chunk(type: string, data: Buffer): Buffer {
-	const head = Buffer.alloc(4);
-	head.writeUInt32BE(data.length);
-	const body = Buffer.concat([Buffer.from(type), data]);
-	const tail = Buffer.alloc(4);
-	tail.writeUInt32BE(crc32(body));
-	return Buffer.concat([head, body, tail]);
-}
 
 function fixturePng(size: number, seed: number): Buffer {
 	const rows: Buffer[] = [];

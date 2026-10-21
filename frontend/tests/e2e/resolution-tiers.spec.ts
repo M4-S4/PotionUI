@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
 
 // Resolution picker rework: box mode is now a sunken trigger that opens a
 // floating, searchable, tier-grouped panel (the old flat "aspect grid + tier
@@ -10,21 +10,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
 const JOURNEY = 'resolution-tiers';
 const BEAT = 300;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('resolution picker — search panel, tier sections, custom entry', async ({ page }) => {
 	await loginAsOwner(page);

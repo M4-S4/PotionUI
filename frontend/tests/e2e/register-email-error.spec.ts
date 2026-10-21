@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
-import { screenshot } from './helpers';
+import { screenshot, SIGNED_OUT } from './helpers';
+
+test.use({ storageState: SIGNED_OUT });
 
 const JOURNEY = 'register-email-error';
 
