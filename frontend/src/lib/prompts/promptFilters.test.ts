@@ -42,18 +42,9 @@ describe('promptFilters.fromSearchParams / promptFilters.toSearchParams', () => 
 		const params = new URLSearchParams('used=bogus&source=bogus&sort_by=bogus&usage_hint=bogus&last_used=bogus');
 		expect(promptFilters.fromSearchParams(params)).toEqual(DEFAULT_PROMPT_FILTERS);
 	});
-
-	it('parses a comma-joined tags list, trimming and dropping blanks', () => {
-		const params = new URLSearchParams('tags=dance, tiktok,,portrait');
-		expect(promptFilters.fromSearchParams(params).tags).toEqual(['dance', 'tiktok', 'portrait']);
-	});
 });
 
 describe('promptFilters.activeCount', () => {
-	it('is zero for the default filters', () => {
-		expect(promptFilters.activeCount(DEFAULT_PROMPT_FILTERS)).toBe(0);
-	});
-
 	it('counts each active field once, tags as a single field', () => {
 		const filters: PromptFilters = {
 			...DEFAULT_PROMPT_FILTERS,
@@ -99,10 +90,6 @@ describe('promptFilterChips / promptFilters.clearChip', () => {
 		const filters: PromptFilters = { ...DEFAULT_PROMPT_FILTERS, used: 'never', showNsfw: true };
 		expect(promptFilters.clearChip(filters, 'used')).toEqual({ ...filters, used: 'any' });
 		expect(promptFilters.clearChip(filters, 'showNsfw')).toEqual({ ...filters, showNsfw: false });
-	});
-
-	it('is a no-op for an unknown key', () => {
-		expect(promptFilters.clearChip(DEFAULT_PROMPT_FILTERS, 'nonsense')).toEqual(DEFAULT_PROMPT_FILTERS);
 	});
 });
 

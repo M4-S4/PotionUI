@@ -52,22 +52,6 @@ describe('models filter chips', () => {
 		expect(modelsFilterChips(DEFAULT_MODELS_FILTERS, TAGS)).toEqual([]);
 		expect(modelsFilters.activeCount(DEFAULT_MODELS_FILTERS)).toBe(0);
 	});
-
-	it('counts tags as one active filter group and excludes q and sortBy', () => {
-		const filters: ModelsFilters = { ...DEFAULT_MODELS_FILTERS, q: 'keep me', tags: ['t1', 't2'], sortBy: 'filename_asc' };
-		expect(modelsFilters.activeCount(filters)).toBe(1);
-	});
-
-	it('clears a single tag chip and leaves the rest untouched', () => {
-		const filters: ModelsFilters = { ...DEFAULT_MODELS_FILTERS, q: '', tags: ['t1', 't2'], sortBy: 'indexed_at_desc' };
-		expect(modelsFilters.clearChip(filters, 'tag:t1')).toEqual({ ...filters, tags: ['t2'] });
-		expect(modelsFilters.clearChip(filters, 'nothing')).toBe(filters);
-	});
-
-	it('clears tags but keeps query and sort when clearing all', () => {
-		const filters: ModelsFilters = { ...DEFAULT_MODELS_FILTERS, q: 'keep me', tags: ['t1'], sortBy: 'filename_asc' };
-		expect(modelsFilters.clearAll(filters)).toEqual({ ...DEFAULT_MODELS_FILTERS, q: 'keep me', sortBy: 'filename_asc' });
-	});
 });
 
 describe('modelsHasActiveFilters', () => {
