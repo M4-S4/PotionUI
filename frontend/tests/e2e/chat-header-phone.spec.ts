@@ -37,6 +37,19 @@ for (const viewport of VIEWPORTS) {
 		await expect(header).toBeVisible({ timeout: 15000 });
 		await expect(header.getByTestId('chat-mode-selector-trigger')).toBeVisible();
 
+		let previousBox = '';
+		await expect
+			.poll(
+				async () => {
+					const current = JSON.stringify(await header.boundingBox());
+					const settled = current === previousBox;
+					previousBox = current;
+					return settled;
+				},
+				{ intervals: [250], timeout: 10000 }
+			)
+			.toBe(true);
+
 		await expectNoBoxOverlap([
 			{ name: 'history toggle', locator: header.getByRole('button', { name: /^(Hide|Show) history$/ }) },
 			{ name: 'new chat', locator: header.getByRole('button', { name: 'New chat' }) },
