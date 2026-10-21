@@ -13,6 +13,7 @@ from src.features.generation.repository import GenerationRepository
 from src.features.generation.status_tracker import GenerationStatusTracker
 from src.features.presets.templates import FieldTemplate, ModeTemplate, PipeTemplate
 from src.platform.security.user import AccountType, User
+from tests.fixtures.seed import seed_user
 
 
 def axis(field: str, values: List[Any], type: str = "select", labels: List[str] = None, label: str = None) -> Axis:
@@ -79,11 +80,7 @@ class Harness:
     def __init__(self, db):
         self.db = db
         for user_id in ("u1", "u2", "admin"):
-            with db.get_cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', ?)",
-                    (user_id, user_id, f"{user_id}@example.test", "ADMIN" if user_id == "admin" else "USER"),
-                )
+            seed_user(db, user_id, account_type="ADMIN" if user_id == "admin" else "USER")
         self.users = {name: make_user(name, admin=name == "admin") for name in ("u1", "u2", "admin")}
         self.generations = GenerationRepository()
         self.grids = GridRepository()
