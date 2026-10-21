@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
 
 // Follow-up to the mode-row grid change (54a4592e), which regresses on
 // Krea-2 with the krea2-edit plugin enabled: a real preset with a
@@ -12,21 +12,6 @@ const JOURNEY = 'fe90-mode-row-krea2';
 const BEAT = 400;
 const KREA2_PRESET_ID = '4TK1KBQZ2XMB8ME0PTMXS1YJQP';
 const PLUGIN_ID = 'krea2-edit';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('mode row — Krea-2 with krea2-edit enabled (plugin-contributed mode)', async ({ page }) => {
 	await loginAsOwner(page);

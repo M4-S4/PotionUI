@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished } from './helpers';
+import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished, apiGet, apiPost } from './helpers';
 
 // "New workspace" wipes every open tab down to one fresh empty tab.
 // When the workspace has unsaved changes it must ask first (3-way modal:
@@ -8,21 +8,6 @@ import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, 
 // session-tab-switch-preserves-draft.spec.ts.
 
 const JOURNEY = 'new-workspace';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function typeIntoSegment(page: Page, listAriaLabel: string, index: number, text: string) {
 	const item = page.locator(`div[role="list"][aria-label="${listAriaLabel}"] [role="listitem"]`).nth(index);

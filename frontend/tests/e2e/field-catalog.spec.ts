@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
 
 // Visual evidence — the Field Catalog restyle (3a tabs + 2a cards).
 // Captures the decisive states of the redesigned form fields on a real native
@@ -9,21 +9,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 
 const JOURNEY = 'field-catalog';
 const BEAT = 400;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('field catalog restyle — visual capture on a native image preset', async ({ page }) => {
 	await loginAsOwner(page);

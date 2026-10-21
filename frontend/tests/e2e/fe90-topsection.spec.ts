@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
 
 // Visual evidence — the "1a Instrument Pro" top-section restyle: tabs
 // row now carries the session pill + "…" overflow on its right (Simple/
@@ -8,21 +8,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // segmented row (PresetSessionBar deleted, its 15 controls re-homed).
 const JOURNEY = 'fe90-topsection';
 const BEAT = 400;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('top section — tabs row cluster + relocated preset header', async ({ page }) => {
 	await loginAsOwner(page);

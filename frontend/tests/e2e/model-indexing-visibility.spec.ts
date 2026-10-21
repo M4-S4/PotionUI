@@ -1,11 +1,7 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson } from './helpers';
 
 const JOURNEY = 'model-indexing-visibility';
-
-async function fulfillJson(route: Route, data: unknown) {
-	await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
-}
 
 function homeRoot(overrides: Record<string, unknown> = {}) {
 	return {

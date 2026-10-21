@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken } from './helpers';
+import { loginAsOwner, ownerToken, apiGet, apiPost } from './helpers';
 
 // Folding the docked workbench pane (`toggle_workbench_panel` keybinding,
 // default `e`) mirrors the existing left generation-form fold
@@ -20,21 +20,6 @@ import { loginAsOwner, ownerToken } from './helpers';
 // The collapsed rail is a header-style strip (w-8, 32px) with a label + chevron,
 // wide enough to click but still unambiguously a rail rather than an expanded pane.
 const RAIL_MAX_WIDTH_PX = 40;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('folding the docked workbench pane persists, frees space for prompts, and coexists with the floating overlay', async ({ page }) => {
 	await loginAsOwner(page);

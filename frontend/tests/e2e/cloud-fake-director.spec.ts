@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet } from './helpers';
+import { chunk } from './mediaFieldHelpers';
 
 const JOURNEY = 'cloud-fake-director';
 const BACKEND_NAME = 'E2E Fake Cloud';
@@ -10,24 +11,6 @@ const DIRECTOR_START = 'Fake Director Start';
 const DIRECTOR_TEXT = 'Fake Director Text';
 const SLUGS = ['fake~fake~director-1', 'fake~fake~director-start-1', 'fake~fake~director-text-1'];
 const BEAT = 400;
-
-function crc32(buf: Buffer): number {
-	let c = ~0;
-	for (const b of buf) {
-		c ^= b;
-		for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
-	}
-	return ~c >>> 0;
-}
-
-function chunk(type: string, data: Buffer): Buffer {
-	const head = Buffer.alloc(4);
-	head.writeUInt32BE(data.length);
-	const body = Buffer.concat([Buffer.from(type), data]);
-	const tail = Buffer.alloc(4);
-	tail.writeUInt32BE(crc32(body));
-	return Buffer.concat([head, body, tail]);
-}
 
 function fixturePng(width: number, height: number): Buffer {
 	const rows: Buffer[] = [];
@@ -51,12 +34,6 @@ function fixturePng(width: number, height: number): Buffer {
 		chunk('IDAT', deflateSync(Buffer.concat(rows))),
 		chunk('IEND', Buffer.alloc(0))
 	]);
-}
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
 }
 
 async function backendId(page: Page, token: string): Promise<string> {

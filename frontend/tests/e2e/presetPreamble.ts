@@ -74,3 +74,22 @@ export async function installAndSelectImagePreset(page: Page): Promise<Discovere
 
 	return { id: preset.id, name: preset.name };
 }
+
+export async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promise<boolean> {
+	const pickerTrigger = page.locator('button[aria-haspopup="dialog"]').first();
+	await pickerTrigger.click();
+	const presetList = page.getByRole('listbox', { name: 'Presets' });
+	const opened = await presetList.isVisible({ timeout: 15000 }).catch(() => false);
+	if (!opened) return false;
+	const entry = presetList.getByText(preset.name, { exact: true });
+	if ((await entry.count()) === 0) return false;
+	await entry.click();
+	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await page.waitForTimeout(1500);
+	const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
+	if ((await videoModeBtn.count()) > 0) {
+		await videoModeBtn.click();
+		await page.waitForTimeout(500);
+	}
+	return true;
+}

@@ -1,5 +1,6 @@
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { selectPresetInPicker } from './presetPreamble';
 
 // W3 per-shot generation (PLAN.md §C W3's E2E line): checks two rows in a
 // chain-style (Wan) film, drives the PAGE's own Generate control (the
@@ -36,46 +37,9 @@ interface DiscoveredPreset {
 	name: string;
 }
 
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
 async function ensureAssigned(page: Page, token: string, userId: string, preset: { id: string; installed?: boolean }) {
 	if (!preset.installed) await apiPost(page, `/api/presets/${preset.id}/install`, token);
 	await apiPost(page, `/api/presets/${preset.id}/assign`, token, { user_ids: [userId] });
-}
-
-/** Mirrors director-console-render.spec.ts's own copy of the preset-picker
- * selection half (see that file's doc comment for why this isn't shared with
- * presetPreamble.ts). */
-async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promise<boolean> {
-	const pickerTrigger = page.locator('button[aria-haspopup="dialog"]').first();
-	await pickerTrigger.click();
-	const presetList = page.getByRole('listbox', { name: 'Presets' });
-	const opened = await presetList.isVisible({ timeout: 15000 }).catch(() => false);
-	if (!opened) return false;
-	const entry = presetList.getByText(preset.name, { exact: true });
-	if ((await entry.count()) === 0) return false;
-	await entry.click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(1500);
-	const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
-	if ((await videoModeBtn.count()) > 0) {
-		await videoModeBtn.click();
-		await page.waitForTimeout(500);
-	}
-	return true;
 }
 
 /** Types `text` into the currently-expanded chain shot's prompt editor — a

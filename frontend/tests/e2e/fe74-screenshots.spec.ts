@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
 
 // Visual capture only — NO functional changes are made by this spec. It
 // negative segments) into the reworked "one panel" SegmentedPromptEditor and
@@ -9,21 +9,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // compact context (/prompts workspace + the video-director inspector).
 
 const JOURNEY = 'fe74-screenshots';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function ensureAssigned(page: Page, token: string, userId: string, preset: { id: string; installed?: boolean }) {
 	if (!preset.installed) {

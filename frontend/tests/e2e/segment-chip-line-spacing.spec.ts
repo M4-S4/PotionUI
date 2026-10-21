@@ -1,4 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { SIGNED_OUT } from './helpers';
+
+test.use({ storageState: SIGNED_OUT });
 
 const chipMarkup = (n: number) =>
 	`<span class="chip phrase-chip"><button type="button" class="chip-main"><span class="chip-mark">#</span><span class="chip-context">Lighting</span><span class="chip-label">Golden hour backlight ${n}</span></button></span>`;

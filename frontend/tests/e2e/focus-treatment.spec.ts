@@ -1,5 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, SIGNED_OUT } from './helpers';
+
+test.use({ storageState: SIGNED_OUT });
 
 const JOURNEY = 'focus-treatment';
 const SDXL_PRESET_ID = '01K0W24A3RADXXABH16YQ7KE90';

@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiPost } from './helpers';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -15,15 +15,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // plus the cleanup below keep this from leaving anything behind.
 const JOURNEY = 'preset-requirements';
 const REPO_ROOT = resolve(__dirname, '../../..');
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('Admin > Presets > Requirements - satisfied and missing binaries render the grouped verdict', async ({
 	page

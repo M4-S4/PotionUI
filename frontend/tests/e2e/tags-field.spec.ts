@@ -1,22 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
 
 const JOURNEY = 'tags-field';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('tags field: pick, type, remove, and the joined string reaches the form', async ({ page }) => {
 	await loginAsOwner(page);
@@ -41,7 +26,6 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 	await expect(presetList).toBeVisible({ timeout: 15000 });
 	await presetList.getByText(yue2!.name, { exact: true }).click();
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-
 
 	const styleField = page.locator('.field-card', { hasText: 'Style tags' });
 	await expect(styleField).toBeVisible({ timeout: 20000 });

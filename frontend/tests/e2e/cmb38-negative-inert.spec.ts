@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
 
 // Visual + functional capture: the negative editor goes visibly inert
 // when the resolved guidance can't reach the model. Z-Image's default "turbo"
@@ -13,21 +13,6 @@ const JOURNEY = 'cmb38-negative-inert';
 // current guidance" in bbff1e9f ("The prompt text becomes the interface in
 // the segment editor"), which also removed the negative region's collapse
 // toggle — the negative section is always expanded now.
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('negative editor marks itself inert at guidance <= 1', async ({ page }) => {
 	await loginAsOwner(page);

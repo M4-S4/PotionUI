@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
 
 // Images-count stepper — the batch-count field ("quantity") renders as a
 // compact bordered [-][value][+] control (`type: "stepper"`, still
@@ -9,21 +9,6 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 
 const JOURNEY = 'images-stepper';
 const BEAT = 400;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('images stepper — SDXL batch count renders and steps as a compact control', async ({ page }) => {
 	await loginAsOwner(page);

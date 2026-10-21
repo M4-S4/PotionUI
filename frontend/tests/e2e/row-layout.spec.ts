@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
 
 // A "row" field group (e.g. Seed + Quantity) used to only render side-by-side
 // once the settings pane was dragged well past its default width - the
@@ -26,21 +26,6 @@ const DESKTOP_VIEWPORTS = [
 	{ label: 'xl-desktop', width: 1300, height: 900 },
 	{ label: '2xl-desktop', width: 1600, height: 900 }
 ] as const;
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('row layout — Seed and Quantity share one line at every desktop viewport tier', async ({ page }) => {
 	await page.setViewportSize({ width: DESKTOP_VIEWPORTS[0].width, height: DESKTOP_VIEWPORTS[0].height });

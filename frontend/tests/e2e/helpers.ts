@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Page, type Route } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -23,14 +23,45 @@ export async function screenshot(page: Page, journey: string, label: string): Pr
 	return path;
 }
 
-/** Log in as the throwaway instance owner (ADMIN) through the real login form. */
-export async function loginAsOwner(page: Page): Promise<void> {
+export const AUTH_STATE_PATH = join(ARTIFACTS_DIR, '.auth', 'owner.json');
+
+export const SIGNED_OUT = { cookies: [], origins: [] };
+
+export async function loginAsOwnerViaForm(page: Page): Promise<void> {
 	await page.goto('/login');
 	await page.locator('#username').fill(OWNER.username);
 	await page.locator('#password').fill(OWNER.password);
 	await page.getByRole('button', { name: 'Sign In' }).click();
-	// Successful login redirects to /generate.
 	await page.waitForURL(/\/generate/, { timeout: 15000 });
+}
+
+export async function loginAsOwner(page: Page): Promise<void> {
+	await page.goto('/generate');
+	const seeded = await page.evaluate(() => !!localStorage.getItem('auth_token'));
+	if (!seeded) {
+		await loginAsOwnerViaForm(page);
+		return;
+	}
+	await page.waitForURL(/\/generate/, { timeout: 15000 });
+}
+
+export async function apiGet(page: Page, url: string, token: string) {
+	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
+	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
+	return res.json();
+}
+
+export async function apiPost(page: Page, url: string, token: string, data?: unknown) {
+	const res = await page.request.post(url, {
+		headers: { Authorization: `Bearer ${token}` },
+		data: data ?? {}
+	});
+	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
+	return res.json();
+}
+
+export async function fulfillJson(route: Route, data: unknown, status = 200) {
+	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
 }
 
 /** The instance owner's bearer token, read from localStorage after login. */

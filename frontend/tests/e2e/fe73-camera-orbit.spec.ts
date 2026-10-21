@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
 
 // Camera-orbit viewfinder — verifies the three orientation fixes:
 // 1. Dragging DOWN raises the camera over the subject (standard orbit
@@ -10,21 +10,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 // 3. A live caption under the stage names the quantized shots while dragging.
 
 const JOURNEY = 'fe73-camera-orbit';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function dragOnStage(page: Page, dx: number, dy: number) {
 	const stage = page.locator('.orbit .stage');
