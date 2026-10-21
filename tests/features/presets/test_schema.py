@@ -596,201 +596,57 @@ class TestFormFile:
         assert errors == []
         assert form.fields[0].children[0].children[0].name == "x"
 
-    def test_field_missing_type_rejected(self):
-        data = {"name": "custom", "fields": [{"name": "prompt"}]}
-        form, errors = validate_form_file(data)
+    @pytest.mark.parametrize("field", [
+        pytest.param({"name": "prompt"}, id="field_missing_type_rejected"),
+        pytest.param({"name": "prompt", "type": "string", "value": "hello"}, id="field_value_key_rejected"),
+        pytest.param(
+            {"name": "steps", "type": "slider", "default": "{{ preset.vars.default_steps }}"},
+            id="jinja_default_rejected",
+        ),
+        pytest.param(
+            {"name": "use_upscale", "type": "checkbox", "default": "false"},
+            id="quoted_boolean_default_rejected_for_checkbox",
+        ),
+        pytest.param({"name": "steps", "type": "slider", "default": "20"}, id="quoted_numeric_default_rejected_for_slider"),
+        pytest.param({"name": "count", "type": "integer", "default": True}, id="bool_rejected_as_integer_default"),
+        pytest.param({"name": "sampler", "type": "select", "default": ["euler"]}, id="list_rejected_as_select_default"),
+        pytest.param({"name": "steps", "type": "slider", "audience": "expert"}, id="field_audience_invalid_value_rejected"),
+        pytest.param({"name": "steps", "type": "slider", "width": 0}, id="field_width_zero_rejected"),
+        pytest.param({"name": "steps", "type": "slider", "width": -1}, id="field_width_negative_rejected"),
+        pytest.param({"name": "steps", "type": "slider", "width": "big"}, id="field_width_non_numeric_string_rejected"),
+        pytest.param({"name": "steps", "type": "slider", "width": "3/0"}, id="field_width_fraction_zero_denominator_rejected"),
+        pytest.param({"name": "steps", "type": "slider", "width": ""}, id="field_width_empty_string_rejected"),
+        pytest.param({"name": "quantity", "type": "stepper", "full_width": "true"}, id="field_full_width_non_boolean_rejected"),
+    ])
+    def test_invalid_field_rejected(self, field):
+        form, errors = validate_form_file({"name": "custom", "fields": [field]})
         assert form is None
         assert errors
 
-    def test_field_value_key_rejected(self):
-        """`value:` is removed - the ONE initializer key is `default:`."""
-        data = {"name": "custom", "fields": [{"name": "prompt", "type": "string", "value": "hello"}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_jinja_default_rejected(self):
-        data = {
-            "name": "custom",
-            "fields": [{"name": "steps", "type": "slider", "default": "{{ preset.vars.default_steps }}"}],
-        }
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_quoted_boolean_default_rejected_for_checkbox(self):
-        data = {"name": "custom", "fields": [{"name": "use_upscale", "type": "checkbox", "default": "false"}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_native_boolean_default_accepted_for_checkbox(self):
-        data = {"name": "custom", "fields": [{"name": "use_upscale", "type": "checkbox", "default": False}]}
-        form, errors = validate_form_file(data)
+    @pytest.mark.parametrize("field,attr,expected", [
+        pytest.param({"name": "use_upscale", "type": "checkbox", "default": False}, "default", False, id="native_boolean_default_accepted_for_checkbox"),
+        pytest.param({"name": "steps", "type": "slider", "default": 20}, "default", 20, id="native_numeric_default_accepted_for_slider"),
+        pytest.param({"name": "sampler", "type": "select", "default": "euler"}, "default", "euler", id="string_default_accepted_for_select"),
+        pytest.param({"name": "steps", "type": "slider"}, "default", None, id="absent_default_always_allowed"),
+        pytest.param({"name": "source_image", "type": "image", "default": {"nested": "ok"}}, "default", {"nested": "ok"}, id="untyped_field_type_keeps_any_default"),
+        pytest.param({"name": "prompt", "type": "text"}, "audience", "simple", id="field_audience_defaults_simple"),
+        pytest.param({"name": "steps", "type": "slider", "audience": "advanced"}, "audience", "advanced", id="field_audience_advanced_accepted"),
+        pytest.param({"name": "duration", "type": "slider"}, "hidden_when_video_director", False, id="field_hidden_when_video_director_defaults_false"),
+        pytest.param({"name": "duration", "type": "slider", "hidden_when_video_director": True}, "hidden_when_video_director", True, id="field_hidden_when_video_director_true_accepted"),
+        pytest.param({"name": "steps", "type": "slider"}, "width", None, id="field_width_absent_allowed"),
+        pytest.param({"name": "steps", "type": "slider", "width": 2}, "width", 2, id="field_width_int_accepted"),
+        pytest.param({"name": "steps", "type": "slider", "width": 1.5}, "width", 1.5, id="field_width_float_accepted"),
+        pytest.param({"name": "steps", "type": "slider", "width": "3/5"}, "width", "3/5", id="field_width_fraction_string_accepted"),
+        pytest.param({"name": "quantity", "type": "stepper"}, "full_width", False, id="field_full_width_absent_defaults_false"),
+        pytest.param({"name": "quantity", "type": "stepper", "full_width": True}, "full_width", True, id="field_full_width_true_accepted"),
+        pytest.param({"name": "quantity", "type": "stepper", "full_width": False}, "full_width", False, id="field_full_width_false_accepted"),
+    ])
+    def test_valid_field_accepted(self, field, attr, expected):
+        form, errors = validate_form_file({"name": "custom", "fields": [field]})
         assert errors == []
-        assert form.fields[0].default is False
-
-    def test_quoted_numeric_default_rejected_for_slider(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "default": "20"}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_native_numeric_default_accepted_for_slider(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "default": 20}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].default == 20
-
-    def test_bool_rejected_as_integer_default(self):
-        """`isinstance(True, int)` is True in Python - must not slip through
-        the integer-type check."""
-        data = {"name": "custom", "fields": [{"name": "count", "type": "integer", "default": True}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_list_rejected_as_select_default(self):
-        data = {"name": "custom", "fields": [{"name": "sampler", "type": "select", "default": ["euler"]}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_string_default_accepted_for_select(self):
-        data = {"name": "custom", "fields": [{"name": "sampler", "type": "select", "default": "euler"}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].default == "euler"
-
-    def test_absent_default_always_allowed(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider"}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].default is None
-
-    def test_untyped_field_type_keeps_any_default(self):
-        """A field type not in the focused typed-default mapping (e.g. a
-        media field) keeps `default: Any` - not this schema's concern."""
-        data = {"name": "custom", "fields": [{"name": "source_image", "type": "image", "default": {"nested": "ok"}}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-
-    def test_field_audience_defaults_simple(self):
-        data = {"name": "custom", "fields": [{"name": "prompt", "type": "text"}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].audience == "simple"
-
-    def test_field_audience_advanced_accepted(self):
-        data = {
-            "name": "custom",
-            "fields": [{"name": "steps", "type": "slider", "audience": "advanced"}],
-        }
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].audience == "advanced"
-
-    def test_field_audience_invalid_value_rejected(self):
-        data = {
-            "name": "custom",
-            "fields": [{"name": "steps", "type": "slider", "audience": "expert"}],
-        }
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_field_hidden_when_video_director_defaults_false(self):
-        data = {"name": "custom", "fields": [{"name": "duration", "type": "slider"}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].hidden_when_video_director is False
-
-    def test_field_hidden_when_video_director_true_accepted(self):
-        data = {
-            "name": "custom",
-            "fields": [{"name": "duration", "type": "slider", "hidden_when_video_director": True}],
-        }
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].hidden_when_video_director is True
-
-    def test_field_width_absent_allowed(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider"}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].width is None
-
-    def test_field_width_int_accepted(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "width": 2}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].width == 2
-
-    def test_field_width_float_accepted(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "width": 1.5}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].width == 1.5
-
-    def test_field_width_fraction_string_accepted(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "width": "3/5"}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].width == "3/5"
-
-    def test_field_width_zero_rejected(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "width": 0}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_field_width_negative_rejected(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "width": -1}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_field_width_non_numeric_string_rejected(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "width": "big"}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_field_width_fraction_zero_denominator_rejected(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "width": "3/0"}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_field_width_empty_string_rejected(self):
-        data = {"name": "custom", "fields": [{"name": "steps", "type": "slider", "width": ""}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
-
-    def test_field_full_width_absent_defaults_false(self):
-        data = {"name": "custom", "fields": [{"name": "quantity", "type": "stepper"}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].full_width is False
-
-    def test_field_full_width_true_accepted(self):
-        data = {"name": "custom", "fields": [{"name": "quantity", "type": "stepper", "full_width": True}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].full_width is True
-
-    def test_field_full_width_false_accepted(self):
-        data = {"name": "custom", "fields": [{"name": "quantity", "type": "stepper", "full_width": False}]}
-        form, errors = validate_form_file(data)
-        assert errors == []
-        assert form.fields[0].full_width is False
-
-    def test_field_full_width_non_boolean_rejected(self):
-        data = {"name": "custom", "fields": [{"name": "quantity", "type": "stepper", "full_width": "true"}]}
-        form, errors = validate_form_file(data)
-        assert form is None
-        assert errors
+        actual = getattr(form.fields[0], attr)
+        assert actual == expected
+        assert type(actual) is type(expected)
 
     def test_variant_metadata_defaults(self):
         data = {"name": "custom", "fields": []}

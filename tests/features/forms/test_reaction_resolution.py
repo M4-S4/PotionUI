@@ -449,244 +449,91 @@ class TestOperatorSetParity:
         )
 
 
-class TestNewOperatorsThroughBindForm:
-    """The 7 operators that were schema-valid but unimplemented in bind_form:
-    not_in, greater_than, less_than, greater_than_or_equals,
-    less_than_or_equals, is_empty, is_not_empty. Each exercised through the
-    real bind_form/field_index path (not a hand-built values dict), mirroring
-    the corresponding body in frontend/src/lib/form/reactions.ts's
-    `operators` table."""
+_NO_VALUE = object()
 
-    def test_not_in_matches_when_trigger_value_absent_from_list(self):
+_FLAG = ("flag", "slider", 0, 1)
+
+
+def _outcome(trigger, operator, value, supplied, target=_FLAG):
+    name, type_, default, set_value = target
+    condition = {"field": trigger["name"], "operator": operator}
+    if value is not _NO_VALUE:
+        condition["value"] = value
+    preset = _preset([
+        _field(**trigger),
+        _field(
+            name, type_=type_, default=default,
+            reactions=[{"when": condition, "then": {"set_value": set_value}}],
+        ),
+    ])
+    bound = bind_form(preset, "txt2img", None, supplied, "user_1")
+    return bound.values[name], default, set_value
+
+
+def _t(name, type_="string", default=None, **extra):
+    return {"name": name, "type_": type_, "default": default, **extra}
+
+
+OPERATOR_CASES = [
+    pytest.param(_t("mode", default="a"), "not_in", ["b", "c"], {"mode": "a"}, True, _FLAG, id="not_in_matches_when_trigger_value_absent_from_list"),
+    pytest.param(_t("mode", default="a"), "not_in", ["a", "c"], {"mode": "a"}, False, _FLAG, id="not_in_does_not_match_when_trigger_value_present"),
+    pytest.param(_t("mode", default="a"), "not_in", "a", {"mode": "a"}, False, _FLAG, id="not_in_does_not_match_when_condition_value_is_not_a_list"),
+    pytest.param(_t("steps", "slider", 10), "greater_than", 20, {"steps": 30}, True, _FLAG, id="greater_than_matches_above_threshold"),
+    pytest.param(_t("steps", "slider", 10), "greater_than", 20, {"steps": 20}, False, _FLAG, id="greater_than_does_not_match_at_threshold"),
+    pytest.param(_t("cfg", "slider", 5.0), "less_than", 2.0, {"cfg": 1.0}, True, _FLAG, id="less_than_matches_below_threshold"),
+    pytest.param(_t("steps", "slider", 10), "greater_than_or_equals", 20, {"steps": 20}, True, _FLAG, id="greater_than_or_equals_matches_at_boundary"),
+    pytest.param(_t("cfg", "slider", 5.0), "less_than_or_equals", 2.0, {"cfg": 2.0}, True, _FLAG, id="less_than_or_equals_matches_at_boundary"),
+    pytest.param(_t("note", default=""), "is_empty", _NO_VALUE, {"note": ""}, True, _FLAG, id="is_empty_matches_empty_string"),
+    pytest.param(_t("note", default=""), "is_not_empty", _NO_VALUE, {"note": "hello"}, True, _FLAG, id="is_not_empty_matches_nonempty_string"),
+    pytest.param(_t("steps", "slider", 10), "greater_than", 20, {"steps": "30"}, True, _FLAG, id="numeric_string_trigger_value_compares_against_numeric_threshold"),
+    pytest.param(_t("steps", "slider", None, required=False), "greater_than", 20, {}, False, _FLAG, id="none_trigger_value_does_not_match_and_does_not_raise"),
+    pytest.param(_t("steps", "string", "fast"), "greater_than", 20, {"steps": "fast"}, False, _FLAG, id="non_numeric_trigger_value_does_not_match_and_does_not_raise"),
+    pytest.param(_t("steps", "slider", 10), "greater_than", "not_a_number", {"steps": 30}, False, _FLAG, id="non_numeric_condition_value_does_not_match_and_does_not_raise"),
+    pytest.param(_t("count", "slider", 1), "is_empty", _NO_VALUE, {"count": 0}, False, _FLAG, id="is_empty_does_not_match_numeric_zero"),
+    pytest.param(_t("count", "slider", 1), "is_not_empty", _NO_VALUE, {"count": 0}, True, _FLAG, id="is_not_empty_matches_numeric_zero"),
+    pytest.param(_t("enabled", "checkbox", True), "is_empty", _NO_VALUE, {"enabled": False}, False, _FLAG, id="is_empty_does_not_match_false_checkbox"),
+    pytest.param(_t("enabled", "checkbox", True), "is_not_empty", _NO_VALUE, {"enabled": False}, True, _FLAG, id="is_not_empty_matches_false_checkbox"),
+    pytest.param(_t("tags", "select", ["a"]), "is_empty", _NO_VALUE, {"tags": []}, True, _FLAG, id="is_empty_matches_empty_list"),
+    pytest.param(_t("budget", "string", "0"), "greater_than", 1000000, {"budget": "Infinity"}, True, _FLAG, id="infinity_string_trigger_beats_any_finite_threshold"),
+    pytest.param(_t("budget", "string", "0"), "less_than", -1000000, {"budget": "-Infinity"}, True, _FLAG, id="negative_infinity_string_is_below_any_finite_threshold"),
+    pytest.param(_t("dims", "select", []), "greater_than_or_equals", 12, {"dims": [12]}, True, _FLAG, id="single_element_list_trigger_is_stringified_before_parsing"),
+    pytest.param(_t("dims", "select", []), "greater_than", -1, {"dims": []}, False, _FLAG, id="empty_list_trigger_parses_to_nan_and_never_matches"),
+    pytest.param(_t("enabled", "checkbox", True), "in", [0], {"enabled": False}, False, _FLAG, id="false_checkbox_does_not_match_numeric_zero_option_list"),
+    pytest.param(_t("enabled", "checkbox", True), "in", [False, "disabled"], {"enabled": False}, True, _FLAG, id="false_checkbox_matches_a_boolean_option_list"),
+    pytest.param(_t("enabled", "checkbox", False), "not_in", [1], {"enabled": True}, True, _FLAG, id="true_checkbox_is_correctly_not_in_a_numeric_one_list"),
+    pytest.param(_t("enabled", "checkbox", True), "equals", 0, {"enabled": False}, False, _FLAG, id="false_checkbox_does_not_equal_zero"),
+    pytest.param(_t("enabled", "checkbox", True), "not_equals", 0, {"enabled": False}, True, _FLAG, id="false_checkbox_not_equals_zero_is_true"),
+    pytest.param(_t("enabled", "checkbox", True), "equals", False, {"enabled": False}, True, _FLAG, id="false_checkbox_still_equals_false"),
+    pytest.param(
+        _t("scale", "slider", 1.0), "not_contains", "12.0", {"scale": 12.0}, True,
+        ("flag", "string", "unmatched", "matched"),
+        id="integral_float_trigger_does_not_contain_its_own_decimal_point",
+    ),
+]
+
+
+class TestOperatorOutcomesThroughBindForm:
+    @pytest.mark.parametrize("trigger,operator,value,supplied,matches,target", OPERATOR_CASES)
+    def test_operator_outcome(self, trigger, operator, value, supplied, matches, target):
+        actual, default, set_value = _outcome(trigger, operator, value, supplied, target)
+        assert actual == (set_value if matches else default)
+        assert type(actual) is type(set_value if matches else default)
+
+    def test_multi_element_list_trigger_parses_only_the_first_number(self):
         preset = _preset([
-            _field("mode", default="a"),
+            _field("dims", type_="select", default=[]),
             _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "mode", "operator": "not_in", "value": ["b", "c"]}, "then": {"set_value": 1}}],
+                "at_least_one", type_="slider", default=0,
+                reactions=[{"when": {"field": "dims", "operator": "greater_than_or_equals", "value": 1}, "then": {"set_value": 1}}],
+            ),
+            _field(
+                "at_least_two", type_="slider", default=0,
+                reactions=[{"when": {"field": "dims", "operator": "greater_than_or_equals", "value": 2}, "then": {"set_value": 1}}],
             ),
         ])
-        bound = bind_form(preset, "txt2img", None, {"mode": "a"}, "user_1")
-        assert bound.values["flag"] == 1
-
-    def test_not_in_does_not_match_when_trigger_value_present(self):
-        preset = _preset([
-            _field("mode", default="a"),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "mode", "operator": "not_in", "value": ["a", "c"]}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"mode": "a"}, "user_1")
-        assert bound.values["flag"] == 0
-
-    def test_not_in_does_not_match_when_condition_value_is_not_a_list(self):
-        """reactions.ts: `Array.isArray(conditionValue) && !conditionValue.includes(...)`
-        - a non-array `value` makes not_in false, not true."""
-        preset = _preset([
-            _field("mode", default="a"),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "mode", "operator": "not_in", "value": "a"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"mode": "a"}, "user_1")
-        assert bound.values["flag"] == 0
-
-    def test_greater_than_matches_above_threshold(self):
-        preset = _preset([
-            _field("steps", type_="slider", default=10),
-            _field(
-                "quality_pass", type_="slider", default=0,
-                reactions=[{"when": {"field": "steps", "operator": "greater_than", "value": 20}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"steps": 30}, "user_1")
-        assert bound.values["quality_pass"] == 1
-
-    def test_greater_than_does_not_match_at_threshold(self):
-        preset = _preset([
-            _field("steps", type_="slider", default=10),
-            _field(
-                "quality_pass", type_="slider", default=0,
-                reactions=[{"when": {"field": "steps", "operator": "greater_than", "value": 20}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"steps": 20}, "user_1")
-        assert bound.values["quality_pass"] == 0
-
-    def test_less_than_matches_below_threshold(self):
-        preset = _preset([
-            _field("cfg", type_="slider", default=5.0),
-            _field(
-                "low_cfg_warning", type_="slider", default=0,
-                reactions=[{"when": {"field": "cfg", "operator": "less_than", "value": 2.0}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"cfg": 1.0}, "user_1")
-        assert bound.values["low_cfg_warning"] == 1
-
-    def test_greater_than_or_equals_matches_at_boundary(self):
-        preset = _preset([
-            _field("steps", type_="slider", default=10),
-            _field(
-                "quality_pass", type_="slider", default=0,
-                reactions=[{"when": {"field": "steps", "operator": "greater_than_or_equals", "value": 20}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"steps": 20}, "user_1")
-        assert bound.values["quality_pass"] == 1
-
-    def test_less_than_or_equals_matches_at_boundary(self):
-        preset = _preset([
-            _field("cfg", type_="slider", default=5.0),
-            _field(
-                "low_cfg_warning", type_="slider", default=0,
-                reactions=[{"when": {"field": "cfg", "operator": "less_than_or_equals", "value": 2.0}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"cfg": 2.0}, "user_1")
-        assert bound.values["low_cfg_warning"] == 1
-
-    def test_is_empty_matches_empty_string(self):
-        preset = _preset([
-            _field("note", type_="string", default=""),
-            _field(
-                "placeholder_shown", type_="slider", default=0,
-                reactions=[{"when": {"field": "note", "operator": "is_empty"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"note": ""}, "user_1")
-        assert bound.values["placeholder_shown"] == 1
-
-    def test_is_not_empty_matches_nonempty_string(self):
-        preset = _preset([
-            _field("note", type_="string", default=""),
-            _field(
-                "placeholder_shown", type_="slider", default=0,
-                reactions=[{"when": {"field": "note", "operator": "is_not_empty"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"note": "hello"}, "user_1")
-        assert bound.values["placeholder_shown"] == 1
-
-
-class TestNumericComparisonCoercion:
-    """The deliberate coercion decision for greater_than/less_than/
-    *_or_equals: mirror reactions.ts's `parseFloat(fieldValue) > parseFloat
-    (conditionValue)` (etc.) - parse a leading numeric prefix, else treat as
-    unparseable (JS's NaN). A NaN-equivalent comparison must resolve to "no
-    match", never raise - Python's bare `>`/`<` would raise TypeError on
-    None or str-vs-number, which would abort a generation instead of just
-    leaving one reaction unmatched."""
-
-    def test_numeric_string_trigger_value_compares_against_numeric_threshold(self):
-        preset = _preset([
-            _field("steps", type_="slider", default=10),
-            _field(
-                "quality_pass", type_="slider", default=0,
-                reactions=[{"when": {"field": "steps", "operator": "greater_than", "value": 20}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"steps": "30"}, "user_1")
-        assert bound.values["quality_pass"] == 1
-
-    def test_none_trigger_value_does_not_match_and_does_not_raise(self):
-        preset = _preset([
-            _field("steps", type_="slider", default=None, required=False),
-            _field(
-                "quality_pass", type_="slider", default=0,
-                reactions=[{"when": {"field": "steps", "operator": "greater_than", "value": 20}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {}, "user_1")
-        assert bound.values["quality_pass"] == 0
-
-    def test_non_numeric_trigger_value_does_not_match_and_does_not_raise(self):
-        preset = _preset([
-            _field("steps", type_="string", default="fast"),
-            _field(
-                "quality_pass", type_="slider", default=0,
-                reactions=[{"when": {"field": "steps", "operator": "greater_than", "value": 20}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"steps": "fast"}, "user_1")
-        assert bound.values["quality_pass"] == 0
-
-    def test_non_numeric_condition_value_does_not_match_and_does_not_raise(self):
-        preset = _preset([
-            _field("steps", type_="slider", default=10),
-            _field(
-                "quality_pass", type_="slider", default=0,
-                reactions=[{"when": {"field": "steps", "operator": "greater_than", "value": "not_a_number"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"steps": 30}, "user_1")
-        assert bound.values["quality_pass"] == 0
-
-
-class TestEmptyOperatorZeroAndFalseTrap:
-    """0 and False must NOT be treated as empty. reactions.ts's `is_empty`
-    does not use a bare falsy check (`!fieldValue`) - it explicitly checks
-    null/undefined, then string/array length, then object key count, and
-    falls through to `false` for every other type (numbers and booleans
-    included). This locks that exact behavior on the Python side so it
-    can't silently regress to `not value`, which WOULD treat a slider at 0
-    or an unchecked checkbox as empty."""
-
-    def test_is_empty_does_not_match_numeric_zero(self):
-        preset = _preset([
-            _field("count", type_="slider", default=1),
-            _field(
-                "warn_zero", type_="slider", default=0,
-                reactions=[{"when": {"field": "count", "operator": "is_empty"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"count": 0}, "user_1")
-        assert bound.values["warn_zero"] == 0
-
-    def test_is_not_empty_matches_numeric_zero(self):
-        preset = _preset([
-            _field("count", type_="slider", default=1),
-            _field(
-                "shows_count", type_="slider", default=0,
-                reactions=[{"when": {"field": "count", "operator": "is_not_empty"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"count": 0}, "user_1")
-        assert bound.values["shows_count"] == 1
-
-    def test_is_empty_does_not_match_false_checkbox(self):
-        preset = _preset([
-            _field("enabled", type_="checkbox", default=True),
-            _field(
-                "warn_disabled", type_="slider", default=0,
-                reactions=[{"when": {"field": "enabled", "operator": "is_empty"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"enabled": False}, "user_1")
-        assert bound.values["warn_disabled"] == 0
-
-    def test_is_not_empty_matches_false_checkbox(self):
-        preset = _preset([
-            _field("enabled", type_="checkbox", default=True),
-            _field(
-                "shows_state", type_="slider", default=0,
-                reactions=[{"when": {"field": "enabled", "operator": "is_not_empty"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"enabled": False}, "user_1")
-        assert bound.values["shows_state"] == 1
-
-    def test_is_empty_matches_empty_list(self):
-        preset = _preset([
-            _field("tags", type_="select", default=["a"]),
-            _field(
-                "show_placeholder", type_="slider", default=0,
-                reactions=[{"when": {"field": "tags", "operator": "is_empty"}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"tags": []}, "user_1")
-        assert bound.values["show_placeholder"] == 1
+        bound = bind_form(preset, "txt2img", None, {"dims": [1, 2]}, "user_1")
+        assert bound.values["at_least_one"] == 1
+        assert bound.values["at_least_two"] == 0
 
 
 class TestRealPresetTreeReactionShapes:
@@ -759,192 +606,6 @@ class TestRealPresetTreeReactionShapes:
                     f"field '{f.name}' reaction uses action(s) {unrecognized} "
                     f"unrecognized by bind_form's reaction evaluator"
                 )
-
-
-class TestParseFloatJSParity:
-    """QA-bounced gap #1: `parseFloat("Infinity")` is `Infinity` in JS (and
-    `parseFloat("-Infinity")` is `-Infinity`); the old regex-based
-    `_reaction_parse_float` rejected both, silently treating them as NaN
-    (never matching any threshold). Also gap #2: a non-string trigger value
-    is JS-ToString-coerced before parsing, not rejected outright -
-    `parseFloat([12])` is `12` (`String([12]) === "12"`)."""
-
-    def test_infinity_string_trigger_beats_any_finite_threshold(self):
-        preset = _preset([
-            _field("budget", type_="string", default="0"),
-            _field(
-                "unlimited", type_="slider", default=0,
-                reactions=[{"when": {"field": "budget", "operator": "greater_than", "value": 1000000}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"budget": "Infinity"}, "user_1")
-        assert bound.values["unlimited"] == 1
-
-    def test_negative_infinity_string_is_below_any_finite_threshold(self):
-        preset = _preset([
-            _field("budget", type_="string", default="0"),
-            _field(
-                "underflow", type_="slider", default=0,
-                reactions=[{"when": {"field": "budget", "operator": "less_than", "value": -1000000}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"budget": "-Infinity"}, "user_1")
-        assert bound.values["underflow"] == 1
-
-    def test_single_element_list_trigger_is_stringified_before_parsing(self):
-        # String([12]) === "12" in JS -> parseFloat gives 12, not NaN.
-        preset = _preset([
-            _field("dims", type_="select", default=[]),
-            _field(
-                "wide_enough", type_="slider", default=0,
-                reactions=[{"when": {"field": "dims", "operator": "greater_than_or_equals", "value": 12}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"dims": [12]}, "user_1")
-        assert bound.values["wide_enough"] == 1
-
-    def test_multi_element_list_trigger_parses_only_the_first_number(self):
-        # String([1, 2]) === "1,2" -> parseFloat("1,2") is 1, not 2 and not NaN.
-        preset = _preset([
-            _field("dims", type_="select", default=[]),
-            _field(
-                "at_least_one", type_="slider", default=0,
-                reactions=[{"when": {"field": "dims", "operator": "greater_than_or_equals", "value": 1}, "then": {"set_value": 1}}],
-            ),
-            _field(
-                "at_least_two", type_="slider", default=0,
-                reactions=[{"when": {"field": "dims", "operator": "greater_than_or_equals", "value": 2}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"dims": [1, 2]}, "user_1")
-        assert bound.values["at_least_one"] == 1
-        assert bound.values["at_least_two"] == 0
-
-    def test_empty_list_trigger_parses_to_nan_and_never_matches(self):
-        # String([]) === "" -> parseFloat("") is NaN -> every comparison false.
-        preset = _preset([
-            _field("dims", type_="select", default=[]),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "dims", "operator": "greater_than", "value": -1}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"dims": []}, "user_1")
-        assert bound.values["flag"] == 0
-
-
-class TestMembershipSameValueZeroBoolHazard:
-    """QA-bounced gap #3: `False in [0]` is `True` in Python (bool is an int
-    subclass) but `[0].includes(false)` is `false` in JS
-    (`Array.prototype.includes` uses SameValueZero, which treats booleans and
-    numbers as distinct types). A checkbox at `false` must not match a
-    condition `in: [0]`/`not_in: [0]` server-side just because Python's bare
-    `in`/`not in` would."""
-
-    def test_false_checkbox_does_not_match_numeric_zero_option_list(self):
-        preset = _preset([
-            _field("enabled", type_="checkbox", default=True),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "enabled", "operator": "in", "value": [0]}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"enabled": False}, "user_1")
-        assert bound.values["flag"] == 0
-
-    def test_false_checkbox_matches_a_boolean_option_list(self):
-        preset = _preset([
-            _field("enabled", type_="checkbox", default=True),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "enabled", "operator": "in", "value": [False, "disabled"]}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"enabled": False}, "user_1")
-        assert bound.values["flag"] == 1
-
-    def test_true_checkbox_is_correctly_not_in_a_numeric_one_list(self):
-        # not_in must ALSO not treat True as matching [1] - mirrors
-        # `[1].includes(true) === false`, so not_in stays true (unmatched by
-        # the numeric list).
-        preset = _preset([
-            _field("enabled", type_="checkbox", default=False),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "enabled", "operator": "not_in", "value": [1]}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"enabled": True}, "user_1")
-        assert bound.values["flag"] == 1
-
-
-class TestEqualsBoolNumberHazardAudit:
-    """Audit finding (not one of the three bounced gaps, but the same bug
-    class in a more commonly used operator): `equals`/`not_equals` used bare
-    Python `==`/`!=`, so `False == 0` matched too - `false === 0` is `false`
-    in JS. Fixed alongside `in`/`not_in` since the SDXL preset tree itself
-    uses `equals: false` against checkbox fields (`adm_guidance_enabled`,
-    `sag_enabled` in content/presets/marketplace/SDXL/modes/txt2img/tabs/advanced.yml) -
-    real usage the original bounce didn't happen to probe with a numeric
-    literal."""
-
-    def test_false_checkbox_does_not_equal_zero(self):
-        preset = _preset([
-            _field("enabled", type_="checkbox", default=True),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "enabled", "operator": "equals", "value": 0}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"enabled": False}, "user_1")
-        assert bound.values["flag"] == 0
-
-    def test_false_checkbox_not_equals_zero_is_true(self):
-        preset = _preset([
-            _field("enabled", type_="checkbox", default=True),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "enabled", "operator": "not_equals", "value": 0}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"enabled": False}, "user_1")
-        assert bound.values["flag"] == 1
-
-    def test_false_checkbox_still_equals_false(self):
-        # Regression guard for the real SDXL usage pattern - the fix must
-        # not break the actual, correct `equals: false` reactions in use.
-        preset = _preset([
-            _field("enabled", type_="checkbox", default=True),
-            _field(
-                "flag", type_="slider", default=0,
-                reactions=[{"when": {"field": "enabled", "operator": "equals", "value": False}, "then": {"set_value": 1}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"enabled": False}, "user_1")
-        assert bound.values["flag"] == 1
-
-
-class TestContainsNumberStringifyAudit:
-    """Audit finding: `contains`/`not_contains` stringify via `String(x)`
-    before substring-matching. JS has one numeric type, so an integral float
-    stringifies without a decimal point (`String(12.0) === "12"`, which does
-    NOT contain the literal substring `"12.0"`); Python's bare
-    `str(12.0) == "12.0"` DOES contain `"12.0"` as a substring of itself,
-    which would wrongly match. (A condition of plain `"12"` is not
-    discriminating here - `"12" in "12.0"` is coincidentally `True` under
-    both the buggy and the fixed stringification, so it can't catch a
-    regression; `"12.0"` is the case that actually depends on the fix.)"""
-
-    def test_integral_float_trigger_does_not_contain_its_own_decimal_point(self):
-        preset = _preset([
-            _field("scale", type_="slider", default=1.0),
-            _field(
-                "flag", type_="string", default="unmatched",
-                reactions=[{"when": {"field": "scale", "operator": "not_contains", "value": "12.0"}, "then": {"set_value": "matched"}}],
-            ),
-        ])
-        bound = bind_form(preset, "txt2img", None, {"scale": 12.0}, "user_1")
-        assert bound.values["flag"] == "matched"
 
 
 class TestOperatorBehaviorParityTable:
