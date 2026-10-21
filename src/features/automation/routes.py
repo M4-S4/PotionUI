@@ -19,9 +19,11 @@ from src.features.automation.dto import (
     ImportAutomationRequest,
     InstantiateAutomationTemplateRequest,
     RunNowRequest,
+    HttpRequestProbeRequest,
     UpdateAutomationRequest,
     ValidateGraphRequest,
 )
+from src.features.automation.http_request import HttpRequestError
 from src.features.automation.runtime import (
     AutomationImportError,
     AutomationRuntime,
@@ -317,6 +319,17 @@ class AutomationController(BaseController):
         issues = self.manager.validate_graph(request.graph)
         return self.success_response(data={"issues": issues})
 
+    @guarded({}, Fail("test_http_request_failed", detail=failure_detail), admin="user")
+    async def test_http_request(self, request: HttpRequestProbeRequest, user: User) -> APIResponse:
+        try:
+            output = await self.manager.test_http_request(
+                request.config, request.event, request.upstream,
+                automation_id=request.automation_id, node_id=request.node_id,
+            )
+        except HttpRequestError as exc:
+            return self.error_api_response(error="http_request_failed", message=str(exc))
+        return self.success_response(data=output)
+
     @guarded({}, Fail("list_node_types_failed", detail=failure_detail), admin="user")
     async def get_node_types(self, user: User) -> APIResponse:
         node_types = [_serialize_node_type(spec) for spec in self.registry.all()]
@@ -448,6 +461,13 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_active_user)
     ) -> APIResponse:
         return await controller.delete_automation(automation_id, current_user)
+
+    @router.post("/http-request/test", response_model=APIResponse, summary="Test HTTP Request Node")
+    async def test_http_request(
+        request: HttpRequestProbeRequest,
+        current_user: User = Depends(get_current_active_user)
+    ) -> APIResponse:
+        return await controller.test_http_request(request, current_user)
 
     @router.post("/{automation_id}/run", response_model=APIResponse, summary="Run Automation Now")
     async def run_now(

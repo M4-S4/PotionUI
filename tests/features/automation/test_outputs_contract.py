@@ -191,7 +191,7 @@ EXECUTABLE_CASES = {
                                  lambda: AutomationServices(media_indexer=_media_index_manager())),
 }
 
-SPECIAL_CASES = {"action.index_model", "action.scan_files", "action.add_to_collection"}
+SPECIAL_CASES = {"action.index_model", "action.scan_files", "action.add_to_collection", "action.http_request"}
 
 
 class TestDeclaredOutputsMatchExecution(unittest.IsolatedAsyncioTestCase):
@@ -273,6 +273,22 @@ class TestDeclaredOutputsMatchExecution(unittest.IsolatedAsyncioTestCase):
 
         skip_result = await spec.execute(_ctx({"collection": "c1", "model_id": ""}, services=services))
         self.assertEqual(set(skip_result.output.keys()), {field.key for field in spec.outputs})
+
+    async def test_http_request_declared_outputs_match_returned_keys(self):
+        from unittest.mock import patch
+
+        from src.features.automation.http_request import RawResponse
+
+        async def transport(request):
+            return RawResponse(200, {"Content-Type": "application/json"}, b'{"id": 1}')
+
+        registry = _registry()
+        spec = registry.get("action.http_request")
+
+        with patch("src.features.automation.http_node.aiohttp_transport", transport):
+            result = await spec.execute(_ctx({"url": "https://api.example.com", "response_pick": "{{ response.body.id }}"}))
+
+        self.assertEqual(set(result.output.keys()), {field.key for field in spec.outputs})
 
 
 class TestOutputDeclarationInvariants(unittest.TestCase):

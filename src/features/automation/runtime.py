@@ -13,6 +13,8 @@ import os
 from typing import Any, Dict, List, Optional
 
 from src.features.automation.engine import AutomationEngine
+from src.features.automation.header_secrets import HTTP_REQUEST_TYPE, mask_graph, protect_graph
+from src.features.automation.http_node import perform as perform_http_request
 from src.platform.database.rows import now_iso
 from src.platform.plugins.automation_nodes import NodeTypeRegistry, node_type_registry, resolve_dynamic_ports
 from src.platform.plugins.automation_templates import (
@@ -129,7 +131,7 @@ class AutomationRuntime:
             raise GraphValidationError(issues)
 
         automation = self.repository.create(Automation(
-            id="", name=name, graph=graph, description=description, user_id=user_id, enabled=enabled,
+            id="", name=name, graph=protect_graph(graph), description=description, user_id=user_id, enabled=enabled,
         ))
 
         if enabled:
@@ -149,6 +151,8 @@ class AutomationRuntime:
         if existing is None:
             return None
 
+        if graph is not None:
+            graph = protect_graph(graph, existing.graph)
         graph_changed = graph is not None and graph != existing.graph
         if graph_changed:
             issues = self.validate_graph(graph)
@@ -252,7 +256,7 @@ class AutomationRuntime:
             "automation": {
                 "name": automation.name,
                 "description": automation.description,
-                "graph": automation.graph,
+                "graph": mask_graph(automation.graph),
             },
             # Lets the importing side name the node types it's missing before it
             # touches the graph.
@@ -307,12 +311,19 @@ class AutomationRuntime:
             id="",
             name=payload.get("name") or "Imported automation",
             description=payload.get("description"),
-            graph=graph,
+            graph=protect_graph(graph),
             user_id=user_id,
             enabled=False,
         ))
 
         return automation, warnings
+
+    async def test_http_request(self, config: Dict[str, Any], event: Dict[str, Any], upstream: Dict[str, Any],
+                                 automation_id: Optional[str] = None, node_id: Optional[str] = None) -> Dict[str, Any]:
+        stored = self.repository.get_by_id(automation_id) if automation_id else None
+        probe = {"nodes": [{"id": node_id or "probe", "type": HTTP_REQUEST_TYPE, "config": config}]}
+        sealed = protect_graph(probe, stored.graph if stored else None)["nodes"][0]["config"]
+        return await perform_http_request(sealed, {"event": event, "upstream": upstream})
 
     # -- validation ----------------------------------------------------------
 

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from src.features.automation.context import AutomationServices, NodeExecutionContext, RunContext
+from src.features.automation.header_secrets import mask_config
 from src.features.automation.hooks import AUTOMATION_HOOKS
 from src.platform.plugins.automation_nodes import NodeResult, NodeTypeRegistry, node_type_registry
 from src.features.automation.records import AutomationRun, AutomationRunNode
@@ -318,7 +319,7 @@ class AutomationEngine:
 
         run_node = self.repository.create_run_node(AutomationRunNode(
             id="", run_id=run_context.run_id, node_id=node_id, node_type=node_type,
-            input={"config": config}, status="running",
+            input={"config": mask_config(config)}, status="running",
         ))
         await self._emit(run_id=run_context.run_id, automation_id=run_context.automation_id,
                           node_id=node_id, status="running")
@@ -328,7 +329,7 @@ class AutomationEngine:
 
         self._fire_hook(AUTOMATION_HOOKS.node_before_execute, {
             "automation_id": run_context.automation_id, "run_id": run_context.run_id,
-            "node_id": node_id, "node_type": node_type, "config": config,
+            "node_id": node_id, "node_type": node_type, "config": mask_config(config),
         })
 
         node_ctx = NodeExecutionContext(run=run_context, node_id=node_id, node_type=node_type,
@@ -486,7 +487,7 @@ class AutomationEngine:
         if aggregate is None:
             run_node = self.repository.create_run_node(AutomationRunNode(
                 id="", run_id=item_context.run_id, node_id=node_id, node_type=node_type,
-                input={"config": config}, status="running",
+                input={"config": mask_config(config)}, status="running",
             ))
             aggregate = _FanoutAggregate(run_node_id=run_node.id)
             aggregates[node_id] = aggregate
