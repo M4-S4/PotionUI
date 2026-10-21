@@ -61,11 +61,3 @@ def up():
         f"Migration 025_external_identities: external_identities table ready, "
         f"seeded {len(seeded)} setting(s)"
     )
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP TABLE IF EXISTS external_identities")
-        for key, _, _, _ in _SETTINGS:
-            cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
-    print("Migration 025_external_identities: removed external identities and settings")

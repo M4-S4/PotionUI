@@ -97,17 +97,3 @@ def up():
             cursor.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
         _seed_settings(cursor, now)
     print(f"Migration {_NAME}: plans, limit ledger and plan settings installed")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for name, _target in _INDEXES:
-            cursor.execute(f"DROP INDEX IF EXISTS {name}")
-        for table in ("users", "user_groups"):
-            if "plan_id" in _column_names(cursor, table):
-                cursor.execute(f"ALTER TABLE {table} DROP COLUMN plan_id")
-        cursor.execute("DROP TABLE IF EXISTS limit_events")
-        cursor.execute("DROP TABLE IF EXISTS plans")
-        for key, _, _, _ in _SETTINGS:
-            cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
-    print(f"Migration {_NAME}: plans removed")

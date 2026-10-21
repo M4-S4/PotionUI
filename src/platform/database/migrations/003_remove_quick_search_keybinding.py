@@ -38,11 +38,3 @@ def up():
             f"{removed} keybinding_defaults row(s) (and any cascaded "
             f"user_keybindings overrides) for '{_ACTION_ID}'"
         )
-
-
-def down():
-    print(
-        "Migration 003_remove_quick_search_keybinding: no-op (the frontend "
-        "no longer has anything to bind '/' to, so restoring the row would "
-        "just reintroduce the dead shortcut)"
-    )

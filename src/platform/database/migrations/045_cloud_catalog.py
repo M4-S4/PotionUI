@@ -40,11 +40,3 @@ def up():
             "CREATE INDEX IF NOT EXISTS idx_cloud_catalog_backend_enabled ON cloud_catalog (backend_id, enabled)"
         )
     print(f"Migration {_NAME}: cloud catalog tables created")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP TABLE IF EXISTS cloud_catalog_state")
-        cursor.execute("DROP INDEX IF EXISTS idx_cloud_catalog_backend_enabled")
-        cursor.execute("DROP TABLE IF EXISTS cloud_catalog")
-    print(f"Migration {_NAME}: cloud catalog tables dropped")

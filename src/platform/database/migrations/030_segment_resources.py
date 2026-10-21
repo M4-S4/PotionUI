@@ -15,7 +15,3 @@ def up():
             added.append(f"{table}.resources")
 
     print(f"Migration 030_segment_resources: added {len(added)} column(s): {', '.join(added) or 'none'}")
-
-
-def down():
-    print("Migration 030_segment_resources: no-op (SQLite keeps the added columns)")

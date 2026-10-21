@@ -94,7 +94,3 @@ def up():
         f"Migration 006_lora_recommended_strength_range: strength is a range "
         f"({shared_converted} shared values, {overlay_converted} user overrides widened)"
     )
-
-
-def down():
-    print("Migration 006_lora_recommended_strength_range: no-op (a widened range has no single value to restore)")

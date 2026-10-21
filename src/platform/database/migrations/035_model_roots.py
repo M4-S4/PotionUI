@@ -66,15 +66,6 @@ def up():
     )
 
 
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP TABLE IF EXISTS model_locations")
-        cursor.execute("DROP TABLE IF EXISTS model_root_bindings")
-        cursor.execute("DROP TABLE IF EXISTS model_roots")
-        cursor.execute("DELETE FROM settings WHERE key = ?", (_UNPLACED_SETTING_KEY,))
-    print(f"Migration {_NAME}: dropped model_locations, model_root_bindings, model_roots")
-
-
 def _create_tables(cursor) -> None:
     cursor.execute(
         """

@@ -281,10 +281,3 @@ def up():
             f"blobs, {llm_models} LLM text-encoder references, {preset_configs} preset "
             f"configurations, {attribute_defs} model-attribute definitions"
         )
-
-
-def down():
-    print(
-        "Migration 002_rename_clip_to_text_encoder: no-op (the code no longer "
-        "knows the 'clip' model type, so reverting the rows would orphan them)"
-    )

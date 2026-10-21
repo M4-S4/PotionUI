@@ -16,7 +16,3 @@ def up():
             removed[table] = cursor.rowcount
     summary = ", ".join(f"{table}={count}" for table, count in removed.items())
     print(f"Migration 033_remove_break_segments: removed break rows ({summary})")
-
-
-def down():
-    print("Migration 033_remove_break_segments: no-op (break rows are not recoverable)")

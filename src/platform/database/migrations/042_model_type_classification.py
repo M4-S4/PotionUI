@@ -41,17 +41,6 @@ def up():
     print(f"Migration {_NAME}: added header classification tables, {seeded} binding(s) scan headers by default")
 
 
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP TABLE IF EXISTS model_type_assertions")
-        cursor.execute("DROP TABLE IF EXISTS model_header_verdicts")
-        if "type_source" in _column_names(cursor, "models"):
-            cursor.execute("ALTER TABLE models DROP COLUMN type_source")
-        if "scan_headers" in _column_names(cursor, "model_root_bindings"):
-            cursor.execute("ALTER TABLE model_root_bindings DROP COLUMN scan_headers")
-    print(f"Migration {_NAME}: removed header classification tables and columns")
-
-
 def _column_names(cursor, table):
     cursor.execute(f"PRAGMA table_info({table})")
     return {row["name"] for row in cursor.fetchall()}

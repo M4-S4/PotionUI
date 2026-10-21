@@ -12,7 +12,3 @@ def up():
             )
 
     print("Migration 026_users_has_local_password: has_local_password column ready")
-
-
-def down():
-    print("Migration 026_users_has_local_password: no-op (SQLite keeps the added column)")

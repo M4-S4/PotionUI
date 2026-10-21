@@ -18,9 +18,3 @@ def up():
             "ON generations (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL"
         )
     print(f"Migration {_NAME}: applied")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute(f"DROP INDEX IF EXISTS {_INDEX}")
-    print(f"Migration {_NAME}: index dropped (SQLite keeps the added column)")

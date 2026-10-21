@@ -51,12 +51,3 @@ def up():
         )
 
     print("Migration 059_generation_prompt_search: applied")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for name in _TRIGGER_NAMES:
-            cursor.execute(f"DROP TRIGGER IF EXISTS {name}")
-        cursor.execute("DROP TABLE IF EXISTS generation_prompt_text")
-
-    print("Migration 059_generation_prompt_search: dropped the prompt search table")

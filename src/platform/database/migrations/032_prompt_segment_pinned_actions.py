@@ -21,9 +21,3 @@ def up():
             (generate_ulid(), _KEY, "[]", "json", _DESCRIPTION, now, now),
         )
     print(f"Migration 032_prompt_segment_pinned_actions: seeded {_KEY}")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DELETE FROM settings WHERE key = ?", (_KEY,))
-    print(f"Migration 032_prompt_segment_pinned_actions: removed {_KEY}")

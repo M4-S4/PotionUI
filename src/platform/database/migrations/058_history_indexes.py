@@ -14,11 +14,3 @@ def up():
             cursor.execute(f"CREATE INDEX IF NOT EXISTS {name} ON generations {columns}")
 
     print("Migration 058_history_indexes: applied")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for name, _columns in _INDEXES:
-            cursor.execute(f"DROP INDEX IF EXISTS {name}")
-
-    print("Migration 058_history_indexes: dropped the added indexes")

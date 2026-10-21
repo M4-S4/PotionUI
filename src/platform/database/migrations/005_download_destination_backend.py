@@ -18,7 +18,3 @@ def up():
         if "destination_backend_id" not in columns:
             cursor.execute("ALTER TABLE downloads ADD COLUMN destination_backend_id TEXT")
     print("Migration 005_download_destination_backend: added downloads.destination_backend_id")
-
-
-def down():
-    print("Migration 005_download_destination_backend: no-op (SQLite cannot drop a column pre-3.35)")

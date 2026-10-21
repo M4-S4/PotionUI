@@ -41,27 +41,6 @@ def up():
     print(f"Migration {_NAME}: type assertions are now stored per source")
 
 
-def down():
-    with db.get_cursor() as cursor:
-        if _primary_key(cursor) == ["sha256"]:
-            return
-        cursor.execute(f"SELECT {_COLUMNS} FROM model_type_assertions")
-        best = {}
-        for row in cursor.fetchall():
-            current = best.get(row["sha256"])
-            if current is None or _RANK.get(row["source"], 0) > _RANK.get(current["source"], 0):
-                best[row["sha256"]] = dict(row)
-        cursor.execute("DROP TABLE IF EXISTS model_type_assertions_new")
-        cursor.execute(_CREATE_PER_SHA)
-        cursor.executemany(
-            f"INSERT INTO model_type_assertions_new ({_COLUMNS}) VALUES (?, ?, ?, ?, ?)",
-            [(r["sha256"], r["model_type"], r["source"], r["set_by"], r["set_at"]) for r in best.values()],
-        )
-        cursor.execute("DROP TABLE model_type_assertions")
-        cursor.execute("ALTER TABLE model_type_assertions_new RENAME TO model_type_assertions")
-    print(f"Migration {_NAME}: type assertions are back to one per content hash")
-
-
 def _primary_key(cursor):
     cursor.execute("PRAGMA table_info(model_type_assertions)")
     rows = sorted((row for row in cursor.fetchall() if row["pk"]), key=lambda row: row["pk"])

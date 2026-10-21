@@ -24,11 +24,3 @@ def up():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tab_drafts_updated_at ON tab_drafts (updated_at)")
 
     print("Migration 060_tab_drafts: applied")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP INDEX IF EXISTS idx_tab_drafts_updated_at")
-        cursor.execute("DROP TABLE IF EXISTS tab_drafts")
-
-    print("Migration 060_tab_drafts: dropped tab_drafts")

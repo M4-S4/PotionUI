@@ -33,11 +33,3 @@ def up():
             "ON formulas (owner_id, preset_id, mode)"
         )
     print(f"Migration {_NAME}: formulas created")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP INDEX IF EXISTS idx_formulas_owner_scope")
-        cursor.execute("DROP INDEX IF EXISTS idx_formulas_owner_name")
-        cursor.execute("DROP TABLE IF EXISTS formulas")
-    print(f"Migration {_NAME}: formulas dropped")

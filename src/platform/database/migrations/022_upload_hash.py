@@ -35,7 +35,3 @@ def up():
         f"Migration 022_upload_hash: added {added or 'no'} column, "
         f"ensured index {_INDEX}"
     )
-
-
-def down():
-    print("Migration 022_upload_hash: no-op (SQLite keeps the added column/index)")

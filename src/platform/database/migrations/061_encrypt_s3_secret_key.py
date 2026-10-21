@@ -19,7 +19,3 @@ def up():
         )
 
     print("Migration 061_encrypt_s3_secret_key: applied")
-
-
-def down():
-    print("Migration 061_encrypt_s3_secret_key: nothing to undo")
