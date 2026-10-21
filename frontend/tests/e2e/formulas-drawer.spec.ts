@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, ownerToken, shotPath, waitForFormPublished } from './helpers';
-import { installAndSelectImagePreset } from './presetPreamble';
+import { installAndSelectImagePreset, presetOption } from './presetPreamble';
 
 const JOURNEY = 'formulas-drawer';
 
@@ -309,8 +309,8 @@ test.describe('Formulas drawer', () => {
 		const chooser = page.locator('button[aria-haspopup="dialog"]', { hasText: 'Choose a preset' });
 		if (await chooser.isVisible({ timeout: 5000 }).catch(() => false)) {
 			await chooser.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(first!.name, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, first!.name).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		}
 		await waitForFormPublished(page);
 		const button = page.getByTestId('formulas-button');
@@ -326,8 +326,8 @@ test.describe('Formulas drawer', () => {
 		await expect(page.getByTestId('formula-applied-bar')).toBeVisible();
 
 		await page.locator('button[aria-haspopup="dialog"]', { hasText: first!.name }).first().click();
-		await page.locator('[role="listbox"][aria-label="Presets"]').getByText(second.name, { exact: true }).click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, second.name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		await waitForFormPublished(page);
 		await expect(page.getByTestId('formula-applied-bar')).toHaveCount(0);
 	});

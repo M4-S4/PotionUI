@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'cloud-capability-fields';
 
@@ -191,8 +192,8 @@ async function openCloudForm(page: Page, mobile: boolean) {
 		const needsPreset = await trigger.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
 		if (needsPreset) {
 			await trigger.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(preset.name, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, preset.name).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		}
 		await page.keyboard.press('Escape');
 		await expect(presetSheet).toHaveCount(0);
@@ -205,8 +206,8 @@ async function openCloudForm(page: Page, mobile: boolean) {
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(preset.name, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, preset.name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	return preset;
 }

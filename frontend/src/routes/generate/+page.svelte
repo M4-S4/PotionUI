@@ -49,6 +49,7 @@
 	import DesktopWorkspace from './components/DesktopWorkspace.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
+	import { presetUnavailableReason } from '$lib/components/preset/presetDropdownModel';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
 	import { missingModelByTab, missingModelFor } from '$lib/generation/requiredModelField';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
@@ -1790,12 +1791,14 @@
 				)
 			: null;
 		const batchBlocked = standardPromptActive && batch.overCap;
-		canGenerate = !!currentTab.selectedPreset && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
+		const unavailable = presetUnavailableReason(presets.find((preset: any) => preset.id === currentTab.selectedPreset));
+		canGenerate = !!currentTab.selectedPreset && !unavailable && hasPrompt && !resourceIssue && !limitGate && !missingModelField && !batchBlocked;
 		generateDisabledReason = canGenerate
 			? undefined
 			: !currentTab.selectedPreset
 				? 'Select a preset to generate'
-				: resourceIssue ||
+				: unavailable ||
+					resourceIssue ||
 					(batchBlocked ? BATCH_CAP_MESSAGE : !hasPrompt ? noPromptReason : limitGate?.reason) ||
 					(missingModelField ? `Select ${missingModelField.label} to generate` : undefined);
 	}

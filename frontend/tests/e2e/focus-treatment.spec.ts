@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, shotPath, SIGNED_OUT } from './helpers';
+import { presetOption } from './presetPreamble';
 
 test.use({ storageState: SIGNED_OUT });
 
@@ -142,8 +143,8 @@ test('preset form frames and the prompt segment editor', async ({ page }) => {
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset!.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset!.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	const generationTab = page.getByRole('tab', { name: 'Generation' });
 	if ((await generationTab.count()) > 0) await generationTab.click();
 

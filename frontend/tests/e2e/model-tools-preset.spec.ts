@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'model-tools-preset';
 const PRESET_ID = '01M5ARBE0QD9PXX1XMNDXYVAK6';
@@ -136,8 +137,8 @@ async function installAndOpen(page: Page): Promise<boolean> {
 		.locator('button[aria-haspopup="dialog"]', isPhone(page) ? {} : { hasText: 'Choose a preset' })
 		.first()
 		.click();
-	await page.getByText(preset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await closePresetSurface(page);
 	return true;
 }

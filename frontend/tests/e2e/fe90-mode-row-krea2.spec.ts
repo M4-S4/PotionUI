@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Follow-up to the mode-row grid change (54a4592e), which regresses on
 // Krea-2 with the krea2-edit plugin enabled: a real preset with a
@@ -53,8 +54,8 @@ test('mode row — Krea-2 with krea2-edit enabled (plugin-contributed mode)', as
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(krea2.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, krea2.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	await expect(page.locator('[role="tablist"]').first()).toBeVisible({ timeout: 20000 });
 

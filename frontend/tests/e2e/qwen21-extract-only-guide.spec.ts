@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
 import { chunk } from './mediaFieldHelpers';
+import { presetOption } from './presetPreamble';
 
 const TABS_SAVE_DEBOUNCE_MS = 700;
 const JOURNEY = 'qwen21-extract-only-guide';
@@ -89,8 +90,8 @@ finally:
 async function openControlTab(page: Page, name: string): Promise<Locator> {
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await page.getByTestId('preset-header-mode').getByRole('button').first().click();
 	await page.getByRole('option', { name: /^Control/ }).first().click();
 	const tab = page.getByRole('tab', { name: 'Control', exact: true }).first();

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'tags-field';
 
@@ -24,8 +25,8 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
 	const presetList = page.locator('[role="listbox"][aria-label="Presets"]');
 	await expect(presetList).toBeVisible({ timeout: 15000 });
-	await presetList.getByText(yue2!.name, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, yue2!.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const styleField = page.locator('.field-card', { hasText: 'Style tags' });
 	await expect(styleField).toBeVisible({ timeout: 20000 });

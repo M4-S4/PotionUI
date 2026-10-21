@@ -291,7 +291,7 @@
 									/>
 								{/if}
 								<span id="{uid}-preset-value" class="min-w-0 truncate">{picker.currentPreset?.name || 'Choose a preset'}</span>
-								<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle" />
+								<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {picker.expanded ? 'rotate-180' : ''}" />
 							</button>
 						</Tooltip>
 					{/snippet}

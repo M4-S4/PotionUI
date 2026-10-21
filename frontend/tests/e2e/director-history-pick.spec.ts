@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Bug report: in the Video Director, picking an image from Generation
 // History for a shot's leading frame did nothing visible — the compact media
@@ -92,8 +93,8 @@ test('director history pick — i2v leading-frame media slot renders the picked 
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(videoPreset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, videoPreset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	// The modeless Stage & Rail editor has no mode tabs: a fresh document's
 	// default (first, auto-selected) shot shows its leading media well

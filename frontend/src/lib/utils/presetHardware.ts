@@ -1,7 +1,6 @@
 import type { PresetRequirements } from '$lib/types/api';
 
-/** `12` -> `"12"`, `12.5` -> `"12.5"` - avoids a trailing `.0` on the common whole-GB case. */
-function formatGb(value: number): string {
+export function formatGb(value: number): string {
 	return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
@@ -26,19 +25,13 @@ export function formatRamBadge(requires?: PresetRequirements | null): string | n
 	return `${formatGb(requires.min_ram_gb)} GB RAM`;
 }
 
-/**
- * Non-blocking warning copy for when the detected GPU has less VRAM than a
- * preset's declared minimum. `null` when there's nothing to warn about -
- * either the preset declares no minimum, or the detected VRAM is unknown, or
- * it meets the minimum.
- */
 export function vramShortfall(
 	requires?: PresetRequirements | null,
 	detectedVramGb?: number | null
 ): string | null {
 	if (requires?.min_vram_gb == null || detectedVramGb == null) return null;
 	if (detectedVramGb >= requires.min_vram_gb) return null;
-	return `needs ${formatGb(requires.min_vram_gb)} GB — this machine has ${formatGb(detectedVramGb)} GB`;
+	return `needs ${formatGb(requires.min_vram_gb)} GB · this GPU ${formatGb(detectedVramGb)} GB`;
 }
 
 export async function fetchDetectedVramGb(

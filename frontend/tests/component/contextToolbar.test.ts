@@ -15,7 +15,15 @@ vi.mock('$lib/stores/auth', () => ({
 
 vi.mock('$lib/services/api/index', async (orig) => {
 	const real: any = await orig();
-	return { ...real, api: { ...real.api, getPreset, getClient: () => ({}) } };
+	return {
+		...real,
+		api: {
+			...real.api,
+			getPreset,
+			getClient: () => ({}),
+			getPresetPickerState: async () => ({ success: true, data: { pinned: [], recent: [] } })
+		}
+	};
 });
 
 vi.mock('$lib/stores/formulas', async (orig) => {
@@ -290,6 +298,28 @@ describe('ContextToolbar control styles', () => {
 		for (const tool of Array.from(target.querySelectorAll<HTMLElement>('[data-context-tool], [data-testid="formulas-button"], [data-testid="context-tools-more"]'))) {
 			expect(['h-8', 'border', 'border-line', 'bg-surface-2'].every((token) => tool.classList.contains(token)), tool.textContent ?? '').toBe(true);
 		}
+	});
+
+	it('turns the Preset chevron with the same transition as Mode and Session while its dropdown is open', async () => {
+		await render({ session: sessionState() });
+		const preset = target.querySelector('[data-testid="preset-picker-trigger"]') as HTMLElement;
+		const mode = target.querySelector('[data-testid="preset-header-mode"] button') as HTMLElement;
+		const chevron = () => preset.lastElementChild!.getAttribute('class')!.split(' ');
+		const modeChevron = mode.querySelector('svg:last-child')!.getAttribute('class')!.split(' ');
+		expect(chevron()).toEqual(modeChevron);
+		expect(chevron()).toContain('transition-transform');
+		expect(chevron()).not.toContain('rotate-180');
+		preset.click();
+		flushSync();
+		await settle(4);
+		expect(preset.getAttribute('aria-expanded')).toBe('true');
+		expect(document.body.querySelector('[role="dialog"][aria-label="Choose preset"]')).not.toBeNull();
+		expect(chevron()).toContain('rotate-180');
+		preset.click();
+		flushSync();
+		await settle(2);
+		expect(preset.getAttribute('aria-expanded')).toBe('false');
+		expect(chevron()).not.toContain('rotate-180');
 	});
 
 	it('greys a clean Save on a half-filled pill', async () => {

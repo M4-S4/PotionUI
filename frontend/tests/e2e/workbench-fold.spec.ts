@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, apiGet, apiPost } from './helpers';
-import { chooseLayout } from './presetPreamble';
+import { chooseLayout, presetOption } from './presetPreamble';
 
 // Folding the docked workbench pane (`toggle_workbench_panel` keybinding,
 // default `e`) mirrors the existing left generation-form fold
@@ -53,8 +53,8 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const tablist = page.locator('[role="tablist"]').first();
 	await expect(tablist).toBeVisible({ timeout: 20000 });

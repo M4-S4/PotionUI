@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'cloud-fake-generate';
 const BACKEND_NAME = 'E2E Fake Cloud';
@@ -30,8 +31,8 @@ async function openFakeStudio(page: Page) {
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(PRESET_NAME, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, PRESET_NAME).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	await expect(field(page, 'model')).toBeVisible({ timeout: 20000 });
 }
@@ -252,8 +253,8 @@ test.describe('cloud form on a phone', () => {
 		const needsPreset = await trigger.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
 		if (needsPreset) {
 			await trigger.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(PRESET_NAME, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, PRESET_NAME).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 			await expect(page.getByRole('button', { name: /Use this preset|Keep selected/ })).toHaveCount(0);
 		}
 		await page.keyboard.press('Escape');

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsOwner, screenshot, ownerToken } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'mobile-generate';
 
@@ -197,8 +198,8 @@ test('a dropped mode-list request does not strand the settings sheet forever', a
 	await pickerTrigger.click();
 	const presetList = page.locator('[role="listbox"][aria-label="Presets"]');
 	await expect(presetList).toBeVisible({ timeout: 15000 });
-	await presetList.getByText(presetInfo!.name, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, presetInfo!.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	await page.keyboard.press('Escape');
 	await expect(presetSheet).toHaveCount(0);

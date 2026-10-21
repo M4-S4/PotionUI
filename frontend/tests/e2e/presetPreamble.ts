@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { ownerToken, scopedStorageKey } from './helpers';
 
 export interface DiscoveredPreset {
@@ -69,11 +69,15 @@ export async function installAndSelectImagePreset(page: Page): Promise<Discovere
 	await pickerTrigger.click();
 	const presetList = page.locator('[role="listbox"][aria-label="Presets"]');
 	await expect(presetList).toBeVisible({ timeout: 15000 });
-	await presetList.getByText(preset.name, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await expectPresetPersisted(page, preset.id);
 
 	return { id: preset.id, name: preset.name };
+}
+
+export function presetOption(page: Page, name: string): Locator {
+	return page.getByRole('listbox', { name: 'Presets' }).locator('[data-preset-family]').getByRole('option', { name, exact: true });
 }
 
 export async function expectPresetPersisted(page: Page, presetId: string): Promise<void> {
@@ -95,12 +99,10 @@ export async function selectPresetInPicker(page: Page, preset: DiscoveredPreset)
 	const presetList = page.getByRole('listbox', { name: 'Presets' });
 	const opened = await presetList.isVisible({ timeout: 15000 }).catch(() => false);
 	if (!opened) return false;
-	const entry = presetList.getByText(preset.name, { exact: true });
+	const entry = presetOption(page, preset.name);
 	if ((await entry.count()) === 0) return false;
 	await entry.click();
-	const confirm = page.getByRole('button', { name: /Use this preset|Keep selected/ });
-	await confirm.click();
-	await expect(confirm).toBeHidden();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await page.waitForLoadState('networkidle');
 	const variantSegment = page.getByTestId('preset-variant-switch').getByRole('button').first();
 	if ((await variantSegment.count()) > 0) {

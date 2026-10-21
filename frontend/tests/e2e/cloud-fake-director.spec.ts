@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, screenshot, apiGet } from './helpers';
 import { chunk } from './mediaFieldHelpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'cloud-fake-director';
 const BACKEND_NAME = 'E2E Fake Cloud';
@@ -72,8 +73,8 @@ async function openFakeVideo(page: Page, mode: 'txt2video' | 'img2video' = 'txt2
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(PRESET_NAME, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, PRESET_NAME).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	if (mode === 'img2video') {
 		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
@@ -398,8 +399,8 @@ test.describe('Video Director for a cloud video preset on a phone', () => {
 		const needsPreset = await trigger.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
 		if (needsPreset) {
 			await trigger.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(PRESET_NAME, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, PRESET_NAME).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		}
 		await page.keyboard.press('Escape');
 		await page.getByRole('button', { name: 'Settings', exact: true }).click();

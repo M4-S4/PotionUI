@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Visual evidence — the Field Catalog restyle (3a tabs + 2a cards).
 // Captures the decisive states of the redesigned form fields on a real native
@@ -40,8 +41,8 @@ test('field catalog restyle — visual capture on a native image preset', async 
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(imagePreset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, imagePreset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const tablist = page.locator('[role="tablist"]').first();
 	await expect(tablist).toBeVisible({ timeout: 20000 });
@@ -176,8 +177,8 @@ test('field catalog restyle — visual capture on a native image preset', async 
 	}
 	await newTabButton.click();
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(videoPreset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, videoPreset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	// The modeless Stage & Rail editor has no mode tabs to switch into — a
 	// fresh document's default (first, auto-selected) shot shows its leading

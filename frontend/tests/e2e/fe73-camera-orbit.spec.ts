@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Camera-orbit viewfinder — verifies the three orientation fixes:
 // 1. Dragging DOWN raises the camera over the subject (standard orbit
@@ -47,8 +48,8 @@ test('camera orbit — drag direction, face visibility, live caption', async ({ 
 	await page.waitForLoadState('networkidle');
 
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByRole('listbox', { name: 'Presets' }).getByText(sdxl.name, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, sdxl.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	await page.getByRole('tab', { name: 'Enhance' }).click();
 	await page.getByRole('button', { name: '3D' }).click();

@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
-import { installAndSelectImagePreset } from './presetPreamble';
+import { installAndSelectImagePreset, presetOption } from './presetPreamble';
 
 const JOURNEY = 'batch-prompts';
 
@@ -209,8 +209,8 @@ test('a saved session brings back every prompt and the current one', async ({ pa
 	await page.locator('button[aria-label="Add new tab"]').click();
 	await expect(page.locator('.book-tab')).toHaveCount(2, { timeout: 10000 });
 	await page.locator('button[aria-haspopup="dialog"]', { hasText: 'Choose a preset' }).click();
-	await page.locator('[role="listbox"][aria-label="Presets"]').getByText(presetName, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, presetName).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await expect(positiveList(page)).toBeVisible({ timeout: 20000 });
 	await expect(picker(page)).toContainText('1 prompt');
 

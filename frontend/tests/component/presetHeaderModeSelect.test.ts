@@ -259,47 +259,6 @@ describe('Generate header: one-line preset and mode select', () => {
 		expect(target.querySelector('[data-testid="preset-header-picker"]')).not.toBeNull();
 	});
 
-	async function openPickerDialog(overrides: Record<string, unknown> = {}) {
-		const handlers = await render(overrides);
-		(target.querySelector('[data-testid="preset-header-picker"] button') as HTMLElement).click();
-		await tick();
-		flushSync();
-		await tick();
-		flushSync();
-		return handlers;
-	}
-
-	function reloadButton() {
-		return Array.from(document.body.querySelectorAll('button')).find((b) =>
-			/Reload preset from disk/.test(b.textContent ?? '')
-		);
-	}
-
-	it('picker dialog shows the reload action to admins only, on the selected preset', async () => {
-		authState.user = { account_type: 'USER' };
-		await openPickerDialog();
-		expect(document.body.textContent).toContain('Keep selected');
-		expect(reloadButton()).toBeUndefined();
-	});
-
-	it('picker dialog reload runs onReload for an admin', async () => {
-		authState.user = { account_type: 'ADMIN' };
-		const handlers = await openPickerDialog();
-		const btn = reloadButton();
-		expect(btn).toBeDefined();
-		btn!.click();
-		flushSync();
-		expect(handlers.onReload).toHaveBeenCalledTimes(1);
-	});
-
-	it('picker dialog carries the markdown description and the examples section', async () => {
-		authState.user = { account_type: 'USER' };
-		await openPickerDialog({ presets: [{ ...PRESETS[0], description: 'Hello **bold** world' }] });
-		expect(document.body.querySelector('strong')?.textContent).toBe('bold');
-		expect(document.body.querySelector('[data-testid="preset-examples"]')).not.toBeNull();
-		expect(getPreset).toHaveBeenCalledWith('krea2');
-	});
-
 	it('wide panel: trigger shows the label only', async () => {
 		panelWidth = 395;
 		await render();

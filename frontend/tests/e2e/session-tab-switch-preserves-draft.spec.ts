@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { clickDialogSaveAndAwaitResponse, loginAsOwner, screenshot, waitForFormPublished } from './helpers';
-import { installAndSelectImagePreset } from './presetPreamble';
+import { installAndSelectImagePreset, presetOption } from './presetPreamble';
 
 // Regression: db97094/b3ad9d3 stopped +page.svelte's own onMount from
 // re-applying a saved session over a tab's live draft on SPA remount. But
@@ -26,8 +26,8 @@ async function typeIntoSegment(page: Page, listAriaLabel: string, index: number,
 
 async function pickPreset(page: Page, presetName: string) {
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByRole('listbox', { name: 'Presets' }).getByText(presetName, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, presetName).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 }
 
 test('editing a segment after loading a session survives switching tabs and back', async ({ page }) => {

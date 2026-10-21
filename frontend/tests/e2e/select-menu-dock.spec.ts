@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'select-menu-dock';
 const PRESET_ID = '01M31Y6WNM07EHAXXCDV1QVJVX';
@@ -34,8 +35,8 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 		const sheet = page.getByRole('dialog', { name: 'Preset and session' });
 		await expect(sheet).toBeVisible();
 		await sheet.locator('button[aria-haspopup="dialog"]').first().click();
-		await page.getByText(name, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		await sheet.getByTestId('preset-header-mode').getByRole('button').first().click();
 		await page.getByRole('option', { name: /^Control/ }).first().click();
 		await page.keyboard.press('Escape');
@@ -44,8 +45,8 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 		}
 	} else {
 		await page.getByRole('button', { name: 'Choose a preset' }).click();
-		await page.getByText(name, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
 		await page.getByRole('option', { name: /^Control/ }).first().click();
 	}

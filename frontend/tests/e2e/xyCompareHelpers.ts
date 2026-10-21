@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import { apiGet } from './helpers';
+import { presetOption } from './presetPreamble';
 
 export const BACKEND_NAME = 'E2E Fake Cloud';
 export const PRESET_NAME = 'Fake Studio';
@@ -117,8 +118,8 @@ export async function openFakeStudio(page: Page) {
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(PRESET_NAME, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, PRESET_NAME).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	await expect(field(page, 'model')).toBeVisible({ timeout: 20000 });
 	await turnOffCompare(page);

@@ -1,5 +1,6 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'model-slot-autopick';
 const SLOTS = ['diffusion_model', 'text_encoder', 'vae'] as const;
@@ -124,8 +125,8 @@ async function openForm(page: Page, mobile: boolean) {
 		const trigger = presetSheet.locator('button[aria-haspopup="dialog"]', { hasText: 'Choose a preset' });
 		if (await trigger.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false)) {
 			await trigger.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(preset.name, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, preset.name).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		}
 		await page.keyboard.press('Escape');
 		await expect(presetSheet).toHaveCount(0);
@@ -135,8 +136,8 @@ async function openForm(page: Page, mobile: boolean) {
 	}
 	if (await choose.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false)) {
 		await choose.click();
-		await page.getByText(preset.name, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, preset.name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	return preset;
 }

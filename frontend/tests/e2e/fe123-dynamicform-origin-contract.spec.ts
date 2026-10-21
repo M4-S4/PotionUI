@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'fe123-dynamicform-origin-contract';
 
@@ -73,8 +74,8 @@ test('DynamicForm image field survives a History pick alongside onOriginChange',
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const modeLabel = img2img.label || img2img.name;
 	await page.getByTestId('preset-header-mode').getByRole('button').first().click();

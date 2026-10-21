@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // A "row" field group (e.g. Seed + Quantity) used to only render side-by-side
 // once the settings pane was dragged well past its default width - the
@@ -59,8 +60,8 @@ test('row layout — Seed and Quantity share one line at every desktop viewport 
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const generationTab = page.getByRole('tab', { name: 'Generation' });
 	if ((await generationTab.count()) > 0) {

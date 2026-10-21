@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { clickDialogSaveAndAwaitResponse, loginAsOwner, ownerToken, screenshot, waitForFormPublished, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // "New workspace" wipes every open tab down to one fresh empty tab.
 // When the workspace has unsaved changes it must ask first (3-way modal:
@@ -18,8 +19,8 @@ async function typeIntoSegment(page: Page, listAriaLabel: string, index: number,
 
 async function pickPreset(page: Page, presetName: string) {
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByRole('listbox', { name: 'Presets' }).getByText(presetName, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, presetName).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 }
 
 test('New workspace warns and discards on a dirty, never-saved tab', async ({ page }) => {

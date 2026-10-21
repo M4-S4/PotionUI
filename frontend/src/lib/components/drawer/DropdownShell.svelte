@@ -8,11 +8,12 @@
 	import { MENU_EDGE_GUTTER, trackMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 
 	const GAP = 6;
-	const WIDTH = 440;
 
 	let {
 		label,
 		anchor,
+		width = 440,
+		fill = false,
 		fullscreen = false,
 		onClose,
 		onEscape,
@@ -22,6 +23,8 @@
 	}: {
 		label: string;
 		anchor: HTMLElement | undefined;
+		width?: number;
+		fill?: boolean;
 		fullscreen?: boolean;
 		onClose: () => void;
 		onEscape?: () => boolean;
@@ -33,7 +36,7 @@
 	let position = $state<(FlippedMenuPosition & { width: number }) | null>(null);
 
 	function panelWidth(): number {
-		return Math.min(WIDTH, window.innerWidth - 2 * MENU_EDGE_GUTTER);
+		return Math.min(width, window.innerWidth - 2 * MENU_EDGE_GUTTER);
 	}
 
 	$effect(() => {
@@ -58,7 +61,8 @@
 		if (fullscreen) return '';
 		if (!position) return 'visibility: hidden; top: 0; left: 0;';
 		const vertical = position.top !== undefined ? `top: ${position.top}px;` : `bottom: ${position.bottom}px;`;
-		return `${vertical} left: ${position.left}px; width: ${position.width}px; max-height: ${position.maxHeight}px;`;
+		const height = fill ? ` height: ${position.maxHeight}px;` : '';
+		return `${vertical} left: ${position.left}px; width: ${position.width}px; max-height: ${position.maxHeight}px;${height}`;
 	});
 
 	function dismissOutside(reason: DismissReason) {
