@@ -306,15 +306,18 @@ jobs:
         working-directory: content/plugins
         run: npm ci
 
-      - name: npm run build:plugins + drift check
+      - name: npm run build:plugins
         shell: cmd
         working-directory: frontend
+        run: call npm run build:plugins || exit /b 1
+
+      - name: plugin dist drift check
+        shell: bash
         run: |
-          call npm run build:plugins || exit /b 1
-          git -C .. status --porcelain -- content/plugins
-          git -C .. diff --stat -- "content/plugins/*/*/frontend/dist"
-          for /f %%i in ('git -C .. diff --stat -- "content/plugins/*/*/frontend/dist"') do exit /b 1
-          for /f %%i in ('git -C .. ls-files --others --exclude-standard -- content/plugins') do exit /b 1
+          git status --porcelain -- content/plugins
+          git diff --stat -- 'content/plugins/*/*/frontend/dist/*'
+          test -z "$(git diff --stat -- 'content/plugins/*/*/frontend/dist/*')"
+          test -z "$(git ls-files --others --exclude-standard -- content/plugins)"
 
   frontend-build:
     name: frontend build (Windows, shared by e2e shards)
