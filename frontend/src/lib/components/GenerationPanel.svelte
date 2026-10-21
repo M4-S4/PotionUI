@@ -808,7 +808,13 @@
 
 <style>
 	:global(:root) {
-		--dock-height: 92px;
+		--dock-height: 82px;
+	}
+
+	@media (min-width: 768px) {
+		:global(:root) {
+			--dock-height: 92px;
+		}
 	}
 
 	@media (max-width: 720px) {
