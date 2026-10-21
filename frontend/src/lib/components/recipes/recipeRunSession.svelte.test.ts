@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
@@ -156,6 +157,23 @@ describe('RecipeRunSession.start / onFinished', () => {
 	});
 });
 
+describe('RecipeRunSession without create or cancel', () => {
+	it('throws from start and cancelConflict instead of reporting a soft error', async () => {
+		const get = vi.fn();
+		const session = new RecipeRunSession({ api: { get } });
+		sessions.push(session);
+
+		await expect(session.start('krea2-starter')).rejects.toThrow('no create');
+		expect(session.error).toBe('');
+
+		session.conflict = {
+			message: 'busy',
+			activeRun: { id: 'run-9', recipeId: 'x', recipeName: 'X', status: 'running', currentStepKey: null }
+		};
+		await expect(session.cancelConflict()).rejects.toThrow('no cancel');
+	});
+});
+
 describe('RecipeRunSession.cancelConflict', () => {
 	it('cancels the blocking run and clears the conflict', async () => {
 		vi.mocked(api.createRecipeRun).mockRejectedValue(
@@ -169,5 +187,94 @@ describe('RecipeRunSession.cancelConflict', () => {
 
 		expect(api.applyRecipeRunAction).toHaveBeenCalledWith('run-9', 'cancel');
 		expect(session.conflict).toBeNull();
+	});
+});
+
+function setHidden(hidden: boolean) {
+	Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+}
+
+describe('RecipeRunSession polling', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		setHidden(false);
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		setHidden(false);
+	});
+
+	it('polls until the run is terminal, fires onFinished once and stops', async () => {
+		vi.mocked(api.createRecipeRun).mockResolvedValue(run({ status: 'running' }) as never);
+		vi.mocked(api.getRecipeRun)
+			.mockResolvedValueOnce(run({ status: 'running' }) as never)
+			.mockResolvedValue(run({ status: 'completed' }) as never);
+		const onFinished = vi.fn();
+		const session = new RecipeRunSession({ onFinished });
+		sessions.push(session);
+
+		await session.start('krea2-starter');
+		await vi.advanceTimersByTimeAsync(2500);
+		expect(onFinished).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(2500);
+		expect(onFinished).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(10000);
+
+		expect(api.getRecipeRun).toHaveBeenCalledTimes(2);
+		expect(onFinished).toHaveBeenCalledTimes(1);
+	});
+
+	it('pauses while the tab is hidden and refreshes immediately when it returns', async () => {
+		vi.mocked(api.createRecipeRun).mockResolvedValue(run({ status: 'running' }) as never);
+		vi.mocked(api.getRecipeRun).mockResolvedValue(run({ status: 'running' }) as never);
+		const session = makeSession();
+		await session.start('krea2-starter');
+
+		setHidden(true);
+		await vi.advanceTimersByTimeAsync(10000);
+		expect(api.getRecipeRun).not.toHaveBeenCalled();
+
+		setHidden(false);
+		document.dispatchEvent(new Event('visibilitychange'));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(api.getRecipeRun).toHaveBeenCalledTimes(1);
+	});
+
+	it('keeps polling after a failed refresh', async () => {
+		vi.mocked(api.createRecipeRun).mockResolvedValue(run({ status: 'running' }) as never);
+		vi.mocked(api.getRecipeRun)
+			.mockRejectedValueOnce(new Error('blip'))
+			.mockResolvedValue(run({ status: 'completed' }) as never);
+		const session = makeSession();
+		await session.start('krea2-starter');
+
+		await vi.advanceTimersByTimeAsync(5000);
+
+		expect(session.run?.status).toBe('completed');
+	});
+
+	it('uses the injected api, reports every run to onRun and drops a run the poll error handler gives up on', async () => {
+		const create = vi.fn().mockResolvedValue(run({ status: 'running' }));
+		const get = vi.fn().mockRejectedValue({ status: 404 });
+		const onRun = vi.fn();
+		const session = new RecipeRunSession({
+			api: { create, get, cancel: vi.fn() },
+			onRun,
+			onPollError: (error) => ((error as { status?: number }).status === 404 ? 'drop' : 'retry')
+		});
+		sessions.push(session);
+
+		await session.start('krea2-starter');
+		expect(create).toHaveBeenCalledWith('krea2-starter');
+		expect(onRun).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(2500);
+		expect(get).toHaveBeenCalledWith('run-1');
+		expect(session.run).toBeNull();
+		expect(onRun).toHaveBeenLastCalledWith(null);
+		await vi.advanceTimersByTimeAsync(10000);
+		expect(get).toHaveBeenCalledTimes(1);
+		expect(api.createRecipeRun).not.toHaveBeenCalled();
 	});
 });

@@ -14,15 +14,15 @@
 		readinessHeadline
 	} from '$lib/utils/readinessDisplay';
 	import {
-		shouldPollRun,
 		decideRunDiscovery,
 		extractGenerationHandoff,
-		extractSmokeGeneration,
-		RUN_POLL_INTERVAL_MS
+		extractSmokeGeneration
 	} from '$lib/utils/setupRunDisplay';
 	import { formatBytes } from '$lib/utils/format';
 	import { notifySetupCompleted } from '$lib/stores/setupCompletion';
 	import { Badge, Button, Card, EmptyState, PageContainer, PageHeader, Spinner } from '$lib/components/ui';
+	import { RecipeRunSession } from '$lib/components/recipes/recipeRunSession.svelte';
+	import { createSetupRunHooks } from '$lib/components/recipes/setupRunHooks';
 	import RecipeRunProgress from '$lib/components/recipes/RecipeRunProgress.svelte';
 	import { setupRunActions } from '$lib/components/recipes/runActions';
 	import ModelsLocationStep from './components/ModelsLocationStep.svelte';
@@ -60,7 +60,16 @@
 	let run: SetupRun | null = null;
 	let runChecked = false;
 	let runFetchError = '';
-	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const session = new RecipeRunSession({
+		api: { get: (runId) => api.getSetupRun(runId) },
+		...createSetupRunHooks({
+			setRun: (next) => (run = next),
+			setFetchError: (message) => (runFetchError = message),
+			remember: rememberRunId,
+			forget: forgetRunId
+		})
+	});
 
 	// Pokes the sidebar's "Resume setup" nudge to re-check the instant this
 	// run finishes, instead of it lingering until the next full page load —
@@ -105,39 +114,6 @@
 		}
 	}
 
-	function clearPoll() {
-		if (pollTimer) {
-			clearTimeout(pollTimer);
-			pollTimer = null;
-		}
-	}
-
-	function schedulePoll(runId: string) {
-		clearPoll();
-		pollTimer = setTimeout(() => refreshRun(runId), RUN_POLL_INTERVAL_MS);
-	}
-
-	async function refreshRun(runId: string) {
-		try {
-			const fetched = await api.getSetupRun(runId);
-			run = fetched;
-			runFetchError = '';
-			rememberRunId(fetched.id);
-			if (shouldPollRun(fetched.status)) schedulePoll(fetched.id);
-		} catch (err: any) {
-			// Fail soft: a stale/deleted run id means give up quietly; any other
-			// fetch error (network blip, timeout) keeps the last-known view on
-			// screen with a small retry notice, and keeps trying.
-			if (err?.response?.status === 404) {
-				forgetRunId();
-				run = null;
-				return;
-			}
-			runFetchError = "Couldn't check on setup progress — trying again shortly.";
-			schedulePoll(runId);
-		}
-	}
-
 	async function discoverRun() {
 		const cachedId = storedRunId();
 		let cachedRun: SetupRun | null = null;
@@ -148,7 +124,7 @@
 			// the authoritative call settles the real state.
 			try {
 				cachedRun = await api.getSetupRun(cachedId);
-				run = cachedRun;
+				session.adopt(cachedRun);
 			} catch {
 				// ignore — a 404/network error here just means there's nothing to
 				// fall back on below.
@@ -156,11 +132,7 @@
 		}
 
 		try {
-			const active = await api.getSetupActiveRun();
-			run = active;
-			runFetchError = '';
-			rememberRunId(active.id);
-			if (shouldPollRun(active.status)) schedulePoll(active.id);
+			session.adopt(await api.getSetupActiveRun());
 		} catch (err: any) {
 			if (err?.response?.status === 404) {
 				// Authoritative: nothing is active right now. A failed stored run
@@ -169,10 +141,9 @@
 				// reload; anything else (completed/cancelled/no stored run) clears.
 				const decision = decideRunDiscovery('not_found', cachedRun);
 				if (decision.show === 'stored-failed' && cachedRun) {
-					run = cachedRun;
+					session.adopt(cachedRun);
 				} else {
-					forgetRunId();
-					run = null;
+					session.reset();
 				}
 			} else if (!run) {
 				runFetchError = "Couldn't check for an in-progress setup — trying again shortly.";
@@ -180,23 +151,6 @@
 		} finally {
 			runChecked = true;
 		}
-	}
-
-	/** Quiet escape hatch from a failed run that's no longer going anywhere on
-	 * its own — clears the stored id and drops back to the recipe catalog. */
-	function startOver() {
-		clearPoll();
-		forgetRunId();
-		run = null;
-	}
-
-	/** A run handed back by one of `RecipeRunProgress`'s actions (approve,
-	 * cancel, retry, and retry's optimistic pre-flip) — adopt it and keep the
-	 * poll in step with whatever status it now carries. */
-	function handleRunUpdated(updated: SetupRun) {
-		run = updated;
-		if (shouldPollRun(updated.status)) schedulePoll(updated.id);
-		else clearPoll();
 	}
 
 	// --- start-a-recipe -----------------------------------------------------
@@ -233,9 +187,7 @@
 		startError = '';
 		try {
 			const created = await api.createSetupRun(recipe.id);
-			run = created;
-			rememberRunId(created.id);
-			if (shouldPollRun(created.status)) schedulePoll(created.id);
+			session.adopt(created);
 		} catch (err: any) {
 			startError = err?.response?.data?.detail || err?.message || "Couldn't start this recipe.";
 		} finally {
@@ -263,7 +215,7 @@
 		else runChecked = true;
 	});
 
-	onDestroy(() => clearPoll());
+	onDestroy(() => session.dispose());
 </script>
 
 <svelte:head>
@@ -337,8 +289,8 @@
 						run={currentRun}
 						fetchError={runFetchError}
 						actions={setupRunActions}
-						onRunUpdated={handleRunUpdated}
-						onStartOver={startOver}
+						onRunUpdated={session.adopt}
+						onStartOver={() => session.reset()}
 						completed={completedHandoff}
 					/>
 				</Card>

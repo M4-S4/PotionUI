@@ -12,12 +12,10 @@
 	import { recipeCatalog } from '$lib/stores/recipeCatalog';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { formatBytes } from '$lib/utils/format';
-	import { parseActiveRecipeRunConflict, type ActiveRecipeRunConflict } from '$lib/utils/recipeRunConflict';
+	import { RecipeRunSession } from '$lib/components/recipes/recipeRunSession.svelte';
 	import {
 		isRunTerminal,
-		shouldPollRun,
-		runStatusLabel,
-		RUN_POLL_INTERVAL_MS
+		runStatusLabel
 	} from '$lib/utils/setupRunDisplay';
 	import { DetailHeader, DetailBody, DetailLayout, DetailSection, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import RecipeRunProgress from '$lib/components/recipes/RecipeRunProgress.svelte';
@@ -81,16 +79,15 @@
 	const readinessQueue: string[] = [];
 	const readinessQueued = new Set<string>();
 	let readinessWorkers = 0;
-	const finishedRunsHandled = new Set<string>();
 
 	let runs = $state<RecipeRun[]>([]);
 	let runsLoading = $state(false);
 	let runsError = $state('');
-	let activeRun = $state<RecipeRun | null>(null);
-	let starting = $state(false);
-	let startError = $state('');
-	let startConflict = $state<ActiveRecipeRunConflict | null>(null);
-	let pollTimer: ReturnType<typeof setTimeout> | null = null;
+	const session = new RecipeRunSession({ onFinished: (run) => void handleRunFinished(run) });
+	const activeRun = $derived(session.run);
+	const starting = $derived(session.starting);
+	const startError = $derived(session.error);
+	const startConflict = $derived(session.conflict);
 	let urlRestored = $state(false);
 
 	const sources = $derived(recipeSourceVocabulary(recipes));
@@ -206,10 +203,7 @@
 		detailError = '';
 		runs = [];
 		runsError = '';
-		startError = '';
-		startConflict = null;
-		activeRun = null;
-		clearPoll();
+		session.reset();
 		if (id) {
 			void loadDetail(id);
 			void loadRuns(id);
@@ -241,7 +235,7 @@
 			if (id !== selectedRecipeId) return;
 			runs = result.runs ?? [];
 			const live = runs.find((run) => !isRunTerminal(run.status)) ?? null;
-			if (live) adoptRun(live);
+			if (live) session.adopt(live);
 		} catch (error) {
 			if (id !== selectedRecipeId) return;
 			logger.error('Failed to load recipe runs:', error);
@@ -251,79 +245,11 @@
 		}
 	}
 
-	function clearPoll() {
-		if (pollTimer) {
-			clearTimeout(pollTimer);
-			pollTimer = null;
-		}
-	}
-
-	function schedulePoll(runId: string) {
-		clearPoll();
-		pollTimer = setTimeout(() => void refreshRun(runId), RUN_POLL_INTERVAL_MS);
-	}
-
-	function adoptRun(updated: SetupRun) {
-		activeRun = updated;
-		if (shouldPollRun(updated.status)) {
-			schedulePoll(updated.id);
-			return;
-		}
-		clearPoll();
-		if (isRunTerminal(updated.status)) void handleRunFinished(updated);
-	}
-
 	async function handleRunFinished(run: SetupRun) {
-		if (finishedRunsHandled.has(run.id)) return;
-		finishedRunsHandled.add(run.id);
 		await loadRecipes(true);
 		readinessQueued.delete(run.recipe_id);
 		enqueueReadiness(run.recipe_id);
 		if (run.recipe_id === selectedRecipeId) await loadRuns(run.recipe_id);
-	}
-
-	async function refreshRun(runId: string) {
-		try {
-			adoptRun(await api.getRecipeRun(runId));
-		} catch (error) {
-			logger.warn('Recipe run poll failed', runId, error);
-			schedulePoll(runId);
-		}
-	}
-
-	async function startRun() {
-		if (!selectedRecipe || starting) return;
-		starting = true;
-		startError = '';
-		startConflict = null;
-		try {
-			adoptRun(await api.createRecipeRun(selectedRecipe.id));
-		} catch (error) {
-			const conflict = parseActiveRecipeRunConflict(error);
-			if (conflict && conflict.activeRun.recipeId === selectedRecipe.id) {
-				try {
-					adoptRun(await api.getRecipeRun(conflict.activeRun.id));
-				} catch (attachError) {
-					startError = getApiErrorMessage(attachError, 'Could not attach to the running recipe');
-				}
-			} else if (conflict) {
-				startConflict = conflict;
-			} else {
-				startError = getApiErrorMessage(error, 'Could not start this recipe');
-			}
-		} finally {
-			starting = false;
-		}
-	}
-
-	async function cancelStartConflict() {
-		if (!startConflict) return;
-		try {
-			await api.applyRecipeRunAction(startConflict.activeRun.id, 'cancel');
-			startConflict = null;
-		} catch (error) {
-			startError = getApiErrorMessage(error, 'Could not cancel the other run');
-		}
 	}
 
 	onMount(async () => {
@@ -335,7 +261,7 @@
 		urlRestored = true;
 	});
 
-	onDestroy(() => clearPoll());
+	onDestroy(() => session.dispose());
 
 	$effect(() => {
 		if (!urlRestored) return;
@@ -426,7 +352,7 @@
 										icon="download"
 										loading={starting}
 										disabled={starting || runInFlight}
-										onclick={startRun}
+										onclick={() => selectedRecipe && void session.start(selectedRecipe.id)}
 									>
 										{selectedRecipe.last_completed_at ? 'Install again' : 'Install models'}
 									</Button>
@@ -460,7 +386,7 @@
 																>
 																	Open it
 																</Button>
-																<Button variant="secondary" size="sm" onclick={cancelStartConflict}>Cancel it</Button>
+																<Button variant="secondary" size="sm" onclick={() => void session.cancelConflict()}>Cancel it</Button>
 															</div>
 														{/snippet}
 													</Alert>
@@ -534,7 +460,7 @@
 														run={activeRun}
 														title="Installing models"
 														actions={adminRecipeRunActions}
-														onRunUpdated={adoptRun}
+														onRunUpdated={session.adopt}
 													/>
 												{:else}
 													<div class="space-y-3">
