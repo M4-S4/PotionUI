@@ -61,9 +61,9 @@ test('a manual automation calls the backend over HTTP, passes the body to a late
 	const detail = (await (await page.request.get(`/api/automations/${automationId}/runs/${runId}`, { headers })).json()).data;
 	const call = detail.nodes.find((n: { node_id: string }) => n.node_id === 'call');
 	const after = detail.nodes.find((n: { node_id: string }) => n.node_id === 'after');
-	expect(JSON.parse(call.output).body.service).toBe('potionui-api');
+	expect(call.output.body.service).toBe('potionui-api');
 	expect(JSON.stringify(detail)).not.toContain('e2e-secret-token');
-	expect(JSON.parse(after.output).message).toBe('service=potionui-api');
+	expect(after.output.message).toBe('service=potionui-api');
 
 	await page.goto(`/admin?tab=automations&id=${automationId}`);
 	await page.locator('.svelte-flow__node').filter({ hasText: 'HTTP Request' }).first().click();
