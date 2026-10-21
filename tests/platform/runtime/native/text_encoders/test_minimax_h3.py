@@ -122,12 +122,6 @@ def _tiny_h3_module() -> Qwen3Model:
     return m
 
 
-def test_layer_index_constant_is_49():
-    # hidden_states[50] in HF's embedding-inclusive numbering (hidden_states[0]
-    # = embeddings) is the output of 0-indexed decoder layer 49.
-    assert MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX == 49
-
-
 def test_tap_matches_manual_post_block_49_residual():
     """The off-by-one bite-check: the module's layer-49 output-capture must
     equal a hand-run forward stopped right after block 49 — not block 48
@@ -688,15 +682,6 @@ def test_encode_request_with_one_image_vision_block_tagged_video_exact_boundarie
 
 
 # --- H3's smart-resize pixel-area bounds vs Krea-2's (min_pixels/max_pixels) ---
-
-
-def test_h3_bounds_constants_are_not_krea2_defaults():
-    """Sanity: the whole point of parameterizing is that these differ from
-    `preprocess_qwen3_vl_image`'s own (Krea-2-shaped) defaults."""
-    assert H3_VISION_MIN_PIXELS == 65536
-    assert H3_VISION_MAX_PIXELS == 16777216
-    assert H3_VISION_MIN_PIXELS != 3136          # preprocess_qwen3_vl_image's default min_pixels
-    assert H3_VISION_MAX_PIXELS != 12845056      # preprocess_qwen3_vl_image's default max_pixels
 
 
 def test_h3_bounds_force_an_upscale_that_krea2_defaults_do_not():

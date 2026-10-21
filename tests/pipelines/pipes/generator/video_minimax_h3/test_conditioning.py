@@ -162,10 +162,6 @@ def test_bite_check_wrong_seed_would_not_reproduce_the_draw():
     assert not torch.allclose(got, wrong_sample)
 
 
-def test_keyframe_encode_seed_is_42():
-    assert KEYFRAME_ENCODE_SEED == 42
-
-
 def _tail_frames(num_frames: int, *, size: int = 8) -> np.ndarray:
     return np.zeros((num_frames, size, size, 3), dtype=np.uint8)
 
@@ -271,10 +267,6 @@ def test_already_canvas_sized_image_passes_through_unchanged():
 
 
 # -- ref2va reference own-resolution fit -------------------------------------
-
-def test_reference_image_short_edge_is_2048():
-    assert REFERENCE_IMAGE_SHORT_EDGE == 2048
-
 
 def test_reference_image_is_upscaled_to_its_own_short_edge():
     # A small square image has no canvas to fit onto (unlike a keyframe) --
@@ -502,8 +494,12 @@ def test_too_many_references_in_total_rejected():
         validate_references(references)
 
 
-def test_at_most_three_audio_references():
-    assert MAX_AUDIO_REFERENCES == 3
+def test_too_many_audio_references_rejected():
+    references = [ReferenceMedia(kind="image", image=Image.new("RGB", (32, 32)))] + (
+        [ReferenceMedia(kind="audio", audio=_waveform(0.5))] * (MAX_AUDIO_REFERENCES + 1)
+    )
+    with pytest.raises(ValueError, match="at most 3 audio"):
+        validate_references(references)
 
 
 # -- normalize_references: every modality on H3's own rates ------------------

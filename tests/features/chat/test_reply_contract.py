@@ -5,7 +5,6 @@ import pytest
 from src.features.chat.reply_contract import (
     REPLY_CONTRACT_PROMPT_BLOCK,
     REPLY_CONTRACT_REMINDER,
-    TOOL_LOOP_CONTINUATION_NUDGE,
     parse_reply_contract,
 )
 
@@ -17,10 +16,6 @@ class TestToolLoopContinuationNudge:
         block (never sees the mid-loop nudge, e.g. a non-structured-reply
         mode) still gets the instruction."""
         assert "Never end a turn announcing an action you have not taken" in REPLY_CONTRACT_PROMPT_BLOCK
-
-    def test_nudge_constant_is_non_empty_imperative_text(self):
-        assert TOOL_LOOP_CONTINUATION_NUDGE
-        assert "call the next tool" in TOOL_LOOP_CONTINUATION_NUDGE.lower()
 
 
 class TestTagInventionForbidden:
