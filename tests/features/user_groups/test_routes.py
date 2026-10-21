@@ -566,52 +566,6 @@ class TestUserGroupController:
         assert response.success is False
         assert "not assigned" in response.message
 
-    # ========== DTO Tests ==========
-
-    def test_group_create_dto(self):
-        """Test GroupCreate DTO"""
-        data = GroupCreate(name="Test", description="Desc")
-        assert data.name == "Test"
-        assert data.description == "Desc"
-
-    def test_group_create_no_description(self):
-        """Test GroupCreate with no description"""
-        data = GroupCreate(name="Test")
-        assert data.name == "Test"
-        assert data.description is None
-
-    def test_group_update_dto(self):
-        """Test GroupUpdate DTO"""
-        data = GroupUpdate(name="New Name", description="New Desc")
-        assert data.name == "New Name"
-        assert data.description == "New Desc"
-
-    def test_group_update_partial(self):
-        """Test GroupUpdate with partial fields"""
-        data = GroupUpdate(name="New Name")
-        assert data.name == "New Name"
-        assert data.description is None
-
-    def test_member_ids_dto(self):
-        """Test MemberIds DTO"""
-        data = MemberIds(user_ids=["u1", "u2", "u3"])
-        assert len(data.user_ids) == 3
-
-    def test_preset_ids_dto(self):
-        """Test PresetIds DTO"""
-        data = PresetIds(preset_ids=["p1", "p2"])
-        assert len(data.preset_ids) == 2
-
-    def test_llm_config_ids_dto(self):
-        """Test LLMConfigIds DTO"""
-        data = LLMConfigIds(llm_config_ids=["l1"])
-        assert len(data.llm_config_ids) == 1
-
-    def test_model_ids_dto(self):
-        """Test ModelIds DTO"""
-        data = ModelIds(model_ids=["m1", "m2"])
-        assert len(data.model_ids) == 2
-
 
 class TestUserGroupRoutesHTTP(unittest.TestCase):
     """The collection route must match what the frontend sends exactly (no

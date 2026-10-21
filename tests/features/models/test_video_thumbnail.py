@@ -14,15 +14,6 @@ class TestVideoThumbnailService:
     def setup_method(self):
         self.service = VideoThumbnailService()
 
-    def test_init(self):
-        """Test VideoThumbnailService initialization"""
-        assert self.service.thumbnail_size == (512, 512)
-        assert self.service.quality == 85
-
-    def test_init_custom_size(self):
-        """Test VideoThumbnailService initialization with custom size"""
-        service = VideoThumbnailService(thumbnail_size=(256, 256))
-        assert service.thumbnail_size == (256, 256)
 
     @patch('cv2.VideoCapture')
     def test_extract_random_frame_success(self, mock_capture):

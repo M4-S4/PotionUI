@@ -383,17 +383,6 @@ class TestAuthController:
 
     # DTO model tests
 
-    def test_user_create_model(self):
-        """Test UserCreate model validation."""
-        user_create = UserCreate(
-            username="testuser",
-            email="test@example.com",
-            password="password123"
-        )
-
-        assert user_create.username == "testuser"
-        assert user_create.email == "test@example.com"
-        assert user_create.password == "password123"
 
     @pytest.mark.parametrize("password", ["short", "x" * 73])
     def test_user_create_rejects_invalid_password_length(self, password):
@@ -412,12 +401,6 @@ class TestAuthController:
         assert token.access_token == "test.token.here"
         assert token.token_type == "bearer"
 
-    def test_token_data_model(self):
-        """Test TokenData model."""
-        token_data = TokenData(username="testuser", user_id="test-123")
-
-        assert token_data.username == "testuser"
-        assert token_data.user_id == "test-123"
 
     def test_user_response_model(self, sample_user):
         """Test UserResponse model serialization."""

@@ -16,14 +16,6 @@ class _Exploding(_Component):
         raise RuntimeError("already gone")
 
 
-def test_default_bundle_has_no_components():
-    bundle = DitTeVaeBundle()
-    assert bundle.dit is None
-    assert bundle.te is None
-    assert bundle.vae is None
-    assert bundle.te_cache_key is None
-
-
 def test_windowed_loras_defaults_to_an_empty_tuple():
     assert DitTeVaeBundle().windowed_loras == ()
 

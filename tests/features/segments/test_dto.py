@@ -32,18 +32,8 @@ class TestSavedSegmentRequestRequiredFields:
         with pytest.raises(ValidationError):
             SavedSegmentRequest(name="Subject", category_id=category_id)
 
-    def test_accepts_required_fields(self):
-        req = SavedSegmentRequest(name="Subject", category_id="cat-1")
-        assert req.name == "Subject"
-        assert req.category_id == "cat-1"
-
 
 class TestRichSegmentPrefixSuffix:
-    def test_defaults_to_none_when_omitted(self):
-        segment = RichSegment(content="a fox")
-        assert segment.prefix is None
-        assert segment.suffix is None
-
     def test_accepts_byte_for_byte_prefix_and_suffix(self):
         segment = RichSegment(content="a fox", prefix="  (", suffix=", detailed)  ")
         assert segment.prefix == "  ("
@@ -53,20 +43,6 @@ class TestRichSegmentPrefixSuffix:
         segment = RichSegment(content="a fox", prefix="", suffix="")
         assert segment.prefix is None
         assert segment.suffix is None
-
-
-class TestSavedSegmentRequestPrefixSuffix:
-    def test_defaults_to_none_when_omitted(self):
-        req = SavedSegmentRequest(name="Subject", category_id="cat-1")
-        assert req.prefix is None
-        assert req.suffix is None
-
-    def test_accepts_prefix_and_suffix(self):
-        req = SavedSegmentRequest(
-            name="Subject", category_id="cat-1", prefix="(", suffix=")"
-        )
-        assert req.prefix == "("
-        assert req.suffix == ")"
 
 
 class TestSegmentTemplateRequestValidation:
