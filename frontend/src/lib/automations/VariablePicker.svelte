@@ -13,6 +13,7 @@
 	 * - `expression` — `condition.jinja_expression`'s whole-expression field.
 	 *   Inserts the bare path, appended (`event.size > 0`).
 	 */
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Input } from '$lib/components/ui';
 	import type { VariableScope, VariableRef } from '$lib/stores/automationEditor';
@@ -63,21 +64,13 @@
 		filter = '';
 	}
 
-	function onKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && open) {
-			open = false;
-			event.stopPropagation();
-		}
+	function handleDismiss(reason: DismissReason, event: Event) {
+		if (reason === 'outside' && event.target instanceof Element && event.target.closest('[data-variable-picker]')) return;
+		open = false;
 	}
 </script>
 
-<svelte:window
-	onclick={(event) => {
-		if (open && !(event.target as HTMLElement)?.closest?.('[data-variable-picker]')) open = false;
-	}}
-/>
-
-<div class="relative" data-variable-picker onkeydown={onKeydown} role="presentation">
+<div class="relative" data-variable-picker>
 	<button
 		type="button"
 		class="flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-mono uppercase tracking-wide
@@ -96,6 +89,7 @@
 
 	{#if open}
 		<div
+			use:dismiss={{ onDismiss: handleDismiss }}
 			class="absolute right-0 z-30 mt-1 w-72 rounded-xl border border-line-strong bg-surface-2
 				shadow-overlay overflow-hidden"
 		>

@@ -6,6 +6,7 @@
 	import { createEventDispatcher, tick } from 'svelte';
 	import { computeSelectMenuPlacement, dockInsetFor } from '$lib/utils/menuPosition';
 	import Icon from '$lib/components/Icon.svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 
@@ -134,16 +135,9 @@
 		isDropdownOpen = false;
 	}
 
-	function handleWindowClick(event: MouseEvent) {
-		if (
-			containerRef &&
-			!containerRef.contains(event.target as Node) &&
-			dropdownRef &&
-			!dropdownRef.contains(event.target as Node)
-		) {
-			isDropdownOpen = false;
-			filterText = '';
-		}
+	function closeDropdown() {
+		isDropdownOpen = false;
+		filterText = '';
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
@@ -171,8 +165,6 @@
 		}
 	}
 </script>
-
-<svelte:window on:click={handleWindowClick} />
 
 <div class="relative w-full {fill ? 'h-full' : ''}" bind:this={containerRef}>
 	<div class="relative {fill ? 'h-full' : ''}" bind:this={inputRef}>
@@ -253,6 +245,7 @@
 		use:portal
 		use:overlayLayer
 		bind:this={dropdownRef}
+		use:dismiss={{ onDismiss: closeDropdown, ignore: [containerRef], escape: false }}
 		data-dropdown="true"
 		class="fixed z-overlay bg-surface-2 border border-line-hover rounded-xl shadow-overlay overflow-y-auto"
 		role="listbox"

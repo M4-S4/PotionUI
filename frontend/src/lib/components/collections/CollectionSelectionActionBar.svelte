@@ -2,6 +2,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { quartOut } from 'svelte/easing';
 	import Icon from '$lib/components/Icon.svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import CollectionTreePicker from './CollectionTreePicker.svelte';
 	import type { CollectionLike } from './types';
@@ -24,6 +25,7 @@
 
 	let showTargets = $state(false);
 	let busy = $state(false);
+	let barEl = $state<HTMLDivElement>();
 
 	function toggleTargets() {
 		showTargets = !showTargets;
@@ -40,8 +42,6 @@
 	}
 </script>
 
-<svelte:window onclick={() => showTargets && (showTargets = false)} />
-
 <!--
 	`use:portal` moves this to <body> so its fixed positioning (and the "Move
 	to..." popover nested inside it) escape the sidebar's ancestor stacking
@@ -56,6 +56,7 @@
 		onkeydown={(e) => e.stopPropagation()}
 		role="toolbar"
 		tabindex="-1"
+		bind:this={barEl}
 	>
 		<div class="px-3 py-1.5 whitespace-nowrap font-mono text-2xs uppercase tracking-[0.07em]">
 			<span class="text-fg tabular-nums">{selectedCount}</span>
@@ -86,6 +87,7 @@
 				<div
 					class="absolute bottom-full mb-2 right-0 w-56 max-h-72 bg-surface-1 border border-line-strong rounded-lg shadow-overlay flex flex-col overflow-hidden"
 					role="menu"
+					use:dismiss={{ onDismiss: () => (showTargets = false), ignore: [barEl] }}
 				>
 					<CollectionTreePicker
 						{collections}

@@ -4,6 +4,7 @@
 	import VariablePicker from './VariablePicker.svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss from '$lib/actions/dismiss';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import { CHIP_POPOVER_VIEWPORT_GUTTER, CHIP_POPOVER_WIDTH, isChipPopoverSheet } from '$lib/utils/chipPopover';
 	import type { VariablesMap } from '$lib/utils/variableDefs';
@@ -79,13 +80,6 @@
 		if (refocus) void tick().then(() => triggerRef?.focus());
 	}
 
-	function handleWindowPointerDown(e: PointerEvent) {
-		if (!open) return;
-		const target = e.target as Node;
-		if (triggerRef?.contains(target) || panelRef?.contains(target)) return;
-		open = false;
-	}
-
 	function toggle() {
 		if (disabled) return;
 		open = !open;
@@ -99,8 +93,6 @@
 		}
 	}
 </script>
-
-<svelte:window onpointerdown={handleWindowPointerDown} />
 
 <button
 	bind:this={triggerRef}
@@ -122,6 +114,7 @@
 {#if open}
 	<div
 		bind:this={panelRef}
+		use:dismiss={{ onDismiss: () => (open = false), ignore: [triggerRef], escape: false }}
 		use:portal
 		use:overlayLayer
 		data-chip-layer

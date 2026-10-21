@@ -94,7 +94,7 @@ describe('LibraryFilterBar', () => {
 		buttonByText('Filters')!.click();
 		flushSync();
 		expect(document.body.querySelector('[data-testid="filters-popover"]')).not.toBeNull();
-		document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
 		flushSync();
 		expect(document.body.querySelector('[data-testid="filters-popover"]')).toBeNull();
 	});

@@ -2,6 +2,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { quartOut } from 'svelte/easing';
 	import Icon from '$lib/components/Icon.svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
 	import type { PhrasebookBatchOp } from '$lib/types/api';
@@ -39,6 +40,7 @@
 	let moveOpen = $state(false);
 	let moveTarget = $state('');
 	let moreOpen = $state(false);
+	let barEl = $state<HTMLDivElement>();
 
 	const actionClass =
 		'px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed';
@@ -65,20 +67,14 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (!moveOpen) return;
-		if (e.key === 'Escape') {
-			e.preventDefault();
-			closeMove();
-		} else if (e.key === 'Enter' && moveTarget) {
+		if (e.key === 'Enter' && moveTarget) {
 			e.preventDefault();
 			confirmMove();
 		}
 	}
 </script>
 
-<svelte:window
-	onclick={() => (moveOpen || moreOpen) && closeMenus()}
-	onkeydowncapture={handleKeydown}
-/>
+<svelte:window onkeydowncapture={handleKeydown} />
 
 {#if selectedCount > 0}
 	<div class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50" data-selection-bar>
@@ -91,6 +87,7 @@
 			role="toolbar"
 			aria-label="Selected values"
 			tabindex="-1"
+			bind:this={barEl}
 		>
 			<div class="px-3 py-1.5 whitespace-nowrap font-mono text-2xs uppercase tracking-[0.07em]">
 				<span class="text-fg tabular-nums">{selectedCount}</span>
@@ -141,6 +138,7 @@
 						<div
 							class="absolute bottom-full mb-2 left-0 w-72 bg-surface-1 border border-line-strong rounded-lg shadow-overlay p-3 flex flex-col gap-3"
 							role="menu"
+							use:dismiss={{ onDismiss: closeMove, ignore: [barEl] }}
 							data-move-menu
 						>
 							<label class="label" for="phrasebook-move-target">Target category</label>
@@ -207,6 +205,7 @@
 							<div
 								class="absolute bottom-full mb-2 right-0 min-w-[14rem] bg-surface-1 border border-line-strong rounded-lg shadow-overlay p-1 flex flex-col"
 								role="menu"
+								use:dismiss={{ onDismiss: closeMenus, ignore: [barEl] }}
 								data-more-menu
 							>
 								{#each extraOps as op (op.id)}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import dismiss from '$lib/actions/dismiss';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import { tagCatalog } from '$lib/stores/tagCatalog';
@@ -271,20 +272,10 @@
 		onSelect(generation, file);
 	}
 
-	// Handle click outside to close tag dropdown
-	function handleClickOutside(event: MouseEvent) {
-		if (tagDropdownRef && !tagDropdownRef.contains(event.target as Node)) {
-			isTagDropdownOpen = false;
-		}
-	}
-
 	// Watch for modal open
 	$: if (isOpen) {
 		loadTags();
 		loadGenerationHistory(1);
-		document.addEventListener('mousedown', handleClickOutside);
-	} else {
-		document.removeEventListener('mousedown', handleClickOutside);
 	}
 
 	// Watch for tag filter changes
@@ -461,7 +452,7 @@
 
 					<!-- Tag Dropdown -->
 					{#if isTagDropdownOpen}
-						<div class="absolute top-full left-0 mt-1 w-64 bg-surface-1 border border-line-strong rounded-lg shadow-floating z-50">
+						<div use:dismiss={{ onDismiss: () => (isTagDropdownOpen = false), ignore: [tagDropdownRef], escape: false }} class="absolute top-full left-0 mt-1 w-64 bg-surface-1 border border-line-strong rounded-lg shadow-floating z-50">
 							<div class="p-2">
 								<input
 									type="text"

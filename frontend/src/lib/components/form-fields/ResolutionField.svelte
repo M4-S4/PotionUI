@@ -6,6 +6,7 @@
 	import Badge from '../ui/Badge.svelte';
 	import Button from '../ui/Button.svelte';
 	import IconButton from '../ui/IconButton.svelte';
+	import dismiss, { type DismissReason } from '../../actions/dismiss';
 	import portal from '../../actions/portal';
 	import overlayLayer from '../../actions/overlayLayer';
 	import {
@@ -243,10 +244,6 @@
 		if (event.key === 'Enter') {
 			event.preventDefault();
 			applyCustom();
-		} else if (event.key === 'Escape') {
-			event.preventDefault();
-			event.stopPropagation();
-			cancelCustomMode();
 		}
 	}
 
@@ -268,23 +265,15 @@
 				if (opt) handleSelect(opt.value);
 			}
 		}
-		// Escape is handled by the window-level listener below, which also
-		// covers Escape pressed anywhere else in the panel.
 	}
 
-	function handleWindowPointerDown(event: PointerEvent) {
-		if (!panelOpen) return;
-		const target = event.target as Node;
-		if (triggerRef?.contains(target) || panelRef?.contains(target)) return;
-		closePanel();
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (panelOpen && event.key === 'Escape') {
-			event.preventDefault();
-			closePanel();
-			triggerRef?.focus();
+	function handlePanelDismiss(reason: DismissReason) {
+		if (reason === 'escape' && customMode) {
+			cancelCustomMode();
+			return;
 		}
+		closePanel();
+		if (reason === 'escape') triggerRef?.focus();
 	}
 
 	// The panel is anchored to the trigger in viewport coordinates (it's
@@ -296,16 +285,12 @@
 	}
 
 	if (typeof window !== 'undefined') {
-		window.addEventListener('pointerdown', handleWindowPointerDown, true);
-		window.addEventListener('keydown', handleWindowKeydown);
 		window.addEventListener('scroll', handleReposition, true);
 		window.addEventListener('resize', handleReposition);
 	}
 
 	onDestroy(() => {
 		if (typeof window === 'undefined') return;
-		window.removeEventListener('pointerdown', handleWindowPointerDown, true);
-		window.removeEventListener('keydown', handleWindowKeydown);
 		window.removeEventListener('scroll', handleReposition, true);
 		window.removeEventListener('resize', handleReposition);
 	});
@@ -370,6 +355,7 @@
 				use:portal
 				use:overlayLayer
 				bind:this={panelRef}
+				use:dismiss={{ onDismiss: handlePanelDismiss, ignore: [triggerRef] }}
 				transition:fade={{ duration: 120 }}
 				class="fixed z-overlay flex flex-col bg-surface-1 border border-line-strong rounded-xl shadow-floating overflow-hidden"
 				style="{panelPosition.openUpward

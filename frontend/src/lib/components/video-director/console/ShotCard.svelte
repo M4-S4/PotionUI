@@ -3,6 +3,7 @@
 	// (no per-shot Generate, no info band, per note09-decisions.md); the body
 	//
 	import type { Snippet } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import type { ConsoleShot } from './consoleModel';
 	import { badgeMeta, BADGE_TONE_CLASS } from './badgeMeta';
 	import ConsoleIcon from './ConsoleIcon.svelte';
@@ -56,10 +57,6 @@
 	let menuOpen = $state(false);
 	let menuRoot: HTMLDivElement | undefined = $state();
 
-	function handleWindowClick(event: MouseEvent) {
-		if (menuOpen && menuRoot && !menuRoot.contains(event.target as Node)) menuOpen = false;
-	}
-
 	function commitDuration(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
 		const seconds = parseFloat(input.value);
@@ -107,8 +104,6 @@
 		return 'Failed';
 	}
 </script>
-
-<svelte:window onclick={handleWindowClick} />
 
 <div class="rounded-md border border-line bg-surface-1">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -259,6 +254,7 @@
 					<div
 						class="absolute right-0 top-full z-10 mt-1 w-40 rounded-lg border border-line-strong bg-surface-2 py-1 shadow-floating"
 						role="menu"
+						use:dismiss={{ onDismiss: () => (menuOpen = false), ignore: [menuRoot] }}
 					>
 						<button
 							type="button"

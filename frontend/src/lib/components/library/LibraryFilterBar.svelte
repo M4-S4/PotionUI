@@ -3,6 +3,7 @@
 	import { browser } from '$app/environment';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss from '$lib/actions/dismiss';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import Icon from '$lib/components/Icon.svelte';
 	import InputGroup from '$lib/components/ui/InputGroup.svelte';
@@ -81,25 +82,17 @@
 		};
 	});
 
-	function handleWindowClick(event: MouseEvent) {
-		const target = event.target as Element | null;
-		if (target?.closest('[role="dialog"], [role="alertdialog"], [aria-label="Close modal"]')) return;
-		if (filtersOpen && triggerEl && !triggerEl.contains(event.target as Node)) filtersOpen = false;
-	}
-
 	function handleWindowKeydown(event: KeyboardEvent) {
 		const target = event.target as HTMLElement | null;
 		const isTyping = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 		if (event.key === '/' && !isTyping) {
 			event.preventDefault();
 			searchInputEl?.focus();
-		} else if (event.key === 'Escape') {
-			filtersOpen = false;
 		}
 	}
 </script>
 
-<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <div class="order-last flex w-full items-center gap-1.5 xl:order-none xl:w-auto xl:min-w-[12rem] xl:max-w-md xl:flex-1">
 	<InputGroup class="h-8 flex-1">
@@ -141,7 +134,7 @@
 		</button>
 	</div>
 	{#if filtersOpen}
-		<div bind:this={panelEl} use:portal use:overlayLayer style={panelStyle(panelPosition)} class="fixed z-overlay">
+		<div bind:this={panelEl} use:dismiss={{ onDismiss: closeFilters, ignore: [triggerEl] }} use:portal use:overlayLayer style={panelStyle(panelPosition)} class="fixed z-overlay">
 			{@render popover(closeFilters)}
 		</div>
 	{/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
@@ -117,24 +118,9 @@
 		onremove?.();
 	}
 
-	function handleWindowPointerDown(e: PointerEvent) {
-		if (!open || detached) return;
-		const target = e.target as Node;
-		if (chipRef?.contains(target)) return;
-		// The popover itself lives at body level once open (see `use:portal`
-		// below), so it's outside `chipRef` even for a click the user sees as
-		// "inside the chip".
-		if (popoverRef?.contains(target)) return;
-		if (target instanceof Element && target.closest('[data-chip-layer]')) return;
-		skipFocusRestore = true;
-		open = false;
-	}
-
-	function handleWindowKeydown(e: KeyboardEvent) {
-		if (!open || detached || e.key !== 'Escape' || e.defaultPrevented) return;
-		if (e.target instanceof Element && e.target.closest('[data-chip-layer]')) return;
-		e.preventDefault();
-		e.stopPropagation();
+	function handleDismiss(reason: DismissReason, event: Event) {
+		if (event.target instanceof Element && event.target.closest('[data-chip-layer]')) return;
+		if (reason === 'outside') skipFocusRestore = true;
 		open = false;
 	}
 
@@ -222,7 +208,6 @@
 	});
 </script>
 
-<svelte:window onpointerdown={handleWindowPointerDown} onkeydowncapture={handleWindowKeydown} />
 
 {#if variant === 'segment-composer'}
 	<span
@@ -253,6 +238,7 @@
 			<div class="segment-composer" use:portal style="display: contents;">
 				<div
 					bind:this={popoverRef}
+					use:dismiss={{ onDismiss: handleDismiss, ignore: [chipRef] }}
 					use:overlayLayer
 					class="floating popover {kind}-popover"
 					style={popoverStyle}
@@ -315,6 +301,7 @@
 		{#if open && !detached}
 			<div
 				bind:this={popoverRef}
+				use:dismiss={{ onDismiss: handleDismiss, ignore: [chipRef] }}
 				use:portal
 				use:overlayLayer
 				class="fixed z-overlay rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import Icon from '$lib/components/Icon.svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
@@ -23,7 +23,6 @@
 
 	let open = $state(false);
 	let trigger = $state<HTMLButtonElement>();
-	let panel = $state<HTMLDivElement>();
 	let search = $state('');
 	let position = $state({ top: 0, left: 0, width: 320 });
 
@@ -40,24 +39,6 @@
 		search = '';
 		onSelect(model);
 	}
-
-	onMount(() => {
-		const down = (event: PointerEvent) => {
-			if (!open) return;
-			const target = event.target as Node;
-			if (trigger?.contains(target) || panel?.contains(target)) return;
-			open = false;
-		};
-		const key = (event: KeyboardEvent) => {
-			if (open && event.key === 'Escape') open = false;
-		};
-		window.addEventListener('pointerdown', down, true);
-		window.addEventListener('keydown', key);
-		return () => {
-			window.removeEventListener('pointerdown', down, true);
-			window.removeEventListener('keydown', key);
-		};
-	});
 </script>
 
 <button
@@ -74,7 +55,7 @@
 
 {#if open}
 	<div
-		bind:this={panel}
+		use:dismiss={{ onDismiss: () => (open = false), ignore: [trigger] }}
 		use:portal
 		use:overlayLayer
 		class="fixed z-overlay max-h-[340px] overflow-y-auto rounded-lg border border-line-strong bg-surface-1 shadow-floating"

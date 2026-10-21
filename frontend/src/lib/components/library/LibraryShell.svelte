@@ -1,5 +1,6 @@
 <script lang="ts" generics="S extends string">
 	import type { Snippet } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { IconButton, PageHeader, PageTitle } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -85,19 +86,7 @@
 	function closeOverflow() {
 		overflowOpen = false;
 	}
-
-	function handleWindowClick(event: MouseEvent) {
-		const target = event.target as Element | null;
-		if (target?.closest('[role="dialog"], [role="alertdialog"], [aria-label="Close modal"]')) return;
-		if (overflowOpen && overflowEl && !overflowEl.contains(event.target as Node)) overflowOpen = false;
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') overflowOpen = false;
-	}
 </script>
-
-<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
 
 <div class="flex {heightClass} bg-canvas text-fg">
 	{#if hasSidebar && sidebarOpen}
@@ -196,6 +185,7 @@
 									<div
 										class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[200px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating"
 										role="menu"
+										use:dismiss={{ onDismiss: closeOverflow, ignore: [overflowEl] }}
 									>
 										{@render overflow(closeOverflow)}
 									</div>

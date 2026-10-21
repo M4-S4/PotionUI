@@ -13,6 +13,7 @@
 	} from '$lib/utils/modelPresentation';
 	import ModelDetailsModal from '$lib/components/modals/ModelDetailsModal.svelte';
 	import ModelBrowserPanel from './ModelBrowserPanel.svelte';
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Icon from '$lib/components/Icon.svelte';
@@ -282,15 +283,12 @@
 		inputHasFocus = false;
 	}
 
-	function handleWindowPointerDown(event: PointerEvent) {
-		if (!showDropdown) return;
-		const target = event.target as Node;
-		if (inputRef?.contains(target) || dropdownRef?.contains(target)) return;
+	function handleDropdownDismiss(reason: DismissReason) {
 		showDropdown = false;
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (showDropdown && event.key === 'Escape') showDropdown = false;
+		if (reason === 'escape') {
+			newTagQuery = '';
+			showTagInput = false;
+		}
 	}
 
 	// The dropdown is anchored to the input in viewport coordinates, so any
@@ -300,8 +298,6 @@
 	}
 
 	if (browser) {
-		window.addEventListener('pointerdown', handleWindowPointerDown, true);
-		window.addEventListener('keydown', handleWindowKeydown);
 		window.addEventListener('scroll', handleReposition, true);
 		window.addEventListener('resize', handleReposition);
 	}
@@ -309,8 +305,6 @@
 	onDestroy(() => {
 		disposed = true;
 		if (!browser) return;
-		window.removeEventListener('pointerdown', handleWindowPointerDown, true);
-		window.removeEventListener('keydown', handleWindowKeydown);
 		window.removeEventListener('scroll', handleReposition, true);
 		window.removeEventListener('resize', handleReposition);
 	});
@@ -616,6 +610,7 @@
 		{#if showDropdown}
 			<div
 				bind:this={dropdownRef}
+				use:dismiss={{ onDismiss: handleDropdownDismiss, ignore: [inputRef] }}
 				use:portal
 				use:overlayLayer
 				class="fixed z-overlay bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-[340px] overflow-y-auto"

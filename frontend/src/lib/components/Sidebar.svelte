@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/auth';
 	import { keybindingsStore, shortcutLabels } from '$lib/stores/keybindings';
@@ -212,31 +212,6 @@
 	function closeMore() {
 		moreOpen = false;
 	}
-
-	function handleMoreClickOutside(event: MouseEvent) {
-		const target = event.target as Node;
-		if (
-			moreOpen &&
-			moreTriggerEl &&
-			!moreTriggerEl.contains(target) &&
-			!(moreMenuEl && moreMenuEl.contains(target))
-		) {
-			closeMore();
-		}
-	}
-
-	function handleMoreKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && moreOpen) closeMore();
-	}
-
-	onMount(() => {
-		document.addEventListener('click', handleMoreClickOutside);
-		document.addEventListener('keydown', handleMoreKeydown);
-		return () => {
-			document.removeEventListener('click', handleMoreClickOutside);
-			document.removeEventListener('keydown', handleMoreKeydown);
-		};
-	});
 </script>
 
 <aside class="fixed left-0 top-0 h-screen w-14 flex flex-col bg-canvas border-r border-line z-50">
@@ -477,6 +452,7 @@
 		use:portal
 		use:overlayLayer
 		bind:this={moreMenuEl}
+		use:dismiss={{ onDismiss: closeMore, ignore: [moreTriggerEl] }}
 		class="fixed z-overlay min-w-[12rem] p-1 bg-surface-1 border border-line-strong rounded-lg shadow-overlay"
 		style="top: {morePos.top}px; left: {morePos.left}px;"
 		role="menu"

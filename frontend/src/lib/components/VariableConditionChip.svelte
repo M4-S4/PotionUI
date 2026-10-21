@@ -4,6 +4,7 @@
 	import VariablePicker from './VariablePicker.svelte';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss from '$lib/actions/dismiss';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import { CHIP_POPOVER_WIDTH } from '$lib/utils/chipPopover';
 	import {
@@ -90,19 +91,9 @@
 		};
 	});
 
-	function handleWindowPointerDown(e: PointerEvent) {
-		if (!open) return;
-		const target = e.target as Node;
-		if (chipRef?.contains(target) || popoverRef?.contains(target)) return;
+	function closePopover() {
 		open = false;
 		pickingVar = false;
-	}
-
-	function handleWindowKeydown(e: KeyboardEvent) {
-		if (open && e.key === 'Escape' && !e.defaultPrevented) {
-			open = false;
-			pickingVar = false;
-		}
 	}
 
 	function toggleOpen() {
@@ -129,8 +120,6 @@
 		onChange(values.length > 0 ? { var: when.var, values } : undefined);
 	}
 </script>
-
-<svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
 
 <span bind:this={chipRef} class="relative flex w-full min-w-0">
 	{#if struckThrough && when}
@@ -185,6 +174,7 @@
 	{#if open}
 		<div
 			bind:this={popoverRef}
+			use:dismiss={{ onDismiss: closePopover, ignore: [chipRef] }}
 			use:portal
 			use:overlayLayer
 			class="z-overlay rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"

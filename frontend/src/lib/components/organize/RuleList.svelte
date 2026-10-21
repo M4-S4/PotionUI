@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
-	import { Alert, Badge, IconButton, Switch } from '$lib/components/ui';
+	import { Alert, Badge, Menu, Switch } from '$lib/components/ui';
+	import type { MenuItem } from '$lib/components/ui/Menu.svelte';
 	import { actionIcon, subjectIcon } from '$lib/organize/icons';
 	import { moveItem } from '$lib/organize/reorder';
 	import { ruleSentence } from '$lib/organize/sentence';
@@ -35,7 +36,6 @@
 		onReorder: (ids: string[]) => void;
 	} = $props();
 
-	let menuFor = $state<string | null>(null);
 	let dragIndex = $state<number | null>(null);
 	let overIndex = $state<number | null>(null);
 
@@ -51,13 +51,28 @@
 		onReorder(moveItem(rules, from, to).map((r) => r.id));
 	}
 
+	function ruleMenuItems(rule: OrganizeRule, index: number): MenuItem[] {
+		return [
+			{ id: 'stop', label: rule.stop_after ? 'Do not stop after this rule' : 'Stop after this rule' },
+			...(index === 0 ? [] : [{ id: 'up', label: 'Move up' }]),
+			...(index === rules.length - 1 ? [] : [{ id: 'down', label: 'Move down' }]),
+			{ id: 'dup', label: 'Duplicate' },
+			{ id: 'del', label: 'Delete', danger: true }
+		];
+	}
+
+	function runRuleAction(rule: OrganizeRule, index: number, key: string) {
+		if (key === 'stop') onToggleStop(rule);
+		else if (key === 'up') move(index, -1);
+		else if (key === 'down') move(index, 1);
+		else if (key === 'dup') onDuplicate(rule);
+		else onDelete(rule);
+	}
+
 	function move(index: number, delta: number) {
-		menuFor = null;
 		onReorder(moveItem(rules, index, index + delta).map((r) => r.id));
 	}
 </script>
-
-<svelte:window onclick={() => (menuFor = null)} />
 
 <ul class="space-y-2" data-testid="rule-list">
 	{#each rules as rule, index (rule.id)}
@@ -137,42 +152,13 @@
 					</span>
 				</button>
 				<div class="relative flex-shrink-0">
-					<IconButton
-						icon="more"
+					<Menu
 						label="Rule actions"
-						ariaExpanded={menuFor === rule.id}
-						onclick={(event) => {
-							event.stopPropagation();
-							menuFor = menuFor === rule.id ? null : rule.id;
-						}}
+						menuLabel="Rule options"
+						width={210}
+						items={ruleMenuItems(rule, index)}
+						onselect={(key) => runRuleAction(rule, index, key)}
 					/>
-					{#if menuFor === rule.id}
-						<div
-							class="absolute right-0 top-full z-30 mt-1 min-w-[210px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating"
-							role="menu"
-						>
-							{#each [{ key: 'stop', label: rule.stop_after ? 'Do not stop after this rule' : 'Stop after this rule' }, { key: 'up', label: 'Move up' }, { key: 'down', label: 'Move down' }, { key: 'dup', label: 'Duplicate' }, { key: 'del', label: 'Delete' }] as item (item.key)}
-								{#if !(item.key === 'up' && index === 0) && !(item.key === 'down' && index === rules.length - 1)}
-									<button
-										type="button"
-										role="menuitem"
-										class="flex w-full items-center px-3 py-2 text-left text-sm hover:bg-surface-3 {item.key === 'del' ? 'text-danger' : 'text-fg'}"
-										onclick={(event) => {
-											event.stopPropagation();
-											menuFor = null;
-											if (item.key === 'stop') onToggleStop(rule);
-											else if (item.key === 'up') move(index, -1);
-											else if (item.key === 'down') move(index, 1);
-											else if (item.key === 'dup') onDuplicate(rule);
-											else onDelete(rule);
-										}}
-									>
-										{item.label}
-									</button>
-								{/if}
-							{/each}
-						</div>
-					{/if}
 				</div>
 			</div>
 			{#if info.notice}

@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Icon from '$lib/components/Icon.svelte';
-	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { trackMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import { editorTypeLabel, filterCandidates, groupCandidates } from '$lib/generation/compare/candidates';
 	import type { AxisCandidate } from '$lib/generation/compare/types';
 
@@ -37,12 +38,6 @@
 		groups.flatMap((g) => g.items).filter((c) => c.unavailableReason === null && c.field !== otherField)
 	);
 
-	function place() {
-		if (!anchor) return;
-		const width = Math.max(anchor.getBoundingClientRect().width, 280);
-		position = computeFlippedMenuPosition(anchor, { width, heightEstimate: 380 });
-	}
-
 	function widthOf(): number {
 		return Math.max(anchor?.getBoundingClientRect().width ?? 280, 280);
 	}
@@ -64,11 +59,7 @@
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			event.stopPropagation();
-			onClose();
-		} else if (event.key === 'ArrowDown') {
+		if (event.key === 'ArrowDown') {
 			event.preventDefault();
 			move(1);
 		} else if (event.key === 'ArrowUp') {
@@ -79,12 +70,6 @@
 			const hit = selectable.find((c) => c.field === activeField) ?? selectable[0];
 			if (hit) choose(hit);
 		}
-	}
-
-	function onPointerDown(event: PointerEvent) {
-		const target = event.target as Node;
-		if (panelEl?.contains(target) || anchor?.contains(target)) return;
-		onClose();
 	}
 
 	function reasonFor(candidate: AxisCandidate): string | null {
@@ -99,21 +84,15 @@
 	});
 
 	onMount(() => {
-		place();
 		searchEl?.focus();
-		window.addEventListener('pointerdown', onPointerDown, true);
-		window.addEventListener('resize', place);
-		window.addEventListener('scroll', place, true);
-		return () => {
-			window.removeEventListener('pointerdown', onPointerDown, true);
-			window.removeEventListener('resize', place);
-			window.removeEventListener('scroll', place, true);
-		};
+		if (!anchor) return;
+		return trackMenuPosition(anchor, () => ({ width: widthOf(), heightEstimate: 380 }), (next) => (position = next));
 	});
 </script>
 
 <div
 	bind:this={panelEl}
+	use:dismiss={{ onDismiss: onClose, ignore: [anchor] }}
 	use:portal
 	use:overlayLayer
 	class="fixed z-overlay flex flex-col overflow-hidden rounded-lg border border-line-strong bg-surface-2 shadow-floating"

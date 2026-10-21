@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import Icon from '$lib/components/Icon.svelte';
@@ -79,13 +80,6 @@
 		focusSearch();
 	}
 
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape') return;
-		event.preventDefault();
-		event.stopPropagation();
-		onClose();
-	}
-
 	function handleKeydown(event: KeyboardEvent) {
 		switch (event.key) {
 			case 'ArrowDown':
@@ -109,21 +103,15 @@
 		}
 	}
 
-	function handleWindowPointerDown(event: PointerEvent) {
-		const target = event.target as Node;
-		if (panelEl?.contains(target)) return;
-		onClose();
-	}
-
 	let verticalStyle = $derived(
 		position.top !== undefined ? `top: ${position.top}px; bottom: auto;` : `bottom: ${position.bottom}px; top: auto;`
 	);
 </script>
 
-<svelte:window onpointerdown={handleWindowPointerDown} onkeydowncapture={handleWindowKeydown} />
 
 <div
 	bind:this={panelEl}
+	use:dismiss={{ onDismiss: onClose }}
 	use:portal
 	use:overlayLayer
 	class="fixed z-overlay flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 rounded-xl border border-line bg-surface-1 p-3 shadow-floating"

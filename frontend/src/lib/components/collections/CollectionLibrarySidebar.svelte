@@ -1,4 +1,5 @@
 <script lang="ts" generics="T extends CollectionLike">
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton, Switch } from '$lib/components/ui';
@@ -214,6 +215,11 @@
 		menuError = null;
 	}
 
+	function dismissMenu(reason: DismissReason, event: Event) {
+		if (reason === 'outside' && event.target instanceof Element && event.target.closest('[aria-label="Folder actions"]')) return;
+		closeMenu();
+	}
+
 	function toggleMenu(e: MouseEvent, id: string) {
 		e.stopPropagation();
 		if (menuOpenId === id) {
@@ -307,8 +313,6 @@
 		}
 	}
 </script>
-
-<svelte:window onclick={() => menuOpenId !== null && closeMenu()} />
 
 {#snippet viewRow(view: SmartView, icon: string)}
 	<PaneRow
@@ -501,6 +505,7 @@
 										class="absolute right-1 top-full mt-0.5 z-50 w-52 bg-surface-1 border border-line-strong rounded-lg shadow-floating py-1"
 										role="menu"
 										tabindex="-1"
+										use:dismiss={{ onDismiss: dismissMenu }}
 										onclick={(e) => e.stopPropagation()}
 										onkeydown={(e) => e.stopPropagation()}
 									>

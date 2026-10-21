@@ -2,6 +2,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { quartOut } from 'svelte/easing';
 	import Icon from '$lib/components/Icon.svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import type { CollectionLike } from './types';
 	import AddToCollectionMenu from './AddToCollectionMenu.svelte';
 
@@ -25,6 +26,7 @@
 	// menu and any domain menu rendered into the action slots, so opening one
 	// closes the other - same as a native menubar.
 	let activeMenu: string | null = null;
+	let barEl: HTMLDivElement;
 
 	function toggleMenu(id: string) {
 		activeMenu = activeMenu === id ? null : id;
@@ -35,9 +37,10 @@
 	}
 </script>
 
-<svelte:window on:click={() => activeMenu && closeMenus()} />
-
 {#if active}
+	{#if activeMenu}
+		<span hidden use:dismiss={{ onDismiss: closeMenus, ignore: [barEl] }}></span>
+	{/if}
 	<div class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50">
 		<div
 			class="bg-surface-1 text-fg rounded-xl shadow-overlay px-2 py-1.5 flex items-center gap-1 border border-line-strong"
@@ -47,6 +50,7 @@
 			on:keydown|stopPropagation
 			role="toolbar"
 			tabindex="-1"
+			bind:this={barEl}
 		>
 			<!-- Selection Count -->
 			<div class="px-3 py-1.5 whitespace-nowrap font-mono text-2xs uppercase tracking-[0.07em]">

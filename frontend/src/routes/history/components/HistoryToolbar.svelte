@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { historyStore } from '$lib/stores/history';
@@ -290,31 +291,11 @@
 		}
 	}
 
-	function handleWindowClick(event: MouseEvent) {
-		const target = event.target as HTMLElement;
-		// Both panels live at body level (portalled) — only their trigger stays
-		// inside `.history-more-menu`/`.history-filters-menu`, so dismissal also
-		// has to check containment against the portalled node directly.
-		if (
-			isMoreMenuOpen &&
-			!target.closest('.history-more-menu') &&
-			!(moreMenuPanelEl && moreMenuPanelEl.contains(target))
-		) {
-			closeMoreMenu();
-		}
-		if (
-			isFiltersOpen &&
-			!target.closest('.history-filters-menu') &&
-			!(filtersPanelEl && filtersPanelEl.contains(target))
-		) {
-			closeFiltersPanel();
-		}
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape') return;
-		if (isMoreMenuOpen) closeMoreMenu();
-		if (isFiltersOpen) closeFiltersPanel();
+	function dismissFrom(selector: string, close: () => void) {
+		return (reason: DismissReason, event: Event) => {
+			if (reason === 'outside' && event.target instanceof Element && event.target.closest(selector)) return;
+			close();
+		};
 	}
 
 	$: canMakeRule = hasConvertibleHistoryFilters(currentState.filters);
@@ -352,8 +333,6 @@
 		(currentState.filters.usedPhrasebookValueId ? 1 : 0) +
 		(currentState.filters.systemTag ? 1 : 0);
 </script>
-
-<svelte:window on:click={handleWindowClick} on:keydown={handleWindowKeydown} />
 
 {#if isModelPickerOpen}
 	<ModelAssignmentModal
@@ -506,6 +485,7 @@
 							use:portal
 							use:overlayLayer
 							bind:this={filtersPanelEl}
+							use:dismiss={{ onDismiss: dismissFrom('.history-filters-menu', closeFiltersPanel) }}
 							class="fixed z-overlay w-[22rem] max-w-[90vw] bg-surface-2 rounded-xl border border-line-strong shadow-floating p-3"
 							style="top: {filtersPanelPosition.top}px; left: {filtersPanelPosition.left}px;"
 							role="dialog"
@@ -702,6 +682,7 @@
 							use:portal
 							use:overlayLayer
 							bind:this={moreMenuPanelEl}
+							use:dismiss={{ onDismiss: dismissFrom('.history-more-menu', closeMoreMenu) }}
 							class="fixed z-overlay min-w-[180px] bg-surface-2 rounded-xl border border-line-strong shadow-floating py-1"
 							style="top: {moreMenuPosition.top}px; left: {moreMenuPosition.left}px;"
 							role="menu"

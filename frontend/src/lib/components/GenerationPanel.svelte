@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
 	import type { GenerationState } from '$lib/types/tabs';
@@ -377,24 +378,9 @@
 		modeController.requestStopAfterCurrent();
 	}
 
-	// Click outside handler for the queue popover
-	function handleClickOutside(event: MouseEvent) {
-		const target = event.target as HTMLElement;
-
-		if (showQueuePopover &&
-			queuePopoverRef &&
-			!queuePopoverRef.contains(target) &&
-			queueCellRef &&
-			!queueCellRef.contains(target)) {
-			showQueuePopover = false;
-		}
-	}
-
 	onMount(() => {
-		document.addEventListener('mousedown', handleClickOutside);
 		window.addEventListener('resize', handleWindowResize);
 		return () => {
-			document.removeEventListener('mousedown', handleClickOutside);
 			window.removeEventListener('resize', handleWindowResize);
 		};
 	});
@@ -730,6 +716,7 @@
 			class="floating-panel"
 			style={queuePopoverStyle}
 			bind:this={queuePopoverRef}
+			use:dismiss={{ onDismiss: () => (showQueuePopover = false), ignore: [queueCellRef], escape: false }}
 			role="dialog"
 			aria-label="Generation queue"
 		>

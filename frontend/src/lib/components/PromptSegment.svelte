@@ -8,6 +8,7 @@
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import InlineChipEditor from './InlineChipEditor.svelte';
 	import Tooltip from './Tooltip.svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import PromptSegmentActionMenu from './PromptSegmentActionMenu.svelte';
 	import PromptSegmentDetailsModal from './PromptSegmentDetailsModal.svelte';
 	import { computeFixedMenuPosition } from '$lib/utils/menuPosition';
@@ -210,14 +211,6 @@
 		dragOverPosition = 'none';
 	}
 
-	function handleWindowPointerDown(event: PointerEvent) {
-		if (menuOpen && menuRoot && !menuRoot.contains(event.target as Node)) menuOpen = false;
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && menuOpen) closeMenu();
-	}
-
 	function handleWindowScroll() {
 		if (menuOpen) menuOpen = false;
 	}
@@ -301,8 +294,6 @@
 
 <svelte:window
 	on:pointerup={disableDrag}
-	on:pointerdown={handleWindowPointerDown}
-	on:keydown={handleWindowKeydown}
 	on:scroll|capture={handleWindowScroll}
 	on:resize={handleWindowResize}
 />
@@ -444,6 +435,7 @@
 					</Tooltip>
 
 					{#if menuOpen}
+						<div style="display: contents" use:dismiss={{ onDismiss: () => closeMenu(), ignore: [menuRoot] }}>
 						<PromptSegmentActionMenu
 							{segment}
 							{index}
@@ -457,6 +449,7 @@
 							on:run={(e) => runAction(e.detail)}
 							on:togglePin={(e) => togglePin(e.detail)}
 						/>
+						</div>
 					{/if}
 				</div>
 			</header>
