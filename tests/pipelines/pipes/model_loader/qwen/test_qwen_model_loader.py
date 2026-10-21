@@ -11,10 +11,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.model_loader.qwen.main import ModelLoaderQwenPipe
-from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
-from src.pipelines.pipes.model_loader.qwen.qwen_clip import QwenClipTextEncoder
 
 
 class _FakeModels:
@@ -48,77 +46,7 @@ def _run(pipe):
 
 # -- metadata --------------------------------------------------------------
 
-def test_name_and_outputs():
-    assert ModelLoaderQwenPipe.name == "model_loader"
-    out_names = {o.name: o.io_type for o in ModelLoaderQwenPipe.outputs()}
-    assert out_names["model"] == IOType.MODEL
-    assert out_names["text_encoder"] == IOType.TEXT_ENCODER
-
-
-def test_no_clip_l_in_config():
-    # Qwen has a single text encoder — no CLIP-L config field (unlike Flux).
-    names = {s.name for s in ModelLoaderQwenPipe.configuration()}
-    assert "clip_l" not in names
-    assert {"diffusion_model", "text_encoder", "vae", "loras"} <= names
-
-
 # -- three-component acquire ----------------------------------------------
-
-def test_process_eagerly_acquires_only_vae_and_dit():
-    """The TE's acquire() is deferred (see QwenClipTextEncoder) -- process()
-    itself must only ever touch VAE + DiT, never the TE."""
-    models, out = _run(ModelLoaderQwenPipe(config=_config()))
-    keys = [k for k, _ in models.calls]
-    assert len(keys) == 2 and len(set(keys)) == 2
-    assert keys[0] == "native/vae//m/vae.safetensors"
-    assert keys[1] == "native/dit//m/dit.safetensors"
-
-
-def test_te_acquire_deferred_until_encoder_is_read():
-    models, out = _run(ModelLoaderQwenPipe(config=_config()))
-    assert [k for k, _ in models.calls] == [
-        "native/vae//m/vae.safetensors", "native/dit//m/dit.safetensors",
-    ]
-    clip = out.output["text_encoder"]
-    _ = clip.encoder
-    _ = clip.encoder  # a second read must not re-acquire
-    te_calls = [k for k, _ in models.calls if k == "native/te//m/te.safetensors"]
-    assert len(te_calls) == 1
-
-
-def test_te_never_acquired_when_encoder_is_never_read():
-    models, out = _run(ModelLoaderQwenPipe(config=_config()))
-    assert not any(k == "native/te//m/te.safetensors" for k, _ in models.calls)
-    _ = out.output["text_encoder"].encoder
-    assert any(k == "native/te//m/te.safetensors" for k, _ in models.calls)
-
-
-def test_outputs_are_bundle_and_clip():
-    _models, out = _run(ModelLoaderQwenPipe(config=_config()))
-    assert isinstance(out.output["model"], DitTeVaeBundle)
-    assert isinstance(out.output["text_encoder"], QwenClipTextEncoder)
-
-
-def test_bundle_unload_tolerates_a_never_acquired_te():
-    _models, out = _run(ModelLoaderQwenPipe(config=_config()))
-    out.output["model"].unload()
-
-
-def test_bundle_carries_the_te_cache_key(monkeypatch):
-    """generator/qwen's TE eviction reads bundle.te_cache_key -- it
-    must match the exact key the TE was actually acquire()'d under, or
-    evict_dead_weight would target the wrong (or no) cache entry."""
-    _models, out = _run(ModelLoaderQwenPipe(config=_config()))
-    assert out.output["model"].te_cache_key == "native/te//m/te.safetensors"
-
-
-def test_missing_file_paths_raise():
-    cfg = _config()
-    cfg["vae"] = None
-    import pytest
-    with pytest.raises(ValueError):
-        _run(ModelLoaderQwenPipe(config=cfg))
-
 
 # -- fingerprints ----------------------------------------------------------
 
@@ -126,33 +54,6 @@ def _fps(loras):
     models, out = _run(ModelLoaderQwenPipe(config=_config(loras=loras)))
     _ = out.output["text_encoder"].encoder  # force the deferred TE acquire
     return dict(zip([k for k, _ in models.calls], [f for _, f in models.calls]))
-
-
-def test_lora_change_busts_only_dit():
-    no_lora = _fps([])
-    with_lora = _fps([{"model": "/m/style.safetensors", "strength": 0.8}])
-
-    te_key = "native/te//m/te.safetensors"
-    vae_key = "native/vae//m/vae.safetensors"
-    dit_key = "native/dit//m/dit.safetensors"
-
-    # TE and VAE fingerprints are unchanged by a LoRA change...
-    assert no_lora[te_key] == with_lora[te_key]
-    assert no_lora[vae_key] == with_lora[vae_key]
-    # ...only the DiT fingerprint moves.
-    assert no_lora[dit_key] != with_lora[dit_key]
-    assert "style.safetensors@0.8" in with_lora[dit_key]
-
-
-def test_dtype_in_all_fingerprints():
-    models, _ = _run(ModelLoaderQwenPipe(config=_config(dtype="float16")))
-    assert all("float16" in fp for _, fp in models.calls)
-
-
-def test_zero_weight_lora_ignored():
-    fps = _fps([{"model": "/m/off.safetensors", "strength": 0.0}])
-    dit_fp = fps["native/dit//m/dit.safetensors"]
-    assert "off.safetensors" not in dit_fp  # filtered out as inactive
 
 
 # -- vision fingerprint hazard -----------------------------

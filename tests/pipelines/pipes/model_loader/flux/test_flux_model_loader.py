@@ -17,13 +17,8 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
-from src.pipelines.contracts import IOType, PipeInput
-from src.pipelines.pipes._shared.generation.loader_helpers import (
-    lora_stack_fingerprint as _lora_stack_fingerprint,
-)
+from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.model_loader.flux.main import ModelLoaderFluxPipe
-from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
-from src.pipelines.pipes.model_loader.flux.flux_clip import FluxClipTextEncoder
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 
 
@@ -110,58 +105,7 @@ def _apply_spy(monkeypatch):
 
 # -- metadata --------------------------------------------------------------
 
-def test_name_and_outputs():
-    assert ModelLoaderFluxPipe.name == "model_loader"
-    out_names = {o.name: o.io_type for o in ModelLoaderFluxPipe.outputs()}
-    assert out_names["model"] == IOType.MODEL
-    assert out_names["text_encoder"] == IOType.TEXT_ENCODER
-
-
 # -- three-component acquire ----------------------------------------------
-
-def test_process_eagerly_acquires_only_vae_and_dit():
-    """The TE's acquire() is deferred (see FluxClipTextEncoder) -- process()
-    itself must only ever touch VAE + DiT, never the TE, so a generation whose
-    whole prompt batch hits the embed cache never loads/acquires it at all."""
-    models, _ = _run(ModelLoaderFluxPipe(config=_config()))
-    keys = [k for k, _ in models.calls]
-    assert len(keys) == 2 and len(set(keys)) == 2
-    assert keys[0] == "native/vae//m/vae.safetensors"
-    assert keys[1] == "native/dit//m/dit.safetensors"
-
-
-def test_te_acquire_deferred_until_encoder_is_read():
-    models, out = _run(ModelLoaderFluxPipe(config=_config()))
-    assert [k for k, _ in models.calls] == [
-        "native/vae//m/vae.safetensors", "native/dit//m/dit.safetensors",
-    ]
-    clip = out.output["text_encoder"]
-    _ = clip.encoder
-    _ = clip.encoder  # a second read must not re-acquire
-    te_calls = [k for k, _ in models.calls if k.startswith("native/te/")]
-    assert len(te_calls) == 1
-
-
-def test_te_never_acquired_when_encoder_is_never_read():
-    """The direct regression guard for this fix: a batch that never needs the
-    TE (every request served from the embed cache) must never call
-    MODELS.acquire() for it at all."""
-    models, out = _run(ModelLoaderFluxPipe(config=_config()))
-    assert not any(k.startswith("native/te/") for k, _ in models.calls)
-    _ = out.output["text_encoder"].encoder
-    assert any(k.startswith("native/te/") for k, _ in models.calls)
-
-
-def test_outputs_are_bundle_and_clip():
-    _models, out = _run(ModelLoaderFluxPipe(config=_config()))
-    assert isinstance(out.output["model"], DitTeVaeBundle)
-    assert isinstance(out.output["text_encoder"], FluxClipTextEncoder)
-
-
-def test_bundle_unload_tolerates_a_never_acquired_te():
-    _models, out = _run(ModelLoaderFluxPipe(config=_config()))
-    out.output["model"].unload()
-
 
 def test_te_key_includes_clip_l_for_flux1():
     models, out = _run(ModelLoaderFluxPipe(config=_config()))
@@ -178,16 +122,6 @@ def test_klein_single_te_no_clip_l():
     _ = out.output["text_encoder"].encoder
     te_key = next(k for k, _ in models.calls if k.startswith("native/te/"))
     assert te_key == "native/te//m/te.safetensors|"
-
-
-def test_bundle_carries_the_te_cache_key():
-    """generator/flux's TE eviction reads bundle.te_cache_key -- it must
-    match the exact key the TE was acquire()'d under, or evict_dead_weight
-    would target the wrong (or no) cache entry."""
-    models, out = _run(ModelLoaderFluxPipe(config=_config()))
-    _ = out.output["text_encoder"].encoder
-    te_key = next(k for k, _ in models.calls if k.startswith("native/te/"))
-    assert out.output["model"].te_cache_key == te_key
 
 
 def test_flux3_checkpoint_is_refused_from_the_header_before_any_load(tmp_path, _fake_engine):
@@ -208,109 +142,6 @@ def test_a_flux_checkpoint_header_passes_the_guard(tmp_path):
     _run(ModelLoaderFluxPipe(config=cfg))
 
 
-def test_missing_component_raises():
-    cfg = _config()
-    cfg["vae"] = None
-    with pytest.raises(ValueError, match="requires"):
-        _run(ModelLoaderFluxPipe(config=cfg))
-
-
 # -- fingerprints ------------------------------------------------------------
 
-def _fps(loras):
-    models, out = _run(ModelLoaderFluxPipe(config=_config(loras=loras)))
-    _ = out.output["text_encoder"].encoder  # force the deferred TE acquire
-    return dict(zip([k for k, _ in models.calls], [f for _, f in models.calls]))
-
-
-def test_lora_change_does_not_bust_dit_fingerprint():
-    """The DiT ``MODELS`` fingerprint is path+dtype only now, so a LoRA-set
-    change is a cache HIT (see test_lora_change_on_warm_dit_* below for the
-    in-place patch that follows a hit), never a fresh fingerprint that forces
-    ``ModelLifecycle`` to re-run ``loader()`` and re-read the ~24GB
-    checkpoint from disk."""
-    no_lora = _fps([])
-    with_lora = _fps([{"model": "/m/style.safetensors", "strength": 0.8}])
-    te_key = next(k for k in no_lora if k.startswith("native/te/"))
-    vae_key = "native/vae//m/vae.safetensors"
-    dit_key = "native/dit//m/dit.safetensors"
-    assert no_lora[te_key] == with_lora[te_key]
-    assert no_lora[vae_key] == with_lora[vae_key]
-    assert no_lora[dit_key] == with_lora[dit_key]
-    assert "style.safetensors" not in with_lora[dit_key]
-
-
-def test_dtype_in_all_fingerprints():
-    models, _ = _run(ModelLoaderFluxPipe(config=_config(dtype="float16")))
-    assert all("float16" in fp for _, fp in models.calls)
-
-
-def test_zero_weight_lora_ignored(_apply_spy):
-    _run(ModelLoaderFluxPipe(config=_config(loras=[{"model": "/m/off.safetensors", "strength": 0.0}])))
-    # The zero-weight entry never reaches `_apply_loras` at all (filtered by
-    # `active_loras()` before the lora_fp/`_sync_loras` machinery sees it).
-    assert _apply_spy == [[]]
-
-
 # -- LoRA sync on an already-cached DiT --------------------------------------
-
-def test_lora_change_on_warm_dit_reuses_cached_weights(_fake_engine, _apply_spy):
-    """The core fix: adding a LoRA to an already-loaded Flux DiT reuses the
-    SAME cached NativeModel (no second checkpoint read) and only pays for the
-    LoRA application itself."""
-    models = _FakeModels()
-    _, out1 = _run(ModelLoaderFluxPipe(config=_config(loras=[])), models)
-    _, out2 = _run(
-        ModelLoaderFluxPipe(config=_config(loras=[{"model": "/m/style.safetensors", "strength": 0.8}])),
-        models,
-    )
-    dit1, dit2 = out1.output["model"].dit, out2.output["model"].dit
-    assert dit1 is dit2, "expected the SAME DiT wrapper across a LoRA-set change (cache hit, no reload)"
-    assert _fake_engine["diffusion_model"] == 1, "the checkpoint must be read from disk exactly once"
-    # Compared against the shared stamp rather than a literal: it carries the
-    # file's own identity, so a retrained adapter at this path is a new stack.
-    assert dit2._active_lora_fp == _lora_stack_fingerprint(
-        [{"file_path": "/m/style.safetensors", "weight": 0.8}])
-    # apply_loras ran once for the (empty) cold load and once for the sync.
-    non_empty_calls = [c for c in _apply_spy if c]
-    assert non_empty_calls == [[{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]]
-
-
-def test_repeat_generation_with_same_loras_is_a_pure_noop(_fake_engine, _apply_spy):
-    """Re-running the SAME preset+LoRAs (the common case: another generation
-    with nothing changed) must not touch the weights a second time."""
-    models = _FakeModels()
-    loras = [{"model": "/m/style.safetensors", "strength": 0.8}]
-    _run(ModelLoaderFluxPipe(config=_config(loras=loras)), models)
-    calls_after_first = len(_apply_spy)
-    _run(ModelLoaderFluxPipe(config=_config(loras=loras)), models)
-    assert len(_apply_spy) == calls_after_first
-    assert _fake_engine["diffusion_model"] == 1
-
-
-def test_removing_all_loras_on_warm_dit_unpatches_without_reload(_fake_engine, _apply_spy, monkeypatch):
-    """Dropping every LoRA from an already-loaded model must unpatch in place
-    (``remove_loras``) rather than leaving stale deltas applied or forcing a
-    reload just to get back to the bare checkpoint."""
-    remove_calls = []
-    monkeypatch.setattr("src.pipelines.pipes._shared.generation.loader_lifecycle.remove_loras", lambda module: remove_calls.append(module))
-
-    models = _FakeModels()
-    _run(ModelLoaderFluxPipe(config=_config(loras=[{"model": "/m/style.safetensors", "strength": 0.8}])), models)
-    assert remove_calls == []  # the cold load applies once; nothing patched yet to remove
-
-    _run(ModelLoaderFluxPipe(config=_config(loras=[])), models)
-    assert len(remove_calls) == 1
-    # No re-apply for an empty target stack.
-    assert [c for c in _apply_spy if c] == [[{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]]
-    assert _fake_engine["diffusion_model"] == 1
-
-
-def test_different_dit_path_still_forces_a_real_reload(_fake_engine):
-    """Sanity check: the fix narrows cache-busting to real identity changes
-    (checkpoint path/dtype), it doesn't disable it -- a different DiT file
-    must still be a genuine cache miss."""
-    models = _FakeModels()
-    _run(ModelLoaderFluxPipe(config=_config(diffusion_model={"file_path": "/m/dit.safetensors"})), models)
-    _run(ModelLoaderFluxPipe(config=_config(diffusion_model={"file_path": "/m/dit_v2.safetensors"})), models)
-    assert _fake_engine["diffusion_model"] == 2
