@@ -37,6 +37,7 @@ from src.platform.runtime.model_headers.signatures import (
     FLUX3_FLOW_MAP_SIG,
     FLUX3_SIG,
     FLUX3_SIG2,
+    FLUX3_SIG2_FUSED,
     FLUX_SIG,
     KREA2_SIG,
     LTX_SIG,
@@ -87,7 +88,7 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
     if KREA2_SIG in sd:
         return _detect_krea2(sd)
 
-    if FLUX3_SIG in sd and FLUX3_SIG2 in sd:
+    if FLUX3_SIG in sd and (FLUX3_SIG2 in sd or FLUX3_SIG2_FUSED in sd):
         return _detect_flux3(sd)
 
     if MOSS_IMAGE_SIG in sd and MOSS_IMAGE_SIG2 in sd:
@@ -309,6 +310,7 @@ def _detect_flux3(sd: dict[str, torch.Tensor]) -> dict:
         "theta": 10000,
         "flow_map": FLUX3_FLOW_MAP_SIG in sd,
         "has_image_cond": "emb_in.image_cond.weight" in sd,
+        "fused_qkv": FLUX3_SIG2_FUSED in sd,
     }
     logger.debug(
         "detected flux3 DiT: hidden=%d heads=%d depth=%d/%d ctx=%d flow_map=%s",

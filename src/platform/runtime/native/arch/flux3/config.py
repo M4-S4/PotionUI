@@ -20,6 +20,7 @@ class Flux3Config:
     theta: int
     flow_map: bool
     has_image_cond: bool
+    fused_qkv: bool
 
     @classmethod
     def from_detect_config(cls, config: dict[str, Any]) -> "Flux3Config":
@@ -42,4 +43,5 @@ class Flux3Config:
             theta=int(config.get("theta", 10000)),
             flow_map=bool(config.get("flow_map", False)),
             has_image_cond=bool(config.get("has_image_cond", True)),
+            fused_qkv=bool(config.get("fused_qkv", False)),
         )

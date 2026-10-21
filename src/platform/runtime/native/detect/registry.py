@@ -230,7 +230,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         },
         clip_targets=["flux3"],
         vae_target="flux2_ae",
-        expected_unexpected_keys=set(_SIDECAR_GLOBS),
+        expected_unexpected_keys={"*.comfy_quant", *_SIDECAR_GLOBS},
         memory_cost_gb=11.5,
     ),
     ModelSpec(
@@ -252,7 +252,7 @@ _VENDORED_SPECS: list[ModelSpec] = [
         },
         clip_targets=["flux3"],
         vae_target="flux2_ae",
-        expected_unexpected_keys=set(_SIDECAR_GLOBS),
+        expected_unexpected_keys={"*.comfy_quant", *_SIDECAR_GLOBS},
         memory_cost_gb=11.5,
     ),
     ModelSpec(

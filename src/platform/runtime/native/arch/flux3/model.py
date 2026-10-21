@@ -52,7 +52,7 @@ class Flux3(NativeArchModule):
 
         def blocks(n: int) -> nn.ModuleList:
             return nn.ModuleList(
-                [Block(hidden, cfg.heads, cfg.mlp_hidden, operations, **kw) for _ in range(n)]
+                [Block(hidden, cfg.heads, cfg.mlp_hidden, operations, fused_qkv=cfg.fused_qkv, **kw) for _ in range(n)]
             )
 
         self.content_mode_blocks = nn.ModuleDict({m: blocks(cfg.depth) for m in image_modes})
