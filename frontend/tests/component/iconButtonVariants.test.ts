@@ -35,9 +35,10 @@ describe('IconButton', () => {
 		expect(btn.getAttribute('aria-label')).toBe('Close');
 	});
 
-	it('shows its label as a tooltip on focus, outside a Tooltip', () => {
+	it('shows its label as a tooltip on focus, outside a Tooltip', async () => {
 		const btn = render({});
 		btn.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
 		expect(document.body.querySelector('[role="tooltip"]')?.textContent?.trim()).toBe('Close');
 		btn.dispatchEvent(new FocusEvent('focusout'));
 		expect(document.body.querySelector('[role="tooltip"]')).toBeNull();

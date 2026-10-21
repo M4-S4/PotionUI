@@ -19,6 +19,7 @@ function attach(param: Parameters<typeof tooltip>[1], tag = 'button') {
 	return { node, action };
 }
 
+const settle = () => new Promise((r) => setTimeout(r, 0));
 const bubbleText = () => document.body.querySelector('[role="tooltip"]')?.textContent?.trim() ?? null;
 
 afterEach(() => {
@@ -28,20 +29,22 @@ afterEach(() => {
 });
 
 describe('tooltip action', () => {
-	it('shows after the hover delay and hides on mouseleave', () => {
+	it('shows after the hover delay and hides on mouseleave', async () => {
 		vi.useFakeTimers();
 		const { node } = attach('Copy');
 		node.dispatchEvent(new MouseEvent('mouseenter'));
 		expect(bubbleText()).toBeNull();
 		vi.advanceTimersByTime(250);
+		await Promise.resolve();
 		expect(bubbleText()).toBe('Copy');
 		node.dispatchEvent(new MouseEvent('mouseleave'));
 		expect(bubbleText()).toBeNull();
 	});
 
-	it('shows immediately on keyboard focus and describes the element while open', () => {
+	it('shows immediately on keyboard focus and describes the element while open', async () => {
 		const { node } = attach('Delete item');
 		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
 		const bubble = document.body.querySelector('[role="tooltip"]')!;
 		expect(bubble.textContent?.trim()).toBe('Delete item');
 		expect(node.getAttribute('aria-describedby')).toBe(bubble.id);
@@ -50,36 +53,63 @@ describe('tooltip action', () => {
 		expect(node.hasAttribute('aria-describedby')).toBe(false);
 	});
 
-	it('closes on Escape', () => {
+	it('closes on Escape', async () => {
 		const { node } = attach('Delete item');
 		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
 		node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 		expect(bubbleText()).toBeNull();
 	});
 
-	it('shows nothing for empty text', () => {
+	it('shows nothing for empty text', async () => {
 		const { node } = attach(undefined);
 		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
 		expect(bubbleText()).toBeNull();
 	});
 
-	it('truncateOnly shows only when the content overflows', () => {
+	it('truncateOnly shows only when the content overflows', async () => {
 		const { node } = attach({ text: 'A very long name', truncateOnly: true }, 'span');
 		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
 		expect(bubbleText()).toBeNull();
 		Object.defineProperty(node, 'scrollWidth', { value: 200, configurable: true });
 		Object.defineProperty(node, 'clientWidth', { value: 100, configurable: true });
 		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
 		expect(bubbleText()).toBe('A very long name');
 	});
 
-	it('follows a changed text while open and removes the bubble on destroy', () => {
+	it('follows a changed text while open and removes the bubble on destroy', async () => {
 		const { node, action } = attach('One');
 		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
 		action.update('Two');
+		await Promise.resolve();
 		expect(bubbleText()).toBe('Two');
 		action.destroy();
 		expect(bubbleText()).toBeNull();
+	});
+});
+
+describe('tooltip action during teardown', () => {
+	it('opens after a focus restore fired from a component teardown without an effect error', async () => {
+		const { default: Fixture } = await import('./fixtures/TooltipFocusRestoreFixture.svelte');
+		const { flushSync } = await import('svelte');
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const component = createClassComponent({ component: Fixture as never, target, props: { open: true } });
+		cleanup.push(() => {
+			component.$destroy();
+			target.remove();
+		});
+		flushSync();
+		expect(() => {
+			component.$set({ open: false });
+			flushSync();
+		}).not.toThrow();
+		await settle();
+		expect(bubbleText()).toBe('Open dialog');
 	});
 });
 

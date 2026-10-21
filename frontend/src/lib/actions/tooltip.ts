@@ -28,12 +28,14 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 	let options = normalize(param);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let bubble: Record<string, unknown> | undefined;
+	let pending = false;
 	let previousDescribedBy: string | null = null;
 	const id = `tooltip-${++sequence}`;
 
 	function hide() {
 		clearTimeout(timer);
 		timer = undefined;
+		pending = false;
 		if (!bubble) return;
 		unmount(bubble);
 		bubble = undefined;
@@ -41,9 +43,10 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 		else node.setAttribute('aria-describedby', previousDescribedBy);
 	}
 
-	function reveal() {
-		if (bubble || !options.text) return;
-		if (options.truncateOnly && !isOverflowing(node)) return;
+	function mountBubble() {
+		if (!pending) return;
+		pending = false;
+		if (bubble || !options.text || !node.isConnected) return;
 		previousDescribedBy = node.getAttribute('aria-describedby');
 		node.setAttribute('aria-describedby', id);
 		bubble = mount(TooltipBubble, {
@@ -56,6 +59,13 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 				id
 			}
 		});
+	}
+
+	function reveal() {
+		if (bubble || pending || !options.text) return;
+		if (options.truncateOnly && !isOverflowing(node)) return;
+		pending = true;
+		queueMicrotask(mountBubble);
 	}
 
 	function schedule(delay: number) {
