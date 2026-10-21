@@ -2429,7 +2429,7 @@ Load a native Z-Image checkpoint set (NextDiT + Qwen3-4B TE + 2D AE)
 
 ### <a id="pipe-model-tools"></a>`model_tools`
 
-Quantizes a model file to scaled fp8, bakes LoRAs into it, or merges LoRAs into one file, writing the result next to the source. Administrators on the local native backend only.
+Quantizes a model file to fp8, int8, nvfp4 or int4, bakes LoRAs into it, or merges LoRAs into one file, writing the result next to the source. Administrators on the local native backend only.
 
 **Inputs**
 
@@ -2447,6 +2447,7 @@ Quantizes a model file to scaled fp8, bakes LoRAs into it, or merges LoRAs into 
 | `is_admin` | `bool` | `false` | no | — | — | — | Must be true; set from runtime.user.is_admin so the server decides, never the form |
 | `model` | `str` | `""` | no | — | — | — | Absolute path of the source model file (quantize and bake modes) |
 | `loras` | `list` | `[]` | no | — | — | — | LoRA rows [{model, strength}] (bake and merge modes) |
+| `quant_format` | `str` | `"fp8_e4m3"` | no | `fp8_e4m3`, `fp8_e5m2`, `int8`, `int8_convrot`, `nvfp4`, `int4_convrot` | — | — | Format the quantize modes write; text encoders take fp8 or nvfp4 only |
 | `keep_patterns` | `str` | `""` | no | — | — | — | Extra tensor-name globs kept in full precision (quantize modes), one per line or comma separated |
 | `merge_method` | `str` | `"concat"` | no | `concat`, `reduce` | — | — | 'concat' stacks the LoRAs exactly; 'reduce' compresses them to target_rank |
 | `target_rank` | `int` | `32` | no | — | 1 | 4096 | Rank of the merged LoRA when reducing, and for LoKr conversion |

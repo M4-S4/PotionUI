@@ -11,6 +11,7 @@
 		modelFileHref,
 		modelFileTypeLabel,
 		normalizeLabel,
+		qualityNote,
 		sizeReductionPercent,
 		splitFileName,
 		type ModelFileData
@@ -28,6 +29,7 @@
 	let worstLayers = $derived(summary.worst_layers ?? []);
 	let sources = $derived(summary.sources ?? []);
 	let showQuality = $derived(hasQualitySummary(data.summary));
+	let note = $derived(qualityNote(data.summary));
 	let fileName = $derived(data.file_name || 'Model file');
 	let nameParts = $derived(splitFileName(fileName));
 	let showFormat = $derived(
@@ -77,6 +79,12 @@
 					<dd class="font-mono tabular-nums text-fg">{summary.layers_kept}</dd>
 				</div>
 			{/if}
+			{#if typeof summary.layers_shape_kept === 'number'}
+				<div>
+					<dt class="text-fg-subtle">Kept for shape</dt>
+					<dd class="font-mono tabular-nums text-fg" data-model-file-shape-kept>{summary.layers_shape_kept}</dd>
+				</div>
+			{/if}
 			{#if lora && typeof summary.rank === 'number'}
 				<div>
 					<dt class="text-fg-subtle">Rank</dt>
@@ -90,6 +98,10 @@
 				</div>
 			{/if}
 		</dl>
+	{/if}
+
+	{#if note}
+		<p class="text-xs text-warning" data-model-file-quality-note>{note}</p>
 	{/if}
 
 	{#if worstLayers.length > 0}

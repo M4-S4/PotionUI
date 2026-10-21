@@ -16,7 +16,7 @@ from src.platform.runtime.native.ops.model_tools.errors import (
     UnsupportedFamilyError,
     WriteCancelledError,
 )
-from src.platform.runtime.native.ops.model_tools.format import DESCRIPTOR_BYTES
+from src.platform.runtime.native.ops.model_tools.formats import get_format
 from src.platform.runtime.native.ops.model_tools.quantize import quantize_file, quantize_stream
 from src.platform.runtime.native.ops.model_tools.source import read_stream
 from vendor.gpl.comfyui.ops import detect_quant_format, fp8_ops
@@ -24,6 +24,7 @@ from vendor.gpl.comfyui.ops import detect_quant_format, fp8_ops
 from .fixtures import FAMILY_LAYOUTS, make_tensors, write_family_fixture
 
 FAMILIES = sorted(FAMILY_LAYOUTS)
+DESCRIPTOR_BYTES = get_format("fp8_e4m3").descriptor_bytes
 
 
 def load_all(path):
@@ -97,6 +98,24 @@ def test_metadata_records_source_hash_and_recipe(tmp_path):
     assert recipe["family"] == "flux"
     assert recipe["keep_extra"] == ["single_blocks.*"]
     assert recipe["quantized_layers"] == len(quant_keys) - 1
+
+
+@pytest.mark.parametrize(
+    "key, comfy_format, scaling",
+    [
+        ("fp8_e5m2", "float8_e5m2", "per_tensor_absmax"),
+        ("int8", "int8_tensorwise", "per_channel_absmax"),
+    ],
+)
+def test_metadata_recipe_names_the_chosen_format(tmp_path, key, comfy_format, scaling):
+    src = tmp_path / "src.safetensors"
+    dst = tmp_path / "dst.safetensors"
+    quant_keys, _ = write_family_fixture(src, "wan")
+    quantize_file(src, dst, family="wan", quant_format=key)
+    out, meta = load_all(dst)
+    recipe = json.loads(meta["potionui.recipe"])
+    assert (recipe["format"], recipe["scaling"], recipe["quantized_layers"]) == (comfy_format, scaling, len(quant_keys))
+    assert json.loads(bytes(out[quant_keys[0][: -len(".weight")] + ".comfy_quant"].tolist()))["format"] == comfy_format
 
 
 def test_keep_extra_keeps_matching_layers(tmp_path):

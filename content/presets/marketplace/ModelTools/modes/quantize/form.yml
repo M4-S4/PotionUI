@@ -1,5 +1,5 @@
 name: "custom"
-short_description: "Convert a model to scaled fp8, keeping sensitive layers."
+short_description: "Convert a model to fp8, int8, nvfp4 or int4, keeping sensitive layers."
 fields:
   - type: "tabs"
     children:

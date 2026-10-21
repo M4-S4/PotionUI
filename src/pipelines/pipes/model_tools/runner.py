@@ -12,14 +12,16 @@ import torch
 from src.platform.runtime.native.ops.model_tools.bake import bake_stream
 from src.platform.runtime.native.ops.model_tools.errors import WriteCancelledError
 from src.platform.runtime.native.ops.model_tools.families import FAMILY_KEEP, detect_family
-from src.platform.runtime.native.ops.model_tools.format import (
-    DESCRIPTOR_SUFFIX,
-    SCALE_SUFFIX,
-    WEIGHT_SUFFIX,
-)
+from src.platform.runtime.native.ops.model_tools.format import DESCRIPTOR_SUFFIX, WEIGHT_SUFFIX
+from src.platform.runtime.native.ops.model_tools.formats import QuantFormat, get_format
 from src.platform.runtime.native.ops.model_tools.lora_io import LoraInput
 from src.platform.runtime.native.ops.model_tools.merge import merge_loras
-from src.platform.runtime.native.ops.model_tools.quantize import quantize_stream, quantized_metadata, sha256_file
+from src.platform.runtime.native.ops.model_tools.quantize import (
+    quantize_stream,
+    quantized_metadata,
+    sha256_file,
+    shape_kept_layers,
+)
 from src.platform.runtime.native.ops.model_tools.source import read_header, read_stream
 from src.platform.runtime.native.ops.model_tools.spec import TensorSpec
 from src.platform.runtime.native.ops.model_tools.verify import LayerReport, VerifyReport, layer_metrics, verify_quantized
@@ -34,7 +36,6 @@ WORST_LAYERS = 5
 LICENCE_KEYS = ("license", "licence", "modelspec.license", "ss_license")
 LICENCE_NOTE_LIMIT = 300
 TOOL_TAG = "model_tools"
-QUANT_FORMAT_LABEL = "fp8_scaled"
 
 Notify = Callable[[str, int, int], None]
 
@@ -50,6 +51,7 @@ class JobRequest:
     min_energy: float
     dtype: str
     family: str | None
+    quant_format: str
 
 
 @dataclass
@@ -66,7 +68,7 @@ class Job:
     verify: Callable[[Path], dict[str, Any]]
     source_size_bytes: int
     source_metadatas: list[dict[str, str]] = field(default_factory=list)
-    quant: tuple[str, tuple[str, ...], list[TensorSpec]] | None = None
+    quant: tuple[str, tuple[str, ...], list[TensorSpec], QuantFormat] | None = None
 
     @property
     def planned_bytes(self) -> int:
@@ -116,11 +118,12 @@ def _quality(layers: Sequence[LayerReport]) -> dict[str, Any]:
 
 
 class QuantProbe:
-    def __init__(self, quantized_weights: set[str]) -> None:
+    def __init__(self, quantized_weights: set[str], fmt: QuantFormat) -> None:
         self.quantized_weights = quantized_weights
+        self.fmt = fmt
         self.layers: list[LayerReport] = []
         self._current: tuple[str, torch.Tensor] | None = None
-        self._pending: tuple[str, torch.Tensor] | None = None
+        self._pending: tuple[str, dict[str, torch.Tensor]] | None = None
 
     def tap_input(self, tensors: Iterator[tuple[str, torch.Tensor]]) -> Iterator[tuple[str, torch.Tensor]]:
         for key, tensor in tensors:
@@ -131,13 +134,16 @@ class QuantProbe:
         for key, tensor in tensors:
             current = self._current
             if key in self.quantized_weights and current is not None and current[0] == key:
-                self._pending = (key, tensor)
+                self._pending = (key, {WEIGHT_SUFFIX: tensor})
             elif self._pending is not None and current is not None:
-                weight_key, quantized = self._pending
-                if key == weight_key[: -len(WEIGHT_SUFFIX)] + SCALE_SUFFIX:
-                    restored = quantized.to(torch.float32) * tensor.to(torch.float32)
+                weight_key, parts = self._pending
+                base = weight_key[: -len(WEIGHT_SUFFIX)]
+                if key == base + DESCRIPTOR_SUFFIX:
+                    restored = self.fmt.restore(parts, tuple(current[1].shape))
                     self.layers.append(layer_metrics(weight_key, current[1], restored))
                     self._pending = None
+                elif key.startswith(base + "."):
+                    parts[key[len(base):]] = tensor
             yield key, tensor
         self._current = None
         self._pending = None
@@ -180,6 +186,10 @@ def _verify_report_dict(report: VerifyReport) -> dict[str, Any]:
     }
 
 
+def _quality_note(fmt: QuantFormat) -> dict[str, str]:
+    return {"quality_note": fmt.quality_note} if fmt.quality_note else {}
+
+
 def _resolve_quant_family(request: JobRequest, plan: Sequence[TensorSpec], metadata: dict[str, str]) -> str:
     return request.family or detect_family(plan, metadata)
 
@@ -187,22 +197,30 @@ def _resolve_quant_family(request: JobRequest, plan: Sequence[TensorSpec], metad
 def _prepare_quantize(request: JobRequest) -> Job:
     assert request.model is not None
     source = request.model
+    fmt = get_format(request.quant_format)
     plan, tensors, metadata = read_stream(source)
     family = _resolve_quant_family(request, plan, metadata)
-    new_plan, new_tensors = quantize_stream(plan, tensors, family, request.keep_extra)
+    new_plan, new_tensors = quantize_stream(plan, tensors, family, request.keep_extra, fmt)
     quantized = _quantized_weights(new_plan)
     layers, kept = _counts(plan, quantized)
-    quant = (family, tuple(request.keep_extra), new_plan)
+    shape_kept = len(shape_kept_layers(plan, family, request.keep_extra, fmt))
+    quant = (family, tuple(request.keep_extra), new_plan, fmt)
 
     def describe() -> dict[str, Any]:
-        return {"family": family, "layers_quantized": layers, "layers_kept": kept}
+        return {
+            "family": family,
+            "layers_quantized": layers,
+            "layers_kept": kept,
+            "layers_shape_kept": shape_kept,
+            **_quality_note(fmt),
+        }
 
     def verify(staged: Path) -> dict[str, Any]:
         return _verify_report_dict(verify_quantized(source, staged, sample_limit=QUANTIZE_VERIFY_SAMPLE))
 
     return Job(
         mode=request.mode, kind="model", model_type="", plan=new_plan, stream=new_tensors,
-        base_metadata=metadata, sources=[source], format_label=QUANT_FORMAT_LABEL,
+        base_metadata=metadata, sources=[source], format_label=fmt.label,
         describe=describe, verify=verify, source_size_bytes=source.stat().st_size,
         source_metadatas=[metadata], quant=quant,
     )
@@ -280,20 +298,24 @@ def _prepare_bake_quantize(request: JobRequest) -> Job:
     source = request.model
     plan, baked, report = _bake(request)
     family = request.family or (report.family if report.family in FAMILY_KEEP else detect_family(plan, report.metadata))
+    fmt = get_format(request.quant_format)
     touched = sorted({key for keys in report.keys_touched.values() for key in keys})
-    probe = QuantProbe(set())
-    new_plan, new_stream = quantize_stream(plan, probe.tap_input(baked), family, request.keep_extra)
+    probe = QuantProbe(set(), fmt)
+    new_plan, new_stream = quantize_stream(plan, probe.tap_input(baked), family, request.keep_extra, fmt)
     quantized = _quantized_weights(new_plan)
     probe.quantized_weights = quantized
     stream = probe.tap_output(new_stream)
     layers, kept = _counts(plan, quantized)
-    quant = (family, tuple(request.keep_extra), new_plan)
+    shape_kept = len(shape_kept_layers(plan, family, request.keep_extra, fmt))
+    quant = (family, tuple(request.keep_extra), new_plan, fmt)
 
     def describe() -> dict[str, Any]:
         return {
             "family": family,
             "layers_quantized": layers,
             "layers_kept": kept,
+            "layers_shape_kept": shape_kept,
+            **_quality_note(fmt),
             "layers_merged": len(touched),
             "dequantized_fp8": report.dequantized_fp8,
         }
@@ -311,7 +333,7 @@ def _prepare_bake_quantize(request: JobRequest) -> Job:
     return Job(
         mode=request.mode, kind="model", model_type="", plan=new_plan, stream=stream,
         base_metadata=dict(report.metadata), sources=[source, *[Path(l.path) for l in request.loras]],
-        format_label=QUANT_FORMAT_LABEL, describe=describe, verify=verify,
+        format_label=fmt.label, describe=describe, verify=verify,
         source_size_bytes=source.stat().st_size, source_metadatas=[read_header(source)[1]], quant=quant,
     )
 
@@ -388,8 +410,8 @@ def stamp_metadata(job: Job, request: JobRequest, digests: dict[Path, str]) -> d
             sort_keys=True,
         )
     if job.quant is not None and request.model is not None:
-        family, keep_extra, plan = job.quant
-        meta = quantized_metadata(meta, digests[request.model], family, keep_extra, plan)
+        family, keep_extra, plan, fmt = job.quant
+        meta = quantized_metadata(meta, digests[request.model], family, keep_extra, plan, fmt)
     note = licence_note(job.source_metadatas)
     if note:
         meta["potionui.licence_note"] = note

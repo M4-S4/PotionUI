@@ -12,6 +12,34 @@ fields:
       allow_info_modal: true
       unquantized_only: true
 
+  - name: "quant_format"
+    type: "select"
+    formula: "quantize"
+    label: "Quantization Format"
+    required: true
+    default: "fp8_e4m3"
+    ai_hint: "fp8 e4m3 is the safe default. Text encoders take fp8 or nvfp4 only. Layers whose shape a format cannot hold stay in full precision."
+    configuration:
+      options:
+        - value: "fp8_e4m3"
+          label: "fp8 e4m3"
+          sub_label: "Half size; fast on RTX 40/50 with fp8 matmul on"
+        - value: "fp8_e5m2"
+          label: "fp8 e5m2"
+          sub_label: "Half size, coarser than e4m3; no speedup here"
+        - value: "int8"
+          label: "int8"
+          sub_label: "Half size, low error; no speedup here; not for text encoders"
+        - value: "int8_convrot"
+          label: "int8 ConvRot"
+          sub_label: "int8 rotated for ComfyUI's int8 kernels; not for text encoders"
+        - value: "nvfp4"
+          label: "nvfp4"
+          sub_label: "Quarter size; fast on RTX 50 with nvfp4 matmul on, slower elsewhere"
+        - value: "int4_convrot"
+          label: "int4 ConvRot"
+          sub_label: "Quarter-size file; loads as int8 here; not for text encoders"
+
   - name: "output_name"
     type: "string"
     label: "Output File Name"

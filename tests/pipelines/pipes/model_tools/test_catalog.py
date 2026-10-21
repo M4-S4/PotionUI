@@ -30,6 +30,20 @@ def test_default_configuration_validates_and_is_not_admin():
     assert config["is_admin"] is False
     assert config["overwrite"] is False
     assert config["mode"] == "quantize"
+    assert config["quant_format"] == "fp8_e4m3"
+
+
+def test_the_pipe_offers_exactly_the_formats_the_quantizer_writes():
+    from src.pipelines.pipes.model_tools.main import QUANT_FORMATS
+    from src.platform.runtime.native.ops.model_tools.formats import QUANT_FORMATS as WRITERS
+
+    assert QUANT_FORMATS == list(WRITERS)
+
+
+def test_unknown_format_fails_configuration_validation():
+    pipe = catalog().get_pipe("model_tools")
+    with pytest.raises(ValueError):
+        validate_pipe_configuration(pipe, {**pipe.get_default_config(), "quant_format": "int3"})
 
 
 def test_unknown_mode_fails_configuration_validation():

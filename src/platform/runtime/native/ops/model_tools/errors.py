@@ -21,6 +21,10 @@ class AlreadyQuantizedError(ModelToolsError):
     pass
 
 
+class UnsupportedFormatError(ModelToolsError):
+    pass
+
+
 class SourceFormatError(ModelToolsError):
     pass
 

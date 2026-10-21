@@ -14,7 +14,7 @@ const MODES = [
 	{
 		key: 'quantize',
 		label: 'Quantize',
-		visible: ['Output File Name', 'Overwrite Existing File'],
+		visible: ['Quantization Format', 'Output File Name', 'Overwrite Existing File'],
 		absent: ['LoRAs', 'Method'],
 		modelPicker: true
 	},
@@ -22,13 +22,13 @@ const MODES = [
 		key: 'merge_into_model',
 		label: 'Merge into Model',
 		visible: ['LoRAs', 'Output File Name', 'Overwrite Existing File'],
-		absent: ['Method', 'Target Rank'],
+		absent: ['Method', 'Target Rank', 'Quantization Format'],
 		modelPicker: true
 	},
 	{
 		key: 'merge_and_quantize',
 		label: 'Merge and Quantize',
-		visible: ['LoRAs', 'Output File Name', 'Overwrite Existing File'],
+		visible: ['LoRAs', 'Quantization Format', 'Output File Name', 'Overwrite Existing File'],
 		absent: ['Method', 'Target Rank'],
 		modelPicker: true
 	},
@@ -36,7 +36,7 @@ const MODES = [
 		key: 'merge_loras',
 		label: 'Merge LoRAs',
 		visible: ['LoRAs', 'Method', 'Target Rank', 'Output File Name', 'Overwrite Existing File'],
-		absent: [],
+		absent: ['Quantization Format'],
 		modelPicker: false
 	}
 ] as const;
@@ -60,6 +60,15 @@ function modelRow(id: string, filename: string, modelType: string, sizeGb: numbe
 		backend_ids: ['native']
 	};
 }
+
+const FORMAT_NOTES = [
+	{ label: 'fp8 e4m3', note: 'RTX 40/50' },
+	{ label: 'fp8 e5m2', note: 'no speedup here' },
+	{ label: 'int8', note: 'not for text encoders' },
+	{ label: 'int8 ConvRot', note: 'ComfyUI' },
+	{ label: 'nvfp4', note: 'RTX 50' },
+	{ label: 'int4 ConvRot', note: 'loads as int8 here' }
+] as const;
 
 const DIT_ROWS = [
 	modelRow('e2e-dit-flux', 'flux-dev.safetensors', 'diffusion_model', 23.8),
@@ -264,4 +273,31 @@ test('the file name field refuses path separators before anything is sent', asyn
 	await screenshot(page, JOURNEY, 'quantize-bad-name-1440');
 	await input.fill('flux-dev-fp8');
 	await expect(page.getByText(/cannot contain/)).toHaveCount(0);
+});
+
+test('the quantize modes offer every format with a note on what it gives on this hardware', async ({ page }) => {
+	test.setTimeout(120000);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await loginAsOwner(page);
+	await mockPresetModels(page);
+	if (!(await installAndOpen(page))) {
+		test.skip(true, 'Model Tools preset is not available on this throwaway instance.');
+		return;
+	}
+
+	for (const mode of ['Quantize', 'Merge and Quantize']) {
+		await chooseMode(page, mode);
+		const picker = page.locator('[aria-labelledby="quant_format-label"]').locator('button[aria-haspopup="listbox"]');
+		await expect(picker).toContainText('fp8 e4m3', { timeout: 20000 });
+		await picker.click();
+		const options = page.getByRole('option');
+		await expect(options).toHaveCount(FORMAT_NOTES.length);
+		for (const [index, format] of FORMAT_NOTES.entries()) {
+			await expect(options.nth(index)).toContainText(format.label);
+			await expect(options.nth(index)).toContainText(format.note);
+		}
+		await screenshot(page, JOURNEY, `${mode.toLowerCase().replace(/ /g, '-')}-formats-1440`);
+		await options.filter({ hasText: 'nvfp4' }).first().click();
+		await expect(picker).toContainText('nvfp4');
+	}
 });

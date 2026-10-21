@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+
+import pytest
 import torch
 from safetensors import safe_open
 from safetensors.torch import save_file
 
+from src.platform.runtime.native.ops.model_tools.errors import UnsupportedFormatError
+from src.platform.runtime.native.ops.model_tools.formats import QUANT_FORMATS, get_format
 from src.platform.runtime.native.ops.model_tools.quantize import quantize_file
 from src.platform.runtime.native.ops.model_tools.verify import layer_metrics, verify_quantized
 
@@ -82,3 +87,51 @@ def test_layer_metrics_identical_and_scaled():
     assert same.rel_l2 == 0 and abs(same.cosine - 1.0) < 1e-6 and same.snr_db == 200.0
     half = layer_metrics("k", w, w * 0.5)
     assert abs(half.rel_l2 - 0.5) < 1e-5 and abs(half.cosine - 1.0) < 1e-5
+
+
+WIDE_LAYERS = {"blocks.0.attn.q.weight": (32, 512), "blocks.0.mlp.fc1.weight": (64, 256)}
+FORMAT_ERROR_BOUND = {
+    "fp8_e4m3": 0.05, "fp8_e5m2": 0.1, "int8": 0.015, "int8_convrot": 0.015, "nvfp4": 0.13, "int4_convrot": 0.16,
+}
+
+
+def build_wide(tmp_path, key):
+    gen = torch.Generator().manual_seed(2)
+    src = tmp_path / "src.safetensors"
+    dst = tmp_path / f"{key}.safetensors"
+    tensors = {k: (torch.randn(shape, generator=gen) * 0.05).to(torch.bfloat16) for k, shape in WIDE_LAYERS.items()}
+    tensors["img_in.weight"] = torch.randn(8, 16, generator=gen).to(torch.bfloat16)
+    save_file(tensors, str(src))
+    quantize_file(src, dst, family="krea2", quant_format=key)
+    return src, dst
+
+
+@pytest.mark.parametrize("key", list(QUANT_FORMATS))
+def test_every_format_is_verified_through_its_own_dequantization(tmp_path, key):
+    src, dst = build_wide(tmp_path, key)
+    report = verify_quantized(src, dst)
+    assert report.ok
+    assert sorted(l.key for l in report.layers) == sorted(WIDE_LAYERS)
+    assert 0 < report.max_rel_l2 < FORMAT_ERROR_BOUND[key]
+
+
+def test_a_convrot_layer_read_without_its_rotation_fails_the_check(tmp_path):
+    src, dst = build_wide(tmp_path, "int8")
+    tensors = load(dst)
+    convrot = get_format("int8_convrot").descriptor_bytes
+    tensors["blocks.0.attn.q.comfy_quant"] = torch.tensor(list(convrot), dtype=torch.uint8)
+    bad = tmp_path / "bad.safetensors"
+    save_file(tensors, str(bad))
+    report = verify_quantized(src, bad)
+    assert report.worst[0].key == "blocks.0.attn.q.weight"
+    assert report.worst[0].rel_l2 > 0.5
+
+
+def test_a_descriptor_no_format_writes_is_refused(tmp_path):
+    src, dst = build_wide(tmp_path, "int8")
+    tensors = load(dst)
+    tensors["blocks.0.attn.q.comfy_quant"] = torch.tensor(list(json.dumps({"format": "mxfp8"}).encode()), dtype=torch.uint8)
+    bad = tmp_path / "bad.safetensors"
+    save_file(tensors, str(bad))
+    with pytest.raises(UnsupportedFormatError, match="mxfp8"):
+        verify_quantized(src, bad)

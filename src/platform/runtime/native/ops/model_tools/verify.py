@@ -7,7 +7,8 @@ from pathlib import Path
 import torch
 from safetensors import safe_open
 
-from .format import DESCRIPTOR_SUFFIX, SCALE_SUFFIX, WEIGHT_SUFFIX
+from .format import DESCRIPTOR_SUFFIX, WEIGHT_SUFFIX
+from .formats import format_for_descriptor, parse_descriptor
 from .source import read_header
 
 SNR_CAP_DB = 200.0
@@ -74,6 +75,7 @@ def verify_quantized(
     sample_limit: int | None = None,
 ) -> VerifyReport:
     source_plan, _ = read_header(source_path)
+    shapes = {s.key: s.shape for s in source_plan}
     quant_plan, _ = read_header(quantized_path)
     quant_keys = {s.key for s in quant_plan}
     quantized = [
@@ -91,11 +93,13 @@ def verify_quantized(
         str(quantized_path), framework="pt", device="cpu"
     ) as dst:
         for key in chosen_q:
-            q = dst.get_tensor(key)
-            scale = dst.get_tensor(key[: -len(WEIGHT_SUFFIX)] + SCALE_SUFFIX)
-            restored = q.to(torch.float32) * scale.to(torch.float32)
+            base = key[: -len(WEIGHT_SUFFIX)]
+            fmt = format_for_descriptor(parse_descriptor(dst.get_tensor(base + DESCRIPTOR_SUFFIX)))
+            shape = shapes[key]
+            parts = {suffix: dst.get_tensor(base + suffix) for suffix, _, _ in fmt.layer_specs(shape)}
+            restored = fmt.restore(parts, shape)
             report.layers.append(layer_metrics(key, src.get_tensor(key), restored))
-            del q, restored
+            del parts, restored
         for key in chosen_k:
             a = src.get_tensor(key)
             b = dst.get_tensor(key)

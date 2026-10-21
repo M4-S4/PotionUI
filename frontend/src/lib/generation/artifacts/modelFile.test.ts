@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
 	formatEnergyKept,
 	formatModelFileSizes,
+	hasQualitySummary,
 	modelFileHref,
+	qualityNote,
 	splitFileName,
 	sizeReductionPercent
 } from './modelFile';
@@ -68,5 +70,27 @@ describe('modelFileHref', () => {
 	it('links to the model page only once the file is indexed', () => {
 		expect(modelFileHref({ model_id: 'abc/1' })).toBe('/models/abc%2F1');
 		expect(modelFileHref({ model_id: null })).toBeNull();
+	});
+});
+
+describe('hasQualitySummary', () => {
+	it('counts the layers kept for their shape as part of the quality summary', () => {
+		expect(hasQualitySummary({ layers_shape_kept: 0 })).toBe(true);
+		expect(hasQualitySummary({ licence_note: 'mit' })).toBe(false);
+		expect(hasQualitySummary(null)).toBe(false);
+	});
+});
+
+describe('qualityNote', () => {
+	it('returns the trimmed note a format attaches to its result', () => {
+		expect(qualityNote({ quality_note: ' INT4 output quality is unverified until a GPU check ' })).toBe(
+			'INT4 output quality is unverified until a GPU check'
+		);
+	});
+
+	it('is empty when the summary carries no usable note', () => {
+		expect(qualityNote({})).toBeNull();
+		expect(qualityNote({ quality_note: '   ' })).toBeNull();
+		expect(qualityNote(null)).toBeNull();
 	});
 });

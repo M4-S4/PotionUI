@@ -13,6 +13,10 @@
             [
               "model",
               "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "format",
+              "fp8_e4m3"
             ]
           ]
         },
@@ -53,6 +57,10 @@
         "overwrite": {
           "type": "bool",
           "value": false
+        },
+        "quant_format": {
+          "type": "str",
+          "value": "fp8_e4m3"
         }
       },
       "enabled": {

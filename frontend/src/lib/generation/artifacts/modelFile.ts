@@ -13,6 +13,8 @@ export interface ModelFileSource {
 export interface ModelFileSummary {
 	layers_quantized?: number | null;
 	layers_kept?: number | null;
+	layers_shape_kept?: number | null;
+	quality_note?: string | null;
 	worst_layers?: ModelFileWorstLayer[] | null;
 	energy_kept?: number | null;
 	rank?: number | null;
@@ -99,9 +101,15 @@ export function hasQualitySummary(summary: ModelFileSummary | null | undefined):
 	return (
 		typeof summary.layers_quantized === 'number' ||
 		typeof summary.layers_kept === 'number' ||
+		typeof summary.layers_shape_kept === 'number' ||
 		typeof summary.energy_kept === 'number' ||
 		typeof summary.rank === 'number'
 	);
+}
+
+export function qualityNote(summary: ModelFileSummary | null | undefined): string | null {
+	const note = typeof summary?.quality_note === 'string' ? summary.quality_note.trim() : '';
+	return note || null;
 }
 
 export function splitFileName(name: string): { stem: string; ext: string } {

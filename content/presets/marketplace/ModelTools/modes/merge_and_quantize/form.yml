@@ -1,5 +1,5 @@
 name: "custom"
-short_description: "Bake LoRAs into a model, then quantize it to fp8."
+short_description: "Bake LoRAs into a model, then quantize it."
 fields:
   - type: "tabs"
     children:

@@ -7,6 +7,7 @@ pipeline:
       parameters:
         - ["tool", "quantize"]
         - ["model", "{{ form.model }}"]
+        - ["format", "{{ form.quant_format | default('fp8_e4m3') }}"]
 
   - name: "model_tools"
     id: "model_tools"
@@ -14,6 +15,7 @@ pipeline:
     configuration:
       mode: "quantize"
       model: "{{ form.model }}"
+      quant_format: "{{ form.quant_format | default('fp8_e4m3') }}"
       keep_patterns: "{{ form.keep_patterns | default('') }}"
       output_name: "{{ form.output_name | default('') }}"
       overwrite: "{{ form.overwrite | default(false) }}"

@@ -7,18 +7,10 @@ from pathlib import Path
 
 import torch
 
-from ..fp8_quant import quantize_tensor_to_fp8_scaled
-from .errors import AlreadyQuantizedError, StreamMismatchError, WriteCancelledError
-from .format import (
-    DESCRIPTOR_BYTES,
-    DESCRIPTOR_SUFFIX,
-    FP8_DTYPES,
-    QUANT_DESCRIPTOR,
-    SCALE_SUFFIX,
-    SIDECAR_SUFFIXES,
-    WEIGHT_SUFFIX,
-)
-from .families import detect_family, is_kept, keep_patterns
+from .errors import AlreadyQuantizedError, StreamMismatchError, UnsupportedFormatError, WriteCancelledError
+from .format import DESCRIPTOR_SUFFIX, FP8_DTYPES, SIDECAR_SUFFIXES, WEIGHT_SUFFIX
+from .formats import DEFAULT_FORMAT, QUANT_FORMATS, QuantFormat, get_format
+from .families import TE_FAMILY_KEEP, detect_family, is_kept, keep_patterns
 from .source import read_stream
 from .spec import FLOAT_DTYPES, TensorSpec
 from .writer import WriteResult, write_stream
@@ -35,19 +27,37 @@ def _should_quantize(spec: TensorSpec, patterns, keep_extra: Sequence[str]) -> b
     return not is_kept(spec.key, patterns, keep_extra)
 
 
-def quantize_plan(
-    plan: Sequence[TensorSpec], family: str, keep_extra: Sequence[str] = ()
-) -> tuple[list[TensorSpec], set[str]]:
+def _check_format_family(fmt: QuantFormat, family: str) -> None:
+    if family in TE_FAMILY_KEEP and not fmt.text_encoders:
+        allowed = ", ".join(f.label for f in QUANT_FORMATS.values() if f.text_encoders)
+        raise UnsupportedFormatError(f"text encoders can be quantized to {allowed} only, not {fmt.label}")
+
+
+def _candidates(plan: Sequence[TensorSpec], family: str, keep_extra: Sequence[str]) -> list[TensorSpec]:
     patterns = keep_patterns(family)
+    return [spec for spec in plan if _should_quantize(spec, patterns, keep_extra)]
+
+
+def shape_kept_layers(
+    plan: Sequence[TensorSpec], family: str, keep_extra: Sequence[str], fmt: QuantFormat
+) -> list[str]:
+    return [spec.key for spec in _candidates(plan, family, keep_extra) if not fmt.eligible(spec.shape)]
+
+
+def quantize_plan(
+    plan: Sequence[TensorSpec], family: str, keep_extra: Sequence[str] = (), fmt: QuantFormat | None = None
+) -> tuple[list[TensorSpec], set[str]]:
+    fmt = fmt or get_format(DEFAULT_FORMAT)
+    _check_format_family(fmt, family)
+    candidates = {spec.key for spec in _candidates(plan, family, keep_extra) if fmt.eligible(spec.shape)}
     _check_not_quantized(plan)
     out: list[TensorSpec] = []
     quantized: set[str] = set()
     for spec in plan:
-        if _should_quantize(spec, patterns, keep_extra):
+        if spec.key in candidates:
             base = spec.key[: -len(WEIGHT_SUFFIX)]
-            out.append(TensorSpec(spec.key, "F8_E4M3", spec.shape))
-            out.append(TensorSpec(base + SCALE_SUFFIX, "F32", ()))
-            out.append(TensorSpec(base + DESCRIPTOR_SUFFIX, "U8", (len(DESCRIPTOR_BYTES),)))
+            out.extend(TensorSpec(base + suffix, dtype, shape) for suffix, dtype, shape in fmt.layer_specs(spec.shape))
+            out.append(TensorSpec(base + DESCRIPTOR_SUFFIX, "U8", (len(fmt.descriptor_bytes),)))
             quantized.add(spec.key)
         else:
             out.append(spec)
@@ -55,19 +65,20 @@ def quantize_plan(
 
 
 def _quantized_tensors(
-    tensors: Iterator[tuple[str, torch.Tensor]], quantized: set[str]
+    tensors: Iterator[tuple[str, torch.Tensor]], quantized: set[str], fmt: QuantFormat
 ) -> Iterator[tuple[str, torch.Tensor]]:
-    descriptor = torch.frombuffer(bytearray(DESCRIPTOR_BYTES), dtype=torch.uint8)
+    descriptor = torch.frombuffer(bytearray(fmt.descriptor_bytes), dtype=torch.uint8)
     for key, tensor in tensors:
         if key not in quantized:
             yield key, tensor
             continue
-        q, scale = quantize_tensor_to_fp8_scaled(tensor)
+        parts = fmt.quantize(tensor)
         del tensor
         base = key[: -len(WEIGHT_SUFFIX)]
-        yield key, q.contiguous()
-        del q
-        yield base + SCALE_SUFFIX, scale.to(torch.float32).reshape(()).contiguous()
+        while parts:
+            suffix, part = parts.pop(0)
+            yield base + suffix, part
+            del part
         yield base + DESCRIPTOR_SUFFIX, descriptor.clone()
 
 
@@ -76,9 +87,11 @@ def quantize_stream(
     tensors: Iterator[tuple[str, torch.Tensor]],
     family: str,
     keep_extra: Sequence[str] = (),
+    fmt: QuantFormat | None = None,
 ) -> tuple[list[TensorSpec], Iterator[tuple[str, torch.Tensor]]]:
-    new_plan, quantized = quantize_plan(plan, family, keep_extra)
-    return new_plan, _quantized_tensors(tensors, quantized)
+    fmt = fmt or get_format(DEFAULT_FORMAT)
+    new_plan, quantized = quantize_plan(plan, family, keep_extra, fmt)
+    return new_plan, _quantized_tensors(tensors, quantized, fmt)
 
 
 HASH_CHUNK_BYTES = 8 * 1024 * 1024
@@ -94,12 +107,12 @@ def sha256_file(path: str | Path, is_cancelled: Callable[[], bool] | None = None
     return digest.hexdigest()
 
 
-def build_recipe(family: str, keep_extra: Sequence[str], plan: Sequence[TensorSpec]) -> dict:
+def build_recipe(family: str, keep_extra: Sequence[str], plan: Sequence[TensorSpec], fmt: QuantFormat) -> dict:
     layers = sum(1 for s in plan if s.key.endswith(DESCRIPTOR_SUFFIX))
     return {
         "tool": "quantize",
-        "format": QUANT_DESCRIPTOR["format"],
-        "scaling": "per_tensor_absmax",
+        "format": fmt.descriptor["format"],
+        "scaling": fmt.scaling,
         "family": family,
         "keep_extra": list(keep_extra),
         "quantized_layers": layers,
@@ -112,10 +125,11 @@ def quantized_metadata(
     family: str,
     keep_extra: Sequence[str],
     plan: Sequence[TensorSpec],
+    fmt: QuantFormat,
 ) -> dict[str, str]:
     meta = dict(source_metadata)
     meta["potionui.quantized_from"] = source_sha256
-    meta["potionui.recipe"] = json.dumps(build_recipe(family, keep_extra, plan), sort_keys=True)
+    meta["potionui.recipe"] = json.dumps(build_recipe(family, keep_extra, plan, fmt), sort_keys=True)
     return meta
 
 
@@ -125,15 +139,17 @@ def quantize_file(
     *,
     family: str | None = None,
     keep_extra: Sequence[str] = (),
+    quant_format: str = DEFAULT_FORMAT,
     on_progress: Callable[[int, int], None] | None = None,
     is_cancelled: Callable[[], bool] | None = None,
 ) -> WriteResult:
     source = Path(source)
     if Path(dest).resolve() == source.resolve():
         raise StreamMismatchError("the destination must differ from the source")
+    fmt = get_format(quant_format)
     plan, tensors, metadata = read_stream(source)
     family = family or detect_family(plan, metadata)
-    new_plan, new_tensors = quantize_stream(plan, tensors, family, keep_extra)
+    new_plan, new_tensors = quantize_stream(plan, tensors, family, keep_extra, fmt)
     digest = sha256_file(source)
-    meta = quantized_metadata(metadata, digest, family, keep_extra, new_plan)
+    meta = quantized_metadata(metadata, digest, family, keep_extra, new_plan, fmt)
     return write_stream(dest, new_plan, new_tensors, meta, on_progress=on_progress, is_cancelled=is_cancelled)

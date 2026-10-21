@@ -59,7 +59,7 @@ def render(template, mode, form, user_id=None, users=None):
 FORMS = {
     "quantize": {"model": "/m/diffusion_models/dit.safetensors", "keep_patterns": "blocks.0.*", "output_name": "x", "overwrite": True},
     "merge_into_model": {"model": "/m/diffusion_models/dit.safetensors", "loras": LORA_ROWS},
-    "merge_and_quantize": {"model": "/m/diffusion_models/dit.safetensors", "loras": LORA_ROWS},
+    "merge_and_quantize": {"model": "/m/diffusion_models/dit.safetensors", "loras": LORA_ROWS, "quant_format": "int8_convrot"},
     "merge_loras": {"loras": LORA_ROWS, "merge_method": "reduce", "target_rank": 16, "min_energy": 0.8, "lora_dtype": "BF16"},
 }
 
@@ -112,6 +112,7 @@ def test_optional_fields_fall_back_to_safe_values(template):
     assert config["output_name"] == ""
     assert config["overwrite"] is False
     assert config["keep_patterns"] == ""
+    assert config["quant_format"] == "fp8_e4m3"
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -157,6 +158,25 @@ def test_only_the_quantize_modes_offer_keep_patterns():
     assert "keep_patterns" in fields_of("merge_and_quantize")
     assert "keep_patterns" not in fields_of("merge_into_model")
     assert "keep_patterns" not in fields_of("merge_loras")
+
+
+@pytest.mark.parametrize("mode", ["quantize", "merge_and_quantize"])
+def test_the_quantize_modes_pick_a_format_the_pipe_accepts(template, mode):
+    from src.pipelines.pipes.model_tools.main import QUANT_FORMATS
+
+    field = fields_of(mode)["quant_format"]
+    assert field["type"] == "select"
+    assert field["default"] == "fp8_e4m3"
+    options = field["configuration"]["options"]
+    assert [o["value"] for o in options] == QUANT_FORMATS
+    assert all(o["label"] and o["sub_label"] for o in options)
+    config = render(template, mode, {**FORMS[mode], "quant_format": "nvfp4"})
+    assert config["quant_format"] == "nvfp4"
+
+
+def test_the_bake_and_merge_modes_have_no_format():
+    assert "quant_format" not in fields_of("merge_into_model")
+    assert "quant_format" not in fields_of("merge_loras")
 
 
 def test_merge_loras_exposes_method_rank_and_energy():

@@ -48,7 +48,7 @@ class TestQuantize:
         assert data.file_name == out.name
         assert data.size_bytes == out.stat().st_size
         assert data.source_size_bytes == source.stat().st_size
-        assert data.format == "fp8_scaled"
+        assert data.format == "fp8_e4m3"
         assert data.summary["layers_quantized"] > 0
         assert data.summary["layers_kept"] > 0
         assert data.summary["worst_layers"]
@@ -104,6 +104,59 @@ class TestQuantize:
         assert not (depot.models / "twice.safetensors").exists()
 
 
+WIDE_SHAPES = {"blocks.0.attn.q.weight": (32, 512), "blocks.0.mlp.fc1.weight": (48, 40), "img_in.weight": (8, 16)}
+FORMAT_LABELS = {
+    "fp8_e4m3": ("-fp8", torch.float8_e4m3fn),
+    "fp8_e5m2": ("-fp8-e5m2", torch.float8_e5m2),
+    "int8": ("-int8", torch.int8),
+    "int8_convrot": ("-int8-convrot", torch.int8),
+    "nvfp4": ("-nvfp4", torch.uint8),
+    "int4_convrot": ("-int4-convrot", torch.int8),
+}
+
+
+@pytest.fixture
+def wide(depot):
+    from safetensors.torch import save_file
+
+    gen = torch.Generator().manual_seed(0)
+    path = depot.models / "wide.safetensors"
+    save_file({k: (torch.randn(s, generator=gen) * 0.05).to(torch.bfloat16) for k, s in WIDE_SHAPES.items()}, str(path))
+    return path
+
+
+class TestQuantizeFormats:
+    @pytest.mark.parametrize("key", list(FORMAT_LABELS))
+    def test_each_format_is_written_named_verified_and_labelled(self, depot, wide, key):
+        suffix, dtype = FORMAT_LABELS[key]
+        outputs = run_pipe(depot, {"mode": "quantize", "model": str(wide), "family": "krea2", "quant_format": key})
+        out = depot.models / f"wide{suffix}.safetensors"
+        card = model_files(outputs)[0]
+        assert card.path == str(out)
+        assert card.format == key
+        tensors, meta = read(out)
+        assert tensors["blocks.0.attn.q.weight"].dtype == dtype
+        assert json.loads(meta["potionui.recipe"])["quantized_layers"] == card.summary["layers_quantized"]
+        assert card.summary["verification"]["checked_layers"] == card.summary["layers_quantized"]
+        assert card.summary["layers_shape_kept"] == (0 if key in ("fp8_e4m3", "fp8_e5m2", "int8") else 1)
+        assert card.summary.get("quality_note") == (
+            "INT4 output quality is unverified until a GPU check" if key == "int4_convrot" else None
+        )
+
+    def test_a_layer_the_format_cannot_hold_keeps_its_source_dtype(self, depot, wide):
+        outputs = run_pipe(depot, {"mode": "quantize", "model": str(wide), "family": "krea2", "quant_format": "nvfp4"})
+        tensors, _ = read(depot.models / "wide-nvfp4.safetensors")
+        assert tensors["blocks.0.mlp.fc1.weight"].dtype == torch.bfloat16
+        assert "blocks.0.mlp.fc1.comfy_quant" not in tensors
+        summary = model_files(outputs)[0].summary
+        assert (summary["layers_quantized"], summary["layers_shape_kept"]) == (1, 1)
+
+    def test_an_unknown_format_is_refused_before_anything_is_written(self, depot, wide):
+        with pytest.raises(ModelToolsRefused, match="Unknown quantization format"):
+            run_pipe(depot, {"mode": "quantize", "model": str(wide), "quant_format": "int3"})
+        assert listing(depot.models) == ["wide.safetensors"]
+
+
 class TestQuantizeTextEncoder:
     def test_a_text_encoder_is_quantized_into_the_text_encoder_folder(self, depot):
         from tests.platform.runtime.native.ops.model_tools.fixtures import write_family_fixture
@@ -119,6 +172,16 @@ class TestQuantizeTextEncoder:
         assert card.summary["family"] == "t5xxl"
         assert card.summary["layers_quantized"] == len(quant_keys)
         assert listing(depot.models) == []
+
+    @pytest.mark.parametrize("key", ["int8", "int8_convrot", "int4_convrot"])
+    def test_integer_formats_are_refused_for_text_encoders(self, depot, key):
+        from tests.platform.runtime.native.ops.model_tools.fixtures import write_family_fixture
+
+        source = depot.dirs["text_encoder"] / "t5.safetensors"
+        write_family_fixture(source, "t5xxl")
+        with pytest.raises(ModelToolsRefused, match="text encoders can be quantized to fp8_e4m3, fp8_e5m2, nvfp4 only"):
+            run_pipe(depot, {"mode": "quantize", "model": str(source), "quant_format": key})
+        assert listing(depot.dirs["text_encoder"]) == ["t5.safetensors"]
 
     def test_sdxl_style_checkpoints_are_refused_with_the_reason(self, depot):
         from safetensors.torch import save_file
@@ -207,7 +270,7 @@ class TestMergeAndQuantize:
         tensors, meta = read(out)
         assert any(k.endswith(".comfy_quant") for k in tensors)
         card = model_files(outputs)[0]
-        assert card.format == "fp8_scaled"
+        assert card.format == "fp8_e4m3"
         assert card.summary["layers_quantized"] > 0
         assert card.summary["verification"]["reference"] == "merged fp32"
         assert card.summary["worst_layers"]
@@ -221,6 +284,26 @@ class TestMergeAndQuantize:
         base_err = torch.linalg.vector_norm(weight * scale - sd["layers.0.proj.o.weight"]).item()
         merged_err = torch.linalg.vector_norm(weight * scale - merged).item()
         assert merged_err < base_err
+
+
+class TestMergeAndQuantizeFormats:
+    def test_nvfp4_is_checked_against_the_merge_and_counts_the_layers_it_cannot_hold(self, depot, moss, lora_files):
+        _, source = moss
+        a, _ = lora_files
+        outputs = run_pipe(
+            depot,
+            {"mode": "merge_and_quantize", "model": str(source), "loras": rows((a, 1.0)), "quant_format": "nvfp4"},
+        )
+        out = depot.models / "moss-tiny+style-a-nvfp4.safetensors"
+        tensors, _ = read(out)
+        card = model_files(outputs)[0]
+        assert card.format == "nvfp4"
+        assert card.summary["layers_quantized"] > 0
+        assert card.summary["layers_shape_kept"] > 0
+        assert card.summary["verification"]["checked_layers"] == card.summary["layers_quantized"]
+        assert 0 < card.summary["max_rel_l2"] < 0.2
+        quantized = [k[: -len(".comfy_quant")] for k in tensors if k.endswith(".comfy_quant")]
+        assert all(tensors[k + ".weight"].dtype == torch.uint8 for k in quantized)
 
 
 class TestMergeLoras:

@@ -17,24 +17,45 @@ from src.pipelines.pipes.model_tools.errors import ModelToolsRefused
     ],
 )
 def test_default_names_derive_from_the_inputs(mode, source, loras, expected):
-    assert naming.resolve_stem("", mode, source, loras) == expected
-    assert naming.resolve_stem(None, mode, source, loras) == expected
-    assert naming.resolve_stem("   ", mode, source, loras) == expected
+    assert naming.resolve_stem("", mode, source, loras, "-fp8") == expected
+    assert naming.resolve_stem(None, mode, source, loras, "-fp8") == expected
+    assert naming.resolve_stem("   ", mode, source, loras, "-fp8") == expected
+
+
+@pytest.mark.parametrize(
+    "mode, loras, expected",
+    [
+        ("quantize", [], "flux-dev-nvfp4"),
+        ("merge_and_quantize", ["style.safetensors"], "flux-dev+style-nvfp4"),
+        ("merge_into_model", ["style.safetensors"], "flux-dev+style"),
+    ],
+)
+def test_default_names_carry_the_format_suffix_only_when_quantizing(mode, loras, expected):
+    assert naming.resolve_stem("", mode, "flux-dev.safetensors", loras, "-nvfp4") == expected
+
+
+def test_long_names_in_different_formats_never_collide():
+    source = "x" * 200 + ".safetensors"
+    assert naming.resolve_stem("", "quantize", source, [], "-int8") != naming.resolve_stem(
+        "", "quantize", source, [], "-int8-convrot"
+    )
 
 
 def test_default_names_are_sanitized_not_refused():
-    stem = naming.resolve_stem("", "quantize", "My Model: v2 (final)?.safetensors", [])
+    stem = naming.resolve_stem("", "quantize", "My Model: v2 (final)?.safetensors", [], "-fp8")
     assert stem == "My_Model_v2_(final)-fp8"
     naming.validate_stem(stem)
 
 
 def test_long_default_names_are_shortened_with_a_stable_digest():
     loras = [f"a-very-long-lora-name-number-{i}.safetensors" for i in range(12)]
-    first = naming.resolve_stem("", "merge_into_model", "base.safetensors", loras)
-    second = naming.resolve_stem("", "merge_into_model", "base.safetensors", loras)
+    first = naming.resolve_stem("", "merge_into_model", "base.safetensors", loras, "-fp8")
+    second = naming.resolve_stem("", "merge_into_model", "base.safetensors", loras, "-fp8")
     assert first == second
     assert len(first) <= naming.MAX_STEM_LENGTH
-    other = naming.resolve_stem("", "merge_into_model", "base.safetensors", loras[:-1] + ["different.safetensors"])
+    other = naming.resolve_stem(
+        "", "merge_into_model", "base.safetensors", loras[:-1] + ["different.safetensors"], "-fp8"
+    )
     assert other != first
 
 
@@ -43,7 +64,7 @@ def test_long_default_names_are_shortened_with_a_stable_digest():
     [("mine", "mine"), ("mine.safetensors", "mine"), ("Mine.SAFETENSORS", "Mine"), (" x.sft ", "x"), ("v1.5-fp8", "v1.5-fp8")],
 )
 def test_user_names_lose_the_extension_and_surrounding_space(given, expected):
-    assert naming.resolve_stem(given, "quantize", "m.safetensors", []) == expected
+    assert naming.resolve_stem(given, "quantize", "m.safetensors", [], "-fp8") == expected
 
 
 @pytest.mark.parametrize(
@@ -55,7 +76,7 @@ def test_user_names_lose_the_extension_and_surrounding_space(given, expected):
 )
 def test_user_names_with_separators_or_reserved_parts_are_refused(given):
     with pytest.raises(ModelToolsRefused):
-        naming.resolve_stem(given, "quantize", "m.safetensors", [])
+        naming.resolve_stem(given, "quantize", "m.safetensors", [], "-fp8")
 
 
 def test_the_extension_is_added_exactly_once():

@@ -7,7 +7,6 @@ from src.pipelines.pipes.model_tools.errors import ModelToolsRefused
 
 EXTENSION = ".safetensors"
 MAX_STEM_LENGTH = 150
-QUANT_SUFFIX = "-fp8"
 LORA_JOINER = "+"
 ILLEGAL_CHARS = frozenset('/\\:*?"<>|')
 RESERVED_STEMS = frozenset(
@@ -60,27 +59,29 @@ def _fit(stem: str, salt: str) -> str:
     return f"{stem[: MAX_STEM_LENGTH - 9].rstrip('._ ')}-{digest}"
 
 
-def default_stem(mode: str, source: str | None, loras: Sequence[str]) -> str:
+def default_stem(mode: str, source: str | None, loras: Sequence[str], quant_suffix: str) -> str:
     lora_part = LORA_JOINER.join(filter(None, (sanitize_fragment(Path(p).name) for p in loras)))
     base = sanitize_fragment(Path(source).name) if source else ""
     if mode == "quantize":
-        stem = f"{base}{QUANT_SUFFIX}"
+        stem = f"{base}{quant_suffix}"
     elif mode == "merge_into_model":
         stem = f"{base}{LORA_JOINER}{lora_part}"
     elif mode == "merge_and_quantize":
-        stem = f"{base}{LORA_JOINER}{lora_part}{QUANT_SUFFIX}"
+        stem = f"{base}{LORA_JOINER}{lora_part}{quant_suffix}"
     elif mode == "merge_loras":
         stem = lora_part
     else:
         raise ModelToolsRefused(f"Unknown mode {mode!r}")
     stem = stem.strip("._ ") or "model-tools-output"
-    return _fit(stem, "|".join([mode, source or "", *loras]))
+    return _fit(stem, "|".join([mode, source or "", *loras, quant_suffix]))
 
 
-def resolve_stem(requested: str | None, mode: str, source: str | None, loras: Sequence[str]) -> str:
+def resolve_stem(
+    requested: str | None, mode: str, source: str | None, loras: Sequence[str], quant_suffix: str
+) -> str:
     raw = (requested or "").strip()
     if not raw:
-        return validate_stem(default_stem(mode, source, loras))
+        return validate_stem(default_stem(mode, source, loras, quant_suffix))
     return validate_stem(strip_extension(raw))
 
 

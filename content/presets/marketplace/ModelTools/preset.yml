@@ -17,7 +17,7 @@ name: "Model Tools"
 category: "utility"
 version: "1.0.0"
 engine: "native"
-tags: ["model", "utility", "quantize", "lora", "merge", "fp8", "admin", "local"]
+tags: ["model", "utility", "quantize", "lora", "merge", "fp8", "int8", "nvfp4", "int4", "admin", "local"]
 
 vars:
   promptless_modes: [quantize, merge_into_model, merge_and_quantize, merge_loras]
@@ -25,7 +25,7 @@ vars:
 llm:
   guide: |
     This is an administrator utility for model files -- there is no diffusion model and no
-    prompt. Help the admin pick the mode and fill its fields: quantize (model to scaled fp8),
+    prompt. Help the admin pick the mode and fill its fields: quantize (model to fp8, int8, nvfp4 or int4),
     merge_into_model (bake LoRAs into a model), merge_and_quantize (both), merge_loras
     (several LoRAs into one). The output name may stay empty; it is derived from the inputs.
     Use update_form_settings; never suggest prompt text.

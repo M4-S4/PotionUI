@@ -23,6 +23,7 @@ MODEL_MODES = frozenset({"quantize", "merge_into_model", "merge_and_quantize"})
 LORA_MODES = frozenset({"merge_into_model", "merge_and_quantize", "merge_loras"})
 MERGE_METHODS = ["concat", "reduce"]
 OUTPUT_DTYPES = ["F32", "BF16", "F16"]
+QUANT_FORMATS = ["fp8_e4m3", "fp8_e5m2", "int8", "int8_convrot", "nvfp4", "int4_convrot"]
 ADMIN_MESSAGE = "Model Tools is available to administrators only"
 LOCAL_ONLY_MESSAGE = (
     "Model Tools runs only on the local native backend, because it writes into this host's model folders; "
@@ -90,7 +91,7 @@ def _existing_ancestor(path: Path) -> Path:
 class ModelToolsPipe(BasePipe):
     name = "model_tools"
     description = (
-        "Quantizes a model file to scaled fp8, bakes LoRAs into it, or merges LoRAs into one file, "
+        "Quantizes a model file to fp8, int8, nvfp4 or int4, bakes LoRAs into it, or merges LoRAs into one file, "
         "writing the result next to the source. Administrators on the local native backend only."
     )
     display_title = "Processing model files"
@@ -105,6 +106,9 @@ class ModelToolsPipe(BasePipe):
             PipeConfigSpec("model", str, "", "Absolute path of the source model file (quantize and bake modes)",
                            required=False),
             loras_config_spec("LoRA rows [{model, strength}] (bake and merge modes)"),
+            PipeConfigSpec("quant_format", str, QUANT_FORMATS[0],
+                           "Format the quantize modes write; text encoders take fp8 or nvfp4 only",
+                           required=False, choices=QUANT_FORMATS),
             PipeConfigSpec("keep_patterns", str, "",
                            "Extra tensor-name globs kept in full precision (quantize modes), one per line or comma separated",
                            required=False),
@@ -213,12 +217,18 @@ class ModelToolsPipe(BasePipe):
         if rank is not None and rank < 1:
             raise ModelToolsRefused("The target rank must be at least 1")
         overwrite = self.config.get("overwrite") is True
+        quant_format = str(self.config.get("quant_format") or QUANT_FORMATS[0])
+        if quant_format not in QUANT_FORMATS:
+            raise ModelToolsRefused(f"Unknown quantization format {quant_format!r}")
+
+        from src.platform.runtime.native.ops.model_tools.formats import get_format
 
         stem = naming.resolve_stem(
             self.config.get("output_name"),
             mode,
             source.path.name if source else None,
             [f.path.name for f in lora_files],
+            get_format(quant_format).name_suffix,
         )
         name = naming.file_name(stem)
         if mode == "merge_loras":
@@ -238,6 +248,7 @@ class ModelToolsPipe(BasePipe):
             min_energy=min_energy,
             dtype=dtype,
             family=(str(self.config.get("family")).strip() or None) if self.config.get("family") else None,
+            quant_format=quant_format,
         )
 
         notifier = _Notifier(generation_outputs, name)

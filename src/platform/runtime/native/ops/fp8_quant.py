@@ -33,8 +33,7 @@ logger = logging.getLogger(__name__)
 _warned_bad_fp8_policy = False
 
 FP8_E4M3 = torch.float8_e4m3fn
-# Largest finite magnitude representable in e4m3 (torch.finfo(...).max == 448.0).
-_E4M3_MAX = 448.0
+_E4M3_MAX = torch.finfo(FP8_E4M3).max
 
 # Substrings marking a 2D weight that must stay at its original dtype. Norm
 # weights are 1D (already skipped by the rank test) but listed for clarity; the
@@ -59,18 +58,14 @@ def _should_quantize(key: str, tensor: torch.Tensor, *, min_numel: int) -> bool:
     return not any(tok in kl for tok in _KEEP_ORIGINAL_TOKENS)
 
 
-def quantize_tensor_to_fp8_scaled(w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Per-tensor symmetric e4m3 quantise.
-
-    Returns ``(fp8_weight, scale)`` where ``scale`` is a f32 0-dim tensor and
-    ``fp8_weight.to(f32) * scale`` approximates ``w``. The scale maps the tensor's
-    largest magnitude onto the e4m3 max (amax/448); an all-zero tensor is guarded
-    to a tiny positive scale so the reconstruction stays exactly zero.
-    """
+def quantize_tensor_to_fp8_scaled(
+    w: torch.Tensor, dtype: torch.dtype = FP8_E4M3,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    fp8_max = torch.finfo(dtype).max
     w32 = w.detach().to(torch.float32)
     amax = w32.abs().amax()
-    scale = (amax / _E4M3_MAX).clamp_min(torch.finfo(torch.float32).tiny)
-    q = (w32 / scale).clamp(-_E4M3_MAX, _E4M3_MAX).to(FP8_E4M3)
+    scale = (amax / fp8_max).clamp_min(torch.finfo(torch.float32).tiny)
+    q = (w32 / scale).clamp(-fp8_max, fp8_max).to(dtype)
     return q, scale.reshape(())
 
 

@@ -62,7 +62,7 @@ TE_FAMILY_KEEP: dict[str, tuple[str, ...]] = {
 FAMILY_KEEP = {**UNET_FAMILY_KEEP, **TE_FAMILY_KEEP}
 
 REFUSED_NOTES = {
-    "sdxl": "SDXL and other UNet checkpoints are not supported by the fp8 quantizer",
+    "sdxl": "SDXL and other UNet checkpoints are not supported by the quantizer",
 }
 
 
@@ -98,7 +98,7 @@ def detect_family(plan: Sequence[TensorSpec], metadata: dict[str, str] | None = 
         if family in UNET_FAMILY_KEEP:
             return family
         if family is not None:
-            raise UnsupportedFamilyError(f"family {family!r} is not supported by the fp8 quantizer")
+            raise UnsupportedFamilyError(f"family {family!r} is not supported by the quantizer")
     try:
         te = detect_te_config(sd)
     except Exception:
@@ -114,7 +114,7 @@ def supported_families() -> tuple[str, ...]:
 
 def keep_patterns(family: str) -> tuple[re.Pattern[str], ...]:
     if family not in FAMILY_KEEP:
-        note = REFUSED_NOTES.get(family) or f"family {family!r} is not supported by the fp8 quantizer"
+        note = REFUSED_NOTES.get(family) or f"family {family!r} is not supported by the quantizer"
         raise UnsupportedFamilyError(note)
     return tuple(re.compile(p, re.IGNORECASE) for p in COMMON_KEEP + FAMILY_KEEP[family])
 
