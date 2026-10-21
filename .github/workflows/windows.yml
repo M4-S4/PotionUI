@@ -313,7 +313,7 @@ jobs:
           call npm run build:plugins || exit /b 1
           git -C .. status --porcelain -- content/plugins
           git -C .. diff --stat -- "content/plugins/*/*/frontend/dist"
-          git -C .. diff --quiet -- "content/plugins/*/*/frontend/dist" || exit /b 1
+          for /f %%i in ('git -C .. diff --stat -- "content/plugins/*/*/frontend/dist"') do exit /b 1
           for /f %%i in ('git -C .. ls-files --others --exclude-standard -- content/plugins') do exit /b 1
 
   frontend-build:
