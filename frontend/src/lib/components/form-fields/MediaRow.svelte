@@ -11,7 +11,7 @@
 	import {
 		ADD_LABELS,
 		GROUP_TITLES,
-		dropInGroup,
+		createReorderHandlers,
 		formatCount,
 		nudgeInGroup,
 		type GroupLayout,
@@ -89,31 +89,12 @@
 		return metaLine(meta, kind) ?? '';
 	}
 
-	function startDrag(event: DragEvent, group: MediaGroup<Item>, kindIndex: number) {
-		drag = { laneKey: group.kind, fromIndex: kindIndex, overIndex: kindIndex };
-		if (event.dataTransfer) {
-			event.dataTransfer.effectAllowed = 'move';
-			event.dataTransfer.setData('text/plain', String(kindIndex));
-		}
-	}
-
-	function dragOver(event: DragEvent, group: MediaGroup<Item>, kindIndex: number) {
-		if (drag.laneKey !== group.kind) return;
-		event.preventDefault();
-		if (drag.overIndex !== kindIndex) drag = { ...drag, overIndex: kindIndex };
-	}
-
-	function drop(event: DragEvent, group: MediaGroup<Item>, kindIndex: number) {
-		event.preventDefault();
-		event.stopPropagation();
-		if (!isDropAllowed(drag, group.kind, kindIndex)) {
-			drag = NO_DRAG;
-			return;
-		}
-		const result = dropInGroup(items, group, drag.fromIndex as number, kindIndex);
-		drag = NO_DRAG;
-		commit(result.items, result.flatIndex);
-	}
+	const { startDrag, dragOver, drop } = createReorderHandlers<Item>({
+		getDrag: () => drag,
+		setDrag: (next) => (drag = next),
+		getItems: () => items,
+		commit
+	});
 
 	async function commit(next: Item[], flatIndex: number) {
 		onReorder(next, flatIndex);

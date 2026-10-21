@@ -4,7 +4,7 @@ import {
 	resourceHandleLabel,
 	type PromptResourceSpec
 } from '$lib/utils/promptResources';
-import { groupIntoLanes, moveWithinLane } from './mediaLoaderReorder';
+import { groupIntoLanes, isDropAllowed, moveWithinLane, NO_DRAG, type DragState } from './mediaLoaderReorder';
 
 export interface GroupedItem<T> {
 	item: T;
@@ -112,6 +112,40 @@ export function dropInGroup<T>(
 	return {
 		items: moveWithinLane(items, indices, from, to),
 		flatIndex: indices[Math.max(0, Math.min(indices.length - 1, to))]
+	};
+}
+
+export interface ReorderHost<T> {
+	getDrag: () => DragState;
+	setDrag: (drag: DragState) => void;
+	getItems: () => readonly T[];
+	commit: (items: T[], flatIndex: number) => void;
+}
+
+export function createReorderHandlers<T>(host: ReorderHost<T>) {
+	return {
+		startDrag(event: DragEvent, group: MediaGroup<T>, kindIndex: number) {
+			host.setDrag({ laneKey: group.kind, fromIndex: kindIndex, overIndex: kindIndex });
+			if (event.dataTransfer) {
+				event.dataTransfer.effectAllowed = 'move';
+				event.dataTransfer.setData('text/plain', String(kindIndex));
+			}
+		},
+		dragOver(event: DragEvent, group: MediaGroup<T>, kindIndex: number) {
+			const drag = host.getDrag();
+			if (drag.laneKey !== group.kind) return;
+			event.preventDefault();
+			if (drag.overIndex !== kindIndex) host.setDrag({ ...drag, overIndex: kindIndex });
+		},
+		drop(event: DragEvent, group: MediaGroup<T>, kindIndex: number) {
+			event.preventDefault();
+			event.stopPropagation();
+			const drag = host.getDrag();
+			host.setDrag(NO_DRAG);
+			if (!isDropAllowed(drag, group.kind, kindIndex)) return;
+			const result = dropInGroup(host.getItems(), group, drag.fromIndex as number, kindIndex);
+			host.commit(result.items, result.flatIndex);
+		}
 	};
 }
 

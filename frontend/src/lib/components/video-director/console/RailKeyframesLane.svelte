@@ -7,11 +7,13 @@
 	// the `.in-lane` variant that sits inside the lane's own top sliver
 	// instead (see console.html's CSS comment on `.insert-cue.in-lane`).
 	import type { RailKeyframeMark } from './shotRailModel';
-	import type { ConsoleSelection } from './consoleSelection';
-	import { attachPointerDrag, tryCapturePointer, tryReleasePointer, clamp } from '../timelineCore';
+	import { clamp } from '../timelineCore';
+	import { consoleSelectionMatches, type ConsoleSelection } from './consoleSelection';
+	import { beginLaneDrag, insertFraction } from './laneInsert';
 	import ConsoleIcon from './ConsoleIcon.svelte';
 
 	const NUDGE_SECONDS = 0.25;
+	const MARK_SELECTOR = '.kf-anchor, .kf-free, .kf-thumb40';
 
 	let {
 		shotId,
@@ -50,35 +52,11 @@
 	let dragging = $derived(liveDrag != null);
 
 	function isSelected(id: string): boolean {
-		return selection?.shotId === shotId && selection.kind === 'keyframe' && selection.id === id;
-	}
-
-	function fractionFromClientX(clientX: number): number | null {
-		if (!laneEl) return null;
-		const rect = laneEl.getBoundingClientRect();
-		if (rect.width <= 0) return null;
-		return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-	}
-
-	// Maintainer bug (09-04): "hard to click on this first keyframe as it's
-	// 'under' the dynamic keyframe that is following the cursor" -- the
-	// insert cue is drawn after the marks in the template, so on the same
-	// stacking context it painted over the START anchor/free diamond/thumb
-	// even though it's `pointer-events: none`. The cue now also hides
-	// entirely whenever the pointer sits over a real mark (mirrors
-	// RailPromptLane's `isOverBeat`), and the marks get an explicit
-	// `z-index` above the cue so this can't regress if the markup order
-	// changes again.
-	function isOverMark(e: Event): boolean {
-		return (e.target as HTMLElement).closest('.kf-anchor, .kf-free, .kf-thumb40') != null;
+		return consoleSelectionMatches(selection, shotId, 'keyframe', id);
 	}
 
 	function handlePointerMove(e: PointerEvent) {
-		if (dragging || !canAdd || isOverMark(e)) {
-			hoverFraction = null;
-			return;
-		}
-		hoverFraction = fractionFromClientX(e.clientX);
+		hoverFraction = dragging || !canAdd ? null : insertFraction(e, laneEl, MARK_SELECTOR);
 	}
 
 	function handlePointerLeave() {
@@ -86,11 +64,8 @@
 	}
 
 	function handleLaneClick(e: MouseEvent) {
-		// Belt-and-suspenders: `selectMark`'s own `stopPropagation()` already
-		// keeps a mark click from reaching here, but the insert must never
-		// fire off a mark regardless of how the click got here.
-		if (!canAdd || isOverMark(e)) return;
-		const fraction = fractionFromClientX(e.clientX);
+		if (!canAdd) return;
+		const fraction = insertFraction(e, laneEl, MARK_SELECTOR);
 		if (fraction == null) return;
 		onAdd(snapFraction(fraction));
 	}
@@ -111,30 +86,20 @@
 
 	function startDrag(mark: RailKeyframeMark, e: PointerEvent) {
 		if (mark.kind !== 'free') return;
-		e.stopPropagation();
-		e.preventDefault();
-		if (!laneEl) return;
 		hoverFraction = null;
-		const target = e.currentTarget as Element;
-		const pointerId = e.pointerId;
-		tryCapturePointer(target, pointerId);
-		liveDrag = { id: mark.id, atSeconds: (mark.atPercent / 100) * durationSeconds };
-		attachPointerDrag(
-			(move) => {
-				const fraction = fractionFromClientX(move.clientX);
-				if (fraction == null) return;
+		const started = beginLaneDrag(e, laneEl, {
+			onMove: (fraction) => {
 				liveDrag = { id: mark.id, atSeconds: snapFraction(fraction) };
 			},
-			() => {
-				tryReleasePointer(target, pointerId);
+			onCommit: () => {
 				if (liveDrag) onMove(liveDrag.id, liveDrag.atSeconds);
 				liveDrag = null;
 			},
-			() => {
-				tryReleasePointer(target, pointerId);
+			onCancel: () => {
 				liveDrag = null;
 			}
-		);
+		});
+		if (started) liveDrag = { id: mark.id, atSeconds: (mark.atPercent / 100) * durationSeconds };
 	}
 
 	// Maintainer bug (09-04): "I can't remove the dynamic keyframes" -- a
