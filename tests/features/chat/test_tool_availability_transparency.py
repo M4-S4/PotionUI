@@ -19,7 +19,7 @@ import pytest
 from tests.conftest import TestDatabase
 
 from src.features.chat.context_builder import ChatContextBuilder
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.runtime import ChatRuntime
 from src.features.llm.tools.governance import ToolGovernanceRepository
 
@@ -40,12 +40,6 @@ def governance_db():
 
         yield test_database
     test_database.close()
-
-
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 def _session(user_id="user-1", llm_config_id="cfg-a", mode="generation", metadata=None):
@@ -73,7 +67,7 @@ def _make_builder(governance_repo=None):
     tool_registry.register(GetCurrentSegmentsTool())
 
     manager = Mock()
-    manager.chat_mode_registry = _mode_registry()
+    manager.chat_mode_registry = mode_registry()
     tool_executor = Mock()
     tool_executor.tool_registry = tool_registry
     manager.tool_executor = tool_executor
@@ -88,7 +82,7 @@ class TestWithheldToolsForSession:
 
     def test_no_mode_tools_is_empty(self):
         manager = Mock()
-        manager.chat_mode_registry = _mode_registry()
+        manager.chat_mode_registry = mode_registry()
         manager.tool_executor = None
         builder = ChatContextBuilder(manager)
         assert builder.withheld_tools_for_session(_session()) == {}
@@ -121,7 +115,7 @@ class TestWithheldToolsForSession:
         tool_registry.register(GetFormStateTool())
 
         manager = Mock()
-        manager.chat_mode_registry = _mode_registry()
+        manager.chat_mode_registry = mode_registry()
         tool_executor = Mock()
         tool_executor.tool_registry = tool_registry
         manager.tool_executor = tool_executor
@@ -271,7 +265,7 @@ class TestSendMessageToolAvailabilityTransparency:
             llm_service=mock_llm,
             response_processor=mock_processor,
             plugin_registry=mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
             tool_executor=mock_tool_executor,
         )
 

@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from src.features.chat import conversation as conversation_module
 from src.features.chat.dto import ContinueFromRequest, SendMessageRequest
 from src.features.chat.exceptions import ContinuationConflictException, ToolExecutionPendingException
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.repository import ChatRepository
 from src.features.chat.routes import ChatController
 from src.features.chat.runtime import ChatRuntime
@@ -26,15 +26,10 @@ from src.features.llm.tools.executor import ToolExecutor, _ToolCallGuard
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.prompt.expander import expand_prompts
 from src.platform.security.user import User
+from tests.fixtures.seed import seed_user
 
 USER_ID = "user-1"
 CONTEXT = {"form_state": {"form_data": {"value": 1}}}
-
-
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 def _call(call_id, name, **arguments):
@@ -133,11 +128,7 @@ class _EchoTool(BaseTool):
 
 @pytest.fixture
 def chat_db(mock_db):
-    with mock_db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, ?, ?)",
-            (USER_ID, "u", "u@example.com", "h", "USER"),
-        )
+    seed_user(mock_db, USER_ID, username="u", email="u@example.com")
     return mock_db
 
 
@@ -155,7 +146,7 @@ def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None):
         llm_service=llm,
         response_processor=processor,
         plugin_registry=plugins,
-        chat_mode_registry=_mode_registry(),
+        chat_mode_registry=mode_registry(),
         tool_executor=ToolExecutor(tool_registry=registry, llm_service=llm),
         tool_services=ToolServices(generation_orchestrator=generation_orchestrator, tab_drafts=tab_drafts),
     )

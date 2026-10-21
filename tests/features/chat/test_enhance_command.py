@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 from src.features.chat.runtime import ChatRuntime
 from src.features.llm.tools.base import ToolServices
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.exceptions import MessageCreationFailedException
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.executor import ToolExecutor
@@ -41,13 +41,6 @@ def _forward_prompt_enhancement_operations(monkeypatch):
 
     monkeypatch.setattr(operations, "enhance", enhance)
     monkeypatch.setattr(operations, "record_feedback", record_feedback)
-
-
-def _mode_registry() -> ChatModeRegistry:
-    """Real mode registry with the builtin generation mode (no settings)."""
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 def make_session(**overrides):
@@ -144,7 +137,7 @@ def make_chat_manager(enhancement_manager=None):
         llm_service=Mock(),
         response_processor=processor,
         plugin_registry=plugins,
-        chat_mode_registry=_mode_registry(),
+        chat_mode_registry=mode_registry(),
         tool_services=ToolServices(prompt_enhancement_manager=enhancement_manager or make_enhancement_manager()),
     )
     return manager, repo
@@ -172,7 +165,7 @@ def make_tool_chat_manager(enhancement_manager=None, turns=None):
         llm_service=llm_service,
         response_processor=processor,
         plugin_registry=plugins,
-        chat_mode_registry=_mode_registry(),
+        chat_mode_registry=mode_registry(),
         tool_executor=executor,
         tool_services=ToolServices(prompt_enhancement_manager=enhancement_manager or make_enhancement_manager()),
     )

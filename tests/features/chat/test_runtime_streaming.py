@@ -9,15 +9,10 @@ from typing import AsyncGenerator, List
 
 from src.features.chat.runtime import ChatRuntime
 
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
 
 
-def _mode_registry() -> ChatModeRegistry:
-    """Real mode registry with the builtin generation mode (no settings)."""
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 from src.features.chat.exceptions import (
     SessionNotFoundException,
     AccessDeniedException,
@@ -97,7 +92,7 @@ class BaseStreamingTest:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def _make_active_session(
@@ -941,7 +936,7 @@ class TestSendMessageStreamToolsPath(BaseStreamingTest):
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
             tool_executor=mock_tool_executor,
         )
 
@@ -1267,7 +1262,7 @@ class TestSendMessageStreamErrors(BaseStreamingTest):
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
             tool_executor=mock_tool_executor,
         )
 
@@ -1459,7 +1454,7 @@ class TestSendMessageStreamModeExtras(BaseStreamingTest):
 
     def _make_custom_mode_manager(self, contributor=None, llm_options=None, tool_executor=None):
         from src.features.chat.modes import ChatMode
-        registry = _mode_registry()
+        registry = mode_registry()
         registry.register(ChatMode(
             id="custom",
             name="Custom",
@@ -2155,7 +2150,7 @@ class TestSendMessageStreamEarlyClosePropagation(BaseStreamingTest):
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
             tool_executor=mock_tool_executor,
         )
 

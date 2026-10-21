@@ -19,16 +19,10 @@ from src.features.chat.reflection import (
 )
 from src.features.chat.repository import ChatRepository
 from src.features.chat.runtime import ChatRuntime
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.llm.gateway import LLMGateway
 from src.features.llm.repository import LLMConfig
 from tests.fixtures.persistence_base import PersistenceTestBase
-
-
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 def _message(role: str, content: str, msg_id: str, metadata: dict = None) -> Mock:
@@ -312,7 +306,7 @@ class TestReflectionConcurrencyAndBookkeeping(PersistenceTestBase):
             llm_service=llm_service,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
         runtime.tool_services = replace(runtime.tool_services, llm_memory_repository=Mock())
         return runtime, llm_service
@@ -728,7 +722,7 @@ class TestReflectionSmallCapacityBudget(PersistenceTestBase):
             llm_service=llm,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
         runtime.tool_services = replace(runtime.tool_services, llm_memory_repository=Mock())
         session_id = self._session_with_messages([
@@ -760,7 +754,7 @@ class TestReflectionSmallCapacityBudget(PersistenceTestBase):
             llm_service=llm,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
         runtime.tool_services = replace(runtime.tool_services, llm_memory_repository=Mock())
         session_id = self._session_with_messages([
@@ -876,7 +870,7 @@ class TestReflectionRealGatewayBudget(PersistenceTestBase):
             llm_service=gateway,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
         runtime.tool_services = replace(runtime.tool_services, llm_memory_repository=Mock())
         session = self.chat_repo.create_session(user_id=self.user_id, llm_config_id="llm-1")

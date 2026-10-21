@@ -12,17 +12,11 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from src.features.chat.runtime import ChatRuntime
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.dto import MessageResponse, ToolResolveRequest
 from src.features.chat.routes import ChatController
 from src.features.chat.turns import ChatTurnRegistry, TurnAlreadyRunningError
 from src.platform.security.user import User
-
-
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 async def _make_stream(events, *, delay=0.0):
@@ -711,7 +705,7 @@ class TestPersistenceSurvivesDisconnect:
             llm_service=llm,
             response_processor=processor,
             plugin_registry=plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
         return manager, repo
 

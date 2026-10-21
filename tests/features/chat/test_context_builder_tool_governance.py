@@ -17,7 +17,7 @@ import pytest
 from tests.conftest import TestDatabase
 
 from src.features.chat.context_builder import ChatContextBuilder
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.llm.tools.governance import ToolGovernanceRepository
 
 
@@ -39,12 +39,6 @@ def governance_db():
     test_database.close()
 
 
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
-
-
 def _session(user_id="user-1", llm_config_id="cfg-a", mode="generation", metadata=None):
     session = Mock()
     session.mode = mode
@@ -64,7 +58,7 @@ def _make_builder(governance_repo):
     tool_registry.register(GetActiveModelsTool())
 
     manager = Mock()
-    manager.chat_mode_registry = _mode_registry()
+    manager.chat_mode_registry = mode_registry()
     tool_executor = Mock()
     tool_executor.tool_registry = tool_registry
     manager.tool_executor = tool_executor
