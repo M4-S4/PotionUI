@@ -15,6 +15,7 @@
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition } from '$lib/utils/menuPosition';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let model: ContextStripModel;
 	/** Transient signal-blue highlight right after a followed tab switch (~1.2s, caller owns the timer). */
@@ -110,7 +111,7 @@
 		data-testid="chat-context-strip"
 		data-strip-state={pinned ? 'pinned-active' : 'following'}
 	>
-		<svg class="icon"><use href={pinned ? '#i-pin' : '#i-file'} /></svg>
+		<Icon name={pinned ? 'chat-pin' : 'chat-file'} className="icon" strokeWidth={1.8} />
 		<button type="button" bind:this={triggerEl} class="context-chip-name" on:click={togglePicker}>
 			{model.tabName}{#if model.presetLabel} · {model.presetLabel}{/if}
 		</button>
@@ -122,7 +123,7 @@
 				class="chip-remove"
 				on:click={() => selectTab(pinned ? null : activeTabId)}
 			>
-				<svg class="icon"><use href="#i-pin" /></svg>
+				<Icon name="chat-pin" className="icon" strokeWidth={1.8} />
 			</button>
 		</Tooltip>
 	</span>

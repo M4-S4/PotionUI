@@ -179,7 +179,7 @@ usageRollKey
 
 	{#snippet composerLabel()}
 		{#if isUndefined}
-			<svg class="icon"><use href="#i-info" /></svg>
+			<Icon name="composer-info" className="icon" strokeWidth={1.7} />
 		{/if}
 		<span class="chip-context">{name}</span>
 		{#if isEmptyRoll}
@@ -301,7 +301,7 @@ usageRollKey
 				<p class="helper">{def.value || '(empty)'}</p>
 			{/if}
 			<button type="button" class="small-button" style="margin-top: 8px" on:click={handleOpenManager}>
-				<svg class="icon"><use href="#i-braces" /></svg>
+				<Icon name="composer-braces" className="icon" strokeWidth={1.7} />
 				Edit in Variables
 			</button>
 		{:else if isUndefined}

@@ -9,7 +9,6 @@
 	import { contributionsForSlot } from '$lib/extensions/extensionSlots';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import Tooltip from './Tooltip.svelte';
-	import GenerationPanelIconSprite from './generation-panel/GenerationPanelIconSprite.svelte';
 	import GenerateMark from './generation-panel/GenerateMark.svelte';
 	import PanelReadoutCell from './generation-panel/PanelReadoutCell.svelte';
 	import SessionCluster from './generation-panel/SessionCluster.svelte';
@@ -28,6 +27,7 @@
 	import { gridFraction } from '$lib/generation/compare/view/gridModel';
 	import { compareStatusLine } from '$lib/generation/compare/compareSummary';
 	import CompareDrawer from './compare/CompareDrawer.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	const dispatch = createEventDispatcher();
 
@@ -190,7 +190,7 @@
 					? 'Mode: Continuous'
 					: 'Mode: Generate once';
 	$: modeChromeSpriteId =
-		modeChromeGlyph === 'pause' ? 'i-pause' : modeChromeGlyph === 'stopping' ? 'i-hourglass' : 'i-loop';
+		modeChromeGlyph === 'pause' ? 'panel-pause' : modeChromeGlyph === 'stopping' ? 'panel-hourglass' : 'panel-loop';
 
 	// data-state drives the ported CSS's status-symbol/progress-track colour
 	// and the "other tab" inline-action visibility (generation-panel-concept.html
@@ -425,8 +425,6 @@
 </script>
 
 <div class="generation-panel" data-menu-dock data-state={dataState} aria-label="Generation controls">
-	<GenerationPanelIconSprite />
-
 	<!-- Backdrop for drawer -->
 	{#if activeDrawer}
 		<div
@@ -457,7 +455,7 @@
 					</h2>
 				</div>
 				<button type="button" class="close-button" on:click={closeDrawer} aria-label="Close drawer">
-					<svg class="icon"><use href="#i-x" /></svg>
+					<Icon name="panel-x" className="icon" strokeWidth={1.8} />
 				</button>
 			</header>
 
@@ -526,7 +524,7 @@
 						<span class="status-percent">{hasProgressFraction ? `${progressPercent}%` : 'working…'}</span>
 					{/if}
 					<button type="button" class="inline-action" on:click={() => onSwitchToGeneratingTab?.()}>
-						Switch to tab <svg class="icon" style="width:11px;height:11px"><use href="#i-arrow" /></svg>
+						Switch to tab <Icon name="panel-arrow" className="icon !h-[11px] !w-[11px]" strokeWidth={1.8} />
 					</button>
 				</div>
 				<span class="status-meta">
@@ -616,7 +614,7 @@
 						disabled={!$$slots.settings || workbenchFloating}
 						on:click={() => toggleDrawer('settings')}
 					>
-						<svg class="icon"><use href="#i-sliders" /></svg>
+						<Icon name="panel-sliders" className="icon" strokeWidth={1.8} />
 					</button>
 				</Tooltip>
 				<Tooltip
@@ -632,7 +630,7 @@
 						disabled={!$$slots.lastGenerations || workbenchFloating}
 						on:click={() => toggleDrawer('lastGenerations')}
 					>
-						<svg class="icon"><use href="#i-history" /></svg>
+						<Icon name="panel-history" className="icon" strokeWidth={1.8} />
 					</button>
 				</Tooltip>
 				{#each $panelModeContributions as modeContrib (pluginDrawerId(modeContrib))}
@@ -649,7 +647,7 @@
 							disabled={workbenchFloating}
 							on:click={() => toggleDrawer(pluginDrawerId(modeContrib))}
 						>
-							<svg class="icon"><use href="#i-extension" /></svg>
+							<Icon name="panel-extension" className="icon" strokeWidth={1.8} />
 						</button>
 					</Tooltip>
 				{/each}
@@ -664,7 +662,7 @@
 						disabled={modeChromeDisabled}
 						on:click={handleModeChromeClick}
 					>
-						<svg class="icon"><use href="#{modeChromeSpriteId}" /></svg>
+						<Icon name={modeChromeSpriteId} className="icon" strokeWidth={1.8} />
 					</button>
 				</Tooltip>
 				<Tooltip text={compareTooltip} position="top" delay={150}>
@@ -730,7 +728,7 @@
 						onClearQueue?.();
 					}}
 				>
-					<svg class="icon"><use href="#i-trash" /></svg>Cancel all
+					<Icon name="panel-trash" className="icon" strokeWidth={1.8} />Cancel all
 				</button>
 			</div>
 			<div class="queue-list">

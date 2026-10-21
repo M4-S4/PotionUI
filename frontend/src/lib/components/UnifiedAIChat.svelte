@@ -11,7 +11,6 @@
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
-	import ChatIconSprite from '$lib/components/chat/ChatIconSprite.svelte';
 	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
 	import { activeTab, tabsStore } from '$lib/stores/tabs';
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
@@ -117,6 +116,7 @@
 	import { loadHistoryRailCollapsed, saveHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
 	import { getPresetPromptResources, type PresetPromptResourcesResult } from '$lib/utils/presetPromptResourcesCache';
 	import type { ResourceTokenContext } from '$lib/utils/promptResourceTokens';
+	import Icon from '$lib/components/Icon.svelte';
 
 	// Props
 	export let onClose: (() => void) | undefined = undefined;
@@ -1854,8 +1854,6 @@
 	}
 </script>
 
-<ChatIconSprite />
-
 <!-- History rail: a real column (mock's <aside class="history-rail">), always
      mounted — .chat-shell's own &.rail-collapsed rule (chat-concept.css)
      animates it to zero width instead of this unmounting it. -->
@@ -1885,9 +1883,7 @@
 		<!-- No usable LLM config — a state the prototype never shows.
 		     Non-admins get no pointer into Admin — they can't act on it. -->
 		<div class="chat-shell-notice">
-			<svg class="icon" style="width:28px;height:28px;color:rgb(var(--fg-subtle))"
-				><use href="#i-info" /></svg
-			>
+			<Icon name="chat-info" className="icon !h-[28px] !w-[28px] text-fg-subtle" strokeWidth={1.8} />
 			{#if $authStore.user?.account_type === 'ADMIN'}
 				<p>No enabled LLM configurations</p>
 				<p>
@@ -2008,7 +2004,7 @@
 									inputRef?.focus();
 								}}
 							>
-								<svg class="icon"><use href="#{suggestion.icon}" /></svg><strong>{suggestion.title}</strong
+								<Icon name={suggestion.icon} className="icon" strokeWidth={1.8} /><strong>{suggestion.title}</strong
 								><span>{suggestion.sub}</span>
 							</button>
 						{/each}
@@ -2037,7 +2033,7 @@
 		{#if $chatSession.error}
 			<div class="chat-overlay-col">
 				<div class="chat-error-banner">
-					<svg class="icon"><use href="#i-info" /></svg>
+					<Icon name="chat-info" className="icon" strokeWidth={1.8} />
 					{$chatSession.error}
 				</div>
 			</div>

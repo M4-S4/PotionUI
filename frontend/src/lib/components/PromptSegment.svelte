@@ -24,6 +24,7 @@
 	} from '$lib/utils/segmentFooter';
 	import { segmentMenuActions } from '$lib/utils/segmentActions';
 	import { promptSegmentActionPins } from '$lib/stores/promptSegmentActionPins';
+	import Icon from '$lib/components/Icon.svelte';
 
 	promptSegmentActionPins.init();
 
@@ -331,7 +332,7 @@
 					aria-label={`Drag ${segmentLabel.toLowerCase()} to reorder`}
 					on:pointerdown={enableDrag}
 				>
-					<svg class="icon"><use href="#i-grip" /></svg>
+					<Icon name="composer-grip" className="icon" strokeWidth={1.7} />
 				</button>
 				<span class="index font-mono tabular-nums" aria-hidden="true">{formatSegmentIndex(index)}</span>
 				<span class="type-dot" aria-hidden="true"></span>
@@ -359,7 +360,7 @@
 									class="icon-btn description-icon"
 									aria-label={`Description: ${segment.description}`}
 								>
-									<svg class="icon"><use href="#i-info" /></svg>
+									<Icon name="composer-info" className="icon" strokeWidth={1.7} />
 								</button>
 							</Tooltip>
 						{:else}
@@ -399,7 +400,7 @@
 								{#if action.glyph}
 									<span class="icon menu-glyph {action.glyphClass}">{action.glyph}</span>
 								{:else}
-									<svg class="icon"><use href={`#i-${action.icon}`} /></svg>
+									<Icon name={`composer-${action.icon}`} className="icon" strokeWidth={1.7} />
 								{/if}
 							</button>
 						</Tooltip>
@@ -414,7 +415,7 @@
 						disabled={total <= 1}
 						on:click={() => dispatch('remove')}
 					>
-						<svg class="icon"><use href="#i-trash" /></svg>
+						<Icon name="composer-trash" className="icon" strokeWidth={1.7} />
 					</button>
 				</Tooltip>
 
@@ -430,7 +431,7 @@
 							bind:this={menuTriggerBtn}
 							on:click={toggleMenu}
 						>
-							<svg class="icon"><use href="#i-more" /></svg>
+							<Icon name="composer-more" className="icon" strokeWidth={1.7} />
 						</button>
 					</Tooltip>
 

@@ -15,6 +15,7 @@
 	import type { LoraSelectionRow } from '$lib/stores/loraPickerSelections';
 	import type { FormImageEntry } from '$lib/chat/formMedia';
 	import { filterVisibleToolsByPreferences } from '$lib/chat/toolPreferences';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let value: string = '';
 	export let resources: Record<string, ResourceChipData> = {};
@@ -202,7 +203,7 @@
 								>
 									<span>{group}</span>
 									<span class="tool-row-count" data-testid="tool-group-count">{enabled}/{total}</span>
-									<svg class="icon tool-row-chevron"><use href="#i-chevron" /></svg>
+									<Icon name="chat-chevron" className="icon tool-row-chevron" strokeWidth={1.8} />
 								</button>
 							</div>
 						{/each}
@@ -215,7 +216,7 @@
 							data-testid="tool-group-back"
 							on:click={() => (drillGroup = null)}
 						>
-							<svg class="icon"><use href="#i-chevron" /></svg>
+							<Icon name="chat-chevron" className="icon" strokeWidth={1.8} />
 							<span>{drillGroup}</span>
 						</button>
 						{#each activeGroupTools as tool (tool.name)}
@@ -248,7 +249,7 @@
 						onOpenToolPreferences?.();
 					}}
 				>
-					<svg class="icon"><use href="#i-info" /></svg>
+					<Icon name="chat-info" className="icon" strokeWidth={1.8} />
 					<span>Manage my tools&hellip;</span>
 				</button>
 			{/if}
@@ -287,7 +288,7 @@
 						aria-label="Remove attached image"
 						on:click={() => onRemoveImage?.()}
 					>
-						<svg class="icon"><use href="#i-close" /></svg>
+						<Icon name="chat-close" className="icon" strokeWidth={1.8} />
 					</button>
 				</span>
 			{/if}
@@ -320,7 +321,7 @@
 							aria-expanded={showAttachPopover}
 							on:click={toggleAttachPopover}
 						>
-							<svg class="icon"><use href="#i-plus" /></svg><span>Add</span>
+							<Icon name="chat-plus" className="icon" strokeWidth={1.8} /><span>Add</span>
 						</button>
 					</Tooltip>
 					<Tooltip text="Auto-attach last generated image: {alwaysAttachLastImage ? 'ON' : 'OFF'}">
@@ -331,7 +332,7 @@
 							aria-pressed={alwaysAttachLastImage}
 							on:click={onToggleAttachImage}
 						>
-							<svg class="icon"><use href="#i-image" /></svg>
+							<Icon name="chat-image" className="icon" strokeWidth={1.8} />
 							<span class="auto-label-full">Auto-attach last image</span>
 							<span class="auto-label-short">Auto image</span>
 							<span class="auto-state">{alwaysAttachLastImage ? 'ON' : 'OFF'}</span>
@@ -347,7 +348,7 @@
 						aria-expanded={showToolsDropdown}
 						on:click={toggleToolsDropdown}
 					>
-						<svg class="icon"><use href="#i-tools" /></svg><span>Tools</span>
+						<Icon name="chat-tools" className="icon" strokeWidth={1.8} /><span>Tools</span>
 						{#if totalToolCount > 0}<span class="tool-count">{enabledToolCount}</span>{/if}
 					</button>
 				</Tooltip>
@@ -360,7 +361,7 @@
 							aria-pressed={memoryOpen}
 							on:click={onOpenMemory}
 						>
-							<svg class="icon"><use href="#i-memory" /></svg><span>Memory</span>
+							<Icon name="chat-memory" className="icon" strokeWidth={1.8} /><span>Memory</span>
 							{#if memoryNoteCount != null}<span class="tool-count">{memoryNoteCount}</span>{/if}
 						</button>
 					</Tooltip>
@@ -385,7 +386,7 @@
 							on:click={handleSubmit}
 							disabled={isGenerating || !value.trim() || disabled}
 						>
-							<svg class="icon"><use href="#i-arrow-up" /></svg>
+							<Icon name="chat-arrow-up" className="icon" strokeWidth={1.8} />
 						</button>
 					</Tooltip>
 				{/if}

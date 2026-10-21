@@ -29,6 +29,7 @@
 	import { copyText } from '$lib/utils/clipboard';
 	import { appliedSegmentActions, isAppliedSegmentAction } from '$lib/stores/appliedSegmentActions';
 	import { removedSegmentActions, removedActionKey } from '$lib/stores/removedSegmentActions';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let role: 'user' | 'assistant' | 'system';
 	export let content: string;
@@ -374,7 +375,7 @@
 					<div class="prompt-card">
 						<div class="prompt-card-head">
 							<div class="prompt-card-title">
-								<svg class="icon"><use href="#i-edit" /></svg>
+								<Icon name="chat-edit" className="icon" strokeWidth={1.8} />
 								<strong>{actionHeading(action, i)}{actionPosition(action)}</strong>
 								<span class="prompt-label">{actionTag(action)}</span>
 							</div>
@@ -389,7 +390,7 @@
 										aria-pressed={feedback?.verdict === 'approved'}
 										on:click={() => submitPromptFeedback(i, 'approved')}
 									>
-										<svg class="icon"><use href="#i-good" /></svg>
+										<Icon name="chat-good" className="icon" strokeWidth={1.8} />
 									</button>
 									<button
 										type="button"
@@ -400,7 +401,7 @@
 										aria-pressed={feedback?.verdict === 'rejected'}
 										on:click={() => toggleReasonPanel(i)}
 									>
-										<svg class="icon"><use href="#i-bad" /></svg>
+										<Icon name="chat-bad" className="icon" strokeWidth={1.8} />
 									</button>
 								{/if}
 								{#if onApplyAction}
@@ -488,7 +489,7 @@
 
 			<div class="message-actions">
 				<button type="button" class="message-action" title="Copy" aria-label="Copy response" on:click={copyResponse}>
-					<svg class="icon"><use href={responseCopied ? '#i-check' : '#i-copy'} /></svg>
+					<Icon name={responseCopied ? 'chat-check' : 'chat-copy'} className="icon" strokeWidth={1.8} />
 				</button>
 				{#if modelTokensLine}
 					<span class="message-model">{modelTokensLine}</span>

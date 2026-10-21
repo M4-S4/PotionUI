@@ -20,6 +20,7 @@
 	import SessionDrawer from '$lib/components/session/SessionDrawer.svelte';
 	import { sideDrawer } from '$lib/stores/sideDrawer';
 	import SessionHost from '$lib/components/session/SessionHost.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let presetId: string | null = null;
 	export let currentMode: string | null = null;
@@ -153,7 +154,7 @@
 		<span class="cell-copy">
 			<span class="session-name-line">
 				<span class="session-name">{$session.currentSession ? $session.currentSession.name : 'None'}</span>
-				<span class="session-chevron"><svg class="icon"><use href="#i-chevron" /></svg></span>
+				<span class="session-chevron"><Icon name="panel-chevron" className="icon" strokeWidth={1.8} /></span>
 			</span>
 			<span class="session-state">
 				<span class="dirty-dot {$session.hasUnsavedChanges ? '' : 'is-saved'}" aria-hidden="true"></span>
@@ -176,7 +177,7 @@
 			aria-label={saveCellAriaLabel}
 			on:click={handleSaveCellClick}
 		>
-			<svg class="icon"><use href="#i-save" /></svg>
+			<Icon name="panel-save" className="icon" strokeWidth={1.8} />
 		</button>
 	</Tooltip>
 

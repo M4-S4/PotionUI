@@ -18,6 +18,7 @@
 	} from '$lib/chat/actionCard';
 	import type { VariableRoll, VariablesMap } from '$lib/utils/variableDefs';
 	import ChatActionPreview from './ChatActionPreview.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let {
 		execution,
@@ -167,7 +168,7 @@
 	>
 		<div class="action-card-head">
 			<div class="action-card-title">
-				<svg class="icon" aria-hidden="true"><use href="#{actionCardIcon(execution)}" /></svg>
+				<Icon name={actionCardIcon(execution)} className="icon" strokeWidth={1.8} />
 				<strong>{toolLabel}</strong>
 				<span class="action-label is-{cardState}">{ACTION_STATE_LABEL[cardState]}</span>
 			</div>

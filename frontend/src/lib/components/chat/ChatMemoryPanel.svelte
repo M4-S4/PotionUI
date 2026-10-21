@@ -14,6 +14,7 @@
 		unavailableGroupHint
 	} from '$lib/chat/memoryGroups';
 	import { MODEL_REF_PREFIX, findModelForValue } from '$lib/utils/modelRef';
+	import Icon from '$lib/components/Icon.svelte';
 
 	// The panel resolves the preset name + active model itself from the chat's
 	// current tab context (see UnifiedAIChat). It needs the raw preset ULID and
@@ -339,14 +340,14 @@
 <button class="memory-backdrop" aria-label="Close memory" on:click={onClose}></button>
 <aside class="memory-inspector" aria-label="Memory">
 	<div class="memory-head">
-		<svg class="icon"><use href="#i-memory" /></svg>
+		<Icon name="chat-memory" className="icon" strokeWidth={1.8} />
 		<div class="memory-title">
 			<strong>Memory</strong>
 			<span>What PotionAI carries into replies</span>
 		</div>
 		<Tooltip text="Close" position="bottom">
 			<button class="tiny-button" aria-label="Close" on:click={onClose}>
-				<svg class="icon"><use href="#i-close" /></svg>
+				<Icon name="chat-close" className="icon" strokeWidth={1.8} />
 			</button>
 		</Tooltip>
 	</div>
@@ -456,7 +457,7 @@
 															aria-label="Confirm delete"
 															on:click={() => deleteNote(note.id)}
 														>
-															<svg class="icon"><use href="#i-check" /></svg>
+															<Icon name="chat-check" className="icon" strokeWidth={1.8} />
 														</button>
 													</Tooltip>
 													<Tooltip text="Cancel">
@@ -465,13 +466,13 @@
 															aria-label="Cancel"
 															on:click={() => (confirmDeleteId = null)}
 														>
-															<svg class="icon"><use href="#i-close" /></svg>
+															<Icon name="chat-close" className="icon" strokeWidth={1.8} />
 														</button>
 													</Tooltip>
 												{:else}
 													<Tooltip text="Edit">
 														<button type="button" aria-label="Edit" on:click={() => startEdit(note)}>
-															<svg class="icon"><use href="#i-edit" /></svg>
+															<Icon name="chat-edit" className="icon" strokeWidth={1.8} />
 														</button>
 													</Tooltip>
 													<Tooltip text="Delete">
@@ -484,7 +485,7 @@
 																confirmDeleteId = note.id;
 															}}
 														>
-															<svg class="icon"><use href="#i-trash" /></svg>
+															<Icon name="chat-trash" className="icon" strokeWidth={1.8} />
 														</button>
 													</Tooltip>
 												{/if}

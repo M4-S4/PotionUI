@@ -114,13 +114,13 @@
 							on:input={(e) => updateOptionText(index, e.currentTarget.value)}
 						/>
 						<button type="button" data-choice-remove title="Remove option" on:click={() => removeOption(index)}>
-							<svg class="icon"><use href="#i-trash" /></svg>
+							<Icon name="composer-trash" className="icon" strokeWidth={1.7} />
 						</button>
 					</div>
 				{/each}
 			</div>
 			<button type="button" class="small-button" style="margin-top: 8px" on:click={addOption}>
-				<svg class="icon"><use href="#i-plus" /></svg>
+				<Icon name="composer-plus" className="icon" strokeWidth={1.7} />
 				Add option
 			</button>
 			<p class="helper">Weights default to 1. The editor preserves advanced count and separator syntax when it already exists.</p>

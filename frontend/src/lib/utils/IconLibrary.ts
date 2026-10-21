@@ -1,9 +1,13 @@
+import { spriteFilledGlyphs, spriteGlyphs } from './iconGlyphs';
+
 // Centralized icon library with all custom and heroicons
 // Usage: import { iconPaths } from './IconLibrary'
 // Then: <Icon name="generation" />
 
 // Icons can have single path (string) or multiple paths (string array)
 export const iconPaths: Record<string, string | string[]> = {
+	...spriteGlyphs,
+
 	// Actions
 	plus: 'M12 4v16m8-8H4',
 	minus: 'M6 12h12',
@@ -220,6 +224,11 @@ export const iconPaths: Record<string, string | string[]> = {
 export function getIconPath(name: string | undefined): string | string[] | null {
 	if (!name) return null;
 	return iconPaths[name] || null;
+}
+
+export function getFilledIconPaths(name: string | undefined): string[] {
+	if (!name) return [];
+	return spriteFilledGlyphs[name] ?? [];
 }
 
 // Helper function to check if an icon exists

@@ -230,7 +230,7 @@
 		</button>
 		{#if !disabled}
 			<button type="button" onmousedown={toggle} class="chip-config" title={popoverLabel} aria-label={popoverLabel}>
-				<svg class="icon"><use href="#i-sliders" /></svg>
+				<Icon name="composer-sliders" className="icon" strokeWidth={1.7} />
 			</button>
 		{/if}
 
@@ -252,7 +252,7 @@
 							{#if headerSubtitle}<span>{headerSubtitle}</span>{/if}
 						</div>
 						<button type="button" class="close" aria-label="Close" onmousedown={toggle}>
-							<svg class="icon"><use href="#i-close" /></svg>
+							<Icon name="composer-close" className="icon" strokeWidth={1.7} />
 						</button>
 					</header>
 					<div class="popover-body">

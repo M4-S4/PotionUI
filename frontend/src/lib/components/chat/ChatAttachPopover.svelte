@@ -9,6 +9,7 @@
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { FormImageEntry } from '$lib/chat/formMedia';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let triggerEl: HTMLElement | undefined = undefined;
 	export let onClose: () => void;
@@ -50,7 +51,7 @@
 	data-testid="chat-attach-popover"
 >
 	<div class="media-head">
-		<span class="media-head-icon"><svg class="icon"><use href="#i-image" /></svg></span>
+		<span class="media-head-icon"><Icon name="chat-image" className="icon" strokeWidth={1.8} /></span>
 		<div class="media-head-copy">
 			<strong>Attach an image</strong>
 			<span>One image can be sent with the next message</span>
@@ -58,7 +59,7 @@
 		<span class="capability-badge">VISION</span>
 		<Tooltip text="Close" position="bottom">
 			<button class="tiny-button" aria-label="Close image picker" on:click={onClose}>
-				<svg class="icon"><use href="#i-close" /></svg>
+				<Icon name="chat-close" className="icon" strokeWidth={1.8} />
 			</button>
 		</Tooltip>
 	</div>

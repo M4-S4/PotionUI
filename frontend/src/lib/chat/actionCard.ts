@@ -118,11 +118,11 @@ export function approveVerb(execution: ToolExecution): string {
 
 export function actionCardIcon(execution: ToolExecution): string {
 	const kind = execution.preview?.kind;
-	if (kind === 'generation') return 'i-sparkles';
-	if (kind === 'text_edit') return 'i-edit';
-	if (kind === 'timeline') return 'i-clock';
-	if (buildApprovalDiff(execution)) return 'i-sliders';
-	return 'i-tools';
+	if (kind === 'generation') return 'chat-sparkles';
+	if (kind === 'text_edit') return 'chat-edit';
+	if (kind === 'timeline') return 'chat-clock';
+	if (buildApprovalDiff(execution)) return 'chat-sliders';
+	return 'chat-tools';
 }
 
 export function collapsedSummary(execution: ToolExecution, toolLabel: string): string {

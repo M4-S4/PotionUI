@@ -3,6 +3,7 @@
 	import type { ChatMode } from '$lib/types/chat';
 	import { deriveModeScopeMismatch } from '$lib/chat/modeScopeNotice';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let modes: ChatMode[] = [];
 	export let selected: string;
@@ -40,10 +41,10 @@
 			aria-expanded={open}
 			on:click={toggleOpen}
 		>
-			<svg class="icon"><use href="#i-sparkles" /></svg>
+			<Icon name="chat-sparkles" className="icon" strokeWidth={1.8} />
 			<span>{selectedMode?.name || selected}</span>
 			{#if locked}
-				<svg class="icon lock"><use href="#i-lock" /></svg>
+				<Icon name="chat-lock" className="icon lock" strokeWidth={1.8} />
 			{/if}
 		</button>
 	</Tooltip>
@@ -78,7 +79,7 @@
 					{#if mode.description}<small>{mode.description}</small>{/if}
 				</span>
 				{#if mode.id === selected}
-					<svg class="icon check"><use href="#i-check" /></svg>
+					<Icon name="chat-check" className="icon check" strokeWidth={1.8} />
 				{/if}
 			</button>
 		{/each}

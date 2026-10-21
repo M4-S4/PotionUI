@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { Segment } from '$lib/types/segments';
 	import { segmentMenuActions, SEGMENT_ACTION_GROUPS, type SegmentAction } from '$lib/utils/segmentActions';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let segment: Segment;
 	export let index: number;
@@ -37,7 +38,7 @@
 						{#if action.glyph}
 							<span class="icon menu-glyph {action.glyphClass}">{action.glyph}</span>
 						{:else}
-							<svg class="icon"><use href={`#i-${action.icon}`} /></svg>
+							<Icon name={`composer-${action.icon}`} className="icon" strokeWidth={1.7} />
 						{/if}
 						<span>{action.label}</span>
 					</button>
@@ -48,7 +49,7 @@
 						aria-label={pinnedIds.has(action.id) ? `Unpin ${action.label}` : `Pin ${action.label}`}
 						on:click|stopPropagation={() => dispatch('togglePin', action.id)}
 					>
-						<svg class="icon"><use href="#i-pin" /></svg>
+						<Icon name="composer-pin" className="icon" strokeWidth={1.7} />
 					</button>
 				</div>
 			{/each}
@@ -97,7 +98,7 @@
 		color: rgb(var(--signal));
 	}
 
-	.menu-pin .icon {
+	.menu-pin :global(.icon) {
 		width: 14px;
 		height: 14px;
 	}

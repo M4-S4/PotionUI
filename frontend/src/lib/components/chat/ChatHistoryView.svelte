@@ -16,6 +16,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { logger } from '$lib/utils/logger';
 	import type { ChatSessionResponse } from '$lib/types/api';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let onOpenSession: (id: string) => void | Promise<void>;
 	export let onNewChat: () => void;
@@ -121,7 +122,7 @@
 				aria-label="Search conversations"
 				on:click={toggleSearch}
 			>
-				<svg class="icon"><use href="#i-search" /></svg>
+				<Icon name="chat-search" className="icon" strokeWidth={1.8} />
 			</button>
 		</Tooltip>
 	</div>
@@ -146,7 +147,7 @@
 						<option value={mode.id}>{mode.name}</option>
 					{/each}
 				</select>
-				<svg class="icon chevron"><use href="#i-chevron" /></svg>
+				<Icon name="chat-chevron" className="icon chevron" strokeWidth={1.8} />
 			</span>
 		</div>
 	{/if}
@@ -154,7 +155,7 @@
 	<Tooltip text="New chat" position="bottom" wrapperClass="block w-full">
 		<button class="new-chat-button" on:click={onNewChat}>
 			<span style="display:flex;align-items:center;gap:8px"
-				><svg class="icon"><use href="#i-plus" /></svg>New conversation</span
+				><Icon name="chat-plus" className="icon" strokeWidth={1.8} />New conversation</span
 			>
 		</button>
 	</Tooltip>
@@ -200,7 +201,7 @@
 								aria-label="Delete conversation"
 								on:click={(e) => handleDelete(session.id, e)}
 							>
-								<svg class="icon"><use href="#i-trash" /></svg>
+								<Icon name="chat-trash" className="icon" strokeWidth={1.8} />
 							</button>
 						</Tooltip>
 					</div>

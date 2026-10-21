@@ -127,7 +127,7 @@
 			class:open={showList}
 			on:click={() => (userToggled = !showList)}
 		>
-			<svg class="icon"><use href="#i-chevron" /></svg>
+			<Icon name="chat-chevron" className="icon" strokeWidth={1.8} />
 			<span>{effectiveSteps.length} steps</span>
 			{#if !showList}
 				<span class="truncate max-w-[420px]">· {effectiveSteps.map(stepLabel).join(', ')}</span>

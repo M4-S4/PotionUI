@@ -12,6 +12,7 @@
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { formatTokenCount } from '$lib/utils/chat';
+	import Icon from '$lib/components/Icon.svelte';
 
 	// Provider+Model (LLM config) selection
 	export let llmConfigs: any[] = [];
@@ -130,14 +131,14 @@
 			class="icon-button"
 			on:click={onToggleRail}
 		>
-			<svg class="icon"><use href="#i-menu" /></svg>
+			<Icon name="chat-menu" className="icon" strokeWidth={1.8} />
 		</button>
 	</Tooltip>
 
 	{#if onNewChat}
 		<Tooltip text="New chat" position="bottom">
 			<button type="button" aria-label="New chat" class="icon-button" on:click={onNewChat}>
-				<svg class="icon"><use href="#i-plus" /></svg>
+				<Icon name="chat-plus" className="icon" strokeWidth={1.8} />
 			</button>
 		</Tooltip>
 	{/if}
@@ -195,7 +196,7 @@
 				>
 					<span class="model-dot"></span>
 					<span>{selectedModelName || 'Model'}</span>
-					<svg class="icon chevron"><use href="#i-chevron" /></svg>
+					<Icon name="chat-chevron" className="icon chevron" strokeWidth={1.8} />
 				</button>
 			</Tooltip>
 		{/if}
@@ -209,7 +210,7 @@
 				aria-expanded={showMoreMenu}
 				on:click={toggleMoreMenu}
 			>
-				<svg class="icon"><use href="#i-more" /></svg>
+				<Icon name="chat-more" className="icon" strokeWidth={1.8} />
 			</button>
 		</Tooltip>
 
@@ -217,7 +218,7 @@
 			<div class="header-divider"></div>
 			<Tooltip text="Close" kbd="Esc" position="bottom">
 				<button type="button" aria-label="Close chat" class="icon-button" on:click={onClose}>
-					<svg class="icon"><use href="#i-close" /></svg>
+					<Icon name="chat-close" className="icon" strokeWidth={1.8} />
 				</button>
 			</Tooltip>
 		{/if}
@@ -246,7 +247,7 @@
 						<small>{config.model}</small>
 					</span>
 					{#if config.id === selectedConfigId}
-						<svg class="icon check"><use href="#i-check" /></svg>
+						<Icon name="chat-check" className="icon check" strokeWidth={1.8} />
 					{/if}
 				</button>
 			{/each}
@@ -259,13 +260,13 @@
 			use:dismiss={{ onDismiss: () => (showMoreMenu = false), ignore: [moreTriggerEl] }}
 		>
 			<button type="button" disabled={!hasSession} on:click={startRename}>
-				<svg class="icon"><use href="#i-edit" /></svg>Rename conversation
+				<Icon name="chat-edit" className="icon" strokeWidth={1.8} />Rename conversation
 			</button>
 			<button type="button" disabled={!hasSession} on:click={handleExport}>
-				<svg class="icon"><use href="#i-file" /></svg>Export transcript
+				<Icon name="chat-file" className="icon" strokeWidth={1.8} />Export transcript
 			</button>
 			<button type="button" class="danger-option" disabled={!hasSession} on:click={openDeleteConfirm}>
-				<svg class="icon"><use href="#i-trash" /></svg>Delete conversation
+				<Icon name="chat-trash" className="icon" strokeWidth={1.8} />Delete conversation
 			</button>
 		</div>
 	{/if}
