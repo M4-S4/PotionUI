@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LLMConfigFormData } from '../../src/routes/admin/components/LLMConfigForm.svelte';
 import type { NativeCheckpoint } from '$lib/types/llm';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { listNativeCheckpoints: vi.fn() }
@@ -72,10 +73,6 @@ function mount(draft: LLMConfigFormData) {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mount> | undefined;

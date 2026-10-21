@@ -30,12 +30,12 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { flushSync } = await import('svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { default: VideoDirectorEditor } = await import('$lib/components/video-director/VideoDirectorEditor.svelte');
 const { resolveDirectorCapabilities } = await import('$lib/utils/videoDirector');
 
 import type { VideoDirectorValue, ChainSegment } from '$lib/types/videoDirector';
+import { settleFlush } from './helpers/settle';
 
 // Mirrors content/presets/marketplace/Wan/preset.yml's `video_director` block
 // exactly (family/timing/segment_routing/modes.director), so this test also
@@ -105,11 +105,6 @@ function wan808080Doc(overrides: { overlapFrames?: number; stitch?: boolean } = 
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 // The fixture's segments carry an empty `prompt_segments`, so normalization
 // re-derives an empty prompt and `deriveShotLabel` falls back to "Shot N" --
 // seg-b is the film's 2nd segment, hence "Expand Shot 2".
@@ -145,13 +140,13 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
+		await settleFlush();
 
 		// 239 emitted frames / 16 fps = 14.9375s -> "14.9 s" (ConsoleHeader.svelte's own .toFixed(1))
 		expect(target.textContent).toContain('14.9 s');
 
 		expandShotB(target);
-		await settle();
+		await settleFlush();
 		expect(target.textContent).toContain('81');
 		expect(target.textContent).toContain('77 new');
 	});
@@ -172,12 +167,12 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
+		await settleFlush();
 
 		// 242 / 16 = 15.125 -> "15.1 s"
 		expect(target.textContent).toContain('15.1 s');
 		expandShotB(target);
-		await settle();
+		await settleFlush();
 		expect(target.textContent).toContain('80 new');
 	});
 
@@ -197,13 +192,13 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
+		await settleFlush();
 		expandShotB(target);
-		await settle();
+		await settleFlush();
 		expect(target.textContent).toContain('77 new');
 
 		instance.$set({ formData: { svi_motion_latent_count: 1 } });
-		await settle();
+		await settleFlush();
 		expect(target.textContent).toContain('80 new');
 		expect(target.textContent).not.toContain('77 new');
 	});
@@ -233,7 +228,7 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
+		await settleFlush();
 		// The header's own film-total qualifier -- visible immediately, no
 		// need to expand a shot. Scoped to the <header> element specifically:
 		// the default-expanded first shot's OWN ShotCard qualifier would also
@@ -241,7 +236,7 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 		// header in isolation to actually prove ConsoleHeader renders one.
 		expect(target.querySelector('header')?.textContent).toContain('requested');
 		expandShotB(target);
-		await settle();
+		await settleFlush();
 		expect(target.textContent).toContain('requested');
 		expect(target.textContent).not.toContain('77 new');
 	});
@@ -262,7 +257,7 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
+		await settleFlush();
 		expect(target.textContent).toContain('14.9 s');
 		expect(target.textContent).not.toContain('requested');
 	});
@@ -288,9 +283,9 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
+		await settleFlush();
 		expandShotB(target);
-		await settle();
+		await settleFlush();
 		// seg-b: frames snap(5)=5, context=min(4,81)=4, 5 is not > 4+1 ->
 		// untrimmed; stitch=false means no join drop -> full 5 frames, no
 		// "new" overlap-in figure at all (hasOverlapIn still true, but

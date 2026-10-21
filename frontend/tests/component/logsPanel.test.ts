@@ -5,6 +5,7 @@
 // states (file logging off, no lines yet).
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { LogTail } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	getLogTail: vi.fn()
@@ -25,10 +26,6 @@ function tail(overrides: Partial<LogTail> = {}): LogTail {
 		size_bytes: 2048,
 		...overrides
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function mountPanel() {

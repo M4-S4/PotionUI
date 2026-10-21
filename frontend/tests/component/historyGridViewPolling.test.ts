@@ -9,8 +9,6 @@ vi.mock('$lib/generation/compare/view/gridApi', () => ({
 	retryGridFailed: vi.fn()
 }));
 
-vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
-
 const gridApi = await import('$lib/generation/compare/view/gridApi');
 const { default: HistoryGridView } = await import('../../src/routes/history/components/HistoryGridView.svelte');
 const { createClassComponent } = await import('svelte/legacy');

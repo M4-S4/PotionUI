@@ -18,6 +18,7 @@
 // component drive scrollTop to scrollHeight once its container is observed
 // as visible — not a real-browser pixel check.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -86,10 +87,6 @@ function findMessagesContainer(target: Element): HTMLElement {
 	return el!;
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let originalRO: unknown;
 let target: HTMLElement;
 let component: { $destroy: () => void } | undefined;
@@ -127,7 +124,7 @@ afterEach(() => {
 describe('UnifiedAIChat scroll position on reopen', () => {
 	it('pins the messages container to the bottom on a fresh mount with a restored conversation', async () => {
 		component = createClassComponent({ component: UnifiedAIChat as never, target, props: {} });
-		await settle();
+		await settle(10);
 
 		const container = findMessagesContainer(target);
 		// Stand in for "the message list has rendered with real content" —

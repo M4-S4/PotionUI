@@ -2,7 +2,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { writable } from 'svelte/store';
 
-vi.mock('$app/navigation', () => ({ goto: vi.fn() }));
 vi.mock('$lib/services/api/index', () => ({
 	api: { getClient: () => ({ get: vi.fn().mockResolvedValue({ data: { data: {} } }), put: vi.fn() }) }
 }));

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetFormSchema: vi.fn() }
@@ -63,10 +64,6 @@ function schema(tabs: unknown[]) {
 	return { properties: { layout: { type: 'tabs', children: tabs } } };
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let destroy: (() => void) | undefined;
 
 function mountForm(tabs: unknown[], initialData: Record<string, unknown> = {}) {
@@ -104,11 +101,11 @@ function mountForm(tabs: unknown[], initialData: Record<string, unknown> = {}) {
 		lastData: () => log[log.length - 1],
 		toggleExtras: async () => {
 			input('extras_on')!.click();
-			await settle();
+			await settle(10);
 		},
 		clickTab: async (label: string) => {
 			tabButtons().find((b) => b.getAttribute('aria-label') === label)!.click();
-			await settle();
+			await settle(10);
 		}
 	};
 }
@@ -125,7 +122,7 @@ afterEach(() => {
 describe('Tab bar with a single visible tab', () => {
 	it('renders the content without a tab bar when the preset has one tab', async () => {
 		const m = mountForm([mainTab]);
-		await settle();
+		await settle(10);
 		expect(m.tabButtons()).toHaveLength(0);
 		expect(m.target.querySelector('[role="tablist"]')).toBeNull();
 		expect(m.input('prompt')).toBeTruthy();
@@ -135,26 +132,26 @@ describe('Tab bar with a single visible tab', () => {
 
 	it('renders the bar when two tabs are visible', async () => {
 		const m = mountForm([mainTab, extrasTab()]);
-		await settle();
+		await settle(10);
 		expect(m.tabButtons().map((b) => b.getAttribute('aria-label'))).toEqual(['Main', 'Extras']);
 		expect(m.panelOf('prompt').className).toContain('pt-3');
 	});
 
 	it('hides the bar when a second tab is hidden by an admin-style visible=false', async () => {
 		const m = mountForm([mainTab, extrasTab({ visible: false })]);
-		await settle();
+		await settle(10);
 		expect(m.tabButtons()).toHaveLength(0);
 		expect(m.input('prompt')).toBeTruthy();
 	});
 
 	it('shows and hides the bar live as a reaction toggles the second tab, keeping values and the active tab', async () => {
 		const m = mountForm([mainTab, reactiveExtrasTab]);
-		await settle();
+		await settle(10);
 		expect(m.tabButtons()).toHaveLength(0);
 
 		m.input('prompt')!.value = 'typed';
 		m.input('prompt')!.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		await m.toggleExtras();
 		expect(m.tabButtons()).toHaveLength(2);
@@ -177,11 +174,11 @@ describe('Tab bar with a single visible tab', () => {
 			]
 		};
 		const m = mountForm([hideable, extrasTab()]);
-		await settle();
+		await settle(10);
 		expect(m.tabButtons()).toHaveLength(2);
 		m.input('strength')!.value = 'kept';
 		m.input('strength')!.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		await m.toggleExtras();
 		expect(m.tabButtons()).toHaveLength(0);
@@ -195,7 +192,7 @@ describe('Tab bar with a single visible tab', () => {
 describe('Session round trip across tab layouts', () => {
 	it('loads values saved under a one-tab preset into a preset that now has three tabs', async () => {
 		const m = mountForm([mainTab, extrasTab(), loraTab], { prompt: 'saved', extras_on: false });
-		await settle();
+		await settle(10);
 		expect(m.tabButtons()).toHaveLength(3);
 		expect(m.input('prompt')!.value).toBe('saved');
 		expect(m.input('strength')!.value).toBe('s0');
@@ -205,7 +202,7 @@ describe('Session round trip across tab layouts', () => {
 
 	it('loads values saved on a non-first tab into a preset where that tab is hidden', async () => {
 		const m = mountForm([mainTab, extrasTab({ visible: false })], { prompt: 'saved', strength: 'from-hidden' });
-		await settle();
+		await settle(10);
 		expect(m.tabButtons()).toHaveLength(0);
 		expect(m.input('prompt')!.value).toBe('saved');
 		expect(m.panelOf('prompt').classList.contains('hidden')).toBe(false);
@@ -214,7 +211,7 @@ describe('Session round trip across tab layouts', () => {
 
 	it('keeps a saved non-first-tab value when the tab is later revealed by a reaction', async () => {
 		const m = mountForm([mainTab, reactiveExtrasTab], { prompt: 'saved', strength: 'from-extras', extras_on: false });
-		await settle();
+		await settle(10);
 		expect(m.tabButtons()).toHaveLength(0);
 		await m.toggleExtras();
 		expect(m.tabButtons()).toHaveLength(2);
@@ -225,9 +222,9 @@ describe('Session round trip across tab layouts', () => {
 
 	it('replaying an initialData onto a form whose bar appears keeps every value', async () => {
 		const m = mountForm([mainTab, reactiveExtrasTab], { prompt: 'a', extras_on: false });
-		await settle();
+		await settle(10);
 		m.form.$set({ initialData: { prompt: 'b', strength: 'x', extras_on: true } });
-		await settle();
+		await settle(10);
 		expect(m.tabButtons()).toHaveLength(2);
 		expect(m.input('prompt')!.value).toBe('b');
 		expect(m.input('strength')!.value).toBe('x');

@@ -7,6 +7,7 @@
 // "Bring-up log" disclosure a completed row keeps its history behind.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { ProvisionedCompute } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	getComputeProviders: vi.fn(),
@@ -98,10 +99,6 @@ function mountSection(
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mountSection> | undefined;

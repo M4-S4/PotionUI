@@ -17,6 +17,7 @@
 // References stage tabs, and ShotRail's keyframe/audio lanes instead --
 // none of it is what this test exercises).
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settleFlush } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -34,7 +35,7 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { mount, unmount, flushSync } = await import('svelte');
+const { mount, unmount } = await import('svelte');
 const { default: StageBeat } = await import(
 	'$lib/components/video-director/console/StageBeat.svelte'
 );
@@ -143,11 +144,6 @@ function wanCaps(): DirectorCapabilities {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
@@ -162,7 +158,7 @@ async function typeIntoFirstSegment(target: HTMLElement, text: string) {
 	if (!editable) throw new Error('no contenteditable segment editor found in StageShot render');
 	editable.textContent = text;
 	editable.dispatchEvent(new Event('input', { bubbles: true }));
-	await settle();
+	await settleFlush();
 }
 
 async function driveShotEdit(
@@ -194,7 +190,7 @@ async function driveShotEdit(
 	});
 	cleanup = () => unmount(instance);
 
-	await settle();
+	await settleFlush();
 	await typeIntoFirstSegment(target, text);
 
 	return emitted;

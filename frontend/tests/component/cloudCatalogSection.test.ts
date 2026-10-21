@@ -7,6 +7,7 @@ import type {
 	CloudCatalogRefreshResult,
 	CloudCatalogToggleResult
 } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 type PageStore = Writable<{ url: URL }>;
 
@@ -15,15 +16,6 @@ vi.mock('$lib/services/admin-api', () => ({
 	refreshCloudCatalog: vi.fn(),
 	setCloudCatalogEnabled: vi.fn()
 }));
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string | URL) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		}
-	};
-});
 
 const adminApi = await import('$lib/services/admin-api');
 const page = (await import('$app/stores')).page as unknown as PageStore;
@@ -148,10 +140,6 @@ function refreshed(overrides: Partial<CloudCatalogRefreshResult> = {}): CloudCat
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function deferred<T>() {
 	let resolve!: (value: T) => void;
 	let reject!: (reason: unknown) => void;
@@ -190,6 +178,7 @@ function mountSection() {
 let mounted: ReturnType<typeof mountSection> | undefined;
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	page.set({ url: new URL('http://localhost/admin?tab=backends&backend=b1&view=catalog') });
 });
 
@@ -197,13 +186,14 @@ afterEach(() => {
 	mounted?.destroy();
 	mounted = undefined;
 	vi.clearAllMocks();
+	vi.useRealTimers();
 });
 
 describe('Cloud catalog: list', () => {
 	it('shows each model with its prices, tasks and status, plus the summary line and data notice', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO, SEEDREAM, GONE])));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenCalledWith('b1', { limit: 50, offset: 0 });
 		expect(mounted.gridRows()).toHaveLength(3);
@@ -236,7 +226,7 @@ describe('Cloud catalog: list', () => {
 		page.set({ url: new URL('http://localhost/admin?tab=backends&backend=b1&view=catalog&q=veo&task=txt2video&output=video&enabled=1') });
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO])));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenCalledWith('b1', {
 			limit: 50,
@@ -253,7 +243,7 @@ describe('Cloud catalog: list', () => {
 			ok(catalog([], { state: null, counts: { total: 0, enabled: 0, missing: 0 } }))
 		);
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		expect(mounted.text()).toContain('No models yet');
 		expect(mounted.text()).toContain("Refresh the catalog to load this provider's models.");
@@ -267,7 +257,7 @@ describe('Cloud catalog: list', () => {
 			ok(catalog([], { counts: { total: 3, enabled: 1, missing: 0 } }))
 		);
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		expect(mounted.text()).toContain('No models match your filters');
 	});
@@ -275,12 +265,12 @@ describe('Cloud catalog: list', () => {
 	it('shows a load error with a retry that loads again', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockRejectedValueOnce(new Error('network down'));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		expect(mounted.text()).toContain('Could not load the catalog');
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO])));
 		mounted.button('Retry')!.click();
-		await settle();
+		await settle(10);
 
 		expect(mounted.rowFor('Veo 3.1')).toBeTruthy();
 		expect(mounted.text()).not.toContain('Could not load the catalog');
@@ -293,16 +283,16 @@ describe('Cloud catalog: enable toggle', () => {
 		const pending = deferred<ReturnType<typeof ok<CloudCatalogToggleResult>>>();
 		vi.mocked(adminApi.setCloudCatalogEnabled).mockReturnValue(pending.promise);
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.switchFor('Seedream 4.5')!.click();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.setCloudCatalogEnabled).toHaveBeenCalledWith('b1', ['seedream'], true);
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(true);
 
 		pending.resolve(ok(toggled('seedream', true)));
-		await settle();
+		await settle(10);
 
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(true);
 		expect(mounted.target.querySelector('[data-testid="catalog-summary"]')!.textContent).toContain('2 enabled');
@@ -313,14 +303,14 @@ describe('Cloud catalog: enable toggle', () => {
 		const pending = deferred<never>();
 		vi.mocked(adminApi.setCloudCatalogEnabled).mockReturnValue(pending.promise);
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.switchFor('Seedream 4.5')!.click();
-		await settle();
+		await settle(10);
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(true);
 
 		pending.reject({ isAxiosError: true, message: 'Request failed', response: { data: { message: 'The provider is not reachable.' } } });
-		await settle();
+		await settle(10);
 
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(false);
 		expect(mounted.rowFor('Seedream 4.5')!.textContent).toContain('The provider is not reachable.');
@@ -332,10 +322,10 @@ describe('Cloud catalog: enable toggle', () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO, SEEDREAM])));
 		vi.mocked(adminApi.setCloudCatalogEnabled).mockResolvedValue(ok(toggled('veo', false)));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.switchFor('Veo 3.1')!.click();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.setCloudCatalogEnabled).toHaveBeenCalledWith('b1', ['veo'], false);
 		expect(mounted.switchFor('Veo 3.1')!.checked).toBe(false);
@@ -348,10 +338,10 @@ describe('Cloud catalog: refresh', () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO, SEEDREAM])));
 		vi.mocked(adminApi.refreshCloudCatalog).mockResolvedValue(ok(refreshed()));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.button('Refresh catalog')!.click();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.refreshCloudCatalog).toHaveBeenCalledWith('b1');
 		expect(adminApi.getCloudCatalog).toHaveBeenCalledTimes(2);
@@ -361,7 +351,7 @@ describe('Cloud catalog: refresh', () => {
 		expect(mounted.target.querySelector('[data-testid="skipped-list"]')).toBeNull();
 
 		mounted.button('Show skipped models')!.click();
-		await settle();
+		await settle(10);
 
 		const list = mounted.target.querySelector('[data-testid="skipped-list"]')!;
 		expect(list.textContent).toContain('odd/model');
@@ -385,10 +375,10 @@ describe('Cloud catalog: refresh', () => {
 			)
 		);
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.button('Refresh catalog')!.click();
-		await settle();
+		await settle(10);
 
 		expect(mounted.target.querySelector('[data-testid="refresh-empty"]')!.textContent).toContain(
 			'nothing was changed'
@@ -405,10 +395,10 @@ describe('Cloud catalog: refresh', () => {
 			response: { data: { message: 'The provider rejected the API key.' } }
 		});
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.button('Refresh catalog')!.click();
-		await settle();
+		await settle(10);
 
 		expect(mounted.text()).toContain('The provider rejected the API key.');
 	});
@@ -421,16 +411,16 @@ describe('Cloud catalog: bulk actions', () => {
 			ok({ ...toggled('seedream', true), changed: ['seedream', 'flux'], models: { seedream: 'm-s', flux: 'm-f' } })
 		);
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		for (const label of ['Veo 3.1', 'Seedream 4.5', 'Flux 2', 'Gone Model']) {
 			mounted.checkboxFor(label)!.click();
-			await settle();
+			await settle(10);
 		}
 		expect(mounted.target.querySelector('[data-testid="bulk-bar"]')!.textContent).toContain('4 selected');
 
 		mounted.button('Enable 2')!.click();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.setCloudCatalogEnabled).toHaveBeenCalledWith('b1', ['seedream', 'flux'], true);
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(true);
@@ -443,12 +433,12 @@ describe('Cloud catalog: bulk actions', () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO, SEEDREAM])));
 		vi.mocked(adminApi.setCloudCatalogEnabled).mockResolvedValue(ok(toggled('veo', false)));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.checkboxFor('Veo 3.1')!.click();
-		await settle();
+		await settle(10);
 		mounted.button('Disable 1')!.click();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.setCloudCatalogEnabled).toHaveBeenCalledWith('b1', ['veo'], false);
 		expect(mounted.switchFor('Veo 3.1')!.checked).toBe(false);
@@ -462,14 +452,14 @@ describe('Cloud catalog: bulk actions', () => {
 			response: { data: { message: 'Cloud backend is not active.' } }
 		});
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.checkboxFor('Seedream 4.5')!.click();
-		await settle();
+		await settle(10);
 		mounted.checkboxFor('Flux 2')!.click();
-		await settle();
+		await settle(10);
 		mounted.button('Enable 2')!.click();
-		await settle();
+		await settle(10);
 
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(false);
 		expect(mounted.switchFor('Flux 2')!.checked).toBe(false);
@@ -494,7 +484,7 @@ function pagedCatalog(count: number) {
 	};
 }
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 
 function urlParams() {
 	return get(page).url.searchParams;
@@ -511,7 +501,7 @@ describe('Cloud catalog: search and filter writes', () => {
 	it('writes the typed search into the URL after the pause', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO])));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		type(searchInput(), 'veo');
 		expect(urlParams().get('q')).toBeNull();
@@ -523,7 +513,7 @@ describe('Cloud catalog: search and filter writes', () => {
 	it('does not touch the URL when the tab is left before the pause ends', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO])));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		type(searchInput(), 'veo');
 		mounted.destroy();
@@ -536,7 +526,7 @@ describe('Cloud catalog: search and filter writes', () => {
 	it('merges the typed search with the filters as they are when the pause ends', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO])));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		type(searchInput(), 'veo');
 		page.set({ url: new URL('http://localhost/admin?tab=backends&backend=b1&view=catalog&task=txt2video') });
@@ -549,11 +539,11 @@ describe('Cloud catalog: search and filter writes', () => {
 	it('drops a pending search when a filter is applied directly', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO])));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		type(searchInput(), 'veo');
 		mounted.button('Filters')!.click();
-		await settle();
+		await settle(10);
 		const select = document.querySelector<HTMLSelectElement>('[role="dialog"][aria-label="Catalog filters"] select')!;
 		select.value = 'txt2video';
 		select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -568,11 +558,11 @@ describe('Cloud catalog: reloading', () => {
 	it('reloads with the new query from the first page when a filter changes', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO, SEEDREAM])));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 		expect(adminApi.getCloudCatalog).toHaveBeenCalledTimes(1);
 
 		page.set({ url: new URL('http://localhost/admin?backend=b1&view=catalog&task=txt2video&enabled=1') });
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenCalledTimes(2);
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', {
@@ -586,13 +576,13 @@ describe('Cloud catalog: reloading', () => {
 	it('goes back to the first page when a filter changes on a later page', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockImplementation(pagedCatalog(120));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 		mounted.target.querySelector<HTMLButtonElement>('button[aria-label="Next page"]')!.click();
-		await settle();
+		await settle(10);
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', { limit: 50, offset: 50 });
 
 		page.set({ url: new URL('http://localhost/admin?backend=b1&view=catalog&output=image') });
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', { limit: 50, offset: 0, output: 'image' });
 	});
@@ -603,14 +593,14 @@ describe('Cloud catalog: reloading', () => {
 			.mockReturnValueOnce(first.promise)
 			.mockResolvedValue(ok(catalog([SEEDREAM])));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		page.set({ url: new URL('http://localhost/admin?backend=b1&view=catalog&task=txt2img') });
-		await settle();
+		await settle(10);
 		expect(mounted.rowFor('Seedream 4.5')).toBeTruthy();
 
 		first.resolve(ok(catalog([VEO])));
-		await settle();
+		await settle(10);
 
 		expect(mounted.rowFor('Seedream 4.5')).toBeTruthy();
 		expect(mounted.rowFor('Veo 3.1')).toBeUndefined();
@@ -621,18 +611,18 @@ describe('Cloud catalog: reloading', () => {
 		const pending = deferred<ReturnType<typeof ok<CloudCatalogToggleResult>>>();
 		vi.mocked(adminApi.setCloudCatalogEnabled).mockReturnValue(pending.promise);
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.switchFor('Seedream 4.5')!.click();
-		await settle();
+		await settle(10);
 		page.set({ url: new URL('http://localhost/admin?backend=b1&view=catalog&q=seed') });
-		await settle();
+		await settle(10);
 		expect(adminApi.getCloudCatalog).toHaveBeenCalledTimes(2);
 
 		const enabledSeedream = item({ ...SEEDREAM, enabled: true, model_id: 'model-seedream' });
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO, enabledSeedream])));
 		pending.resolve(ok(toggled('seedream', true)));
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenCalledTimes(3);
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(true);
@@ -646,11 +636,11 @@ describe('Cloud catalog: paging', () => {
 	it('asks for the next fifty when going forward', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockImplementation(pagedCatalog(120));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 		expect(mounted.text()).toContain('Page 1 of 3');
 
 		nextButton().click();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', { limit: 50, offset: 50 });
 		expect(mounted.text()).toContain('Page 2 of 3');
@@ -660,16 +650,16 @@ describe('Cloud catalog: paging', () => {
 	it('starts over from the first page when the page size changes', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockImplementation(pagedCatalog(120));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 		nextButton().click();
-		await settle();
+		await settle(10);
 
 		const size = Array.from(mounted.target.querySelectorAll<HTMLSelectElement>('select')).find((el) =>
 			Array.from(el.options).some((option) => option.value === '200')
 		)!;
 		size.value = '100';
 		size.dispatchEvent(new Event('change', { bubbles: true }));
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', { limit: 100, offset: 0 });
 		expect(mounted.text()).toContain('Page 1 of 2');
@@ -679,13 +669,13 @@ describe('Cloud catalog: paging', () => {
 		vi.mocked(adminApi.getCloudCatalog).mockImplementation(pagedCatalog(120));
 		vi.mocked(adminApi.refreshCloudCatalog).mockResolvedValue(ok(refreshed()));
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 		nextButton().click();
-		await settle();
+		await settle(10);
 		expect(mounted.text()).toContain('Page 2 of 3');
 
 		mounted.button('Refresh catalog')!.click();
-		await settle();
+		await settle(10);
 
 		expect(adminApi.getCloudCatalog).toHaveBeenLastCalledWith('b1', { limit: 50, offset: 0 });
 		expect(mounted.text()).toContain('Page 1 of 3');
@@ -701,14 +691,14 @@ describe('Cloud catalog: failures', () => {
 			response: { status: 409, data: { message: 'Cloud backend is not active. Enable it first.' } }
 		});
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.button('Refresh catalog')!.click();
-		await settle();
+		await settle(10);
 		expect(mounted.text()).toContain('Cloud backend is not active. Enable it first.');
 
 		mounted.button('Dismiss')!.click();
-		await settle();
+		await settle(10);
 		expect(mounted.text()).not.toContain('Cloud backend is not active.');
 	});
 
@@ -719,10 +709,10 @@ describe('Cloud catalog: failures', () => {
 			message: 'That model is no longer offered.'
 		});
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.switchFor('Seedream 4.5')!.click();
-		await settle();
+		await settle(10);
 
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(false);
 		expect(mounted.rowFor('Seedream 4.5')!.textContent).toContain('That model is no longer offered.');
@@ -732,10 +722,10 @@ describe('Cloud catalog: failures', () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([VEO, SEEDREAM])));
 		vi.mocked(adminApi.setCloudCatalogEnabled).mockResolvedValue({ success: false });
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.switchFor('Seedream 4.5')!.click();
-		await settle();
+		await settle(10);
 
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(false);
 		expect(mounted.rowFor('Seedream 4.5')!.textContent).toContain('Could not update this model.');
@@ -745,12 +735,12 @@ describe('Cloud catalog: failures', () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue(ok(catalog([SEEDREAM, FLUX])));
 		vi.mocked(adminApi.setCloudCatalogEnabled).mockResolvedValue({ success: false, message: 'Nothing was changed.' });
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		mounted.checkboxFor('Seedream 4.5')!.click();
-		await settle();
+		await settle(10);
 		mounted.button('Enable 1')!.click();
-		await settle();
+		await settle(10);
 
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(false);
 		expect(mounted.target.querySelector('[data-testid="bulk-bar"]')!.textContent).toContain('Nothing was changed.');
@@ -759,7 +749,7 @@ describe('Cloud catalog: failures', () => {
 	it('shows the server message when loading answers unsuccessfully', async () => {
 		vi.mocked(adminApi.getCloudCatalog).mockResolvedValue({ success: false, message: 'Backend not found.' });
 		mounted = mountSection();
-		await settle();
+		await settle(10);
 
 		expect(mounted.text()).toContain('Could not load the catalog');
 		expect(mounted.text()).toContain('Backend not found.');

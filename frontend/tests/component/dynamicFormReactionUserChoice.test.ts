@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetFormSchema: vi.fn() }
@@ -47,10 +48,6 @@ const SCHEMA = {
 	}
 };
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let cleanups: Array<() => void> = [];
 
 function mountForm(initialData?: Record<string, unknown>) {
@@ -77,7 +74,7 @@ function mountForm(initialData?: Record<string, unknown>) {
 			el.value = value;
 			el.dispatchEvent(new Event('input', { bubbles: true }));
 			el.dispatchEvent(new Event('change', { bubbles: true }));
-			await settle();
+			await settle(10);
 		},
 		unmount() {
 			form.$destroy();
@@ -108,13 +105,13 @@ afterEach(() => {
 describe('set_value reactions versus the user choice', () => {
 	it('applies the reaction defaults on a fresh form', async () => {
 		const form = mountForm();
-		await settle();
+		await settle(10);
 		expect(form.last().sampler).toBe('euler');
 	});
 
 	it('keeps an edit of the target while the trigger value is unchanged', async () => {
 		const form = mountForm();
-		await settle();
+		await settle(10);
 		await form.edit('sampler', 'euler_sde');
 		expect(form.last().sampler).toBe('euler_sde');
 		await form.edit('sampler', 'euler_sde_2');
@@ -123,34 +120,34 @@ describe('set_value reactions versus the user choice', () => {
 
 	it('keeps the user choice across a remount with the saved data', async () => {
 		const first = mountForm();
-		await settle();
+		await settle(10);
 		await first.edit('sampler', 'euler_sde');
 		const saved = first.last();
 		first.unmount();
 
 		const second = mountForm(saved);
-		await settle();
+		await settle(10);
 		expect(second.last().sampler).toBe('euler_sde');
 		expect(second.input('sampler').value).toBe('euler_sde');
 	});
 
 	it('keeps the user choice when a saved session is loaded into a mounted form', async () => {
 		const form = mountForm();
-		await settle();
+		await settle(10);
 		form.form.$set({ initialData: { profile: 'turbo', sampler: 'euler_sde' } });
-		await settle();
+		await settle(10);
 		expect(form.last().sampler).toBe('euler_sde');
 	});
 
 	it('keeps the user choice across repeated remounts like the tab switch', async () => {
 		const first = mountForm();
-		await settle();
+		await settle(10);
 		await first.edit('sampler', 'euler_sde');
 		let saved: Record<string, any> = first.last();
 		first.unmount();
 		for (let i = 0; i < 3; i++) {
 			const next = mountForm(saved);
-			await settle();
+			await settle(10);
 			saved = next.last();
 			next.unmount();
 		}
@@ -159,7 +156,7 @@ describe('set_value reactions versus the user choice', () => {
 
 	it('still applies the sampler when the user changes the profile', async () => {
 		const form = mountForm();
-		await settle();
+		await settle(10);
 		await form.edit('sampler', 'euler_sde');
 		await form.edit('profile', 'quality');
 		expect(form.last().sampler).toBe('dpmpp_2m');
@@ -169,12 +166,12 @@ describe('set_value reactions versus the user choice', () => {
 
 	it('still applies the profile sampler after a remount', async () => {
 		const first = mountForm();
-		await settle();
+		await settle(10);
 		await first.edit('sampler', 'euler_sde');
 		const saved = first.last();
 		first.unmount();
 		const second = mountForm(saved);
-		await settle();
+		await settle(10);
 		await second.edit('profile', 'quality');
 		expect(second.last().sampler).toBe('dpmpp_2m');
 	});

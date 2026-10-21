@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -19,10 +20,6 @@ const { historyStore } = await import('$lib/stores/history');
 const { setModeLabels } = await import('$lib/utils/modeLabel.svelte');
 const { default: HistoryToolbar } = await import('../../src/routes/history/components/HistoryToolbar.svelte');
 const { createClassComponent } = await import('svelte/legacy');
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 function byText(selector: string, text: string) {
 	return Array.from(document.querySelectorAll<HTMLElement>(selector)).find((e) => e.textContent?.includes(text));

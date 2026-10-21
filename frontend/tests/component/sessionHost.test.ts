@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import { writable } from 'svelte/store';
 import { keybindingsStore } from '$lib/stores/keybindings';
@@ -37,11 +37,16 @@ function mountHost(controller = fakeController()) {
 	return { controller, dialogs };
 }
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
 afterEach(() => {
 	if (instance) unmount(instance);
 	instance = null;
 	document.body.innerHTML = '';
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
 describe('SessionHost', () => {
@@ -76,7 +81,7 @@ describe('SessionHost', () => {
 		flushSync();
 		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 		flushSync();
-		await new Promise((resolve) => setTimeout(resolve, 300));
+		await vi.advanceTimersByTimeAsync(300);
 		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
 		expect(controller.closeDialog).toHaveBeenCalledWith('delete');
 	});

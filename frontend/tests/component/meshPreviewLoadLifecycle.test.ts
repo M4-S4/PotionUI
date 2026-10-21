@@ -8,6 +8,7 @@
 // exactly what the component's dynamic import + moduleFailed branch guards
 // against; that failure path gets its own file/mock.
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('@google/model-viewer', () => ({}));
 
@@ -15,10 +16,6 @@ const { createClassComponent } = await import('svelte/legacy');
 const { default: MeshPreview } = await import(
 	'$lib/components/workbench/renderers/MeshPreview.svelte'
 );
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 function mount(file: Record<string, unknown> | null) {
 	const target = document.createElement('div');

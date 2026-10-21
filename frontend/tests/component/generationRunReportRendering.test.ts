@@ -9,6 +9,7 @@
 // than trying to mount a live plugin renderer).
 import { describe, it, expect, afterEach } from 'vitest';
 import type { AdminGenerationListItem, RunReport } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 const { default: GenerationRunReport } = await import(
 	'../../src/routes/admin/components/GenerationRunReport.svelte'
@@ -31,10 +32,6 @@ function mount(generation: AdminGenerationListItem, report: RunReport | null) {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mount> | undefined;

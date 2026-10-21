@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	getContentSafetyStatus: vi.fn()
@@ -42,10 +43,6 @@ function statusPayload(overrides: Record<string, unknown> = {}) {
 			...overrides
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function mountPanel(settings: Record<string, unknown>) {

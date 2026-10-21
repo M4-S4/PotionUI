@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest';
+import { settleFlush } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -17,7 +18,6 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { flushSync } = await import('svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { default: VideoDirectorEditor } = await import('$lib/components/video-director/VideoDirectorEditor.svelte');
 const { resolveDirectorCapabilities } = await import('$lib/utils/videoDirector');
@@ -32,11 +32,6 @@ const LTX_PRESET_RAW = {
 	},
 	limits: { default_duration: 5, default_fps: 25, max_duration: 40, max_frames: 1001 }
 };
-
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
 
 let cleanup: (() => void) | undefined;
 
@@ -64,9 +59,9 @@ describe('the Video Director reads film FPS from the generate form, not its own 
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
+		await settleFlush();
 
-		await settle();
+		await settleFlush();
 		const framesInput = Array.from(target.querySelectorAll<HTMLInputElement>('input')).find((i) => i.value === '125');
 		expect(framesInput).toBeTruthy();
 	});
@@ -87,12 +82,12 @@ describe('the Video Director reads film FPS from the generate form, not its own 
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
-		await settle();
+		await settleFlush();
+		await settleFlush();
 		expect(Array.from(target.querySelectorAll<HTMLInputElement>('input')).some((i) => i.value === '125')).toBe(true);
 
 		instance.$set({ formData: { fps: 40 } });
-		await settle();
+		await settleFlush();
 		expect(Array.from(target.querySelectorAll<HTMLInputElement>('input')).some((i) => i.value === '200')).toBe(true);
 		expect(Array.from(target.querySelectorAll<HTMLInputElement>('input')).some((i) => i.value === '125')).toBe(false);
 	});
@@ -113,8 +108,8 @@ describe('the Video Director reads film FPS from the generate form, not its own 
 			}
 		});
 		cleanup = () => instance.$destroy();
-		await settle();
-		await settle();
+		await settleFlush();
+		await settleFlush();
 
 		expect(target.querySelector('[aria-label="Film frame rate"]')).toBeNull();
 

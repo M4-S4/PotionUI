@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Prompt } from '$lib/types/segments';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('$lib/services/api/index')>();
@@ -55,12 +56,8 @@ function mountModal() {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 async function waitDebounce() {
-	await new Promise((resolve) => setTimeout(resolve, 300));
+	await vi.advanceTimersByTimeAsync(300);
 	await settle();
 }
 
@@ -91,6 +88,7 @@ function key(el: Element, keyName: string) {
 let mounted: ReturnType<typeof mountModal> | undefined;
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	vi.mocked(api.listPrompts).mockResolvedValue({
 		success: true,
 		data: { items: [prompt(), rooftop], total: 2, limit: 48, offset: 0 }
@@ -104,6 +102,7 @@ afterEach(() => {
 	mounted = undefined;
 	document.body.innerHTML = '';
 	vi.clearAllMocks();
+	vi.useRealTimers();
 });
 
 describe('SegmentListApplyModal prompt library', () => {

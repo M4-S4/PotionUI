@@ -24,7 +24,7 @@ const { default: Host } = await import('./stubs/OrganizeBuilderHost.svelte');
 const { emptyDraft, nextUid } = await import('../../src/lib/organize/draft');
 
 async function settle() {
-	for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+	for (let i = 0; i < 6; i++) await vi.advanceTimersByTimeAsync(0);
 	flushSync();
 }
 
@@ -41,6 +41,7 @@ function json() {
 }
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	target = document.createElement('div');
 	document.body.appendChild(target);
 	getOrganizeFactOptions.mockReset();
@@ -53,6 +54,7 @@ afterEach(() => {
 	if (instance) unmount(instance);
 	instance = null;
 	target.remove();
+	vi.useRealTimers();
 });
 
 describe('ConditionBuilder driven by the catalog', () => {
@@ -100,7 +102,7 @@ describe('ConditionBuilder driven by the catalog', () => {
 		const input = target.querySelector('[data-testid="tag-names-input"] input') as HTMLInputElement;
 		input.focus();
 		input.dispatchEvent(new FocusEvent('focus'));
-		await new Promise((resolve) => setTimeout(resolve, 300));
+		await vi.advanceTimersByTimeAsync(300);
 		flushSync();
 		expect(getOrganizeFactOptions).toHaveBeenCalledWith('tags', { subject: 'generation', q: '', limit: 20 });
 	});

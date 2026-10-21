@@ -8,6 +8,7 @@
 // empty state and the re-check button forcing `?refresh=1`.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { RequirementBackendInfo, RequirementResultInfo } from '$lib/types/api';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetRequirements: vi.fn() }
@@ -64,10 +65,6 @@ function mount() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mount> | undefined;

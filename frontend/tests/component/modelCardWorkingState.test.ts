@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync } from 'svelte';
+import { settle } from './helpers/settle';
 
 let StubComponent: any;
 
@@ -75,10 +76,6 @@ function mountCard(props: Record<string, unknown> = {}) {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mountCard> | undefined;

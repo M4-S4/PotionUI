@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
 const suggestChatResources = vi.fn();
 
@@ -12,15 +12,20 @@ const { default: ChatChipInput } = await import('$lib/components/chat/ChatChipIn
 
 let cleanup: (() => void) | undefined;
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
 afterEach(() => {
 	cleanup?.();
 	cleanup = undefined;
 	document.body.innerHTML = '';
 	suggestChatResources.mockReset();
+	vi.useRealTimers();
 });
 
 function wait(ms: number) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+	return vi.advanceTimersByTimeAsync(ms);
 }
 
 function typeInto(editor: HTMLElement, text: string) {

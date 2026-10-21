@@ -81,7 +81,7 @@ function seed(activeId: string | null, rows: Seed[]) {
 }
 
 const tick = async (n = 6) => {
-	for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
+	for (let i = 0; i < n; i++) await vi.advanceTimersByTimeAsync(0);
 };
 
 function mount(component: unknown, props: Record<string, unknown> = {}) {
@@ -117,6 +117,7 @@ function buttonByText(target: HTMLElement, text: string) {
 const location = { reload: vi.fn(), assign: vi.fn(), pathname: '/generate' };
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	localStorage.clear();
 	accounts.resetAccountsForTests();
 	hoisted.goto.mockClear();
@@ -143,6 +144,7 @@ afterEach(() => {
 	resetLimitsState();
 	vi.unstubAllGlobals();
 	document.body.innerHTML = '';
+	vi.useRealTimers();
 });
 
 describe('UserMenu account switcher', () => {
@@ -273,7 +275,7 @@ describe('UserMenu account switcher', () => {
 		expect(add.disabled).toBe(true);
 		expect(add.hasAttribute('title')).toBe(false);
 		add.parentElement!.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-		await new Promise((resolve) => setTimeout(resolve, 300));
+		await vi.advanceTimersByTimeAsync(300);
 		const tooltip = Array.from(document.body.querySelectorAll('div')).find(
 			(el) => el.textContent?.trim() === 'Remove an account first' && el.className.includes('fixed')
 		);

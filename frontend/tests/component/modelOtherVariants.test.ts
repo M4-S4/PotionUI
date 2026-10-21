@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { mount, unmount } from 'svelte';
 import type { SetupConsentVariant } from '$lib/services/api/setup';
 import type { RecipeSlotVariants } from '$lib/services/api/recipes';
+import { settle } from './helpers/settle';
+import { mountComponent } from './helpers/mount';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -59,23 +60,13 @@ function slot(): RecipeSlotVariants {
 	};
 }
 
-let target: HTMLDivElement;
-let component: ReturnType<typeof mount> | null = null;
+let target: HTMLElement;
 
 function render(modelId = 'model-1') {
-	target = document.createElement('div');
-	document.body.appendChild(target);
-	component = mount(ModelOtherVariants, { target, props: { modelId } });
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+	target = mountComponent(ModelOtherVariants, { modelId }).target;
 }
 
 afterEach(() => {
-	if (component) unmount(component);
-	component = null;
-	target?.remove();
 	vi.clearAllMocks();
 });
 

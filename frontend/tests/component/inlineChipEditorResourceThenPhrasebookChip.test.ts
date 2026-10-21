@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { flushSync } from 'svelte';
 import type { PromptResourceSpec } from '$lib/utils/promptResources';
 import { api } from '$lib/services/api/index';
@@ -53,10 +53,15 @@ function clickRow(cssClass: string, text: string) {
 	flushSync();
 }
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
 afterEach(() => {
 	target?.remove();
 	document.body.innerHTML = '';
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
 describe('InlineChipEditor resource marker followed by a phrasebook chip', () => {
@@ -81,7 +86,7 @@ describe('InlineChipEditor resource marker followed by a phrasebook chip', () =>
 			promptResources: specs,
 			resourceFieldValues: { references: [{ relative_path: ITEM_KEY }] }
 		});
-		await new Promise((r) => setTimeout(r, 0));
+		await vi.advanceTimersByTimeAsync(0);
 		flushSync();
 
 		expect(target.querySelector('.resource-chip-container')).not.toBeNull();
@@ -89,7 +94,7 @@ describe('InlineChipEditor resource marker followed by a phrasebook chip', () =>
 		typeAfterCaret(' #Look description');
 		expect(document.querySelector('.phrasebook-picker')).not.toBeNull();
 
-		await new Promise((r) => setTimeout(r, 250));
+		await vi.advanceTimersByTimeAsync(250);
 		flushSync();
 
 		clickRow('.phrase-value', 'Look description');
@@ -124,11 +129,11 @@ describe('InlineChipEditor resource marker followed by a phrasebook chip', () =>
 			resourceFieldValues: { references: [{ relative_path: ITEM_KEY }] }
 		});
 		component!.$on?.('change', onChange);
-		await new Promise((r) => setTimeout(r, 0));
+		await vi.advanceTimersByTimeAsync(0);
 		flushSync();
 
 		typeAfterCaret(' #Look description');
-		await new Promise((r) => setTimeout(r, 250));
+		await vi.advanceTimersByTimeAsync(250);
 		flushSync();
 
 		clickRow('.phrase-value', 'Look description');

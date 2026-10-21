@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import type { SetupConsentVariant } from '$lib/services/api/setup';
 import type { RecipeSlotVariants } from '$lib/services/api/recipes';
+import { settle } from './helpers/settle';
 
 const authState = vi.hoisted(() => ({ user: null as null | { account_type: string } }));
 
@@ -86,10 +87,6 @@ function mountPanel(props: Record<string, unknown> = {}) {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function setup(slots: RecipeSlotVariants[]) {

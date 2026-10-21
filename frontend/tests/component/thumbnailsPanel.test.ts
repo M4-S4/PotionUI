@@ -8,6 +8,7 @@
 // reloads stats once the tab reports a saved snapshot.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { ThumbnailStats } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	getThumbnailStats: vi.fn(),
@@ -48,10 +49,6 @@ function stats(overrides: Partial<ThumbnailStats> = {}): ThumbnailStats {
 		job: null,
 		...overrides
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function mountPanel(settings: Record<string, unknown> = {}, savedSnapshot = '{}') {

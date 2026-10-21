@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { OrganizeAdminOverview } from '$lib/types/organize';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api', async () => {
 	const actual = await vi.importActual<typeof import('$lib/services/api')>('$lib/services/api');
@@ -69,10 +70,6 @@ function mount() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function switchByLabel(root: HTMLElement, label: string): HTMLElement {

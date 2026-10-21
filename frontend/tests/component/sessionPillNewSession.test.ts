@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -30,10 +31,6 @@ function makeSession(id: string) {
 		created_at: '2026-01-01T00:00:00Z',
 		updated_at: '2026-01-01T00:00:00Z'
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let tabId: string;
@@ -71,7 +68,7 @@ beforeEach(async () => {
 		target,
 		props: { presetId: PRESET_ID, currentMode: MODE, tabId, availableModes: [] }
 	});
-	await settle();
+	await settle(10);
 });
 
 afterEach(() => {
@@ -85,11 +82,11 @@ afterEach(() => {
 describe('SessionPill New', () => {
 	it('unbinds the session and empties the draft without saving anything', async () => {
 		clickButton('Session');
-		await settle();
+		await settle(10);
 		clickButton(/^New$/);
-		await settle();
+		await settle(10);
 		clickButton(/^Confirm/);
-		await settle();
+		await settle(10);
 
 		expect(currentTab().selectedSessionId).toBeNull();
 		expect(currentTab().promptSegments).toEqual([]);
@@ -103,12 +100,12 @@ describe('SessionPill New', () => {
 
 	it('leaves the draft alone when the discard prompt is refused', async () => {
 		clickButton('Session');
-		await settle();
+		await settle(10);
 		clickButton(/^New$/);
-		await settle();
+		await settle(10);
 		const dialog = document.body.querySelector('[role="alertdialog"]')!;
 		dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-		await settle();
+		await settle(10);
 
 		expect(currentTab().selectedSessionId).toBe('a');
 		expect(currentTab().prompt).toBe('a half written idea');

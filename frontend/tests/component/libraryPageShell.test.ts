@@ -5,6 +5,7 @@
 // the load sequence (items + facets + tags + collections) exists nowhere else
 // to be tested.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -51,10 +52,6 @@ function mountPage() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mountPage> | undefined;

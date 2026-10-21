@@ -5,6 +5,8 @@ import type { Writable } from 'svelte/store';
 import type { PresetInfo } from '$lib/types/api';
 import type { RecipeSummary } from '$lib/services/api/recipes';
 import type { SetupRun } from '$lib/services/api/setup';
+import { settle } from './helpers/settle';
+import { presetInfo } from './presetFixtures';
 
 type PageStore = Writable<{ url: URL }>;
 
@@ -31,23 +33,6 @@ vi.mock('$lib/services/admin-api', () => ({
 	installPreset: vi.fn(),
 	uninstallPreset: vi.fn()
 }));
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		},
-		invalidate: async () => {},
-		invalidateAll: async () => {},
-		preloadData: async () => {},
-		preloadCode: async () => {},
-		afterNavigate: () => {},
-		beforeNavigate: () => {},
-		pushState: () => {},
-		replaceState: () => {}
-	};
-});
 
 const api = await import('$lib/services/api/index');
 const page = (await import('$app/stores')).page as unknown as PageStore;
@@ -63,18 +48,7 @@ const KREA_RECIPE = {
 };
 
 function preset(overrides: Partial<PresetInfo> = {}): PresetInfo {
-	return {
-		id: 'krea2',
-		name: 'Krea-2',
-		version: '1.0.0',
-		description: '',
-		tags: [],
-		category: 'image',
-		engine: 'native',
-		installed: false,
-		recipes: [KREA_RECIPE],
-		...overrides
-	};
+	return presetInfo({ recipes: [KREA_RECIPE], ...overrides });
 }
 
 function run(overrides: Partial<SetupRun> = {}): SetupRun {
@@ -140,10 +114,6 @@ function mount(component: unknown) {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mount> | undefined;

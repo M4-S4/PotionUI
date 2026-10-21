@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -35,7 +35,7 @@ async function openPhrasebookBrowseModal(props: Record<string, unknown> = {}) {
 	const editor = mountEditor(props);
 	editor.insertPhrasebookTrigger();
 	flushSync();
-	await new Promise((r) => setTimeout(r, 210));
+	await vi.advanceTimersByTimeAsync(210);
 	flushSync();
 
 	const editorEl = document.querySelector('.inline-chip-editor')!;
@@ -49,7 +49,7 @@ async function openPhrasebookBrowseModal(props: Record<string, unknown> = {}) {
 	sel.addRange(range);
 	editorEl.dispatchEvent(new Event('input', { bubbles: true }));
 	flushSync();
-	await new Promise((r) => setTimeout(r, 210));
+	await vi.advanceTimersByTimeAsync(210);
 	flushSync();
 
 	editorEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
@@ -58,12 +58,17 @@ async function openPhrasebookBrowseModal(props: Record<string, unknown> = {}) {
 	return editorEl;
 }
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
 afterEach(() => {
 	component?.$destroy();
 	component = undefined;
 	target?.remove();
 	document.body.innerHTML = '';
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
 describe('PromptPickerBrowseModal', () => {
@@ -89,7 +94,7 @@ describe('PromptPickerBrowseModal', () => {
 		sel.addRange(range);
 		editorEl.dispatchEvent(new Event('input', { bubbles: true }));
 		flushSync();
-		await new Promise((r) => setTimeout(r, 210));
+		await vi.advanceTimersByTimeAsync(210);
 		flushSync();
 
 		editorEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));

@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import type { Segment } from '$lib/types/segments';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -68,10 +69,6 @@ function mountCluster(tabId: string) {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let tabId: string;
 let mounted: ReturnType<typeof mountCluster> | undefined;
 
@@ -118,14 +115,14 @@ afterEach(() => {
 describe('SessionCluster survives a tab-switch destroy/recreate round trip', () => {
 	it('keeps the dirty draft and never re-fetches the still-linked session', async () => {
 		mounted = mountCluster(tabId);
-		await settle();
+		await settle(10);
 
 		// Switch away: {#key currentTab.id} destroys this tab's instance.
 		mounted.destroy();
 		// Switch back: {#key currentTab.id} creates a brand new instance for
 		// the same tabId, exactly as the generate page does today.
 		mounted = mountCluster(tabId);
-		await settle();
+		await settle(10);
 
 		expect(api.getSessionById).not.toHaveBeenCalled();
 
@@ -167,17 +164,17 @@ describe('SessionCluster survives a tab-switch round trip after loading (not sav
 
 	it('keeps the post-load edit and never re-fetches after a destroy/recreate round trip', async () => {
 		mounted = mountCluster(tabId);
-		await settle();
+		await settle(10);
 
 		// Open the session picker and load the existing session - the real
 		// handleSessionSelect -> applySessionModeData path, not a seeded store.
 		mounted.target.querySelector<HTMLButtonElement>('button[aria-label="Session"]')!.click();
-		await settle();
+		await settle(10);
 		const sessionRow = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-session-row]')).find(
 			(el) => el.textContent?.includes('Session 1')
 		);
 		sessionRow!.click();
-		await settle();
+		await settle(10);
 
 		expect(vi.mocked(api.getSessionById).mock.calls.map((c) => c[0])).toContain(SESSION_ID);
 
@@ -197,7 +194,7 @@ describe('SessionCluster survives a tab-switch round trip after loading (not sav
 		// Switch away and back, exactly like the save-as-new test above.
 		mounted.destroy();
 		mounted = mountCluster(tabId);
-		await settle();
+		await settle(10);
 
 		expect(api.getSessionById).not.toHaveBeenCalled();
 

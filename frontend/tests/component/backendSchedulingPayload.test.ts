@@ -9,6 +9,7 @@
 // an unrelated field.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { Backend, EngineDescriptor } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	indexBackendModels: vi.fn(),
@@ -64,10 +65,6 @@ function ok<T>(data: T) {
 	return { success: true, data };
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function fillInput(el: Element | null, value: string) {
 	if (!el) throw new Error('input not found');
 	(el as HTMLInputElement).value = value;
@@ -115,21 +112,21 @@ describe('Backends admin: scheduling fields reach the API payload', () => {
 		vi.mocked(adminApi.createBackend).mockResolvedValue(ok(backend()));
 
 		mounted = mountTab();
-		await settle();
+		await settle(10);
 
 		clickButtonWithText(mounted.target, 'Add backend');
-		await settle();
+		await settle(10);
 
 		// BaseModal renders through the `portal` action, onto document.body -
 		// outside `mounted.target` - so the create form must be queried globally.
 		fillInput(document.querySelector('#create-backend-name'), 'New Worker');
 		selectOption(document.querySelector('#create-backend-scheduling-policy'), 'fair');
-		await settle();
+		await settle(10);
 		fillInput(document.querySelector('#create-backend-scheduling-allowance'), '5');
-		await settle();
+		await settle(10);
 
 		clickButtonWithText(document.body, 'Create Backend');
-		await settle();
+		await settle(10);
 
 		expect(adminApi.createBackend).toHaveBeenCalledTimes(1);
 		const payload = vi.mocked(adminApi.createBackend).mock.calls[0][0];
@@ -145,22 +142,22 @@ describe('Backends admin: scheduling fields reach the API payload', () => {
 		vi.mocked(adminApi.updateBackend).mockResolvedValue(ok(existing));
 
 		mounted = mountTab();
-		await settle();
+		await settle(10);
 
 		const row = Array.from(mounted.target.querySelectorAll('[role="row"]')).find((r) =>
 			r.textContent?.includes('Worker 1')
 		);
 		expect(row).toBeTruthy();
 		(row as HTMLElement).click();
-		await settle();
+		await settle(10);
 
 		// Touch a field that has nothing to do with scheduling - this must not
 		// disturb the fair configuration already loaded into the edit draft.
 		fillInput(mounted.target.querySelector('#edit-backend-priority'), '7');
-		await settle();
+		await settle(10);
 
 		clickButtonWithText(mounted.target, 'Save');
-		await settle();
+		await settle(10);
 
 		expect(adminApi.updateBackend).toHaveBeenCalledTimes(1);
 		const payload = vi.mocked(adminApi.updateBackend).mock.calls[0][1];

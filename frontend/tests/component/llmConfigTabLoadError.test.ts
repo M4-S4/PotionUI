@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { LLMConfig } from '$lib/types/llm';
+import { settle } from './helpers/settle';
 
 const mockGetLLMConfigurations = vi.fn();
 const mockGetPreChatActions = vi.fn();
@@ -51,10 +52,6 @@ function mount() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function clickButtonNamed(target: HTMLElement, text: string) {

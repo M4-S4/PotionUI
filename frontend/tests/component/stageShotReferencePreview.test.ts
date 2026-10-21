@@ -31,13 +31,14 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { mount, unmount, flushSync } = await import('svelte');
+const { mount, unmount } = await import('svelte');
 const { default: StageReferencesTab } = await import(
 	'$lib/components/video-director/console/StageReferencesTab.svelte'
 );
 const { resolveDirectorCapabilities } = await import('$lib/utils/videoDirector');
 
 import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
+import { settleFlush } from './helpers/settle';
 
 function baseDoc(): VideoDirectorValue {
 	return {
@@ -104,11 +105,6 @@ const H3_REFS_PRESET_RAW = {
 	}
 };
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
@@ -151,7 +147,7 @@ describe('StageShot per-shot reference picker: non-image pool items', () => {
 			}
 		});
 		cleanup = () => unmount(instance);
-		await settle();
+		await settleFlush();
 
 		const rows = Array.from(target.querySelectorAll<HTMLElement>('[data-testid="shot-reference-unused"]'));
 		const imageRow = rows.find((r) => r.dataset.marker?.includes('references:'));

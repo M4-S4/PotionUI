@@ -27,23 +27,6 @@ vi.mock('$lib/services/api', async () => {
 	const actual = await vi.importActual<typeof import('$lib/services/api')>('$lib/services/api');
 	return { ...actual, api: { ...actual.api, ...api } };
 });
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		},
-		invalidate: async () => {},
-		invalidateAll: async () => {},
-		preloadData: async () => {},
-		preloadCode: async () => {},
-		afterNavigate: () => {},
-		beforeNavigate: () => {},
-		pushState: () => {},
-		replaceState: () => {}
-	};
-});
 
 const { page } = await import('$app/stores');
 const { default: Page } = await import('../../src/routes/auto-organize/+page.svelte');
