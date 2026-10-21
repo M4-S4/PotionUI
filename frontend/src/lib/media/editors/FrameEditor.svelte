@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	/**
 	 * Extract a frame.
 	 *
@@ -173,7 +174,7 @@
 			<div class="flex items-center gap-1">
 				<button
 					type="button"
-					title="Previous frame — hold Shift for ten"
+					use:tooltip={'Previous frame — hold Shift for ten'}
 					aria-label="Previous frame"
 					class="w-8 h-8 inline-flex items-center justify-center rounded border border-line-strong bg-surface-2 text-fg-muted hover:border-line-hover hover:text-fg transition-colors"
 					on:click={() => step(-1)}
@@ -190,7 +191,7 @@
 				</button>
 				<button
 					type="button"
-					title="Next frame — hold Shift for ten"
+					use:tooltip={'Next frame — hold Shift for ten'}
 					aria-label="Next frame"
 					class="w-8 h-8 inline-flex items-center justify-center rounded border border-line-strong bg-surface-2 text-fg-muted hover:border-line-hover hover:text-fg transition-colors"
 					on:click={() => step(1)}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { timeAgo } from '$lib/utils/relativeTime';
@@ -220,7 +221,7 @@
 			{#if bucket.showHoverMeta && hoverMetaParts.length > 0}
 				<div
 					class="absolute bottom-1.5 right-1.5 z-20 max-w-[60%] px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-fg-muted font-mono tabular-nums text-2xs tracking-[0.07em] truncate opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-					title={hoverMetaParts.join(' · ')}
+					use:tooltip={{ text: hoverMetaParts.join(' · '), truncateOnly: true }}
 				>
 					{hoverMetaParts.join(' · ')}
 				</div>
@@ -246,12 +247,12 @@
 			class="flex items-center justify-between gap-2 px-2 bg-surface-1 border-t border-line overflow-hidden"
 			style="height: {bucket.barHeight}px"
 		>
-			<span class="text-2xs text-fg-muted truncate min-w-0" title={displayName}>{displayName}</span>
+			<span class="text-2xs text-fg-muted truncate min-w-0" use:tooltip={{ text: displayName, truncateOnly: true }}>{displayName}</span>
 			<div
 				class="flex items-center gap-1.5 ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em]"
 			>
 				{#if barResolutionText}
-					<span class="text-fg-muted whitespace-nowrap" title={fullResolutionTitle}>
+					<span class="text-fg-muted whitespace-nowrap" use:tooltip={fullResolutionTitle}>
 						{barResolutionText}
 					</span>
 				{/if}

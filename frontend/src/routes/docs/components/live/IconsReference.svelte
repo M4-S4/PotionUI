@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { iconPaths, getAllIconNames } from '$lib/utils/IconLibrary';
 	import { Input } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -69,7 +70,7 @@
 					<button
 						on:click={() => copyIconSVG(icon)}
 						class="w-full aspect-square flex flex-col items-center justify-center p-4 border border-line rounded-lg hover:border-line-hover hover:bg-surface-3 transition-all cursor-pointer"
-						title="Click to copy SVG code for {icon.name}"
+						use:tooltip={`Click to copy SVG code for ${icon.name}`}
 					>
 						<svg
 							class="w-8 h-8 mb-2 text-fg-muted group-hover:text-fg"

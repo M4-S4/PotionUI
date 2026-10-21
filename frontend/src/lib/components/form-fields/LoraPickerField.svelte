@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { getContext, onDestroy, onMount } from 'svelte';
 	import { api } from '$lib/services/api/index';
@@ -691,7 +692,7 @@
 				class="inline-flex items-center gap-1 px-1.5 py-0.5 text-2xs rounded border transition-colors {favoritesOnly
 					? 'bg-warning/10 text-warning border-warning/25'
 					: 'text-fg-muted border-line-strong hover:text-fg'}"
-				title={favoritesOnly ? 'Showing favorites only' : 'Show favorites only'}
+				use:tooltip={favoritesOnly ? 'Showing favorites only' : 'Show favorites only'}
 				aria-pressed={favoritesOnly}
 				on:click={toggleFavoritesOnly}
 			>
@@ -809,7 +810,7 @@
 						<div class="flex-1 min-w-0">
 								<div class="flex items-start justify-between gap-2">
 									<div class="min-w-0">
-										<div class="text-sm font-medium text-fg truncate" title={displayName(model, row.model)}>
+										<div class="text-sm font-medium text-fg truncate" use:tooltip={{ text: displayName(model, row.model), truncateOnly: true }}>
 											{displayName(model, row.model)}
 										</div>
 										{#if model && originLine(model)}
@@ -834,7 +835,7 @@
 												{#each summaryParts(model) as part, partIndex}
 													<span
 														class="max-w-[9rem] truncate rounded bg-surface-3 px-1.5 py-0.5 text-2xs text-fg-muted"
-														title={partIndex === 0 ? modelPurpose(model) : part}
+														use:tooltip={{ text: partIndex === 0 ? modelPurpose(model) : part, truncateOnly: true }}
 													>
 														{part}
 													</span>
@@ -1008,7 +1009,7 @@
 									class="px-1.5 py-0.5 text-2xs rounded border transition-colors {isActive
 										? 'bg-signal/10 text-signal border-signal/25'
 										: 'bg-surface-3 text-fg-muted border-line-strong hover:text-fg hover:border-line-hover'}"
-									title={isActive ? 'Already in prompt' : `Copy "${trigger}"`}
+									use:tooltip={isActive ? 'Already in prompt' : `Copy "${trigger}"`}
 									on:click={() => handleTriggerClick(trigger)}
 								>
 									{copiedTrigger === trigger ? 'Copied' : trigger}

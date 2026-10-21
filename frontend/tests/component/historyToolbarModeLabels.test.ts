@@ -79,7 +79,7 @@ describe('History filters show plain mode names', () => {
 	it('shows the plain name on the active mode chip', async () => {
 		historyStore.setFilter('mode', 'img2video');
 		await settle();
-		const chip = document.querySelector<HTMLElement>('[title="Clear mode filter"]')!;
+		const chip = document.querySelector<HTMLElement>('button.border-dashed')!;
 		expect(chip.textContent?.trim()).toBe('Image to Video');
 	});
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import JsonTreeView from '../../JsonTreeView.svelte';
 	import { CopyButton } from '$lib/components/ui';
 
@@ -48,7 +49,8 @@
 			<button
 				class="p-1.5 hover:bg-warning/10 transition-colors rounded"
 				on:click={downloadWorkflow}
-				title="Download workflow as JSON file"
+				use:tooltip={'Download workflow as JSON file'}
+				aria-label="Download workflow as JSON file"
 			>
 				<svg class="w-4 h-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

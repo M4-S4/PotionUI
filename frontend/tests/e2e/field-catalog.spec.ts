@@ -86,7 +86,7 @@ test('field catalog restyle — visual capture on a native image preset', async 
 		if (label.includes('advanced')) {
 			const activePanel = page.locator('[role="tabpanel"][aria-hidden="false"]');
 			const cfgValueButton = activePanel
-				.locator('button[title="Click to type a value"]')
+				.locator('button.cursor-text')
 				.filter({ hasText: '4' })
 				.first();
 			if ((await cfgValueButton.count()) > 0) {
@@ -130,7 +130,7 @@ test('field catalog restyle — visual capture on a native image preset', async 
 
 	// Resolution: the boxes grid is the designed default. Find its card via the
 	// view-toggle it renders; assert chips (not the dropdown trigger) show.
-	const resolutionToggle = page.locator('button[title*="resolution" i], button[aria-label*="resolution view" i]');
+	const resolutionToggle = page.locator('button[aria-label*="resolution view" i]');
 	if ((await resolutionToggle.count()) > 0) {
 		const card = resolutionToggle.first().locator('xpath=ancestor::*[contains(@class, "field-card")][1]');
 		if ((await card.count()) > 0) {

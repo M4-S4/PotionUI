@@ -52,7 +52,7 @@ describe('update_segment version card with conditions', () => {
 		expect(copy.textContent).toContain('portrait,');
 		expect(copy.textContent).toContain(', soft light');
 		expect(copy.textContent).not.toContain('<<if');
-		expect(copy.querySelector('.condition-chip button[title="Remove condition"]')).toBeNull();
+		expect(copy.querySelector('.condition-chip button[aria-label="Remove condition"]')).toBeNull();
 		expect(root.querySelector('[data-testid="condition-tag-problems"]')).toBeNull();
 		expect(applyButton(root).disabled).toBe(false);
 	});

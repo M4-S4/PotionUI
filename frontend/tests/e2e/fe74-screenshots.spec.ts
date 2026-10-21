@@ -321,7 +321,7 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 				// picker modal.
 				// The mode control's button carries a native title; a plain role query
 				// also matches the Video Director's own collapsible header button.
-				const videoModeBtn = page.locator('button[title="Video"]');
+				const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
 				if (await videoModeBtn.count() > 0) {
 					await videoModeBtn.click();
 					await page.waitForTimeout(1000);

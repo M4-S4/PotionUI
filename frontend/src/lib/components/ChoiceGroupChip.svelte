@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { parseGroupInner, serializeGroup, type ChoiceGroupSpec } from '$lib/utils/choiceGroups';
 	import Icon from './Icon.svelte';
 	import InlinePopoverChip from './InlinePopoverChip.svelte';
@@ -104,7 +105,7 @@
 						<input
 							value={option.weight ?? ''}
 							aria-label="Option weight"
-							title="Weight (default 1)"
+							use:tooltip={'Weight (default 1)'}
 							on:input={(e) => updateOptionWeight(index, e.currentTarget.value)}
 						/>
 						<input
@@ -113,7 +114,7 @@
 							placeholder="option text"
 							on:input={(e) => updateOptionText(index, e.currentTarget.value)}
 						/>
-						<button type="button" data-choice-remove title="Remove option" on:click={() => removeOption(index)}>
+						<button type="button" data-choice-remove use:tooltip={'Remove option'} on:click={() => removeOption(index)} aria-label="Remove option">
 							<Icon name="composer-trash" className="icon" strokeWidth={1.7} />
 						</button>
 					</div>
@@ -134,7 +135,7 @@
 							class="input w-14 flex-shrink-0 py-1 text-center font-mono text-xs tabular-nums"
 							placeholder="1"
 							value={option.weight ?? ''}
-							title="Weight (default 1)"
+							use:tooltip={'Weight (default 1)'}
 							on:input={(e) => updateOptionWeight(index, e.currentTarget.value)}
 						/>
 						<input

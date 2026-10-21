@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	/**
 	 * Read-only drawer listing a GLB's materials and their PBR channels
 	 * (base color, metallic/roughness, normal, occlusion, emissive) - texture
@@ -45,13 +46,13 @@
 			{#each materials as material (material.index)}
 				<div class="bg-surface-2 rounded-lg overflow-hidden">
 					<div class="flex items-center justify-between gap-2 px-2.5 py-2 border-b border-line">
-						<span class="text-xs font-medium text-fg truncate" title={material.name}>{material.name}</span>
+						<span class="text-xs font-medium text-fg truncate" use:tooltip={{ text: material.name, truncateOnly: true }}>{material.name}</span>
 						<div class="flex items-center gap-1 flex-shrink-0">
 							<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle">{material.alphaMode}</span>
 							{#if material.doubleSided}
 								<span
 									class="font-mono text-2xs uppercase tracking-[0.06em] text-signal bg-signal/10 rounded px-1"
-									title="Double-sided"
+									use:tooltip={'Double-sided'}
 								>
 									2S
 								</span>
@@ -78,13 +79,13 @@
 										{/if}
 									</div>
 								{/if}
-								<span class="text-2xs text-fg-muted truncate" title={channel.label}>{channel.label}</span>
+								<span class="text-2xs text-fg-muted truncate" use:tooltip={{ text: channel.label, truncateOnly: true }}>{channel.label}</span>
 								{#if channel.texture}
 									<span class="font-mono tabular-nums text-2xs text-fg-subtle">
 										{channel.texture.width ?? '?'}×{channel.texture.height ?? '?'}
 									</span>
 								{/if}
-								<span class="font-mono tabular-nums text-2xs text-fg-disabled truncate" title={formatFactor(channel.factor)}>
+								<span class="font-mono tabular-nums text-2xs text-fg-disabled truncate" use:tooltip={{ text: formatFactor(channel.factor), truncateOnly: true }}>
 									{formatFactor(channel.factor)}
 								</span>
 							</div>

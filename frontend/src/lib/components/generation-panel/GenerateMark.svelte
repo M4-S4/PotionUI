@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { getContext } from 'svelte';
 	import { INSIDE_TOOLTIP_CONTEXT_KEY } from '../tooltipContext';
 	import type { MarkState } from './barState';
@@ -38,7 +39,7 @@
 	{disabled}
 	on:click={onclick}
 	aria-label={label}
-	title={insideTooltip ? undefined : label}
+	use:tooltip={insideTooltip ? undefined : label}
 >
 	<span class="generate-mark" aria-hidden="true">
 		<svg viewBox="0 0 48 48" fill="none">

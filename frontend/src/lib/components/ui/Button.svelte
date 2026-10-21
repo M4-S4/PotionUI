@@ -17,7 +17,6 @@
 		type = 'button',
 		class: className = '',
 		onclick,
-		title,
 		initialFocus = false,
 		ariaExpanded,
 		ariaHaspopup,
@@ -35,7 +34,6 @@
 		type?: 'button' | 'submit';
 		class?: string;
 		onclick?: (e: MouseEvent) => void;
-		title?: string;
 		initialFocus?: boolean;
 		ariaExpanded?: boolean;
 		ariaHaspopup?: 'dialog' | 'menu' | 'listbox' | 'true';
@@ -71,7 +69,7 @@
 </script>
 
 {#if href && !isDisabled}
-	<a {href} {target} {rel} class={classes} {title} role="button" aria-label={ariaLabel}>
+	<a {href} {target} {rel} class={classes} role="button" aria-label={ariaLabel}>
 		{#if icon}<Icon name={icon} className={iconSizeClasses[size]} />{/if}
 		{@render children?.()}
 	</a>
@@ -80,7 +78,6 @@
 		{type}
 		class={classes}
 		disabled={isDisabled}
-		{title}
 		{onclick}
 		aria-expanded={ariaExpanded}
 		aria-haspopup={ariaHaspopup}

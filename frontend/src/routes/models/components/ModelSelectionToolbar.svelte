@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { modelLibraryStore } from '$lib/stores/modelLibrary';
 	import { api } from '$lib/services/api/index';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
@@ -68,7 +69,7 @@
 		<button
 			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-50"
 			disabled={favoriting}
-			title="Add selected to favorites"
+			use:tooltip={'Add selected to favorites'}
 			on:click={() => handleBulkFavorite(true)}
 		>
 			<Icon name="heart" className="w-4 h-4 text-signal" />
@@ -77,8 +78,9 @@
 		<button
 			class="px-2 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors disabled:opacity-50"
 			disabled={favoriting}
-			title="Remove selected from favorites"
+			use:tooltip={'Remove selected from favorites'}
 			on:click={() => handleBulkFavorite(false)}
+			aria-label="Remove selected from favorites"
 		>
 			<Icon name="heart" className="w-4 h-4" />
 		</button>

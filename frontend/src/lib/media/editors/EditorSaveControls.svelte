@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	/**
 	 * The save choice, in one place for all four editors.
 	 *
@@ -49,15 +50,11 @@
 	<Button variant="ghost" size="sm" onclick={onCancel} disabled={busy}>Cancel</Button>
 
 	{#if allowReplace}
-		<Button
-			variant="secondary"
-			size="sm"
-			{disabled}
-			title="Swap the file behind this item, keeping its tags and collections"
-			onclick={() => onSave('replace')}
-		>
-			Replace original
-		</Button>
+		<Tooltip text="Swap the file behind this item, keeping its tags and collections">
+			<Button variant="secondary" size="sm" {disabled} onclick={() => onSave('replace')}>
+				Replace original
+			</Button>
+		</Tooltip>
 	{/if}
 
 	<Button variant="primary" size="sm" icon="check" {disabled} onclick={() => onSave('new')}>

@@ -1,6 +1,7 @@
 <svelte:options immutable />
 
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import type { Segment, ChipData } from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll, ConditionReaders } from '$lib/utils/variableDefs';
@@ -364,7 +365,7 @@
 								</button>
 							</Tooltip>
 						{:else}
-							<span class="head-description segment-description" title={segment.description}>{segment.description}</span>
+							<span class="head-description segment-description" use:tooltip={segment.description}>{segment.description}</span>
 						{/if}
 					{/if}
 				</div>

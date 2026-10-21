@@ -1,4 +1,5 @@
 <script lang="ts" module>
+	import tooltip from '$lib/actions/tooltip';
 	export interface MetadataRow {
 		label: string;
 		value: string;
@@ -59,7 +60,7 @@
 		<div class="flex items-center gap-1 min-w-0">
 			<code
 				class="text-xs font-mono bg-surface-3 px-1.5 py-0.5 rounded truncate max-w-[280px] text-fg"
-				title={row.title}
+				use:tooltip={{ text: row.title, truncateOnly: true }}
 			>
 				{row.value}
 			</code>

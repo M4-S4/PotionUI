@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { api } from '$lib/services/api';
 	import type { PromptImportFileOutcome, PromptImportResult } from '$lib/services/api/prompts';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
@@ -159,7 +160,7 @@
 							{#each result.files as fileResult}
 								{@const reasonCopy = importSkipReasonCopy(fileResult.reason)}
 								<tr>
-									<td class="max-w-[200px] truncate px-3 py-2 text-fg" title={fileResult.filename}>
+									<td class="max-w-[200px] truncate px-3 py-2 text-fg" use:tooltip={{ text: fileResult.filename, truncateOnly: true }}>
 										{fileResult.filename}
 									</td>
 									<td class="px-3 py-2">
@@ -239,7 +240,7 @@
 							<li
 								class="flex items-center justify-between gap-2 rounded border border-line-strong bg-surface-2 px-2.5 py-1.5"
 							>
-								<span class="min-w-0 truncate text-xs text-fg" title={file.name}>{file.name}</span>
+								<span class="min-w-0 truncate text-xs text-fg" use:tooltip={{ text: file.name, truncateOnly: true }}>{file.name}</span>
 								<div class="flex flex-shrink-0 items-center gap-2">
 									<span class="font-mono text-xs tabular-nums text-fg-subtle">{formatBytes(file.size)}</span>
 									<Tooltip text="Remove file" position="top">

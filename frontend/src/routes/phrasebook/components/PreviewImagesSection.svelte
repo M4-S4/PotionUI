@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { previewGenerationStore } from '$lib/stores/previewGeneration';
 	import {
 		phrasebookStore,
@@ -244,10 +245,10 @@
 						<img
 							src={api.getFileURL(value.preview_file_id ?? '', 'small')}
 							alt={value.label}
-							title={value.label}
+							use:tooltip={value.label}
 							class="w-16 h-16 rounded border border-line object-cover"
 						/>
-						<span class="text-2xs text-fg-muted text-center truncate w-full" title={value.label}>{value.label}</span>
+						<span class="text-2xs text-fg-muted text-center truncate w-full" use:tooltip={{ text: value.label, truncateOnly: true }}>{value.label}</span>
 					</div>
 				{/each}
 			</div>

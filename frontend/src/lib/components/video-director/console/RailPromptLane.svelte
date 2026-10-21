@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	// `.prompt-lane` from console.html: real prompt beats (`.beat-b`) plus,
 	// wherever a beat doesn't cover the shot, a dashed `.global-fill` gap
 	// filler (the deriveShotRail contract folds the gap into `beats` too,
@@ -126,7 +127,7 @@
 	class="prompt-lane {canAdd ? 'can-add' : ''}"
 	bind:this={laneEl}
 	role="presentation"
-	title={!canAdd && addDisabledReason ? addDisabledReason : undefined}
+	use:tooltip={!canAdd && addDisabledReason ? addDisabledReason : undefined}
 	onpointermove={handlePointerMove}
 	onpointerleave={handlePointerLeave}
 	onclick={handleLaneClick}

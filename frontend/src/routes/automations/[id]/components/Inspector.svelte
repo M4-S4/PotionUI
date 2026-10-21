@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton, Badge } from '$lib/components/ui';
 	import { automationEditor, buildVariableScope, selectedNode } from '$lib/stores/automationEditor';
@@ -109,7 +110,7 @@
 								<button
 									type="button"
 									class="w-full text-left rounded px-2 py-1 -mx-2 hover:bg-surface-2 transition-colors"
-									title="Copy “{reference}”"
+									use:tooltip={`Copy “${reference}”`}
 									onclick={() => copyReference(reference)}
 								>
 									<span class="flex items-baseline justify-between gap-2">

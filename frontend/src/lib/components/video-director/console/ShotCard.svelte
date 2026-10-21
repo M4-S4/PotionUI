@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	// `.shot-card` -- the expanded, active shot. Card head carries every fact
 	// (no per-shot Generate, no info band, per note09-decisions.md); the body
 	//
@@ -137,7 +138,7 @@
 		</button>
 
 		<span class="font-mono text-[11px] text-fg">{shot.number}</span>
-		<span class="max-w-[220px] truncate text-[13px] font-semibold text-fg" title={shot.title}>{shot.title}</span>
+		<span class="max-w-[220px] truncate text-[13px] font-semibold text-fg" use:tooltip={{ text: shot.title, truncateOnly: true }}>{shot.title}</span>
 
 		<span class="inline-flex items-center gap-[5px] font-mono text-[10px] uppercase tracking-[0.04em] {BADGE_TONE_CLASS[meta.tone]}">
 			<ConsoleIcon name={meta.icon} class="h-[11px] w-[11px]" />
@@ -231,7 +232,7 @@
 				{#if timingUnknown}
 					<span
 						class="text-xs uppercase tracking-[0.04em]"
-						title="Motion latents unknown -- showing the requested length, not the generator's real output"
+						use:tooltip={"Motion latents unknown -- showing the requested length, not the generator's real output"}
 					>
 						requested
 					</span>

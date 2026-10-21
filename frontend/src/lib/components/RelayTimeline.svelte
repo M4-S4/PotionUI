@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import MediaLoaderField from './form-fields/MediaLoaderField.svelte';
 	import { jsonEqual } from '$lib/utils/equal';
 	import type {
@@ -362,7 +363,7 @@
 						class:rt-bar--sel={sel}
 						style="left:{seg.start * zoom}px; width:{Math.max((seg.end - seg.start) * zoom, 6)}px; background:{c.bg}; border-color:{sel ? c.border : 'rgb(var(--line-strong))'}"
 						on:mousedown={(e) => dragPrompt(e, seg.id)}
-						title="{seg.start.toFixed(2)}s – {seg.end.toFixed(2)}s"
+						use:tooltip={`${seg.start.toFixed(2)}s – ${seg.end.toFixed(2)}s`}
 					>
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<div class="rt-trim rt-trim--l" on:mousedown={(e) => trimPromptLeft(e, seg.id)}></div>
@@ -386,7 +387,7 @@
 						class:rt-marker--sel={sel}
 						style="left:{seg.start * zoom}px; border-color:{sel ? 'rgb(var(--warning))' : 'rgb(var(--line-strong))'}"
 						on:mousedown={(e) => dragImage(e, seg.id)}
-						title="image @ {seg.start.toFixed(2)}s"
+						use:tooltip={`image @ ${seg.start.toFixed(2)}s`}
 					>
 						{#if tu}
 							<img src={tu} alt="" class="rt-marker-img" draggable="false" />
@@ -413,7 +414,7 @@
 						class:rt-bar--sel={sel}
 						style="left:{seg.start * zoom}px; width:{Math.max(seg.length * zoom, 6)}px; background:rgb(var(--success) / 0.15); border-color:{sel ? 'rgb(var(--success))' : 'rgb(var(--line-strong))'}"
 						on:mousedown={(e) => dragAudio(e, seg.id)}
-						title="audio @ {seg.start.toFixed(2)}s · {seg.length.toFixed(2)}s"
+						use:tooltip={`audio @ ${seg.start.toFixed(2)}s · ${seg.length.toFixed(2)}s`}
 					>
 						<!-- svelte-ignore a11y-no-static-element-interactions -->
 						<div class="rt-trim rt-trim--l" on:mousedown={(e) => trimAudioLeft(e, seg.id)}></div>

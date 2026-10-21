@@ -182,17 +182,18 @@
 								onclick: () => removePreset(p)
 							}}
 						/>
-						<HostUi
-							name="Button"
-							props={{
-								icon: 'external-link',
-								variant: 'ghost',
-								size: 'sm',
-								ariaLabel: 'Open in Presets',
-								title: 'Open in Presets',
-								href: `/admin?tab=presets&preset=${p.preset_id}`
-							}}
-						/>
+						<HostUi name="Tooltip" props={{ text: 'Open in Presets' }}>
+							<HostUi
+								name="Button"
+								props={{
+									icon: 'external-link',
+									variant: 'ghost',
+									size: 'sm',
+									ariaLabel: 'Open in Presets',
+									href: `/admin?tab=presets&preset=${p.preset_id}`
+								}}
+							/>
+						</HostUi>
 					</div>
 					{#if reloadResult}
 						<div class="ip-reload-result">

@@ -60,7 +60,7 @@ async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promi
 	await entry.click();
 	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
 	await page.waitForTimeout(1500);
-	const videoModeBtn = page.locator('button[title="Video"]');
+	const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
 	if ((await videoModeBtn.count()) > 0) {
 		await videoModeBtn.click();
 		await page.waitForTimeout(500);

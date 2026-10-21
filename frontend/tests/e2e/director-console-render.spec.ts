@@ -60,9 +60,7 @@ async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promi
 	await page.waitForTimeout(1500);
 	// A segmented mode selector may still be showing (e.g. an image/video
 	// split on the same preset family) — land on "Video" if one exists.
-	// The segmented mode control's button carries a native title; a plain role
-	// query also matches the Video Director's own collapsible header button.
-	const videoModeBtn = page.locator('button[title="Video"]');
+	const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
 	if (await videoModeBtn.count() > 0) {
 		await videoModeBtn.click();
 		await page.waitForTimeout(500);

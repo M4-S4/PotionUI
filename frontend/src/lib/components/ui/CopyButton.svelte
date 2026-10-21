@@ -2,6 +2,7 @@
 	import { getContext } from 'svelte';
 	import Icon from '../Icon.svelte';
 	import { INSIDE_TOOLTIP_CONTEXT_KEY } from '../tooltipContext';
+	import tooltip from '$lib/actions/tooltip';
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
 
@@ -22,7 +23,6 @@
 		text: string | (() => string);
 		/** Renders a labeled button (icon + text) instead of icon-only. */
 		label?: string;
-		/** Native tooltip. Also the icon-only aria-label fallback when `ariaLabel` is absent. */
 		title?: string;
 		/** Explicit accessible name for icon-only mode; defaults to `title`, then "Copy". Ignored when `label` is set - the visible text is the accessible name. */
 		ariaLabel?: string;
@@ -32,8 +32,6 @@
 		class?: string;
 	} = $props();
 
-	// A wrapping Tooltip already shows the accessible name; keeping the native
-	// title too renders two tooltips side by side (see IconButton.svelte).
 	const insideTooltip = getContext<boolean | undefined>(INSIDE_TOOLTIP_CONTEXT_KEY) === true;
 
 	let copied = $state(false);
@@ -90,7 +88,7 @@
 	type="button"
 	class={classes}
 	aria-label={label ? undefined : resolvedAriaLabel}
-	title={insideTooltip ? undefined : (label ? title : resolvedAriaLabel)}
+	use:tooltip={insideTooltip ? undefined : label ? title : resolvedAriaLabel}
 	{disabled}
 	onclick={handleClick}
 >

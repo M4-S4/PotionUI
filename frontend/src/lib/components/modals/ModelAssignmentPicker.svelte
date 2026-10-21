@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { debounce } from '$lib/utils/time';
 	import { parseServerDate } from '$lib/utils/relativeTime';
@@ -326,11 +327,11 @@
 
 						<!-- Info below card -->
 						<div class="px-2 py-1.5 bg-surface-1 space-y-0.5">
-							<p class="text-xs font-medium text-fg truncate" title={getDisplayName(model)}>
+							<p class="text-xs font-medium text-fg truncate" use:tooltip={{ text: getDisplayName(model), truncateOnly: true }}>
 								{getDisplayName(model)}
 							</p>
 							{#if model.filename && model.filename !== getDisplayName(model)}
-								<p class="text-2xs text-fg-muted truncate" title={model.filename}>
+								<p class="text-2xs text-fg-muted truncate" use:tooltip={{ text: model.filename, truncateOnly: true }}>
 									{model.filename}
 								</p>
 							{/if}
@@ -340,7 +341,7 @@
 								{/if}
 								{#if model.indexed_at}
 									<span class="w-px h-2.5 bg-line"></span>
-									<span title="Indexed at">{formatDate(model.indexed_at)}</span>
+									<span use:tooltip={'Indexed at'}>{formatDate(model.indexed_at)}</span>
 								{/if}
 							</div>
 							<slot name="cardExtra" {model} />

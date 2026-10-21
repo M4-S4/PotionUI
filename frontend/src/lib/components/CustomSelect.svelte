@@ -221,6 +221,7 @@
 		<button
 			type="button"
 			class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg transition-colors"
+			aria-label="Toggle options"
 			on:click={handleInputClick}
 			on:keydown={handleKeyDown}
 			disabled={disabled}

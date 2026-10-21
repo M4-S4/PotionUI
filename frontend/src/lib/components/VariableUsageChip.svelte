@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import {
 		normalizeVariableDef,
 		optionText,
@@ -420,7 +421,7 @@ usageRollKey
 
 	{#snippet footer()}
 		{#if variant === 'segment-composer'}
-			<button type="button" class="small-button danger" title="Remove this usage" on:click={() => onRemove?.()}
+			<button type="button" class="small-button danger" use:tooltip={'Remove this usage'} on:click={() => onRemove?.()}
 				>Remove usage</button
 			>
 		{/if}

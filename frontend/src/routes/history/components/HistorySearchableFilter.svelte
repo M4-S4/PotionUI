@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import Icon from '$lib/components/Icon.svelte';
 	import { debounce } from '$lib/utils/time';
 	import { Spinner } from '$lib/components/ui';
@@ -80,7 +81,7 @@
 			? 'text-signal'
 			: 'text-fg-muted'}"
 		onclick={toggleOpen}
-		title={selectedLabel ?? placeholder}
+		use:tooltip={selectedLabel ?? placeholder}
 	>
 		<Icon name={icon} className="w-3.5 h-3.5 flex-shrink-0" />
 		<span class="truncate">{selectedLabel ?? placeholder}</span>

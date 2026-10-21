@@ -86,7 +86,7 @@ test('tags field: pick, type, remove, and the joined string reaches the form', a
 
 	await screenshot(page, JOURNEY, '04-after-remove');
 
-	await instrumentalSlot.locator('button[title="Add Instrumentation"]').click();
+	await instrumentalSlot.locator('button[aria-label="Add Instrumentation"]').click();
 	await expect(page.getByRole('dialog', { name: 'Instrumentation picker' })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog', { name: 'Instrumentation picker' })).toHaveCount(0);

@@ -1995,6 +1995,13 @@ Because registration is automatic, the props of every component in `ui/`, `detai
 breaks plugins that use it. Treat such a change as an API change and note it in the changelog;
 a component that must stay private belongs outside those folders.
 
+`Button` no longer takes a `title` prop and `IconButton` no longer sets a native `title`: wrap
+the control in the host `Tooltip` (`props={{ text }}`) to show a hover hint. `IconButton`
+accepts `variant: 'overlay'` for controls that sit over media and forwards extra attributes
+such as `data-*` to its button. `Tooltip` also opens on keyboard focus, closes on Escape,
+describes its trigger with `aria-describedby` while open, and takes `truncateOnly: true` to
+show only when its content is cut off.
+
 Snippet props cannot cross the bundle boundary, so pass `children` as a string or as
 `(el) => cleanup?` that fills the slot element. Any other snippet prop takes `{ slot: string |
 (el) => cleanup? }`.

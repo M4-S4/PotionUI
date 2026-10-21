@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { debounce } from '$lib/utils/time';
 	import { onDestroy } from 'svelte';
@@ -336,7 +337,7 @@
 									<button
 										type="button"
 										class="p-1.5 text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-										title="Delete this item"
+										use:tooltip={'Delete this item'}
 										aria-label={`Delete ${libraryItemDisplayName(item)}`}
 										on:click={() => requestDelete(item.id)}
 									>
@@ -347,7 +348,7 @@
 
 							<!-- File name overlay -->
 							<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 pt-4 pointer-events-none">
-								<p class="text-sm font-medium text-white truncate" title={libraryItemDisplayName(item)}>
+								<p class="text-sm font-medium text-white truncate" use:tooltip={{ text: libraryItemDisplayName(item), truncateOnly: true }}>
 									{libraryItemDisplayName(item)}
 								</p>
 							</div>
@@ -355,7 +356,7 @@
 						{#if metadataLine(item)}
 							<p
 								class="mt-1 font-mono tabular-nums text-xs text-fg-subtle truncate"
-								title={metadataLine(item) ?? ''}
+								use:tooltip={{ text: metadataLine(item) ?? '', truncateOnly: true }}
 							>
 								{metadataLine(item)}
 							</p>

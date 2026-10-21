@@ -57,8 +57,8 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	await expect(segmentHeader).toBeVisible({ timeout: 30000 });
 	await expect(page.getByText(PROPOSED_PROMPT)).toBeVisible();
 
-	const thumbsUp = page.locator('button[title="Good prompt"]');
-	const thumbsDown = page.locator('button[title="Bad prompt"]');
+	const thumbsUp = page.locator('button[aria-label="Good prompt"]');
+	const thumbsDown = page.locator('button[aria-label="Bad prompt"]');
 	await expect(thumbsUp).toBeVisible();
 	await expect(thumbsDown).toBeVisible();
 	await expect(thumbsUp).toHaveAttribute('aria-pressed', 'false');
@@ -94,7 +94,7 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	await fab.click();
 	await expect(page.getByText('Update Segment #1')).toBeVisible({ timeout: 30000 });
 
-	const thumbsUpAfter = page.locator('button[title="Good prompt"]');
+	const thumbsUpAfter = page.locator('button[aria-label="Good prompt"]');
 	await expect(thumbsUpAfter).toBeVisible();
 	await expect(
 		thumbsUpAfter,

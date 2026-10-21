@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
@@ -229,7 +230,7 @@
 			{@render (composerLabel ?? label)()}
 		</button>
 		{#if !disabled}
-			<button type="button" onmousedown={toggle} class="chip-config" title={popoverLabel} aria-label={popoverLabel}>
+			<button type="button" onmousedown={toggle} class="chip-config" use:tooltip={popoverLabel} aria-label={popoverLabel}>
 				<Icon name="composer-sliders" className="icon" strokeWidth={1.7} />
 			</button>
 		{/if}
@@ -292,7 +293,8 @@
 				type="button"
 				onmousedown={handleRemove}
 				class="p-1.5 {removePaddingClasses[density]} text-fg-muted hover:text-fg transition-colors duration-100"
-				title={removeTitle}
+				use:tooltip={removeTitle}
+				aria-label={removeTitle}
 			>
 				<Icon name="close" className="w-3.5 h-3.5" />
 			</button>

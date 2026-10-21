@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { libraryStore } from '$lib/stores/library';
 	import { libraryCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { api } from '$lib/services/api/index';
@@ -71,7 +72,7 @@
 		{#if activeCollectionId}
 			<button
 				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
-				title="Remove the selected items from this collection"
+				use:tooltip={'Remove the selected items from this collection'}
 				on:click={handleRemoveFromCollection}
 			>
 				<Icon name="minus" className="w-4 h-4" />

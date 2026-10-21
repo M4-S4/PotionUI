@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { api } from '$lib/services/api';
 	import type { PresetStyle } from '$lib/types/api';
 	import { categoryOptions, filterStyles } from '$lib/prompt/styleFilter';
@@ -249,7 +250,7 @@
 							type="button"
 							id={tileId(style)}
 							class="group flex flex-col gap-1 rounded-lg text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-							title={size === 'small' ? style.description || style.name : undefined}
+							use:tooltip={size === 'small' ? style.description || style.name : undefined}
 							aria-pressed={selected}
 							onclick={() => selectTile(style)}
 							ondblclick={() => commitTile(style)}

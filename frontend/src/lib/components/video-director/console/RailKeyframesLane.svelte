@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	// `.kf-lane` from console.html: locked START/END `.kf-anchor`s (not
 	// draggable, still selectable) plus free keyframes, each drawn as a
 	// `.kf-free` diamond (the grab handle) sitting above its own `.kf-thumb40`
@@ -154,16 +155,17 @@
 				type="button"
 				class="kf-free {isSelected(mark.id) ? 'selected' : ''} {liveDrag?.id === mark.id ? 'is-dragging' : ''}"
 				style="left:{displayPercent(mark)}%"
-				title="{mark.label} — drag to move, arrow keys to nudge"
+				use:tooltip={`${mark.label} — drag to move, arrow keys to nudge`}
 				onclick={(e) => selectMark(e, mark.id)}
 				onpointerdown={(e) => startDrag(mark, e)}
 				onkeydown={(e) => handleMarkKeydown(e, mark)}
+				aria-label={`${mark.label} — drag to move, arrow keys to nudge`}
 			></button>
 			<button
 				type="button"
 				class="kf-thumb40 {isSelected(mark.id) ? 'selected' : ''} {mark.empty ? 'is-empty' : ''} {liveDrag?.id === mark.id ? 'is-dragging' : ''}"
 				style="left:{displayPercent(mark)}%{mark.thumbUrl ? `;background-image:url(${mark.thumbUrl})` : ''}"
-				title={mark.label}
+				use:tooltip={mark.label}
 				tabindex="-1"
 				aria-hidden="true"
 				onclick={(e) => selectMark(e, mark.id)}

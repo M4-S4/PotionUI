@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { slide } from 'svelte/transition';
 	import {
 		processMarkdown,
@@ -307,7 +308,7 @@
 {#if role === 'user'}
 	<article class="message user-message">
 		<div class="user-bubble">
-			{#each splitResourceTokens(content) as part}{#if part.type === 'resource'}<span class="prompt-token" title={part.value}>@{resourceLabel(part.value)}</span>{:else}{part.value}{/if}{/each}
+			{#each splitResourceTokens(content) as part}{#if part.type === 'resource'}<span class="prompt-token" use:tooltip={part.value}>@{resourceLabel(part.value)}</span>{:else}{part.value}{/if}{/each}
 		</div>
 		{#if imageUrl}
 			<div class="user-attachment">
@@ -386,9 +387,10 @@
 										class="message-action"
 										class:active={feedback?.verdict === 'approved'}
 										disabled={!!feedback}
-										title="Good prompt"
+										use:tooltip={'Good prompt'}
 										aria-pressed={feedback?.verdict === 'approved'}
 										on:click={() => submitPromptFeedback(i, 'approved')}
+										aria-label="Good prompt"
 									>
 										<Icon name="chat-good" className="icon" strokeWidth={1.8} />
 									</button>
@@ -397,9 +399,10 @@
 										class="message-action"
 										class:active={feedback?.verdict === 'rejected'}
 										disabled={!!feedback}
-										title="Bad prompt"
+										use:tooltip={'Bad prompt'}
 										aria-pressed={feedback?.verdict === 'rejected'}
 										on:click={() => toggleReasonPanel(i)}
+										aria-label="Bad prompt"
 									>
 										<Icon name="chat-bad" className="icon" strokeWidth={1.8} />
 									</button>
@@ -422,7 +425,7 @@
 										class:destructive={(action.type === 'delete_segment' || action.type === 'remove_prompt') && !applied}
 										data-testid="segment-action-apply"
 										disabled={conditionProblemsByIndex[i].length > 0 || (!isReapplicable(action) && (applied || listActionsDisabled))}
-										title={applied ? (isReapplicable(action) ? 'Re-apply this variant' : undefined) : applyActionHint}
+										use:tooltip={applied ? (isReapplicable(action) ? 'Re-apply this variant' : undefined) : applyActionHint}
 										on:click={() => conditionProblemsByIndex[i].length === 0 && onApplyAction?.(action, i)}
 									>
 										{applyLabel(action, applied)}
@@ -474,7 +477,7 @@
 						{#each uniqueSources as source}
 							<div class="message-source-card">
 								<span class="message-source-badge">{source.source_type}</span>
-								<div class="message-source-title" title={source.title}>{source.title}</div>
+								<div class="message-source-title" use:tooltip={source.title}>{source.title}</div>
 								{#if source.subtitle}<div class="message-source-sub">{source.subtitle}</div>{/if}
 								{#if source.url}
 									<a href={source.url} target="_blank" rel="noopener noreferrer" class="message-source-sub"
@@ -488,7 +491,7 @@
 			</div>
 
 			<div class="message-actions">
-				<button type="button" class="message-action" title="Copy" aria-label="Copy response" on:click={copyResponse}>
+				<button type="button" class="message-action" use:tooltip={'Copy'} aria-label="Copy response" on:click={copyResponse}>
 					<Icon name={responseCopied ? 'chat-check' : 'chat-copy'} className="icon" strokeWidth={1.8} />
 				</button>
 				{#if modelTokensLine}

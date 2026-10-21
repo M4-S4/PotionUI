@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { onMount } from 'svelte';
 	import { libraryStore } from '$lib/stores/library';
 	import { libraryCollectionsStore as collectionsStore } from '$lib/stores/collections';
@@ -154,7 +155,7 @@
 			<button
 				class="sticky top-0 flex h-screen w-full flex-col items-center gap-2 pt-3 text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
 				on:click={() => (sidebarOpen = true)}
-				title="Show folders"
+				use:tooltip={'Show folders'}
 				aria-label="Show folders"
 			>
 				<Icon name="chevron-right" className="w-4 h-4" />

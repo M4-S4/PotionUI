@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	/**
 	 * Insert a reference to an upstream node's output into a config field.
 	 *
@@ -77,7 +78,7 @@
 			text-fg-subtle hover:text-fg hover:bg-surface-3 transition-colors
 			disabled:opacity-40 disabled:cursor-not-allowed"
 		disabled={!hasAnything}
-		title={hasAnything ? 'Insert a value from an upstream node' : 'No upstream node provides data yet'}
+		use:tooltip={hasAnything ? 'Insert a value from an upstream node' : 'No upstream node provides data yet'}
 		onclick={(event) => {
 			event.stopPropagation();
 			open = !open;
@@ -120,7 +121,7 @@
 				{#each upstreamGroups as group (group.nodeId)}
 					<p
 						class="px-3 pt-2 pb-1 text-2xs font-mono font-semibold uppercase tracking-wide text-fg-subtle truncate"
-						title={group.nodeId}
+						use:tooltip={{ text: group.nodeId, truncateOnly: true }}
 					>
 						{group.title}
 					</p>

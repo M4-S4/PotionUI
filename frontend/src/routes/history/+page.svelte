@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
 	import { generationIdOf } from '$lib/generation/messages/wire';
@@ -327,7 +328,7 @@
 			<button
 				class="flex h-full w-full flex-col items-center gap-2 pt-3 text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
 				on:click={() => (sidebarOpen = true)}
-				title="Show library"
+				use:tooltip={'Show library'}
 				aria-label="Show library"
 			>
 				<Icon name="chevron-right" className="w-4 h-4" />

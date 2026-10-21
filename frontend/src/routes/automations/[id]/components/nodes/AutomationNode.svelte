@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	/**
 	 * Unified node card for all three kinds (trigger/condition/action). Kind is
 	 * differentiated by icon + mono uppercase micro-label only (never color);
@@ -94,7 +95,7 @@
 									class="font-mono truncate text-right max-w-[130px] {input.bound
 										? 'text-signal'
 										: 'text-fg-subtle'}"
-									title={input.value}
+									use:tooltip={{ text: input.value, truncateOnly: true }}
 								>
 									{input.value}
 								</span>
@@ -115,7 +116,7 @@
 					<p class="text-2xs font-mono uppercase tracking-wide text-fg-subtle">Provides</p>
 					<code
 						class="text-2xs font-mono text-fg-subtle truncate max-w-[120px]"
-						title="Reference these downstream as {prefix}.<field>"
+						use:tooltip={{ text: `Reference these downstream as ${prefix}.<field>`, truncateOnly: true }}
 					>
 						{prefix}.*
 					</code>
@@ -129,7 +130,7 @@
 						{#each outputs as output (output.key)}
 							<div
 								class="flex items-baseline justify-between gap-2 text-2xs"
-								title={outputRef(data.kind, id, output.key)}
+								use:tooltip={outputRef(data.kind, id, output.key)}
 							>
 								<span class="font-mono text-fg truncate">{output.key}</span>
 								<span class="font-mono text-fg-subtle tabular-nums flex-shrink-0">{output.type}</span>

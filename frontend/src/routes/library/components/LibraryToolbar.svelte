@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { onDestroy } from 'svelte';
 	import { debounce } from '$lib/utils/time';
 	import { libraryStore } from '$lib/stores/library';
@@ -92,7 +93,7 @@
 						.filters.mediaType === type.value
 						? 'bg-signal/10 text-signal'
 						: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-					title={type.label}
+					use:tooltip={type.label}
 					aria-label={type.label}
 					aria-pressed={state.filters.mediaType === type.value}
 					on:click={() => handleMediaTypeChange(type.value)}
@@ -133,7 +134,7 @@
 					<button
 						role="radio"
 						aria-checked={$historyTileSize === size.value}
-						title={size.title}
+						use:tooltip={size.title}
 						class="w-6 py-1 font-mono text-2xs rounded-sm transition-colors duration-100 {$historyTileSize ===
 						size.value
 							? 'bg-signal/10 text-signal'

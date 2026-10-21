@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { historyStore, filteredGenerations } from '$lib/stores/history';
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { api } from '$lib/services/api/index';
@@ -105,7 +106,7 @@
 		<button
 			class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
 			disabled={copyingToLibrary}
-			title="Copy the selected media into your library (the generations stay in history)"
+			use:tooltip={'Copy the selected media into your library (the generations stay in history)'}
 			on:click={handleCopyToLibrary}
 		>
 			<Icon name="photo" className="w-4 h-4" />
@@ -118,7 +119,7 @@
 			<!-- Remove from the collection currently being browsed -->
 			<button
 				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
-				title="Remove the selected items from this collection"
+				use:tooltip={'Remove the selected items from this collection'}
 				on:click={handleRemoveFromCollection}
 			>
 				<Icon name="minus" className="w-4 h-4" />

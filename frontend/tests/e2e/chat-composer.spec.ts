@@ -52,9 +52,7 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
 	await expect(chipInput).toBeVisible();
 	await expect(chipInput).toHaveAttribute('aria-placeholder', /attach a resource/i);
-	const commandButton = composer.locator(
-		'button[title*="command" i], button[aria-label*="command" i]'
-	);
+	const commandButton = composer.locator('button[aria-label*="command" i]');
 	await expect(commandButton).toHaveCount(0);
 
 	// --- 1. Tools popover (opens upward) ---

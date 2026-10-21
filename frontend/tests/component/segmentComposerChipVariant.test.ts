@@ -138,7 +138,7 @@ describe('VariableUsageChip variant', () => {
 		expect(chip).not.toBeNull();
 		// No standing remove button on the chip itself — only chip-main/chip-config.
 		expect(chip?.querySelectorAll(':scope > button').length).toBe(2);
-		expect(chip?.querySelector('button[title="Remove this usage"]')).toBeNull();
+		expect(chip?.querySelector('button.small-button.danger')).toBeNull();
 
 		chip?.querySelector<HTMLButtonElement>('.chip-main')?.dispatchEvent(
 			new MouseEvent('mousedown', { bubbles: true, cancelable: true })
@@ -146,7 +146,7 @@ describe('VariableUsageChip variant', () => {
 		flushSync();
 
 		const removeBtn = document.querySelector<HTMLButtonElement>(
-			'.variable-popover button[title="Remove this usage"]'
+			'.variable-popover button.small-button.danger'
 		);
 		expect(removeBtn).not.toBeNull();
 		removeBtn?.click();

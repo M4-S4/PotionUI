@@ -8,6 +8,7 @@
 	size; "sm" = LoraPickerField's and ModelCollectionBrowser's old size).
 -->
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { filesWithPreview } from '$lib/utils/modelPreview';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { modelFilenameStem, modelIsCloud, modelSummaryParts, modelTypePresentation } from '$lib/utils/modelPresentation';
@@ -63,17 +64,17 @@
 	{/if}
 	<div class="flex-1 min-w-0">
 		<div class="flex items-center gap-1.5 min-w-0">
-			<div class="text-sm font-medium text-fg truncate" title={displayName}>
+			<div class="text-sm font-medium text-fg truncate" use:tooltip={{ text: displayName, truncateOnly: true }}>
 				{displayName}
 			</div>
 			<slot name="badge" />
 		</div>
 		{#if filenameStem}
-			<div class="truncate font-mono text-2xs text-fg-muted" title={model.filename}>
+			<div class="truncate font-mono text-2xs text-fg-muted" use:tooltip={{ text: model.filename, truncateOnly: true }}>
 				{filenameStem}
 			</div>
 		{/if}
-		<div class="mt-0.5 truncate text-xs text-fg-subtle" title={purpose}>
+		<div class="mt-0.5 truncate text-xs text-fg-subtle" use:tooltip={{ text: purpose, truncateOnly: true }}>
 			{summaryParts.join(' · ')}
 		</div>
 	</div>
@@ -81,7 +82,7 @@
 		type="button"
 		on:click|stopPropagation={(e) => onToggleFavorite(model, e)}
 		class="shrink-0 p-1 hover:bg-surface-3 rounded {model.is_favorite ? 'text-warning' : 'text-fg-subtle'}"
-		title={model.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+		use:tooltip={model.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
 		aria-label={model.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
 	>
 		<Icon name="star" className="w-3.5 h-3.5" />

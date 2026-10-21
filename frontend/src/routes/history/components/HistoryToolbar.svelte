@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { onDestroy, onMount } from 'svelte';
 	import { debounce } from '$lib/utils/time';
 	import { goto } from '$app/navigation';
@@ -396,7 +397,7 @@
 						class="p-1.5 rounded-sm transition-colors duration-100 {currentState.filters.mediaType === 'image'
 							? 'bg-signal/10 text-signal'
 							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-						title="Images only"
+						use:tooltip={'Images only'}
 						aria-label="Images only"
 						on:click={() => handleMediaTypeChange('image')}
 					>
@@ -406,7 +407,7 @@
 						class="p-1.5 rounded-sm transition-colors duration-100 {currentState.filters.mediaType === 'video'
 							? 'bg-signal/10 text-signal'
 							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-						title="Videos only"
+						use:tooltip={'Videos only'}
 						aria-label="Videos only"
 						on:click={() => handleMediaTypeChange('video')}
 					>
@@ -416,7 +417,7 @@
 						class="p-1.5 rounded-sm transition-colors duration-100 {currentState.filters.mediaType === 'audio'
 							? 'bg-signal/10 text-signal'
 							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-						title="Audio only"
+						use:tooltip={'Audio only'}
 						aria-label="Audio only"
 						on:click={() => handleMediaTypeChange('audio')}
 					>
@@ -426,7 +427,7 @@
 						class="p-1.5 rounded-sm transition-colors duration-100 {currentState.filters.mediaType === 'mesh'
 							? 'bg-signal/10 text-signal'
 							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-						title="3D only"
+						use:tooltip={'3D only'}
 						aria-label="3D only"
 						on:click={() => handleMediaTypeChange('mesh')}
 					>
@@ -440,7 +441,7 @@
 						.favoritesOnly
 						? 'text-signal'
 						: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-					title="Favorites only"
+					use:tooltip={'Favorites only'}
 					aria-label="Favorites only"
 					aria-pressed={!!currentState.filters.favoritesOnly}
 					on:click={handleFavoritesToggle}
@@ -499,7 +500,7 @@
 											<button
 												role="radio"
 												aria-checked={currentState.filters.searchMode === searchMode.value}
-												title={searchMode.title}
+												use:tooltip={searchMode.title}
 												class="flex-1 px-2 py-1 text-xs rounded-sm transition-colors duration-100 {currentState.filters.searchMode === searchMode.value
 													? 'bg-signal/10 text-signal'
 													: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
@@ -654,7 +655,7 @@
 						<button
 							role="radio"
 							aria-checked={$historyTileSize === size.value}
-							title={size.title}
+							use:tooltip={size.title}
 							class="w-6 py-1 font-mono text-2xs rounded-sm transition-colors duration-100 {$historyTileSize === size.value
 								? 'bg-signal/10 text-signal'
 								: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
@@ -748,7 +749,7 @@
 				{#if currentState.filters.searchMode === 'semantic'}
 					<button
 						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
-						title="Back to keyword search"
+						use:tooltip={'Back to keyword search'}
 						on:click={() => handleSearchModeChange('keyword')}
 					>
 						<span>Semantic search</span>
@@ -759,7 +760,7 @@
 				{#if currentState.filters.datePreset !== 'all'}
 					<button
 						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
-						title="Clear date filter"
+						use:tooltip={'Clear date filter'}
 						on:click={() => handleDatePresetChange('all')}
 					>
 						<span class="truncate max-w-[8rem]">
@@ -772,7 +773,7 @@
 				{#if currentState.filters.status !== 'all'}
 					<button
 						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0 capitalize"
-						title="Clear status filter"
+						use:tooltip={'Clear status filter'}
 						on:click={() => handleStatusChange('all')}
 					>
 						<span class="truncate max-w-[8rem]">{currentState.filters.status}</span>
@@ -783,7 +784,7 @@
 				{#if currentState.filters.mode}
 					<button
 						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
-						title="Clear mode filter"
+						use:tooltip={'Clear mode filter'}
 						on:click={() => handleModeChange('')}
 					>
 						<span class="truncate max-w-[8rem]">{modeLabel(currentState.filters.mode)}</span>
@@ -805,7 +806,7 @@
 				{#if currentState.filters.minRating}
 					<button
 						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
-						title="Clear rating filter"
+						use:tooltip={'Clear rating filter'}
 						on:click={() => handleMinRatingChange(0)}
 					>
 						<span>★{currentState.filters.minRating}+</span>
@@ -816,7 +817,7 @@
 				{#if currentState.filters.usedPhrasebookValueId}
 					<button
 						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
-						title="Clear phrasebook filter"
+						use:tooltip={'Clear phrasebook filter'}
 						on:click={() => handleUsedPhrasebookSelect(null, null)}
 					>
 						<span class="truncate max-w-[8rem]">{currentState.filters.usedPhrasebookLabel}</span>
@@ -828,7 +829,7 @@
 				{#if currentState.filters.systemTag}
 					<button
 						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
-						title="Clear auto-tag filter"
+						use:tooltip={'Clear auto-tag filter'}
 						on:click={handleSystemTagClear}
 					>
 						<Icon name="sparkles" className="w-3 h-3" />

@@ -271,7 +271,7 @@ test.describe('InlineChipEditor browser interactions', () => {
 		// look inside it rather than inside `.variable-usage-chip`.
 		await chipButton.click();
 		await expect(popover).toBeVisible();
-		await popover.locator('button[title="Remove this usage"]').click();
+		await popover.getByRole('button', { name: 'Remove usage' }).click();
 		await expect(editor.locator('.variable-usage-container')).toHaveCount(0);
 		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-chip-unmounted');

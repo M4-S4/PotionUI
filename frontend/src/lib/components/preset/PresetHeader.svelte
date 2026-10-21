@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher } from 'svelte';
 	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
 	import type { ReadinessReport } from '$lib/services/api/setup';
@@ -124,6 +125,9 @@
 		{#if variantOptions.length <= 3}
 			<div
 				class="grid gap-0.5 rounded-lg bg-surface-2 p-0.5"
+				role="group"
+				aria-label="Preset variant"
+				data-testid="preset-variant-switch"
 				style="grid-template-columns: repeat({variantOptions.length}, minmax(0, 1fr));"
 			>
 				{#each variantOptions as opt}
@@ -145,7 +149,7 @@
 							class="w-full min-w-0 rounded-md px-3 py-1.5 text-xs font-medium transition-all {selectedVariant === opt.value
 								? 'bg-signal/10 text-signal shadow-sm'
 								: 'text-fg-muted hover:text-fg hover:bg-surface-3/50'}"
-							title={opt.label}
+							use:tooltip={opt.label}
 							on:click={() => handleVariantChange(opt.value)}
 						>
 							<span class="block truncate">{opt.label}</span>
