@@ -77,16 +77,28 @@ function unlisten() {
 export default function dismiss(node: HTMLElement, options: DismissOptions) {
 	if (!browser) return { update() {}, destroy() {} };
 
-	const layer: ActionLayer = registerDismissLayer({ node, options });
+	const layer: ActionLayer = { node, options };
+	let registered = false;
+
+	function release() {
+		if (!registered) return;
+		unregisterDismissLayer(layer);
+		registered = false;
+		unlisten();
+	}
+
+	registerDismissLayer(layer);
+	registered = true;
 	listen();
+	node.addEventListener('outrostart', release);
 
 	return {
 		update(next: DismissOptions) {
 			layer.options = next;
 		},
 		destroy() {
-			unregisterDismissLayer(layer);
-			unlisten();
+			node.removeEventListener('outrostart', release);
+			release();
 		}
 	};
 }

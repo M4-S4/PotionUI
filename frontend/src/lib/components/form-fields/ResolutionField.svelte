@@ -267,8 +267,8 @@
 		}
 	}
 
-	function handlePanelDismiss(reason: DismissReason) {
-		if (reason === 'escape' && customMode) {
+	function handlePanelDismiss(reason: DismissReason, event: Event) {
+		if (reason === 'escape' && customMode && event.target instanceof Element && event.target.closest('input[aria-label^="Custom"]')) {
 			cancelCustomMode();
 			return;
 		}

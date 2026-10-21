@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createClassComponent } from 'svelte/legacy';
+import { tick } from 'svelte';
 import BaseModal from '$lib/components/modals/BaseModal.svelte';
 import dismiss from '$lib/actions/dismiss';
 import { resetLayerStackForTests } from '$lib/actions/layerStack';
@@ -72,5 +73,22 @@ describe('BaseModal as a dismiss layer', () => {
 		await Promise.resolve();
 		document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
 		expect(onClose).not.toHaveBeenCalled();
+	});
+
+	it('stops owning Escape as soon as it starts closing, before its fade-out ends', async () => {
+		const lower = document.createElement('div');
+		document.body.appendChild(lower);
+		const onLowerDismiss = vi.fn();
+		const lowerLayer = dismiss(lower, { onDismiss: onLowerDismiss });
+		openModal();
+		await Promise.resolve();
+
+		component!.$set({ isOpen: false });
+		await tick();
+		expect(document.querySelector('[aria-label="Close modal"]')).not.toBeNull();
+
+		pressEscape();
+		expect(onLowerDismiss).toHaveBeenCalledWith('escape', expect.any(Event));
+		lowerLayer.destroy();
 	});
 });

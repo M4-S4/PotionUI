@@ -27,8 +27,8 @@ async function openPanel() {
 const panel = () => document.body.querySelector('[role="listbox"]');
 const customInput = () => document.body.querySelector('input[aria-label="Custom width"]');
 
-function pressEscape() {
-	window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+function pressEscape(from: EventTarget = window) {
+	from.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 }
 
 afterEach(() => {
@@ -48,7 +48,7 @@ describe('ResolutionField Escape', () => {
 		await flush(20);
 		expect(customInput()).not.toBeNull();
 
-		pressEscape();
+		pressEscape(customInput()!);
 		await flush(20);
 		expect(panel()).not.toBeNull();
 		expect(customInput()).toBeNull();
@@ -57,5 +57,18 @@ describe('ResolutionField Escape', () => {
 		await flush(200);
 		expect(panel()).toBeNull();
 		expect(document.activeElement).toBe(trigger);
+	});
+
+	it('closes the whole panel when Escape comes from outside the custom inputs', async () => {
+		const trigger = await openPanel();
+		Array.from(document.body.querySelectorAll('button'))
+			.find((b) => b.textContent?.includes('Custom size'))!
+			.click();
+		await flush(20);
+		expect(customInput()).not.toBeNull();
+
+		pressEscape(trigger);
+		await flush(200);
+		expect(panel()).toBeNull();
 	});
 });
