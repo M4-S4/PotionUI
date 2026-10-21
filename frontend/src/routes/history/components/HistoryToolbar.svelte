@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import { goto } from '$app/navigation';
 	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
@@ -142,12 +143,11 @@
 	}
 
 	// Search drives server-side full-text or semantic visual search, debounced.
-	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSearch = debounce(() => historyStore.loadGenerations(), 300);
 	function handleSearchInput(event: Event) {
 		const value = (event.currentTarget as HTMLInputElement).value;
 		historyStore.setFilter('search', value);
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => historyStore.loadGenerations(), 300);
+		scheduleSearch();
 	}
 
 	const searchModes: Array<{ value: HistorySearchMode; label: string; title: string }> = [
@@ -164,7 +164,7 @@
 		}
 	}
 
-	onDestroy(() => clearTimeout(searchDebounce));
+	onDestroy(scheduleSearch.cancel);
 
 	function handleSortChange(value: string) {
 		const [sortBy, sortDir] = value.split(':') as [SortBy, SortDir];

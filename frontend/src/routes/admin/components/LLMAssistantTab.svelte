@@ -57,16 +57,12 @@
 		void goto(url, { keepFocus: true, noScroll: true });
 	}
 
-	let configFiltersDebounce: ReturnType<typeof setTimeout> | undefined;
-	function updateConfigFilters(next: LLMConfigFilters) {
-		clearTimeout(configFiltersDebounce);
-		configFiltersDebounce = setTimeout(() => {
-			const url = new URL($page.url);
-			for (const key of ['q', 'sort_by']) url.searchParams.delete(key);
-			for (const [key, value] of llmConfigFilters.toSearchParams(next)) url.searchParams.set(key, value);
-			void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
-	}
+	const updateConfigFilters = debounce((next: LLMConfigFilters) => {
+		const url = new URL($page.url);
+		for (const key of ['q', 'sort_by']) url.searchParams.delete(key);
+		for (const [key, value] of llmConfigFilters.toSearchParams(next)) url.searchParams.set(key, value);
+		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+	}, 250);
 
 	function updateSessionsFilters(next: SessionsFilters) {
 		const url = new URL($page.url);

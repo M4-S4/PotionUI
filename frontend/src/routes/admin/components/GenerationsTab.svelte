@@ -9,7 +9,7 @@
 	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
@@ -129,7 +129,7 @@
 				listError = response.message || 'Failed to load generations';
 			}
 		} catch (e: any) {
-			listError = e?.response?.data?.message || e?.message || 'Failed to load generations';
+			listError = getApiErrorMessage(e, 'Failed to load generations');
 		} finally {
 			listLoading = false;
 		}
@@ -149,7 +149,7 @@
 			}
 		} catch (e: any) {
 			if (version !== detailRequestVersion || id !== viewId) return;
-			detailError = e?.response?.data?.message || e?.message || 'Failed to load generation detail';
+			detailError = getApiErrorMessage(e, 'Failed to load generation detail');
 		} finally {
 			if (version === detailRequestVersion && id === viewId) detailLoading = false;
 		}
@@ -255,7 +255,7 @@
 			}
 		} catch (e: any) {
 			logger.error('Failed to bulk delete generations:', e);
-			toasts.error(e?.response?.data?.message || e?.message || 'Failed to delete generations');
+			toasts.error(getApiErrorMessage(e, 'Failed to delete generations'));
 		} finally {
 			bulkDeleting = false;
 			selected = new Set();

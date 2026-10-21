@@ -6,6 +6,7 @@
 	import { flattenRichSegments, type SegmentApplyMode } from '$lib/utils/richSegments';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { parseVariableUsageTokens } from '$lib/utils/promptVariables';
 	import { timeAgo } from '$lib/utils/relativeTime';
@@ -63,7 +64,7 @@
 	let showModelPicker = false;
 	let semanticHitCount = 0;
 	let promptRequestId = 0;
-	let loadDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleLoad = debounce(() => void loadPrompts(true), 250);
 	let models: Array<{ id: string; filename?: string; name?: string; model_type?: string }> = [];
 	let modelsLoaded = false;
 	let bodyEl: HTMLDivElement | undefined;
@@ -144,7 +145,7 @@
 	}
 
 	function resetLibrary() {
-		clearTimeout(loadDebounce);
+		scheduleLoad.cancel();
 		filters = { ...DEFAULT_PROMPT_FILTERS };
 		filtersOpen = false;
 		showModelPicker = false;
@@ -217,8 +218,7 @@
 
 	function updateFilters(next: PromptFilters) {
 		filters = next;
-		clearTimeout(loadDebounce);
-		loadDebounce = setTimeout(() => void loadPrompts(true), 250);
+		scheduleLoad();
 	}
 
 	function handleSearchInput() {
@@ -268,7 +268,7 @@
 
 	function handleClose() {
 		resetSelection();
-		clearTimeout(loadDebounce);
+		scheduleLoad.cancel();
 		filtersOpen = false;
 		showModelPicker = false;
 		dispatch('close');
