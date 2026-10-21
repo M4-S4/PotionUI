@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { DetailSection } from '$lib/components/detail';
-	import { Switch } from '$lib/components/ui';
+	import { Input, Switch } from '$lib/components/ui';
 
 	let {
 		settings,
@@ -39,6 +39,19 @@
 				label="MCP Access"
 				checked={settings.mcp_enabled || false}
 				onchange={(checked) => onSettingChange('mcp_enabled', checked)}
+			/>
+		</div>
+
+		<div class="py-4">
+			<label for="public-base-url" class="block text-sm font-medium text-fg mb-1">Public address</label>
+			<p class="text-sm text-fg-muted mb-2">
+				Used to build links to generations for external clients such as MCP. Leave empty to use the address the client connected to.
+			</p>
+			<Input
+				id="public-base-url"
+				value={settings.public_base_url ?? ''}
+				oninput={(e: Event) => onSettingChange('public_base_url', (e.currentTarget as HTMLInputElement).value)}
+				placeholder="https://potion.example.com"
 			/>
 		</div>
 	</div>

@@ -29,6 +29,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.features.generation.details_url import REQUEST_ORIGIN_KEY
 from src.features.llm.tools.base import ToolContext, ToolResult, ToolServices
 from src.features.llm.tools.errors import scrub_paths, unexpected
 from src.features.llm.tools.governance import ToolScopeResolution, resolve_tool_scope
@@ -137,14 +138,15 @@ def _resolve_scope(
 
 
 def _build_tool_context(
-    collaborators: McpToolCollaborators, user_id: str, is_admin: bool, llm_id: Optional[str]
+    collaborators: McpToolCollaborators, user_id: str, is_admin: bool, llm_id: Optional[str],
+    request_origin: str = "",
 ) -> ToolContext:
     return ToolContext.for_session(
         collaborators.services,
         user_id,
         mode_id=_MCP_SCOPE.id,
         is_admin=is_admin,
-        session_metadata={},
+        session_metadata={REQUEST_ORIGIN_KEY: request_origin},
         chat_session=False,
         llm_id=llm_id,
     )
@@ -179,7 +181,7 @@ def list_tools(collaborators: McpToolCollaborators, user_id: str) -> Dict[str, A
 
 async def call_tool(
     collaborators: McpToolCollaborators, user_id: str, name: str, arguments: Dict[str, Any],
-    is_admin: bool = False,
+    is_admin: bool = False, request_origin: str = "",
 ) -> Dict[str, Any]:
     llm_id = _default_llm_id(collaborators)
     allowed = _resolve_scope(collaborators, user_id, llm_id).allowed_names()
@@ -190,7 +192,7 @@ async def call_tool(
     if tool is None:
         raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
 
-    context = _build_tool_context(collaborators, user_id, is_admin, llm_id)
+    context = _build_tool_context(collaborators, user_id, is_admin, llm_id, request_origin)
     try:
         if tool.requires_approval:
             # The MCP client already gated this call behind its own
@@ -213,7 +215,7 @@ async def call_tool(
 
 async def handle_method(
     collaborators: McpToolCollaborators, method: str, params: Dict[str, Any], user_id: str,
-    is_admin: bool = False,
+    is_admin: bool = False, request_origin: str = "",
 ) -> Optional[Dict[str, Any]]:
     """Returns the JSON-RPC `result` payload, or None for a notification
     that has no response body."""
@@ -238,7 +240,9 @@ async def handle_method(
         arguments = params.get("arguments") or {}
         if not isinstance(arguments, dict):
             raise JsonRpcError(INVALID_PARAMS, "'arguments' must be an object")
-        return await call_tool(collaborators, user_id, name, arguments, is_admin=is_admin)
+        return await call_tool(
+            collaborators, user_id, name, arguments, is_admin=is_admin, request_origin=request_origin
+        )
     raise JsonRpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
 
 
