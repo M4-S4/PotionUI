@@ -3,7 +3,7 @@
 	export let open = true;
 	let trigger: HTMLButtonElement;
 
-	function restoreFocus() {
+	function restoreFocus(_node: HTMLElement) {
 		return {
 			destroy() {
 				trigger.focus();
