@@ -33,3 +33,23 @@ describe('automation template API', () => {
 		);
 	});
 });
+
+describe('http request test API', () => {
+	it('posts the node config with the sample context', async () => {
+		vi.mocked(client.post).mockResolvedValue({ data: { success: true } });
+
+		await automations.testHttpRequest({
+			config: { url: 'https://api.example.com' },
+			automation_id: 'a1',
+			node_id: 'n1',
+			event: { x: 1 }
+		});
+
+		expect(client.post).toHaveBeenCalledWith('/api/automations/http-request/test', {
+			config: { url: 'https://api.example.com' },
+			automation_id: 'a1',
+			node_id: 'n1',
+			event: { x: 1 }
+		});
+	});
+});

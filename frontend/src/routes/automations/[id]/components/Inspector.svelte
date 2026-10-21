@@ -9,6 +9,7 @@
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
 	import NodeConfigForm from './NodeConfigForm.svelte';
+	import HttpRequestTestPanel from './HttpRequestTestPanel.svelte';
 
 	/** The reference most recently copied, to flash "copied" on that row. */
 	let copied = $state<string | null>(null);
@@ -89,6 +90,14 @@
 					onChange={handleConfigChange}
 					{scope}
 				/>
+
+				{#if nodeTypeDef.key === 'action.http_request'}
+					<HttpRequestTestPanel
+						config={node.data.config}
+						automationId={$automationEditor.automation?.id}
+						nodeId={node.id}
+					/>
+				{/if}
 
 				<!-- The data contract: what downstream nodes may read from this one. -->
 				<section class="pt-2 border-t border-line">
