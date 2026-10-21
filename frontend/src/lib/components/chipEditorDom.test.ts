@@ -8,7 +8,9 @@ import {
 	collectTextNodeSpans,
 	resourceContainerSpan,
 	atomicContainerAt,
-	atomicDeletionTarget
+	atomicContainerAround,
+	atomicDeletionTarget,
+	rangeOutsideAtomics
 } from './chipEditorDom';
 
 function makeChip(overrides: Partial<ChipData> = {}): ChipData {
@@ -322,6 +324,58 @@ describe('atomicContainerAt', () => {
 		expect(atomicContainerAt(document.createTextNode('x'))).toBeNull();
 		expect(atomicContainerAt(document.createElement('span'))).toBeNull();
 		expect(atomicContainerAt(null)).toBeNull();
+	});
+});
+
+describe('ranges and atomic containers', () => {
+	function buildEditor() {
+		const root = document.createElement('div');
+		const before = document.createTextNode('hello ');
+		const container = buildSegmentNode({ type: 'variable', content: '${m}', variableRaw: '${m}', variableName: 'm' }) as HTMLElement;
+		const chip = document.createElement('span');
+		chip.append('m');
+		container.appendChild(chip);
+		const after = document.createTextNode(' world');
+		root.append(before, container, after);
+		return { root, before, container, chip, after };
+	}
+
+	const caretAt = (node: Node, offset: number) => {
+		const range = document.createRange();
+		range.setStart(node, offset);
+		range.collapse(true);
+		return range;
+	};
+
+	it('finds the container around a node deep inside it, and nothing around plain text or the root', () => {
+		const { root, container, chip, after } = buildEditor();
+		expect(atomicContainerAround(chip.firstChild, root)).toBe(container);
+		expect(atomicContainerAround(after, root)).toBeNull();
+		expect(atomicContainerAround(root, root)).toBeNull();
+	});
+
+	it('moves a caret left inside a container to just after it', () => {
+		const { root, container, chip } = buildEditor();
+		const moved = rangeOutsideAtomics(caretAt(chip, 1), root);
+		expect(moved.collapsed).toBe(true);
+		expect(moved.startContainer).toBe(root);
+		expect(moved.startOffset).toBe(Array.from(root.childNodes).indexOf(container) + 1);
+	});
+
+	it('leaves a caret in plain text where it is', () => {
+		const { root, after } = buildEditor();
+		const moved = rangeOutsideAtomics(caretAt(after, 3), root);
+		expect([moved.startContainer, moved.startOffset]).toEqual([after, 3]);
+	});
+
+	it('stretches a selection that ends inside a container to cover it', () => {
+		const { root, before, container, chip } = buildEditor();
+		const range = document.createRange();
+		range.setStart(before, 2);
+		range.setEnd(chip.firstChild!, 1);
+		const moved = rangeOutsideAtomics(range, root);
+		expect([moved.startContainer, moved.startOffset]).toEqual([before, 2]);
+		expect([moved.endContainer, moved.endOffset]).toEqual([root, Array.from(root.childNodes).indexOf(container) + 1]);
 	});
 });
 

@@ -77,7 +77,8 @@
 		collectTextNodeSpans,
 		resourceContainerSpan,
 		chipContainerSpan,
-		atomicDeletionTarget
+		atomicDeletionTarget,
+		rangeOutsideAtomics
 	} from './chipEditorDom';
 	import { getCaretCharOffset, placeCaretAtCharOffset } from './chipEditorCaret';
 	import { variablePickerRows } from '$lib/utils/variablePicker';
@@ -217,7 +218,8 @@
 	// Count of balanced groups in `value` as of the last input, used to notice
 	// "the user just typed a `}` that closed a new group" without diffing text.
 	let lastGroupCount = 0;
-	let pendingOpenConditionRaw: string | null = null;
+	let pendingOpenCondition: { raw: string; nth: number } | null = null;
+	let lastCaretOffset: number | null = null;
 	let openConditionSlotId: string | null = null;
 	const conditionContext = writable<{ variables: VariablesMap; rolls: Record<string, VariableRoll> }>({
 		variables: {},
@@ -1617,21 +1619,38 @@
 	// The mock's segment footer offers explicit "Phrasebook / Variable / Choice"
 	// buttons, alongside typing `#`/`${`/`{` — a way IN to the exact same
 	// pickers/chip-ification this editor already owns, not a second mechanism.
-	// Caret-relative when the editor already has a selection inside it (so a
-	// mid-sentence insert works), end-of-content otherwise.
 
-	function insertTextAtCaret(text: string): void {
-		if (!editorRef) return;
+	function rememberCaret() {
+		if (!editorRef || isInternalUpdate) return;
+		const selection = window.getSelection();
+		if (!selection?.rangeCount) return;
+		const range = selection.getRangeAt(0);
+		if (!editorRef.contains(range.commonAncestorContainer)) return;
+		const caret = rangeOutsideAtomics(range, editorRef);
+		caret.collapse(false);
+		lastCaretOffset = getCaretCharOffset(editorRef, chips, caret) ?? lastCaretOffset;
+	}
+
+	function insertionRange(editor: HTMLElement): Range {
+		const selection = window.getSelection();
+		const current = selection?.rangeCount ? selection.getRangeAt(0) : null;
+		if (current && editor.contains(current.commonAncestorContainer)) return rangeOutsideAtomics(current, editor);
+		if (lastCaretOffset !== null) {
+			placeCaretAtCharOffset(editor, chips, lastCaretOffset);
+			const placed = window.getSelection();
+			if (placed?.rangeCount) return placed.getRangeAt(0).cloneRange();
+		}
+		const end = document.createRange();
+		end.selectNodeContents(editor);
+		end.collapse(false);
+		return end;
+	}
+
+	function insertTextAtCaret(text: string): Text | null {
+		if (!editorRef) return null;
+		const range = insertionRange(editorRef);
 		editorRef.focus();
 		const selection = window.getSelection();
-		let range: Range;
-		if (selection && selection.rangeCount && editorRef.contains(selection.getRangeAt(0).commonAncestorContainer)) {
-			range = selection.getRangeAt(0);
-		} else {
-			range = document.createRange();
-			range.selectNodeContents(editorRef);
-			range.collapse(false);
-		}
 		range.deleteContents();
 		const textNode = document.createTextNode(text);
 		range.insertNode(textNode);
@@ -1645,6 +1664,7 @@
 		range.collapse(true);
 		selection?.removeAllRanges();
 		selection?.addRange(range);
+		return textNode;
 	}
 
 	/** Put the caret in the body without changing it — the card's read-only
@@ -1674,16 +1694,21 @@
 	 *  immediately — the same rebuild `handleInput` already does the instant a
 	 *  user's own typing closes a `}`. */
 	export function insertCondition(): void {
-		if (isDisabled) return;
+		if (isDisabled || !editorRef) return;
 		const selection = window.getSelection();
 		const selected =
-			selection && !selection.isCollapsed && editorRef && editorRef.contains(selection.anchorNode)
+			selection && !selection.isCollapsed && editorRef.contains(selection.anchorNode)
 				? selection.toString()
 				: '';
 		const raw = defaultConditionRaw(variables, selected.replace(/<<|>>/g, ''));
-		pendingOpenConditionRaw = raw;
-		insertTextAtCaret(raw);
+		const inserted = insertTextAtCaret(raw);
+		if (!inserted) return;
+		const nth = Array.from(editorRef.querySelectorAll<HTMLElement>('.choice-group-container')).filter(
+			(el) => el.dataset.groupRaw === raw && !!(el.compareDocumentPosition(inserted) & Node.DOCUMENT_POSITION_FOLLOWING)
+		).length;
+		pendingOpenCondition = { raw, nth };
 		handleInput();
+		pendingOpenCondition = null;
 	}
 
 	export function insertChoiceGroup(): void {
@@ -1955,6 +1980,7 @@
 
 		const currentSlotIds = new Set<string>();
 		const containers = editorRef.querySelectorAll('.choice-group-container');
+		const conditionsSeen = new Map<string, number>();
 
 		containers.forEach((container, index) => {
 			const el = container as HTMLElement;
@@ -1965,9 +1991,11 @@
 			const raw = el.dataset.groupRaw || '';
 
 			if (isConditionRaw(raw)) {
+				const nth = conditionsSeen.get(raw) ?? 0;
+				conditionsSeen.set(raw, nth + 1);
 				if (container.querySelector('.condition-chip')) return;
-				if (pendingOpenConditionRaw !== null && pendingOpenConditionRaw === raw) {
-					pendingOpenConditionRaw = null;
+				if (pendingOpenCondition?.raw === raw && pendingOpenCondition.nth === nth) {
+					pendingOpenCondition = null;
 					openConditionSlotId = slotId;
 				}
 				const conditionComponent = mount(ConditionChip, {
@@ -2346,6 +2374,7 @@
 	}
 
 	onMount(() => {
+		document.addEventListener('selectionchange', rememberCaret);
 		// Force initial render
 		if (editorRef) {
 			isInternalUpdate = true;
@@ -2365,6 +2394,7 @@
 			isInternalUpdate = false;
 			refreshAllHighlights(value);
 		}
+		return () => document.removeEventListener('selectionchange', rememberCaret);
 	});
 
 	onDestroy(() => {

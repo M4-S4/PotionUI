@@ -64,6 +64,23 @@ export function atomicContainerAt(node: Node | null | undefined): AtomicTarget |
 	return null;
 }
 
+export function atomicContainerAround(node: Node | null, root: HTMLElement): HTMLElement | null {
+	for (let current: Node | null = node; current && current !== root; current = current.parentNode) {
+		const atomic = atomicContainerAt(current);
+		if (atomic) return atomic.el;
+	}
+	return null;
+}
+
+export function rangeOutsideAtomics(range: Range, root: HTMLElement): Range {
+	const next = range.cloneRange();
+	const endAtomic = atomicContainerAround(next.endContainer, root);
+	if (endAtomic) next.setEndAfter(endAtomic);
+	const startAtomic = atomicContainerAround(next.startContainer, root);
+	if (startAtomic) next.setStartAfter(startAtomic);
+	return next;
+}
+
 /**
  * The atomic container a collapsed caret at (`container`, `offset`) would eat
  * whole, or null when the key press is an ordinary character delete.

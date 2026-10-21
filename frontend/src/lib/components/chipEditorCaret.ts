@@ -29,12 +29,13 @@ function nodeCharLength(node: Node, chips: Record<string, ChipData>): number {
 /** Absolute character offset of the caret in the text `extractContentFromDOM` would produce, or null if unavailable. */
 export function getCaretCharOffset(
 	editorRef: HTMLElement | undefined | null,
-	chips: Record<string, ChipData>
+	chips: Record<string, ChipData>,
+	at?: Range
 ): number | null {
 	const selection = window.getSelection();
-	if (!selection || !selection.rangeCount || !editorRef) return null;
-	const range = selection.getRangeAt(0);
-	if (!range.collapsed) return null;
+	const current = at ?? (selection?.rangeCount ? selection.getRangeAt(0) : null);
+	if (!current || !editorRef || !current.collapsed) return null;
+	const range = current;
 
 	// Range.setStartAfter() (what placeCaretAtCharOffset uses to land "just
 	// after" a chip/group/variable, and what the browser itself produces for

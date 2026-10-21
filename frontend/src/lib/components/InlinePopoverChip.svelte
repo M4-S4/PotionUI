@@ -136,8 +136,12 @@
 		host.focus({ preventScroll: true });
 		const selection = window.getSelection();
 		if (!selection || !chipRef?.isConnected) return;
+		let anchor: Element = chipRef;
+		for (let el = chipRef.parentElement; el && el !== host; el = el.parentElement) {
+			if (el.getAttribute('contenteditable') === 'false') anchor = el;
+		}
 		const range = document.createRange();
-		range.setStartAfter(chipRef);
+		range.setStartAfter(anchor);
 		range.collapse(true);
 		selection.removeAllRanges();
 		selection.addRange(range);

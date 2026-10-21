@@ -234,6 +234,30 @@ describe('InlinePopoverChip portal popover', () => {
 		expect(range.startContainer === chip.parentNode || chip.compareDocumentPosition(range.startContainer) !== 0).toBe(true);
 	});
 
+	it('puts the caret after the non-editable container that holds the chip, not inside it', () => {
+		const host = document.createElement('div');
+		host.setAttribute('contenteditable', 'true');
+		host.setAttribute('tabindex', '-1');
+		host.append('before ');
+		document.body.appendChild(host);
+		target = document.createElement('div');
+		target.setAttribute('contenteditable', 'false');
+		host.appendChild(target);
+		host.append(' after');
+		component = mount(InlinePopoverChip, {
+			target,
+			props: { popoverLabel: 'Test popover', label: labelSnippet, popover: popoverSnippet }
+		});
+		flushSync();
+		openChip();
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+		flushSync();
+		const range = window.getSelection()!.getRangeAt(0);
+		expect(range.collapsed).toBe(true);
+		expect(range.startContainer).toBe(host);
+		expect(range.startOffset).toBe(Array.from(host.childNodes).indexOf(target) + 1);
+	});
+
 	it('does not steal focus when closed by a pointerdown outside', () => {
 		const host = mountInEditor();
 		const other = document.createElement('input');

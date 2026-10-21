@@ -94,6 +94,15 @@ describe('getCaretCharOffset', () => {
 		expect(getCaretCharOffset(editor, chips)).toBeNull();
 	});
 
+	it('measures a given range instead of the live selection', () => {
+		const { editor, after } = withCleanup(buildEditor());
+		window.getSelection()?.removeAllRanges();
+		const range = document.createRange();
+		range.setStart(after, 2);
+		range.collapse(true);
+		expect(getCaretCharOffset(editor, chips, range)).toBe(12);
+	});
+
 	it('computes the absolute offset for a caret in the text node before the chip', () => {
 		const { editor, before } = withCleanup(buildEditor());
 		const range = document.createRange();
