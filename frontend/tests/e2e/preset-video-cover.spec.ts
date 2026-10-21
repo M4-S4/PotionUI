@@ -55,6 +55,7 @@ async function openFixtureCard(page: Page, familyId: string) {
 
 	await page.goto('/admin?tab=presets');
 	await page.getByPlaceholder('Search presets by name, id, or tag…').fill(PRESET_NAME);
+	await expect(page.locator('[data-preset-card]')).toHaveCount(1, { timeout: 10000 });
 	const card = page.locator('[data-preset-card]').filter({ hasText: PRESET_NAME });
 	await expect(card).toBeVisible({ timeout: 10000 });
 	return card;
