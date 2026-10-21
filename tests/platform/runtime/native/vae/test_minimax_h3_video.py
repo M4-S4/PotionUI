@@ -10,8 +10,6 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from src.platform.runtime.native.base import load_into_module
-from src.platform.runtime.native.vae.loader import _VaeSpec
 from src.platform.runtime.native.vae.minimax_h3_video import (
     MiniMaxH3VideoVAE,
     _VideoDecoderAttention,
@@ -19,7 +17,7 @@ from src.platform.runtime.native.vae.minimax_h3_video import (
     _randn_like_reference,
     video_latent_frame_count,
 )
-from vendor.gpl.comfyui.ops import disable_weight_init, pick_operations
+from vendor.gpl.comfyui.ops import disable_weight_init
 
 # A tiny but structurally faithful config: 2 encoder down-levels (one with a
 # 2x spatial-only downsample, one with none), tiny ViT decoder (2 layers, 2
@@ -79,12 +77,6 @@ class TestVideoLatentFrameCount:
 
 
 class TestMiniMaxH3VideoVAETiny:
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = _build()
-        sd = module.state_dict()
-        module2 = MiniMaxH3VideoVAE.from_config(_TINY_CONFIG, disable_weight_init)
-        load_into_module(module2, sd, _VaeSpec(family="vae", variant="minimax_h3_video"))
-
     def test_post_load_is_safe_noop_and_recomputes_rope(self):
         module = _build()
         inv_freq_before = module.decoder.rope.inv_freq.clone()

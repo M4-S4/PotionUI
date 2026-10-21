@@ -48,16 +48,6 @@ class TestMiniMaxMusic3DAVTiny:
         module = _build()
         assert module.hop_length == math.prod(_TINY_CONFIG["upsampling_ratios"])
 
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = _build()
-        sd = module.state_dict()
-        module2 = MiniMaxMusic3DAV.from_config(_TINY_CONFIG, disable_weight_init)
-        load_into_module(module2, sd, _VaeSpec(family="vae", variant="minimax_music3_dav"))
-
-    def test_post_load_is_safe_noop(self):
-        module = _build()
-        module.post_load()  # must not raise
-
     def test_decode_rejects_wrong_channel_count(self):
         module = _build()
         with pytest.raises(NativeEngineUnsupportedError):

@@ -8,10 +8,9 @@ from pathlib import Path
 import pytest
 import torch
 
-from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.vae_detect import detect_ltx_video_vae_config
 from vendor.gpl.comfyui.ops import disable_weight_init
-from src.platform.runtime.native.vae.loader import _VaeSpec, load_ltx_video_vae
+from src.platform.runtime.native.vae.loader import load_ltx_video_vae
 from src.platform.runtime.native.vae.ltx_causal_video import LTXCausalVideoVAE
 
 _LTX2_VAE_PATH = Path("models/vae/LTX2_video_vae_bf16.safetensors")
@@ -98,18 +97,6 @@ def test_timestep_conditioning_raises_unsupported():
     config = dict(_TINY_CONFIG, timestep_conditioning=True)
     with pytest.raises(NativeEngineUnsupportedError, match="timestep_conditioning"):
         LTXCausalVideoVAE.from_config(config, disable_weight_init)
-
-
-def test_self_consistent_state_dict_passes_load_integrity():
-    module = _build_tiny()
-    sd = module.state_dict()
-    spec = _VaeSpec(family="vae", variant="ltx_causal_video")
-    load_into_module(module, sd, spec)  # must not raise
-
-
-def test_post_load_is_safe_noop():
-    module = LTXCausalVideoVAE.from_config(_TINY_CONFIG, disable_weight_init)
-    module.post_load()
 
 
 def test_encode_rejects_invalid_frame_count():

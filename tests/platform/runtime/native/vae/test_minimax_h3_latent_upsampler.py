@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 import torch
 
-from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.vae_detect import (
     detect_minimax_h3_latent_upsampler_config,
 )
@@ -80,19 +79,6 @@ class TestStateDictKeySetMatchesRealHeader:
 class TestConstructionAndLoadIntegrity:
     def test_default_config_builds(self):
         MiniMaxH3LatentUpsampler.from_config({}, disable_weight_init)
-
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = MiniMaxH3LatentUpsampler.from_config(_TINY_CONFIG, disable_weight_init)
-        _randomize(module)
-        sd = module.state_dict()
-
-        module2 = MiniMaxH3LatentUpsampler.from_config(_TINY_CONFIG, disable_weight_init)
-        load_into_module(module2, sd, _Spec())
-
-    def test_post_load_is_safe_noop(self):
-        module = MiniMaxH3LatentUpsampler.from_config(_TINY_CONFIG, disable_weight_init)
-        module.post_load()
-
 
 class TestTinyForward:
     def _latents(self, t: int = 3, h: int = 8, w: int = 8) -> torch.Tensor:

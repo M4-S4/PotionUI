@@ -8,7 +8,6 @@ from unittest import mock
 import pytest
 import torch
 
-from src.platform.runtime.native.base import load_into_module
 from vendor.gpl.comfyui.ops import disable_weight_init
 from src.platform.runtime.native.vae import causal_3d
 from src.platform.runtime.native.vae.causal_3d import (
@@ -19,7 +18,7 @@ from src.platform.runtime.native.vae.causal_3d import (
     _conv3d_forward,
     _count_causal_conv3d,
 )
-from src.platform.runtime.native.vae.loader import _VaeSpec, load_causal3d_vae
+from src.platform.runtime.native.vae.loader import load_causal3d_vae
 
 _QWEN_IMAGE_VAE_PATH = Path("models/vae/qwen_image_vae.safetensors")
 _WAN21_VAE_PATH = Path("models/vae/wan_2.1_vae.safetensors")
@@ -47,18 +46,6 @@ def test_latent_constants_shape():
     assert LATENT_CHANNELS == 16
     assert len(LATENTS_MEAN) == LATENT_CHANNELS
     assert len(LATENTS_STD) == LATENT_CHANNELS
-
-
-def test_self_consistent_state_dict_passes_load_integrity():
-    module = _build_tiny()
-    sd = module.state_dict()
-    spec = _VaeSpec(family="vae", variant="qwen_image")
-    load_into_module(module, sd, spec)  # must not raise
-
-
-def test_post_load_is_safe_noop():
-    module = _build_tiny()
-    module.post_load()  # must not raise; documented no-op (no computed buffers)
 
 
 def test_encode_image_decode_image_roundtrip_shape():

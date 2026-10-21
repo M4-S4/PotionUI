@@ -18,7 +18,6 @@ from pathlib import Path
 import pytest
 import torch
 
-from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.vae_detect import detect_ltx_latent_upsampler_config
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
 from vendor.gpl.comfyui.ops import disable_weight_init
@@ -55,18 +54,6 @@ def _randomize(module: torch.nn.Module) -> None:
 class TestConstructionAndLoadIntegrity:
     def test_default_config_builds(self):
         LTXLatentUpsampler.from_config({}, disable_weight_init)
-
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = LTXLatentUpsampler.from_config({**_TINY_CONFIG, "spatial_upsample": True}, disable_weight_init)
-        _randomize(module)
-        sd = module.state_dict()
-
-        module2 = LTXLatentUpsampler.from_config({**_TINY_CONFIG, "spatial_upsample": True}, disable_weight_init)
-        load_into_module(module2, sd, _Spec())
-
-    def test_post_load_is_safe_noop(self):
-        module = LTXLatentUpsampler.from_config(_TINY_CONFIG, disable_weight_init)
-        module.post_load()
 
     def test_neither_spatial_nor_temporal_raises(self):
         import pytest

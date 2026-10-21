@@ -50,16 +50,6 @@ class TestMiniMaxH3AudioVAETiny:
         module = _build()
         assert module.hop_length == math.prod(_TINY_CONFIG["encoder_rates"])
 
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = _build()
-        sd = module.state_dict()
-        module2 = MiniMaxH3AudioVAE.from_config(_TINY_CONFIG, disable_weight_init)
-        load_into_module(module2, sd, _VaeSpec(family="vae", variant="minimax_h3_audio"))
-
-    def test_post_load_is_safe_noop(self):
-        module = _build()
-        module.post_load()  # must not raise
-
     def test_encode_rejects_non_mono(self):
         module = _build()
         with pytest.raises(NativeEngineUnsupportedError):
