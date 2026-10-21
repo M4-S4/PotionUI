@@ -310,8 +310,11 @@ jobs:
         shell: cmd
         working-directory: frontend
         run: |
-          npm run build:plugins || exit /b
-          git -C .. diff --exit-code --stat -- "content/plugins/*/*/frontend/dist"
+          call npm run build:plugins || exit /b 1
+          git -C .. status --porcelain -- content/plugins
+          git -C .. diff --stat -- "content/plugins/*/*/frontend/dist"
+          git -C .. diff --quiet -- "content/plugins/*/*/frontend/dist" || exit /b 1
+          for /f %%i in ('git -C .. status --porcelain -- content/plugins') do exit /b 1
 
   frontend-build:
     name: frontend build (Windows, shared by e2e shards)

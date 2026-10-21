@@ -48,6 +48,8 @@ import { createRequire } from 'module';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = join(__dirname, '..');
+const FRONTEND_DIR = join(REPO_ROOT, 'frontend');
+process.chdir(existsSync(FRONTEND_DIR) ? FRONTEND_DIR : REPO_ROOT);
 
 // The toolchain (esbuild, esbuild-svelte, svelte, js-yaml) lives in
 // `content/plugins/node_modules` (installed from the single
@@ -228,6 +230,15 @@ async function buildPlugin(plugin) {
 	return built;
 }
 
+function describeFailure(err) {
+	const first = Array.isArray(err?.errors) ? err.errors[0] : undefined;
+	if (first) {
+		const where = first.location ? `${first.location.file}:${first.location.line}: ` : '';
+		return `${where}${first.text}`;
+	}
+	return err instanceof Error ? err.message : String(err);
+}
+
 async function main() {
 	const pluginIdFilter = process.argv.slice(2).filter((arg) => arg !== '--debug');
 	const plugins = discoverPlugins(pluginIdFilter);
@@ -239,21 +250,26 @@ async function main() {
 		return;
 	}
 
-	let failures = 0;
+	const failures = [];
 	for (const plugin of plugins) {
 		process.stdout.write(`Building ${plugin.id}... `);
 		try {
 			const built = await buildPlugin(plugin);
 			console.log(built.length ? `OK (${built.join(', ')})` : 'OK (nothing to build)');
 		} catch (err) {
-			failures += 1;
+			const message = describeFailure(err);
+			failures.push({ id: plugin.id, message });
 			console.log('FAILED');
-			console.error(err instanceof Error ? err.message : err);
+			console.error(message);
 		}
 	}
 
-	console.log(`\n${plugins.length - failures}/${plugins.length} plugin frontends built successfully.`);
-	if (failures > 0) {
+	console.log(`\n${plugins.length - failures.length}/${plugins.length} plugin frontends built successfully.`);
+	if (failures.length > 0) {
+		console.error(`\nFailed plugins (${failures.length}):`);
+		for (const { id, message } of failures) {
+			console.error(`  ${id}: ${message.split('\n').find((line) => line.trim()) ?? 'unknown error'}`);
+		}
 		process.exit(1);
 	}
 }
