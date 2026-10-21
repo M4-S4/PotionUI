@@ -4,7 +4,8 @@
 	// .chat-header (chat-rework BRIEF2); the three dropdowns are plain
 	// position:absolute children (mock's .floating-menu, positioned against
 	// .conversation) — no portal, no computed fixed coordinates.
-	import { onMount, tick } from 'svelte';
+	import { tick } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { chatModes } from '$lib/stores/chatModes';
 	import { chatSession, modeLocked } from '$lib/stores/chatSession';
 	import ChatModeSelector from '$lib/components/chat/ChatModeSelector.svelte';
@@ -48,11 +49,9 @@
 
 	let showModelDropdown = false;
 	let modelTriggerEl: HTMLButtonElement;
-	let modelMenuEl: HTMLDivElement;
 
 	let showMoreMenu = false;
 	let moreTriggerEl: HTMLButtonElement;
-	let moreMenuEl: HTMLDivElement;
 
 	let renaming = false;
 	let renameDraft = '';
@@ -102,8 +101,6 @@
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			cancelRename();
-			// Same reasoning as the dropdown handlers below — don't let this
-			// Escape also bubble up into GlobalChatPanel's close handler.
 			e.stopPropagation();
 		}
 	}
@@ -122,36 +119,6 @@
 		showDeleteConfirm = false;
 		onDeleteConversation();
 	}
-
-	function handleOutsidePointerDown(e: PointerEvent) {
-		const target = e.target as Node;
-		if (showModelDropdown && !modelMenuEl?.contains(target) && !modelTriggerEl?.contains(target)) {
-			showModelDropdown = false;
-		}
-		if (showMoreMenu && !moreMenuEl?.contains(target) && !moreTriggerEl?.contains(target)) {
-			showMoreMenu = false;
-		}
-	}
-
-	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape') return;
-		if (!showModelDropdown && !showMoreMenu) return;
-		showModelDropdown = false;
-		showMoreMenu = false;
-		// A document-level bubble listener runs before window's, so stopping
-		// here keeps GlobalChatPanel's <svelte:window on:keydown> from also
-		// closing the whole chat panel on this same Escape press.
-		e.stopPropagation();
-	}
-
-	onMount(() => {
-		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-		document.addEventListener('keydown', handleOutsideKeydown);
-		return () => {
-			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-			document.removeEventListener('keydown', handleOutsideKeydown);
-		};
-	});
 </script>
 
 <header class="chat-header">
@@ -257,7 +224,11 @@
 	</div>
 
 	{#if showModelDropdown && llmConfigs.length > 0}
-		<div class="floating-menu" bind:this={modelMenuEl} data-testid="chat-header-model-menu">
+		<div
+			class="floating-menu"
+			use:dismiss={{ onDismiss: () => (showModelDropdown = false), ignore: [modelTriggerEl] }}
+			data-testid="chat-header-model-menu"
+		>
 			<div class="menu-label">Choose a model</div>
 			{#each llmConfigs as config}
 				<button
@@ -283,7 +254,10 @@
 	{/if}
 
 	{#if showMoreMenu}
-		<div class="floating-menu conversation-menu" bind:this={moreMenuEl}>
+		<div
+			class="floating-menu conversation-menu"
+			use:dismiss={{ onDismiss: () => (showMoreMenu = false), ignore: [moreTriggerEl] }}
+		>
 			<button type="button" disabled={!hasSession} on:click={startRename}>
 				<svg class="icon"><use href="#i-edit" /></svg>Rename conversation
 			</button>

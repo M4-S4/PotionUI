@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import type { ChatMode } from '$lib/types/chat';
 	import { deriveModeScopeMismatch } from '$lib/chat/modeScopeNotice';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -15,7 +15,6 @@
 
 	let open = false;
 	let triggerEl: HTMLButtonElement;
-	let menuEl: HTMLDivElement;
 
 	$: selectedMode = modes.find((m) => m.id === selected);
 	$: scopeMismatch = deriveModeScopeMismatch(selected, pageModeId, modes, locked);
@@ -28,32 +27,6 @@
 	function toggleOpen() {
 		open = !open;
 	}
-
-	function handleOutsidePointerDown(e: PointerEvent) {
-		if (!open) return;
-		const target = e.target as Node;
-		if (!menuEl?.contains(target) && !triggerEl?.contains(target)) {
-			open = false;
-		}
-	}
-
-	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || !open) return;
-		open = false;
-		// A document-level bubble listener runs before window's, so stopping
-		// here keeps GlobalChatPanel's <svelte:window on:keydown> from also
-		// closing the whole chat panel on this same Escape press.
-		e.stopPropagation();
-	}
-
-	onMount(() => {
-		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-		document.addEventListener('keydown', handleOutsideKeydown);
-		return () => {
-			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-			document.removeEventListener('keydown', handleOutsideKeydown);
-		};
-	});
 </script>
 
 <div class="relative">
@@ -93,7 +66,10 @@
 	{/if}
 </div>
 {#if open && !locked}
-	<div class="floating-menu mode-menu" bind:this={menuEl} data-testid="chat-mode-selector-menu">
+	<div
+		class="floating-menu mode-menu"
+		use:dismiss={{ onDismiss: () => (open = false), ignore: [triggerEl] }}
+		data-testid="chat-mode-selector-menu">
 		<div class="menu-label">Assistant mode</div>
 		{#each modes as mode}
 			<button type="button" class="model-option" class:selected={mode.id === selected} on:click={() => choose(mode.id)}>

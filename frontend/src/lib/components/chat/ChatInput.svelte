@@ -5,7 +5,7 @@
 	// the tools popover's master toggle + grouped drill-down is real
 	// functionality the prototype's flat tool list never shows (additions
 	// idiom in chat-concept.css).
-	import { onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import ChatChipInput from './ChatChipInput.svelte';
 	import ChatAttachPopover from './ChatAttachPopover.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -72,7 +72,6 @@
 	let drillGroup: string | null = null;
 
 	let toolsTriggerEl: HTMLButtonElement;
-	let toolsMenuEl: HTMLDivElement;
 	let attachTriggerEl: HTMLButtonElement;
 
 	$: if (!showToolsDropdown) drillGroup = null;
@@ -86,33 +85,6 @@
 		showAttachPopover = !showAttachPopover;
 		if (showAttachPopover) showToolsDropdown = false;
 	}
-
-	function handleOutsidePointerDown(e: PointerEvent) {
-		if (!showToolsDropdown) return;
-		const target = e.target as Node;
-		if (!toolsMenuEl?.contains(target) && !toolsTriggerEl?.contains(target)) {
-			showToolsDropdown = false;
-		}
-	}
-
-	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || !showToolsDropdown) return;
-		showToolsDropdown = false;
-		// A document-level bubble listener runs before window's (capture goes
-		// window->document->target, bubble reverses that), so stopping here
-		// keeps GlobalChatPanel's <svelte:window on:keydown> from also
-		// closing the whole chat panel on this same Escape press.
-		e.stopPropagation();
-	}
-
-	onMount(() => {
-		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-		document.addEventListener('keydown', handleOutsideKeydown);
-		return () => {
-			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-			document.removeEventListener('keydown', handleOutsideKeydown);
-		};
-	});
 
 	const prefersReducedMotion =
 		typeof window !== 'undefined' &&
@@ -195,7 +167,10 @@
 
 <div class="composer-wrap">
 	{#if showToolsDropdown}
-		<div class="tools-popover" bind:this={toolsMenuEl}>
+		<div
+			class="tools-popover"
+			use:dismiss={{ onDismiss: () => (showToolsDropdown = false), ignore: [toolsTriggerEl] }}
+		>
 			<div class="popover-head">
 				<strong>Tools for this conversation</strong>
 				<span>{enabledToolCount} of {totalToolCount} enabled</span>
