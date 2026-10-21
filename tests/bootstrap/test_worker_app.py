@@ -5,6 +5,7 @@ model file, no PotionUI database, no real port binding (TestClient only).
 
 from __future__ import annotations
 
+import json
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -324,6 +325,33 @@ def test_submit_runs_to_succeeded_with_a_downloadable_artifact(client, container
     assert art_resp.status_code == 200
     import hashlib
     assert hashlib.sha256(art_resp.content).hexdigest() == artifact.digest.hex
+
+
+def test_the_event_stream_delivers_the_terminal_event_finished_while_it_was_reading(client, container, monkeypatch):
+    GatedPipe.gate.clear()
+    package = _package(container, execution_id="exec-late-terminal", pipe_type="gated/fake", digest_hex="33" * 32)
+    resp = client.post("/v1/executions", json=envelope(package), headers=_auth())
+    assert resp.status_code == 202
+
+    real_events_after = container.coordinator.events_after
+    reads = []
+
+    def events_after(execution_id, cursor):
+        events = real_events_after(execution_id, cursor)
+        if not reads:
+            GatedPipe.gate.set()
+            _wait_for_terminal(container, execution_id)
+        reads.append(cursor)
+        return events
+
+    monkeypatch.setattr(container.coordinator, "events_after", events_after)
+
+    events_resp = client.get("/v1/executions/exec-late-terminal/events?after=0", headers=_auth())
+    kinds = [
+        read_envelope(json.loads(line[len("data: "):])).kind
+        for line in events_resp.text.split("\n\n") if line.startswith("data: ")
+    ]
+    assert kinds[-1] == "succeeded"
 
 
 # -- idempotency --------------------------------------------------------------

@@ -135,16 +135,15 @@ def build_worker_router(container, *, cuda_probe=probe_cuda) -> APIRouter:
         async def event_stream():
             cursor = after
             while True:
+                record = container.coordinator.record_for(execution_id)
+                finished = record is not None and record.is_terminal
                 events = container.coordinator.events_after(execution_id, cursor)
                 terminal = False
                 for event in events:
                     cursor = event.cursor
                     terminal = terminal or event.is_terminal
                     yield f"data: {json.dumps(envelope(event))}\n\n"
-                if terminal:
-                    return
-                record = container.coordinator.record_for(execution_id)
-                if record is not None and record.is_terminal:
+                if terminal or finished:
                     return
                 await asyncio.sleep(0.02)
 
