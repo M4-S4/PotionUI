@@ -85,6 +85,9 @@ _FP8_DTYPES = {"F8_E4M3", "F8_E5M2", "F8_E4M3FN", "F8_E5M2FN"}
 # unique to nvfp4 and must be checked before falling back to the legacy
 # scaled-fp8 dtype-sniff (see `_detect_quantization`).
 _NVFP4_SCALE2_SUFFIX = ".weight_scale_2"
+_INTEGER_DTYPES = {"I8", "U8", "I16", "U16", "I32", "U32", "I64", "U64"}
+_ADOPTABLE_QUANT_FORMATS = {"float8_e4m3fn", "float8_e5m2", "nvfp4"}
+_DESCRIPTOR_KEY = "comfy_quant"
 
 # Bundled tokenizer assets that can serve a chat turn, per family. gemma3 is
 # absent on purpose: only a bare spiece.model ships in-repo, with no chat
@@ -184,6 +187,50 @@ def _detect_quantization(keys: set[str], dtypes: set[Optional[str]]) -> tuple[bo
     return fp8, nvfp4
 
 
+def _unsupported_quantization(header: dict) -> Optional[str]:
+    keys = {k for k in header if k != "__metadata__"}
+    for key in sorted(keys):
+        info = header[key]
+        if not key.endswith(".weight") or not isinstance(info, dict) or info.get("dtype") not in _INTEGER_DTYPES:
+            continue
+        if key[: -len(".weight")] + _NVFP4_SCALE2_SUFFIX not in keys:
+            return f"'{key}' is stored as integer codes (int8 or int4); only bf16, fp8 and nvfp4 text encoders can run as chat models"
+    return None
+
+
+def _drop_quant_descriptors(sd: dict) -> dict:
+    from vendor.gpl.comfyui.ops import _parse_comfy_quant
+
+    out: dict[str, Any] = {}
+    for key, tensor in sd.items():
+        if key != _DESCRIPTOR_KEY and not key.endswith("." + _DESCRIPTOR_KEY):
+            out[key] = tensor
+            continue
+        conf = _parse_comfy_quant(tensor)
+        fmt = conf.get("format") if conf is not None else None
+        if conf is not None and fmt not in _ADOPTABLE_QUANT_FORMATS:
+            raise ValueError(
+                f"Native LLM provider: '{key}' declares the quantization format {fmt!r}; only "
+                f"{', '.join(sorted(_ADOPTABLE_QUANT_FORMATS))} text encoders can run as chat models"
+            )
+    return out
+
+
+def _holds_fp8(sd: dict) -> bool:
+    return "scaled_fp8" in sd or any(str(t.dtype).rsplit(".", 1)[-1] in _FP8_TORCH_DTYPES for t in sd.values())
+
+
+def _reject_quantized_weights(sd: dict) -> None:
+    for key, tensor in sd.items():
+        if not key.endswith(".weight"):
+            continue
+        if not tensor.is_floating_point() or str(tensor.dtype).rsplit(".", 1)[-1] in _FP8_TORCH_DTYPES:
+            raise ValueError(
+                f"Native LLM provider: '{key}' is still quantized ({tensor.dtype}) after dequantization; "
+                "this text encoder's quantization is not supported for chat"
+            )
+
+
 def _qwen3_is_tied(hidden_size: int) -> bool:
     """Qwen3 ties word embeddings on the small variants (0.6B/1.7B/4B, hidden <
     4096) and not on 8B+ — the file itself doesn't carry the flag, so infer it
@@ -254,6 +301,9 @@ def _inspect(path: str | Path, resolver: ModelRootResolver) -> Optional[AdoptedT
 
     gemma3_tokenizer_ready = family == "gemma3" and gemma3_chat_tokenizer_ready(resolver)
     adoptable, reason = _eligibility(family, has_lm_head, tied, gemma3_tokenizer_ready)
+    quant_reason = _unsupported_quantization(header)
+    if quant_reason is not None:
+        adoptable, reason = False, quant_reason
     name = f"{NATIVE_TE_SUBDIR}/{Path(path).name}"
     return AdoptedTEEntry(
         name=name, path=str(path), model_type=family, tied=tied,
@@ -521,7 +571,9 @@ def _dequantize_nvfp4_state_dict(sd: dict) -> dict:
 
     out: dict[str, Any] = {}
     for key, tensor in sd.items():
-        if key.endswith(_NVFP4_SCALE2_SUFFIX) or key.endswith(".weight_scale") or key == "comfy_quant" or key.endswith(".comfy_quant"):
+        if key.endswith(_NVFP4_SCALE2_SUFFIX) or key == "comfy_quant" or key.endswith(".comfy_quant"):
+            continue
+        if key.endswith(".weight_scale") and key[: -len(".weight_scale")] in global_scales:
             continue
         base = key[: -len(".weight")] if key.endswith(".weight") else None
         global_scale = global_scales.get(base) if base is not None else None
@@ -613,14 +665,18 @@ def build_adopted_te(path: str, resolver: ModelRootResolver) -> tuple[Any, Any, 
         )
     dtypes = {v.get("dtype") for k, v in header.items() if k != "__metadata__" and isinstance(v, dict)}
     fp8, nvfp4 = _detect_quantization(keys, dtypes)
+    quant_reason = _unsupported_quantization(header)
+    if quant_reason is not None:
+        raise ValueError(f"Native LLM provider: cannot adopt '{path}': {quant_reason}")
 
-    sd = load_file(path)
+    sd = _drop_quant_descriptors(load_file(path))
     if family == "gemma3":
         sd = _strip_gemma3_multimodal_extras(sd)
     if nvfp4:
         sd = _dequantize_nvfp4_state_dict(sd)
-    elif fp8:
+    if fp8 or _holds_fp8(sd):
         sd = _dequantize_fp8_state_dict(sd)
+    _reject_quantized_weights(sd)
 
     has_lm_head = "lm_head.weight" in sd
     embed = sd["model.embed_tokens.weight"]
