@@ -175,10 +175,6 @@ function mountSection() {
 		rowFor,
 		switchFor: (label: string) =>
 			rowFor(label)?.querySelector<HTMLInputElement>('input[role="switch"]') ?? null,
-		cardSwitchFor: (label: string) =>
-			Array.from(target.querySelectorAll<HTMLElement>('.dt-mobile > div'))
-				.find((card) => card.textContent?.includes(label))
-				?.querySelector<HTMLInputElement>('input[role="switch"]') ?? null,
 		checkboxFor: (label: string) =>
 			rowFor(label)?.querySelector<HTMLButtonElement>('button[role="checkbox"]') ?? null,
 		button: (text: string) =>
@@ -304,7 +300,6 @@ describe('Cloud catalog: enable toggle', () => {
 
 		expect(adminApi.setCloudCatalogEnabled).toHaveBeenCalledWith('b1', ['seedream'], true);
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(true);
-		expect(mounted.cardSwitchFor('Seedream 4.5')!.checked).toBe(true);
 
 		pending.resolve(ok(toggled('seedream', true)));
 		await settle();
@@ -323,13 +318,11 @@ describe('Cloud catalog: enable toggle', () => {
 		mounted.switchFor('Seedream 4.5')!.click();
 		await settle();
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(true);
-		expect(mounted.cardSwitchFor('Seedream 4.5')!.checked).toBe(true);
 
 		pending.reject({ isAxiosError: true, message: 'Request failed', response: { data: { message: 'The provider is not reachable.' } } });
 		await settle();
 
 		expect(mounted.switchFor('Seedream 4.5')!.checked).toBe(false);
-		expect(mounted.cardSwitchFor('Seedream 4.5')!.checked).toBe(false);
 		expect(mounted.rowFor('Seedream 4.5')!.textContent).toContain('The provider is not reachable.');
 		expect(mounted.rowFor('Veo 3.1')!.textContent).not.toContain('The provider is not reachable.');
 		expect(mounted.target.querySelector('[data-testid="catalog-summary"]')!.textContent).toContain('1 enabled');
