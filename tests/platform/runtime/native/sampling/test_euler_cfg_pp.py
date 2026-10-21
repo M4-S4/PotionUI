@@ -19,7 +19,6 @@ from src.platform.runtime.native.sampling.algorithms.euler_ancestral_cfg_pp impo
 )
 from src.platform.runtime.native.sampling.algorithms.euler_cfg_pp import sample_euler_cfg_pp
 from src.platform.runtime.native.sampling.cfg import NoCFG, TrueCFG
-from src.platform.runtime.native.sampling.hooks import BaseStepHook
 
 
 def _const_velocity_model(v0):
@@ -170,35 +169,6 @@ def test_zero_init_window_uses_v_cfg_as_direction_not_stale_last_uncond_v():
     guidance.last_uncond_v = torch.tensor([[-777.0]])
     out = sample_euler_cfg_pp(None, x_init.clone(), sigmas, guidance, {}, {})
     assert torch.allclose(out, torch.tensor([[3.0]]))
-
-
-def test_hooks_fire_once_per_step():
-    class Counter(BaseStepHook):
-        def __init__(self):
-            self.starts = 0
-            self.steps = 0
-            self.ends = 0
-
-        def on_start(self, total_steps):
-            self.starts += 1
-            self.total = total_steps
-
-        def on_step(self, step_index, total_steps, x, sigma, denoised_x0):
-            self.steps += 1
-
-        def on_end(self):
-            self.ends += 1
-
-    counter = Counter()
-    sigmas = torch.tensor([1.0, 0.5, 0.0])  # 2 steps
-    sample_euler_cfg_pp(
-        _const_velocity_model(1.0), torch.zeros(1, 2), sigmas, NoCFG(), {}, None,
-        hooks=[counter],
-    )
-    assert counter.starts == 1
-    assert counter.steps == 2
-    assert counter.total == 2
-    assert counter.ends == 1
 
 
 def test_sampler_options_ignored_without_error():

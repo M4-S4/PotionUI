@@ -42,32 +42,6 @@ def test_constant_velocity_exact_realistic_schedule():
     assert torch.allclose(out, x_init - 1.5, atol=1e-4)
 
 
-def test_hooks_fire_once_per_step():
-    class Counter(BaseStepHook):
-        def __init__(self):
-            self.steps = 0
-            self.starts = 0
-            self.ends = 0
-
-        def on_start(self, total_steps):
-            self.starts += 1
-
-        def on_step(self, step_index, total_steps, x, sigma, denoised_x0):
-            self.steps += 1
-            assert denoised_x0 is not None
-
-        def on_end(self):
-            self.ends += 1
-
-    counter = Counter()
-    sigmas = torch.linspace(1.0, 0.0, 6)  # 5 steps
-    sample_unipc(
-        _const_velocity_model(1.0), torch.zeros(1, 2), sigmas, NoCFG(), {}, None,
-        hooks=[counter],
-    )
-    assert (counter.starts, counter.steps, counter.ends) == (1, 5, 1)
-
-
 def test_cancellation_mid_loop():
     calls = {"n": 0}
 

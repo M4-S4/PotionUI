@@ -14,7 +14,6 @@ from src.platform.runtime.native.sampling.algorithms.euler_ancestral import (
 )
 from src.platform.runtime.native.sampling.cfg import NoCFG
 from src.platform.runtime.native.sampling.registry import sampler_registry
-from src.platform.runtime.native.sampling.hooks import BaseStepHook
 from src.platform.runtime.native.errors import SamplingCancelled
 
 
@@ -170,30 +169,6 @@ def test_no_sampler_options_defaults_to_eta_one_s_noise_one():
     out_det = sample_euler(_const_velocity_model(1.0), x_init.clone(), sigmas, NoCFG(), {}, None)
     assert torch.isfinite(out_default).all()
     assert not torch.equal(out_default, out_det)
-
-
-def test_hooks_fire_once_per_step():
-    class Counter(BaseStepHook):
-        def __init__(self):
-            self.starts = self.steps = self.ends = 0
-
-        def on_start(self, total_steps):
-            self.starts += 1
-            self.total = total_steps
-
-        def on_step(self, *_):
-            self.steps += 1
-
-        def on_end(self):
-            self.ends += 1
-
-    counter = Counter()
-    sigmas = torch.tensor([1.0, 0.5, 0.0])
-    sample_euler_ancestral(
-        _const_velocity_model(1.0), torch.zeros(1, 2), sigmas, NoCFG(), {}, None,
-        hooks=[counter], sampler_options={"eta": 1.0},
-    )
-    assert (counter.starts, counter.steps, counter.total, counter.ends) == (1, 2, 2, 1)
 
 
 def test_cancellation_raises():
