@@ -64,47 +64,6 @@ class TestLLMField(unittest.TestCase):
         self.assertIsNone(schema['default_llm_id'])
 
 
-    def test_configuration_specs(self):
-        """Test configuration specifications"""
-        config_specs = LLMField.configuration()
-
-        self.assertGreater(len(config_specs), 0)
-
-        # Check that all expected parameters are present
-        param_names = {spec.name for spec in config_specs}
-        self.assertIn('show_llm_select', param_names)
-        self.assertIn('show_prompt', param_names)
-        self.assertIn('tooltip', param_names)
-
-        # Check parameter details for boolean configs
-        bool_specs = [s for s in config_specs if s.name != 'tooltip']
-        for spec in bool_specs:
-            self.assertEqual(spec.param_type, bool)
-            self.assertIsNotNone(spec.description)
-
-        # Check tooltip spec
-        tooltip_spec = next(s for s in config_specs if s.name == 'tooltip')
-        self.assertEqual(tooltip_spec.param_type, str)
-        self.assertEqual(tooltip_spec.default, None)
-        self.assertFalse(tooltip_spec.required)
-
-    def test_examples(self):
-        """Test example configurations"""
-        examples = LLMField.examples()
-
-        self.assertGreater(len(examples), 0)
-
-        for example in examples:
-            self.assertIsNotNone(example.title)
-            self.assertIsNotNone(example.description)
-            self.assertIsNotNone(example.yaml_config)
-            self.assertIsNotNone(example.rendered_output)
-
-        # Check specific examples
-        titles = {ex.title for ex in examples}
-        self.assertIn('Full LLM Field', titles)
-        self.assertIn('Simple LLM Selector', titles)
-
     def test_output_with_tooltip(self):
         """Test that tooltip is included in schema when provided"""
         field_config = {

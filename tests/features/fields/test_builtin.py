@@ -83,6 +83,30 @@ class TestRegisterBuiltinFields(unittest.TestCase):
         missing = rendered_types - registered_types
         self.assertEqual(missing, set(), f"types rendered by the frontend but missing from the registry: {missing}")
 
+    def test_every_registered_type_documents_itself(self):
+        registry = FieldTypeRegistry()
+        register_builtin_fields(registry)
+
+        problems = []
+        for definition in registry.all():
+            schema_cls = definition.schema_cls
+            if schema_cls is None:
+                continue
+            name = definition.type_name
+            if not schema_cls.description().strip():
+                problems.append(f"{name}: empty description")
+            spec_names = [spec.name for spec in schema_cls.configuration()]
+            if len(spec_names) != len(set(spec_names)):
+                problems.append(f"{name}: duplicate configuration spec names")
+            for example in schema_cls.examples():
+                if not (example.title and example.description and example.yaml_config):
+                    problems.append(f"{name}: example missing title, description or yaml_config")
+                rendered = example.rendered_output
+                if rendered is not None and "type" not in rendered:
+                    problems.append(f"{name}: example rendered_output has no type")
+
+        self.assertEqual(problems, [])
+
 
 if __name__ == '__main__':
     unittest.main()

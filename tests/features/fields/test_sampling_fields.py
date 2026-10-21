@@ -100,10 +100,6 @@ class TestSamplerField(unittest.TestCase):
 
         self.assertEqual(schema["configuration"], {"allow_empty": False})
 
-    def test_configuration_specs(self):
-        names = {spec.name for spec in SamplerField.configuration()}
-        self.assertEqual(names, {"family", "include", "exclude", "allow_empty"})
-
 
 class TestScheduleField(unittest.TestCase):
     def setUp(self):

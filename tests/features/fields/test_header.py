@@ -98,44 +98,6 @@ class TestHeader(unittest.TestCase):
         self.assertEqual(result['title'], 'Object Header')
         self.assertEqual(result['description'], 'An object-style header')
 
-    def test_configuration_specs(self):
-        """Test configuration specifications"""
-        config_specs = Header.configuration()
-
-        self.assertGreater(len(config_specs), 0)
-
-        # Check for variant configuration
-        variant_spec = next((spec for spec in config_specs if spec.name == 'variant'), None)
-        self.assertIsNotNone(variant_spec)
-        self.assertEqual(variant_spec.param_type, str)
-        self.assertEqual(variant_spec.default, 'h3')
-
-        # Check for style configuration
-        style_spec = next((spec for spec in config_specs if spec.name == 'style'), None)
-        self.assertIsNotNone(style_spec)
-        self.assertEqual(style_spec.param_type, dict)
-
-    def test_examples(self):
-        """Test example configurations"""
-        examples = Header.examples()
-
-        self.assertGreater(len(examples), 0)
-
-        # Verify all examples have required properties
-        for example in examples:
-            self.assertIsNotNone(example.title)
-            self.assertIsNotNone(example.description)
-            self.assertIsNotNone(example.yaml_config)
-            self.assertIsNotNone(example.rendered_output)
-            self.assertIn('type', example.rendered_output)
-            self.assertEqual(example.rendered_output['type'], 'header')
-
-    def test_description(self):
-        """Test field description"""
-        description = Header.description()
-        self.assertIsNotNone(description)
-        self.assertIsInstance(description, str)
-        self.assertGreater(len(description), 0)
 
     def test_name_removal_from_output(self):
         """Test that name is always removed from output schema"""

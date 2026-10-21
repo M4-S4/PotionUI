@@ -163,6 +163,7 @@ class TestRegisterBuiltinTools:
             assert tool.group in self.TOOL_GROUPS, (
                 f"Tool '{tool.name}' has group '{tool.group}' outside the taxonomy"
             )
+            assert tool.description.strip(), f"Tool '{tool.name}' is missing a description"
             assert tool.user_description, f"Tool '{tool.name}' is missing a user_description"
             assert tool.user_description != tool.description
 

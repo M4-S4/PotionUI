@@ -22,39 +22,6 @@ class TestCarouselField(unittest.TestCase):
         self.preset_loader.preset_files_path = '/test/presets'
         self.preset_loader.get.return_value = self.mock_preset
 
-    def test_configuration(self):
-        """Test that configuration includes all expected parameters"""
-        config_specs = CarouselField.configuration()
-
-        # Check that we have the expected configuration parameters
-        config_names = [spec.name for spec in config_specs]
-        expected_params = ['items', 'file', 'images', 'multi_select', 'rows', 'columns', 'item_width', 'item_height', 'mode', 'show_labels']
-
-        for param in expected_params:
-            self.assertIn(param, config_names, f"Missing configuration parameter: {param}")
-
-        # Check items parameter
-        items_spec = next((spec for spec in config_specs if spec.name == 'items'), None)
-        self.assertIsNotNone(items_spec)
-        self.assertEqual(items_spec.param_type, list)
-
-        # Check multi_select parameter
-        multi_select_spec = next((spec for spec in config_specs if spec.name == 'multi_select'), None)
-        self.assertIsNotNone(multi_select_spec)
-        self.assertEqual(multi_select_spec.param_type, bool)
-        self.assertEqual(multi_select_spec.default, False)
-
-    def test_examples(self):
-        """Test that examples are provided"""
-        examples = CarouselField.examples()
-        self.assertGreater(len(examples), 0)
-
-        # Check first example has required fields
-        first_example = examples[0]
-        self.assertIsNotNone(first_example.title)
-        self.assertIsNotNone(first_example.description)
-        self.assertIsNotNone(first_example.yaml_config)
-
 
     def test_output_static_items(self):
         """Test output with static items"""

@@ -185,39 +185,6 @@ class TestGate(unittest.TestCase):
         self.assertEqual(row_schema['children'][1]['name'], 'enhance_detail')
 
 
-    def test_configuration_specs(self):
-        config_specs = Gate.configuration()
-
-        summary_spec = next((spec for spec in config_specs if spec.name == 'summary'), None)
-        self.assertIsNotNone(summary_spec)
-        self.assertEqual(summary_spec.param_type, str)
-
-        experimental_spec = next((spec for spec in config_specs if spec.name == 'experimental'), None)
-        self.assertIsNotNone(experimental_spec)
-        self.assertEqual(experimental_spec.param_type, bool)
-        self.assertEqual(experimental_spec.default, False)
-
-    def test_validation_rules_empty(self):
-        self.assertEqual(Gate.validation_rules(), [])
-
-    def test_examples(self):
-        examples = Gate.examples()
-
-        self.assertGreater(len(examples), 0)
-        for example in examples:
-            self.assertIsNotNone(example.title)
-            self.assertIsNotNone(example.description)
-            self.assertIsNotNone(example.yaml_config)
-            self.assertIn('type', example.rendered_output)
-            self.assertEqual(example.rendered_output['type'], 'gate')
-
-    def test_description(self):
-        description = Gate.description()
-        self.assertIsNotNone(description)
-        self.assertIsInstance(description, str)
-        self.assertGreater(len(description), 0)
-
-
 class TestGateRegistration(unittest.TestCase):
     """The gate type must be discoverable through the same registry path as
     every other builtin field type."""

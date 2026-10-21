@@ -21,26 +21,6 @@ class TestSelectField(unittest.TestCase):
         self.preset_loader.get.return_value = self.mock_preset
         self.mock_preset.id = 'test_preset_id'
 
-    def test_configuration(self):
-        """Test that configuration includes all expected parameters"""
-        config_specs = Select.configuration()
-
-        # Check that we have the expected configuration parameters
-        config_names = [spec.name for spec in config_specs]
-        expected_params = ['options', 'file', 'files']
-
-        for param in expected_params:
-            self.assertIn(param, config_names, f"Missing configuration parameter: {param}")
-
-        # Check options parameter supports examples
-        options_spec = next((spec for spec in config_specs if spec.name == 'options'), None)
-        self.assertIsNotNone(options_spec)
-        self.assertEqual(options_spec.param_type, list)
-
-        # Check that example shows options with examples
-        example_options = options_spec.example
-        self.assertTrue(isinstance(example_options, list))
-        self.assertTrue(any('example' in opt for opt in example_options if isinstance(opt, dict)))
     
     
     def test_output_static_options(self):

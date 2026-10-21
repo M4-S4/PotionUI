@@ -60,8 +60,6 @@ class TestListModelsToolSchema:
     def test_name(self):
         assert ListModelsTool().name == "list_models"
 
-    def test_description_is_nonempty(self):
-        assert len(ListModelsTool().description) > 0
 
     def test_requires_approval_is_false(self):
         assert ListModelsTool().requires_approval is False

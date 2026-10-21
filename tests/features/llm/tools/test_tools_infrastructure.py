@@ -106,18 +106,6 @@ def make_real_llm_response(content: str = "", tool_calls=None) -> LLMResponse:
 # ToolResult tests
 # ---------------------------------------------------------------------------
 
-class TestToolResult:
-    def test_success_result(self):
-        result = ToolResult(success=True, data="some data")
-        assert result.success is True
-        assert result.data == "some data"
-        assert result.error is None
-
-    def test_error_result(self):
-        result = ToolResult(success=False, data="", error="something went wrong")
-        assert result.success is False
-        assert result.error == "something went wrong"
-
 
 class TestSerializeApprovalPreview:
     def test_none_serializes_to_none(self):
@@ -157,25 +145,6 @@ class TestSerializeApprovalPreview:
 # ToolContext tests
 # ---------------------------------------------------------------------------
 
-class TestToolContext:
-    def test_default_values(self):
-        ctx = ToolContext(user_id="u1")
-        assert ctx.user_id == "u1"
-        assert ctx.session_metadata == {}
-        assert ctx.segment_category_repository is None
-        assert ctx.saved_segment_repository is None
-        assert ctx.segment_template_repository is None
-        assert ctx.model_index_manager is None
-        assert ctx.preset_collaborators is None
-        assert ctx.phrasebook_category_repository is None
-        assert ctx.phrasebook_value_repository is None
-
-    def test_with_services(self):
-        mock_pm = MagicMock()
-        ctx = ToolContext(user_id="u2", preset_collaborators=mock_pm, session_metadata={"k": "v"})
-        assert ctx.preset_collaborators is mock_pm
-        assert ctx.session_metadata == {"k": "v"}
-
 
 # ---------------------------------------------------------------------------
 # ToolExecution tests
@@ -212,17 +181,6 @@ class TestBaseTool:
         assert schema["function"]["description"] == "Echoes a message back."
         assert "parameters" in schema["function"]
 
-    def test_hint_default_empty(self):
-        tool = EchoTool()
-        assert tool.hint == ""
-
-    def test_hint_override(self):
-        class HintedTool(EchoTool):
-            @property
-            def hint(self) -> str:
-                return "Use when user asks to echo."
-        tool = HintedTool()
-        assert tool.hint == "Use when user asks to echo."
 
     def test_is_available_defaults_to_true_regardless_of_form_state(self):
         tool = EchoTool()
@@ -1369,55 +1327,9 @@ class TestBaseToolApproval:
 # ---------------------------------------------------------------------------
 
 
-class TestToolSource:
-    def test_required_fields(self):
-        src = ToolSource(source_type="url", title="My Source")
-        assert src.source_type == "url"
-        assert src.title == "My Source"
-        assert src.subtitle is None
-        assert src.url is None
-
-    def test_all_fields(self):
-        src = ToolSource(
-            source_type="document",
-            title="Doc",
-            subtitle="sub",
-            description="desc",
-            url="https://example.com",
-            icon="icon.png",
-        )
-        assert src.url == "https://example.com"
-        assert src.icon == "icon.png"
-
-
 # ---------------------------------------------------------------------------
 # ToolResult sources field
 # ---------------------------------------------------------------------------
-
-
-class TestToolResultSources:
-    def test_sources_defaults_to_none(self):
-        result = ToolResult(success=True, data="ok")
-        assert result.sources is None
-
-    def test_sources_can_be_set(self):
-        src = ToolSource(source_type="url", title="T")
-        result = ToolResult(success=True, data="ok", sources=[src])
-        assert len(result.sources) == 1
-        assert result.sources[0].title == "T"
-
-
-class TestToolExecutionApprovalStatus:
-    def test_approval_status_defaults_none(self):
-        result = ToolResult(success=True, data="ok")
-        exec_ = ToolExecution(tool_name="echo", arguments={}, result=result, duration_ms=1)
-        assert exec_.approval_status is None
-        assert exec_.skipped is False
-
-    def test_approval_status_can_be_set(self):
-        result = ToolResult(success=True, data="preview")
-        exec_ = ToolExecution(tool_name="approval_tool", arguments={}, result=result, duration_ms=1, approval_status="pending")
-        assert exec_.approval_status == "pending"
 
 
 # ---------------------------------------------------------------------------

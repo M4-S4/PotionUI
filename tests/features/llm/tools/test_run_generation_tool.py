@@ -70,8 +70,6 @@ class TestRunGenerationToolSchema:
     def test_name(self):
         assert RunGenerationTool().name == "run_generation"
 
-    def test_description_is_nonempty(self):
-        assert len(RunGenerationTool().description) > 0
 
     def test_requires_approval(self):
         assert RunGenerationTool().requires_approval is True
@@ -536,7 +534,6 @@ class TestRunGenerationToolExecuteConfirmed:
         orchestrator.start_generation.assert_awaited_once()
 
 
-
 class TestRunGenerationToolPromptVariables:
     @pytest.mark.asyncio
     async def test_text_variable_resolves_to_its_value(self):
@@ -631,7 +628,6 @@ class TestRunGenerationToolPromptVariables:
         await RunGenerationTool().execute_confirmed(ctx)
         request = orchestrator.start_generation.call_args[1]["request"]
         assert request.variables is None
-
 
 
 class TestRunGenerationToolPreviewResolvesVariables:

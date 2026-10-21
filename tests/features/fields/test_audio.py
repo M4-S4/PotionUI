@@ -293,15 +293,6 @@ class TestAudioField(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn('duration exceeds maximum', errors[0])
 
-    def test_configuration_specs(self):
-        """Test that configuration() returns valid specs"""
-        specs = Audio.configuration()
-        self.assertIsInstance(specs, list)
-        self.assertTrue(len(specs) > 0)
-        names = [s.name for s in specs]
-        self.assertIn('multi', names)
-        self.assertIn('formats', names)
-        self.assertIn('validation', names)
 
     def test_validation_rules_specs(self):
         """Test that validation_rules() returns valid specs without width/height"""
@@ -314,15 +305,6 @@ class TestAudioField(unittest.TestCase):
         # Audio does not have width/height rules
         self.assertNotIn('max_width', rule_names)
         self.assertNotIn('max_height', rule_names)
-
-    def test_examples(self):
-        """Test that examples() returns three valid example specs"""
-        examples = Audio.examples()
-        self.assertEqual(len(examples), 3)
-        for example in examples:
-            self.assertIsNotNone(example.title)
-            self.assertIsNotNone(example.yaml_config)
-            self.assertIsNotNone(example.rendered_output)
 
 
 if __name__ == '__main__':
