@@ -55,11 +55,12 @@ def _fp32_ops():
 def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
     """Fill an empty-weight module's params with small randoms (norms -> 1)."""
     sd: dict[str, torch.Tensor] = {}
+    generator = torch.Generator().manual_seed(0)
     for k, v in module.state_dict().items():
         if k.endswith(".scale") and "norm" in k:
             sd[k] = torch.ones_like(v)
         elif v.is_floating_point():
-            sd[k] = torch.randn_like(v) * 0.02
+            sd[k] = (torch.randn(v.shape, generator=generator) * 0.02).to(v.dtype)
         else:
             sd[k] = v.clone()
     return sd

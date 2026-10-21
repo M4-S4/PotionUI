@@ -365,21 +365,39 @@ def test_a_bumped_revision_invalidates_the_prepared_branch():
     xs = _latents()
     context = torch.randn(2, 6, 32, generator=torch.Generator().manual_seed(15))
     revision = [1]
+    prepared = []
 
     with _cached(m, revision) as cache, _count_prep(m) as counts, torch.no_grad():
+        counted_prepare = m._prepare_branch
+
+        def capture(*a, **kw):
+            result = counted_prepare(*a, **kw)
+            prepared.append(result)
+            return result
+
+        m._prepare_branch = capture
         t = torch.full((2,), STEPS[0])
         before = m(xs[0], t, context)
         assert torch.equal(m(xs[0], t, context), before)
         assert counts["prepare_branch"] == 1
 
-        with torch.no_grad():
-            m.txt_in.weight.add_(0.05)
+        def project():
+            return m.txt_in(m.txt_norm(context) if m.txt_norm is not None else context)
+
+        old_projection = project()
+        m.txt_in.weight.add_(0.05)
+        new_projection = project()
+        assert not torch.equal(new_projection, old_projection)
         revision[0] = 2
         after = m(xs[0], t, context)
 
         assert counts["prepare_branch"] == 2, "a stale projection answered after the edge"
-        assert not torch.equal(after, before)
+        assert torch.equal(prepared[0].txt, old_projection)
+        assert torch.equal(prepared[1].txt, new_projection)
         assert len(cache) == 1, "the superseded entry is dropped, not merely bypassed"
+
+        m.run_cache = None
+        assert torch.equal(after, m(xs[0], t, context))
 
 
 # --- (d) unidentifiable input --------------------------------------------
