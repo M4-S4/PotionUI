@@ -303,7 +303,7 @@
 {#snippet collectionsHead()}
 	<div class="border-t border-line">
 		<div class="flex items-center gap-0.5 pb-2 pl-5 pr-[13px] pt-3.5">
-			<h2 class="flex-1 text-sm font-medium text-fg-muted">Collections</h2>
+			<span class="flex-1 text-sm font-medium text-fg-muted">Collections</span>
 			<IconButton icon="plus" label="New collection" size="sm" onclick={() => (createName = '')} />
 			<Menu label="Collection options" width={224}>
 				{#snippet children({ close })}

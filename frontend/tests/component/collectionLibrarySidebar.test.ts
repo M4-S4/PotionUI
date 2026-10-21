@@ -159,6 +159,13 @@ describe('fixed views', () => {
 		expect(title.className.split(/\s+/)).toEqual(expect.arrayContaining(['text-md', 'font-semibold']));
 	});
 
+	it('labels its sections without adding headings to the page outline', async () => {
+		const { target } = mountSidebar();
+		await settle();
+		expect(target.querySelector('h1, h2, h3, h4, h5, h6')).toBeNull();
+		expect(target.textContent).toContain('Collections');
+	});
+
 	it('no longer carries a Direct only switch', async () => {
 		const { target } = mountSidebar({ activeId: 'a' });
 		await settle();
