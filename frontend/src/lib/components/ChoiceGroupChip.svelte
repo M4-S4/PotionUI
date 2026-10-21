@@ -33,8 +33,8 @@
 
 	function applyOptions(next: ChoiceGroupSpec['options']) {
 		if (!spec) return;
-		const nextSpec: ChoiceGroupSpec = { ...spec, options: next };
-		onchange?.(serializeGroup(nextSpec));
+		raw = serializeGroup({ ...spec, options: next });
+		onchange?.(raw);
 	}
 
 	function updateOptionText(index: number, text: string) {

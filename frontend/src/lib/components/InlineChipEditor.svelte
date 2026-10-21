@@ -1925,30 +1925,9 @@
 	// Choice-group handlers
 	// =====================
 
-	/** Re-serialize + remount a group container's chip after an edit in its popover. */
-	function handleConditionChange(container: HTMLElement, newRaw: string) {
-		if (!editorRef) return;
-		container.dataset.groupRaw = newRaw;
-		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
-		lastGroupCount = countGroupLikes(newValue);
-		dispatchChange(newValue, newChips);
-	}
-
 	function handleGroupChange(container: HTMLElement, newRaw: string) {
 		if (!editorRef) return;
 		container.dataset.groupRaw = newRaw;
-
-		const slotId = container.dataset.slotId;
-		if (slotId) {
-			const existing = mountedGroupComponents.get(slotId);
-			if (existing) {
-				unmount(existing);
-				mountedGroupComponents.delete(slotId);
-			}
-		}
-		container.innerHTML = '';
-		mountGroups();
-
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
 		lastGroupCount = countGroupLikes(newValue);
 		dispatchChange(newValue, newChips);
@@ -1999,7 +1978,7 @@
 						disabled: isDisabled,
 						variant,
 						startOpen: openConditionSlotId === slotId,
-						onchange: (newRaw: string) => handleConditionChange(el, newRaw),
+						onchange: (newRaw: string) => handleGroupChange(el, newRaw),
 						onremove: () => handleGroupRemove(el),
 						onOpenChange: (isOpen: boolean) => {
 							if (isOpen) openConditionSlotId = slotId;
