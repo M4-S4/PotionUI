@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi, onTestFinished } from 'vitest';
 import { mount, unmount, flushSync, tick } from 'svelte';
 import { get } from 'svelte/store';
 import { settle } from './helpers/settle';
@@ -41,6 +41,9 @@ const { default: ContextToolbar } = await import('../../src/routes/generate/comp
 const { tabsStore } = await import('$lib/stores/tabs');
 const { formAudienceStore } = await import('$lib/stores/formAudience');
 const { reactiveProps } = await import('./stubs/reactiveProps.svelte');
+const { keybindingsStore } = await import('$lib/stores/keybindings');
+const { api } = await import('$lib/services/api/index');
+const { default: Kbd } = await import('$lib/components/ui/Kbd.svelte');
 
 const PRESETS = [{ id: 'krea2', name: 'Krea-2', version: '1.1.0', engine: 'native', category: 'image', tags: [], description: '' }];
 const MODES = [
@@ -430,6 +433,36 @@ describe('ContextToolbar tools', () => {
 		expect(items.map((item) => item.getAttribute('aria-label'))).toEqual(['Float form', 'Float workbench', 'Fold form']);
 		expect(items.map((item) => item.getAttribute('role'))).toEqual(['menuitemcheckbox', 'menuitemcheckbox', 'menuitemcheckbox']);
 		expect(items.map((item) => item.getAttribute('aria-checked'))).toEqual(['false', 'false', 'false']);
+	});
+
+	it('shows each tool shortcut in the More menu as a keyboard key, styled like the tooltips', async () => {
+		const keybindings = [
+			['toggle_floating_form', 'q'],
+			['toggle_floating_workbench', 'w'],
+			['toggle_left_panel', 'f']
+		].map(([action_id, key]) => ({ action_id, key, modifiers: '', label: action_id, category: 'general', context: 'generate', enabled: true, is_custom: false }));
+		vi.spyOn(api, 'getKeybindings').mockResolvedValue({ success: true, data: { keybindings } } as never);
+		await keybindingsStore.loadBindings();
+		onTestFinished(() => keybindingsStore.reset());
+		const host = document.body.appendChild(document.createElement('div'));
+		const reference = mount(Kbd, { target: host, props: { keys: 'Q' } });
+		const tooltipKey = host.querySelector('kbd')!.className;
+		unmount(reference);
+		host.remove();
+		await render();
+		const items = await openMore();
+		for (const [name, key] of [['Float form', 'Q'], ['Float workbench', 'W'], ['Fold form', 'F']]) {
+			const item = items.find((entry) => entry.getAttribute('aria-label') === name)!;
+			const keys = item.querySelectorAll('kbd');
+			expect(keys, name).toHaveLength(1);
+			expect(keys[0].textContent!.trim(), name).toBe(key);
+			expect(keys[0].className, name).toBe(tooltipKey);
+			expect(keys[0].className, name).toContain('font-mono');
+			expect(keys[0].className, name).toContain('tabular-nums');
+			const withoutKey = item.cloneNode(true) as HTMLElement;
+			withoutKey.querySelector('kbd')!.parentElement!.remove();
+			expect(withoutKey.textContent!.trim(), name).toBe(item.querySelector('.truncate')!.textContent!.trim());
+		}
 	});
 
 	it('toggles field visibility and the pane layout', async () => {

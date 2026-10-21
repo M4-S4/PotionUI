@@ -12,7 +12,7 @@
 	import PresetThumbnail from '$lib/components/preset/PresetThumbnail.svelte';
 	import FormulasButton from '$lib/components/formulas/FormulasButton.svelte';
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
-	import { Menu, Spinner } from '$lib/components/ui';
+	import { Kbd, Menu, Spinner } from '$lib/components/ui';
 	import { formAudienceStore } from '$lib/stores/formAudience';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { formFoldStates, toggleFormPane } from '$lib/stores/generationLayout';
@@ -449,7 +449,11 @@
 						>
 							<Icon name={tool.icon} className="h-4 w-4 flex-shrink-0" />
 							<span class="min-w-0 flex-1 truncate">{tool.label}</span>
-							<span class="flex-shrink-0 font-mono text-sm text-fg-subtle">{tool.kbd ?? (tool.label === tool.text ? '' : tool.text)}</span>
+							{#if tool.kbd}
+								<Kbd keys={tool.kbd} />
+							{:else if tool.kbd == null && tool.label !== tool.text}
+								<span class="flex-shrink-0 font-mono text-sm text-fg-subtle">{tool.text}</span>
+							{/if}
 						</button>
 					{/each}
 				{/snippet}
