@@ -5,9 +5,7 @@
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Badge, EmptyState, IconButton, LoadErrorState, Switch } from '$lib/components/ui';
@@ -51,11 +49,6 @@
 	let selected = $state<Set<string>>(new Set());
 	let togglingEnabled = $state(false);
 	let creatingConfig = $state(false);
-
-	const createConfigGate = createConfirmSettlementGate();
-	$effect(() => {
-		if (showConfigModal) createConfigGate.reset();
-	});
 
 	const defaultSystemMessage = `You are a helpful AI assistant specialized in generating image prompts and tags.
 When asked for prompts, provide clear, descriptive, and well-structured responses.
@@ -192,37 +185,18 @@ Always be creative and helpful while staying focused on the image generation con
 			await adminApi.createLLMConfiguration(configFormData);
 			await loadConfigurations();
 			showConfigModal = false;
+			return true;
 		} catch (error) {
 			logger.error('Failed to save LLM configuration:', error);
 			toasts.error('Failed to save LLM configuration');
+			return false;
 		} finally {
 			creatingConfig = false;
-			createConfigGate.reset();
 		}
 	}
 
 	function closeConfigModal() {
 		showConfigModal = false;
-	}
-
-	function cancelCreateConfig() {
-		createConfigGate.settle(closeConfigModal);
-	}
-
-	function confirmCreateConfig() {
-		settleIfEligible(
-			createConfigGate,
-			!!configFormData.name && !!configFormData.model && !creatingConfig,
-			handleSaveConfig
-		);
-	}
-
-	function handleCreateConfigKeydown(e: KeyboardEvent) {
-		if (!showConfigModal) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') cancelCreateConfig();
-		else if (action === 'confirm') confirmCreateConfig();
-		if (suppress) e.preventDefault();
 	}
 
 	async function selectConfig(id: string) {
@@ -506,18 +480,19 @@ Always be creative and helpful while staying focused on the image generation con
 	{/if}
 </div>
 
-<svelte:window on:keydown|capture={handleCreateConfigKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	isOpen={showConfigModal}
 	title="Create LLM Configuration"
 	size="lg"
-	handleEscapeKey={false}
-	on:close={cancelCreateConfig}
+	busy={creatingConfig}
+	confirmLabel="Create"
+	confirmDisabled={!configFormData.name || !configFormData.model}
+	onConfirm={handleSaveConfig}
+	onCancel={closeConfigModal}
 >
-	<svelte:fragment slot="headerIcon">
+	{#snippet headerIconContent()}
 		<Icon name="model" className="w-5 h-5 text-fg-muted" />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="p-6">
 		<LLMConfigForm
@@ -528,14 +503,4 @@ Always be creative and helpful while staying focused on the image generation con
 			{preChatActions}
 		/>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Create"
-			busy={creatingConfig}
-			confirmDisabled={!configFormData.name || !configFormData.model}
-			onCancel={cancelCreateConfig}
-			onConfirm={confirmCreateConfig}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

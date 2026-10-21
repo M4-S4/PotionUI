@@ -9,9 +9,7 @@
 </script>
 
 <script lang="ts">
-	import BaseModal from './modals/BaseModal.svelte';
-	import ConfirmFooter from './modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './modals/confirmKeyboard';
+	import ConfirmDialog from './modals/ConfirmDialog.svelte';
 	import Icon from './Icon.svelte';
 	import MediaThumb from './media/MediaThumb.svelte';
 	import Button from './ui/Button.svelte';
@@ -84,7 +82,7 @@
 	let previewIndex = $state(0);
 	let previewPaneRef = $state<HTMLDivElement | null>(null);
 	let lastFocusedBeforePreview: HTMLElement | null = null;
-	const settlementGate = createConfirmSettlementGate();
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	let compiledSearch = $derived(compileTextMatcher(query, matchMode));
 	let searchMatcher = $derived(compiledSearch.matcher);
@@ -155,14 +153,6 @@
 		selectedId = filteredValues[nextIndex].id;
 	}
 
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !!selectedId, commitSelection);
-	}
-
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (previewOpen) {
 			if (e.key === 'ArrowLeft') {
@@ -182,18 +172,14 @@
 			return;
 		}
 
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') {
-			handleCancel();
-		} else if (action === 'confirm') {
-			handleConfirm();
-		} else if (e.key === 'Enter' && !e.repeat && (e.target as HTMLElement | null)?.tagName === 'INPUT') {
-			e.preventDefault();
-			handleConfirm();
+		if (e.key === 'Escape') return;
+		if (e.key === 'Enter') {
+			if (!e.repeat && (e.target as HTMLElement | null)?.tagName === 'INPUT') {
+				e.preventDefault();
+				dialog.confirm();
+			}
 			return;
 		}
-		if (suppress) e.preventDefault();
-		if (action !== null) return;
 
 		if (triggerChar !== '#' || layout === 'grid') return;
 		const activeTag = (e.target as HTMLElement | null)?.tagName;
@@ -231,14 +217,15 @@
 
 	function commitSelection() {
 		const picked = values.find((v) => v.id === selectedId);
-		if (!picked) return;
+		if (!picked) return false;
 		onInsertValue(picked, footerLeft === 'phrasebook' ? { shuffle: pendingShuffle } : undefined);
 		onClose();
+		return true;
 	}
 
 	function pickValue(value: AutocompleteValue) {
 		selectedId = value.id;
-		commitSelection();
+		dialog.settle(commitSelection);
 	}
 
 	function handleExcludeClick() {
@@ -254,17 +241,21 @@
 
 <svelte:window on:keydown|capture={handleWindowKeydown} />
 
-<BaseModal
+<ConfirmDialog
+	bind:this={dialog}
 	isOpen={true}
 	closeable={!previewOpen}
-	handleEscapeKey={false}
+	keyboard={!previewOpen}
 	sizeClass="w-full md:w-[64rem] md:max-w-[calc(100vw-2rem)]"
-	on:close={handleCancel}
+	confirmLabel={insertHint}
+	confirmDisabled={!selectedId}
+	onConfirm={commitSelection}
+	onCancel={onClose}
 >
-	<svelte:fragment slot="headerIcon">
+	{#snippet headerIconContent()}
 		<span class="picker-chip" style="--trig: {TRIGGER_COLOR[triggerChar]}">{triggerChar}</span>
-	</svelte:fragment>
-	<svelte:fragment slot="header">
+	{/snippet}
+	{#snippet headerContent()}
 		<strong class="picker-modal-title">{title}</strong>
 		<div class="picker-modal-search field-frame" class:invalid={!!compiledSearch.error}>
 			<Icon name="search" className="icon" />
@@ -285,7 +276,7 @@
 				/>
 			</Tooltip>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 
 	{#if compiledSearch.error}
 		<div class="picker-search-error" role="alert">{compiledSearch.error}</div>
@@ -452,14 +443,7 @@
 		{/if}
 	</div>
 
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel={insertHint}
-			confirmDisabled={!selectedId}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		>
-			{#snippet leftActions()}
+	{#snippet leftActions()}
 				{#if footerLeft === 'phrasebook'}
 					<div class="picker-footer-left">
 						<SegmentedControl
@@ -500,10 +484,8 @@
 						</Button>
 					</Tooltip>
 				{/if}
-			{/snippet}
-		</ConfirmFooter>
-	</svelte:fragment>
-</BaseModal>
+	{/snippet}
+</ConfirmDialog>
 
 <style>
 	.picker-chip {

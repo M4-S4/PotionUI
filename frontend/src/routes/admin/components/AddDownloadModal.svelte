@@ -287,21 +287,6 @@
 		dispatch('close');
 	}
 
-	function handleCancel() {
-		settlementGate.settle(close);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !loadingData && !submitting && !!url.trim() && !noWritableFolder, handleSubmit);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
-	}
-
 	function handleClickOutsideTagDropdown(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest('.tag-search-container')) {
@@ -310,12 +295,21 @@
 	}
 </script>
 
-<svelte:window onclick={handleClickOutsideTagDropdown} on:keydown|capture={handleKeydown} />
+<svelte:window onclick={handleClickOutsideTagDropdown} />
 
-<BaseModal isOpen={true} title="Add download" sizeClass="md:max-w-lg md:w-full" handleEscapeKey={false} on:close={handleCancel}>
-	<svelte:fragment slot="headerIcon">
+<ConfirmDialog
+	isOpen={true}
+	title="Add download"
+	sizeClass="md:max-w-lg md:w-full"
+	busy={submitting}
+	confirmLabel={submitting ? 'Queueing…' : 'Queue download'}
+	confirmDisabled={loadingData || !url.trim() || noWritableFolder}
+	onConfirm={handleSubmit}
+	onCancel={close}
+>
+	{#snippet headerIconContent()}
 		<Icon name="download" className="h-4 w-4 flex-shrink-0 text-fg-muted" />
-	</svelte:fragment>
+	{/snippet}
 
 	{#if loadingData}
 		<div class="px-6 py-12 flex flex-col items-center justify-center">
@@ -661,14 +655,4 @@
 			</div>
 		</form>
 	{/if}
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel={submitting ? 'Queueing…' : 'Queue download'}
-			busy={submitting}
-			confirmDisabled={loadingData || !url.trim() || noWritableFolder}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

@@ -8,11 +8,9 @@
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { parseVariableUsageTokens } from '$lib/utils/promptVariables';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import ConfirmModal from './ConfirmModal.svelte';
 	import ModelAssignmentModal from './ModelAssignmentModal.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, Spinner, Alert } from '$lib/components/ui';
@@ -70,9 +68,9 @@
 	let models: Array<{ id: string; filename?: string; name?: string; model_type?: string }> = [];
 	let modelsLoaded = false;
 	let bodyEl: HTMLDivElement | undefined;
+	let dialog: ReturnType<typeof ConfirmDialog>;
 	let listEl: HTMLDivElement | undefined;
 	let filtersTriggerEl: HTMLDivElement | undefined;
-	const settlementGate = createConfirmSettlementGate();
 
 	$: items = kind === 'template' ? [...presetTemplates, ...loadedItems] : loadedItems;
 	$: normalizedSearch = searchTerm.trim().toLowerCase();
@@ -144,7 +142,6 @@
 		selectedId = null;
 		applyMode = null;
 		showReplaceConfirmation = false;
-		settlementGate.reset();
 	}
 
 	function resetLibrary() {
@@ -279,7 +276,7 @@
 		} else if (event.key === 'Enter') {
 			if (!selectedItem || !applyMode) return;
 			event.preventDefault();
-			handleConfirm();
+			dialog.confirm();
 		}
 	}
 
@@ -291,37 +288,22 @@
 		dispatch('close');
 	}
 
-	function handleCancel() {
-		settlementGate.settle(handleClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !!selectedItem && !!applyMode, requestApply);
-	}
-
 	function handleWindowKeydown(event: KeyboardEvent) {
-		if (!isOpen) return;
-		if (showModelPicker) return;
-		if (filtersOpen) {
-			if (event.key === 'Escape') {
-				event.preventDefault();
-				filtersOpen = false;
-			}
-			return;
+		if (!isOpen || showModelPicker || !filtersOpen) return;
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			filtersOpen = false;
 		}
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
 	}
 
 	function requestApply() {
-		if (!selectedItem || !applyMode) return;
+		if (!selectedItem || !applyMode) return false;
 		if (applyMode === 'replace' && targetHasMeaningfulContent) {
 			showReplaceConfirmation = true;
-			return;
+			return false;
 		}
 		applySelection();
+		return true;
 	}
 
 	function applySelection() {
@@ -333,16 +315,20 @@
 
 <svelte:window on:click|capture={handleWindowClick} on:keydown|capture={handleWindowKeydown} />
 
-<BaseModal
+<ConfirmDialog
+	bind:this={dialog}
 	{isOpen}
 	title={kind === 'prompt' ? 'Apply Prompt' : 'Apply Segment Template'}
 	sizeClass={kind === 'prompt' ? 'md:max-w-5xl md:w-full md:max-h-[88vh]' : 'md:max-w-3xl md:w-full md:max-h-[85vh]'}
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	keyboard={!showModelPicker && !filtersOpen && !showReplaceConfirmation}
+	confirmLabel="Apply"
+	confirmDisabled={!selectedItem || !applyMode}
+	onConfirm={requestApply}
+	onCancel={handleClose}
 >
-	<svelte:fragment slot="headerIcon">
+	{#snippet headerIconContent()}
 		<Icon name={kind === 'prompt' ? 'book-open' : 'layout-template'} className="h-5 w-5 text-fg-muted" />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="flex flex-col gap-4 p-4 sm:p-6" bind:this={bodyEl}>
 		{#if kind === 'prompt'}
@@ -587,16 +573,7 @@
 			</p>
 		</fieldset>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Apply"
-			confirmDisabled={!selectedItem || !applyMode}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>
 
 {#if showModelPicker}
 	<ModelAssignmentModal

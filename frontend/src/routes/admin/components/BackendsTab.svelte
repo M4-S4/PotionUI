@@ -23,9 +23,7 @@
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { Button, Badge, Spinner, EmptyState, LoadErrorState, Switch, Alert, IconButton } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import BackendForm from './BackendForm.svelte';
 	import { DetailHeader, DetailTabs, DetailBody, DetailLayout, DetailSection, KVGrid, KVItem, DetailFooter } from '$lib/components/detail';
 	import type { DetailHeaderChip, DetailHeaderChipTone } from '$lib/components/detail/detailHeaderChips';
@@ -385,34 +383,8 @@
 		formData = emptyFormData();
 	}
 
-	const createBackendGate = createConfirmSettlementGate();
-	$effect(() => {
-		if (showModal) createBackendGate.reset();
-	});
-
-	function cancelCreateBackend() {
-		createBackendGate.settle(closeModal);
-	}
-
-	function confirmCreateBackend() {
-		settleIfEligible(createBackendGate, canCreateBackend, saveBackend);
-	}
-
-	function handleCreateBackendKeydown(e: KeyboardEvent) {
-		if (!showModal) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') cancelCreateBackend();
-		else if (action === 'confirm') confirmCreateBackend();
-		if (suppress) e.preventDefault();
-	}
-
-	$effect(() => {
-		window.addEventListener('keydown', handleCreateBackendKeydown, true);
-		return () => window.removeEventListener('keydown', handleCreateBackendKeydown, true);
-	});
-
 	async function saveBackend() {
-		if (!canCreateBackend) return;
+		if (!canCreateBackend) return false;
 		saving = true;
 		try {
 			const backendData = buildBackendPayload(formData, { includeDriver: true });
@@ -423,14 +395,15 @@
 				closeModal();
 				const created = response.data;
 				if (created?.id) selectBackend(created.id);
-			} else {
-				toasts.error(response.message || 'Failed to save backend');
+				return true;
 			}
+			toasts.error(response.message || 'Failed to save backend');
+			return false;
 		} catch (e: unknown) {
 			toasts.error(getApiErrorMessage(e, 'Failed to save backend'));
+			return false;
 		} finally {
 			saving = false;
-			createBackendGate.reset();
 		}
 	}
 
@@ -1182,7 +1155,16 @@
 	{/if}
 </LibraryShell>
 
-<BaseModal isOpen={showModal} title="Add Backend" sizeClass="md:max-w-2xl md:w-full" handleEscapeKey={false} on:close={cancelCreateBackend}>
+<ConfirmDialog
+	isOpen={showModal}
+	title="Add Backend"
+	sizeClass="md:max-w-2xl md:w-full"
+	busy={saving}
+	confirmLabel="Create Backend"
+	confirmDisabled={!canCreateBackend}
+	onConfirm={saveBackend}
+	onCancel={closeModal}
+>
 	<div class="px-6 py-4">
 		<BackendForm
 			bind:draft={formData}
@@ -1197,17 +1179,7 @@
 			fieldHints={formData.driver === NATIVE_REMOTE_DRIVER ? { base_url: workerUrlCreateHint } : {}}
 		/>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Create Backend"
-			busy={saving}
-			confirmDisabled={!canCreateBackend}
-			onCancel={cancelCreateBackend}
-			onConfirm={confirmCreateBackend}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>
 
 <ConfirmModal
 	isOpen={showDeleteModal && !!deleteTarget}

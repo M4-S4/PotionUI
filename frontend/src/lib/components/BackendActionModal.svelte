@@ -6,14 +6,8 @@
 	import { waitForHealthy } from '$lib/utils/healthPoll';
 	import { Button, Spinner, Alert } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import {
-		createConfirmSettlementGate,
-		getConfirmKeyboardAction,
-		settleIfEligible
-	} from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 
 	// Shared confirm -> running -> (waiting) -> done/error/timeout flow for a
 	// backend's self-described quick action (Backend.quick_actions). Used by
@@ -255,23 +249,8 @@
 			? `Backend: ${pendingBackendName}\n\n${pendingAction.confirm}`
 			: (pendingAction?.confirm ?? '');
 
-	const settlementGate = createConfirmSettlementGate();
-	$: if (phase === 'error' || phase === 'timeout' || phase === 'done') settlementGate.reset();
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (!modalOpen || phase === 'confirm') return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') {
-			if (canDismiss) settleIfEligible(settlementGate, true, closeModal);
-		} else if (action === 'confirm') {
-			if (phase === 'error') settleIfEligible(settlementGate, true, retry);
-			else if (phase === 'timeout') settleIfEligible(settlementGate, true, refreshPage);
-		}
-		if (suppress) e.preventDefault();
-	}
+	$: interactivePhase = phase === 'error' || phase === 'timeout';
 </script>
-
-<svelte:window on:keydown|capture={handleKeydown} />
 
 {#if pendingAction && phase === 'confirm'}
 	<ConfirmModal
@@ -283,16 +262,20 @@
 		on:cancel={closeModal}
 	/>
 {:else}
-<BaseModal
+<ConfirmDialog
 	isOpen={modalOpen}
-	title=""
 	size="md"
 	hideCloseButton
 	closeable={canDismiss}
-	handleEscapeKey={false}
-	on:close={() => {
-		if (canDismiss) settleIfEligible(settlementGate, true, closeModal);
-	}}
+	resetKey={phase}
+	cancelLabel="Close"
+	confirmLabel={phase === 'timeout' ? 'Refresh page' : 'Retry'}
+	confirmVariant={phase === 'error' && pendingAction?.danger ? 'danger' : 'primary'}
+	confirmDisabled={!interactivePhase}
+	onConfirm={phase === 'timeout' ? refreshPage : retry}
+	onCancel={closeModal}
+	footerContent={interactivePhase ? undefined : idleFooter}
+	leftActions={phase === 'timeout' ? keepWaitingAction : undefined}
 >
 	{#if pendingAction}
 		<div class="p-7">
@@ -379,32 +362,21 @@
 			{/if}
 		</div>
 	{/if}
-	<svelte:fragment slot="footer">
-		{#if phase === 'running' || phase === 'waiting'}
-			<div class="flex items-center justify-end gap-3 px-6 py-4">
-				<Button variant="secondary" disabled loading>
-					{phase === 'waiting' ? 'Waiting…' : 'Working…'}
-				</Button>
-			</div>
-		{:else if phase === 'error' && pendingAction}
-			<ConfirmFooter
-				cancelLabel="Close"
-				confirmLabel="Retry"
-				confirmVariant={pendingAction.danger ? 'danger' : 'primary'}
-				onCancel={closeModal}
-				onConfirm={retry}
-			/>
-		{:else if phase === 'done'}
-			<div class="flex items-center justify-end gap-3 px-6 py-4">
-				<Button variant="secondary" onclick={closeModal}>Close</Button>
-			</div>
-		{:else if phase === 'timeout'}
-			<ConfirmFooter cancelLabel="Close" confirmLabel="Refresh page" onCancel={closeModal} onConfirm={refreshPage}>
-				{#snippet leftActions()}
-					<Button variant="secondary" size="sm" onclick={keepWaiting}>Keep waiting</Button>
-				{/snippet}
-			</ConfirmFooter>
+</ConfirmDialog>
+
+{#snippet idleFooter()}
+	<div class="flex items-center justify-end gap-3 px-6 py-4">
+		{#if phase === 'done'}
+			<Button variant="secondary" onclick={closeModal}>Close</Button>
+		{:else}
+			<Button variant="secondary" disabled loading>
+				{phase === 'waiting' ? 'Waiting…' : 'Working…'}
+			</Button>
 		{/if}
-	</svelte:fragment>
-</BaseModal>
+	</div>
+{/snippet}
+
+{#snippet keepWaitingAction()}
+	<Button variant="secondary" size="sm" onclick={keepWaiting}>Keep waiting</Button>
+{/snippet}
 {/if}

@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import BaseModal from './modals/BaseModal.svelte';
-	import ConfirmFooter from './modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction } from './modals/confirmKeyboard';
+	import ConfirmDialog from './modals/ConfirmDialog.svelte';
 	import { Button } from '$lib/components/ui';
 	import autosize from '$lib/actions/autosize';
 	import Icon from './Icon.svelte';
@@ -81,7 +79,6 @@
 	let nextKey = 0;
 	let openedWith: VariablesMap = {};
 	let committedEdits: VariablesMap = {};
-	const settlementGate = createConfirmSettlementGate();
 
 	$: if (isOpen !== previousOpen) {
 		previousOpen = isOpen;
@@ -89,27 +86,12 @@
 			listQuery = '';
 			mobileView = 'list';
 			initialize();
-			settlementGate.reset();
 		}
 	}
 
 	function handleCancel() {
-		settlementGate.settle(() => {
-			dispatch('change', applyVariableEdits(variables, committedEdits, openedWith));
-			dispatch('close');
-		});
-	}
-
-	function handleConfirm() {
-		settlementGate.settle(() => dispatch('close'));
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
+		dispatch('change', applyVariableEdits(variables, committedEdits, openedWith));
+		dispatch('close');
 	}
 
 	function initialize() {
@@ -430,19 +412,19 @@
 		rows = rows.map((r) => (r.key === key && r.def.type === 'choice' ? { ...r, def: { ...r.def, pinnedIndex } } : r));
 		commit();
 	}
-
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	{isOpen}
 	title="Prompt variables"
 	sizeClass="md:w-[min(94vw,80rem)]"
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	keyboard={!pasteModalOpen}
+	confirmLabel="Done"
+	stackOnPhone
+	onConfirm={() => dispatch('close')}
+	onCancel={handleCancel}
 >
-	<svelte:fragment slot="headerIcon"><Icon name="braces" className="h-5 w-5 text-fg-muted" /></svelte:fragment>
+	{#snippet headerIconContent()}<Icon name="braces" className="h-5 w-5 text-fg-muted" />{/snippet}
 	<div class="space-y-3 p-4 sm:p-6">
 		<p class="text-xs text-fg-subtle">
 			Defined here, used in any segment as <code class="rounded bg-surface-2 px-1 py-0.5 font-mono text-xs text-fg">${'{'}name{'}'}</code>.
@@ -761,9 +743,7 @@
 		on:close={() => (pasteModalOpen = false)}
 		on:confirm={handlePasteConfirm}
 	/>
-	<svelte:fragment slot="footer">
-		<ConfirmFooter confirmLabel="Done" stackOnPhone onCancel={handleCancel} onConfirm={handleConfirm}>
-			{#snippet leftActions()}
+	{#snippet leftActions()}
 				<Tooltip text="Copy variables as JSON">
 					<Button
 						variant="secondary"
@@ -794,7 +774,5 @@
 						</span>
 					{/each}
 				{/if}
-			{/snippet}
-		</ConfirmFooter>
-	</svelte:fragment>
-</BaseModal>
+	{/snippet}
+</ConfirmDialog>

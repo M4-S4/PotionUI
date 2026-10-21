@@ -3,9 +3,7 @@
 	import type { PresetStyle } from '$lib/types/api';
 	import { categoryOptions, filterStyles } from '$lib/prompt/styleFilter';
 	import { storage } from '$lib/utils/storage';
-	import BaseModal from './modals/BaseModal.svelte';
-	import ConfirmFooter from './modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction } from './modals/confirmKeyboard';
+	import ConfirmDialog from './modals/ConfirmDialog.svelte';
 	import Icon from './Icon.svelte';
 	import { Input, SegmentedControl } from '$lib/components/ui';
 
@@ -57,15 +55,13 @@
 	let gridWidth = $state(0);
 	let innerWidth = $state(1024);
 	let wasOpen = false;
-
-	const settlementGate = createConfirmSettlementGate();
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	$effect(() => {
 		if (isOpen && !wasOpen) {
 			selectedId = appliedStyleId;
 			categoryFilter = 'all';
 			textFilter = '';
-			settlementGate.reset();
 		}
 		wasOpen = isOpen;
 	});
@@ -131,30 +127,19 @@
 
 	function commitTile(style: PresetStyle) {
 		selectedId = style.id;
-		settlementGate.settle(() => commitStyle(style));
+		dialog.settle(() => commitStyle(style));
 	}
 
 	function commitSelected() {
 		const style = selectedStyle;
-		if (!style) return; // ineligible — leaves the gate unsettled for a later, real attempt
-		settlementGate.settle(() => commitStyle(style));
+		if (!style) return false;
+		commitStyle(style);
+		return true;
 	}
 
 	function setSize(id: string) {
 		size = id === 'big' ? 'big' : 'small';
 		persistSize(size);
-	}
-
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') commitSelected();
-		if (suppress) event.preventDefault();
 	}
 
 	function handleGridKeydown(event: KeyboardEvent) {
@@ -185,17 +170,21 @@
 	}
 </script>
 
-<svelte:window bind:innerWidth on:keydown|capture={handleKeydown} />
+<svelte:window bind:innerWidth />
 
-<BaseModal
+<ConfirmDialog
+	bind:this={dialog}
 	{isOpen}
 	title="Styles"
 	subtitle="Wrap the prompt with a curated style"
 	sizeClass="md:max-w-6xl md:w-full md:max-h-[90vh]"
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	{confirmLabel}
+	confirmDisabled={!selectedStyle}
+	{summary}
+	onConfirm={commitSelected}
+	onCancel={onClose}
 >
-	<svelte:fragment slot="headerIcon"><Icon name="sparkles" className="h-5 w-5 text-fg-muted" /></svelte:fragment>
+	{#snippet headerIconContent()}<Icon name="sparkles" className="h-5 w-5 text-fg-muted" />{/snippet}
 
 	<div class="flex h-full flex-col">
 		<div class="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-line bg-surface-1 px-4 py-3 sm:px-6">
@@ -294,14 +283,4 @@
 			{/if}
 		</div>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			{confirmLabel}
-			confirmDisabled={!selectedStyle}
-			{summary}
-			onCancel={handleCancel}
-			onConfirm={commitSelected}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>
