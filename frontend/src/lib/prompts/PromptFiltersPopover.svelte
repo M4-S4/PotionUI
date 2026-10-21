@@ -5,6 +5,8 @@
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
 	import TagCloudFilter from '$lib/components/library/TagCloudFilter.svelte';
+	import { hasSubcollections } from '$lib/components/collections/subcollections';
+	import type { CollectionLike } from '$lib/components/collections/types';
 	import { type PromptFilters, type PromptLastUsedFilter, type PromptSourceFilter, type PromptUsedFilter, promptFilters } from './promptFilters';
 
 	let {
@@ -12,14 +14,26 @@
 		modelLabel = 'Any',
 		onChange,
 		onOpenModelPicker,
-		onClose
+		onClose,
+		onClearAll,
+		collections = [],
+		activeId,
+		directOnly = false,
+		onDirectOnlyChange
 	}: {
 		filters: PromptFilters;
 		modelLabel?: string;
 		onChange: (filters: PromptFilters) => void;
 		onOpenModelPicker: () => void;
 		onClose: () => void;
+		onClearAll?: () => void;
+		collections?: CollectionLike[];
+		activeId?: string;
+		directOnly?: boolean;
+		onDirectOnlyChange?: (directOnly: boolean) => void;
 	} = $props();
+
+	let subcollectionsShown = $derived(!!onDirectOnlyChange && hasSubcollections(collections, activeId));
 
 	let tags = $state<Array<{ tag: string; count: number }>>([]);
 
@@ -64,7 +78,7 @@
 	];
 </script>
 
-<FilterPopoverFrame width="w-[34rem]" onClearAll={() => onChange(promptFilters.clearAll(filters))} {onClose}>
+<FilterPopoverFrame width="w-[34rem]" onClearAll={onClearAll ?? (() => onChange(promptFilters.clearAll(filters)))} {onClose}>
 	<div class="flex flex-col gap-1.5">
 		<span class="text-xs font-medium text-fg-muted">Model</span>
 		<ModelPickTrigger
@@ -120,4 +134,16 @@
 		<Switch size="sm" label="Show NSFW" checked={filters.showNsfw} onchange={(checked) => set({ showNsfw: checked })} />
 		<span class="text-xs text-fg">Show NSFW</span>
 	</div>
+
+	{#if subcollectionsShown}
+		<div class="flex items-center gap-2" data-testid="include-subcollections">
+			<Switch
+				size="sm"
+				label="Include subcollections"
+				checked={!directOnly}
+				onchange={(checked) => onDirectOnlyChange?.(!checked)}
+			/>
+			<span class="text-xs text-fg">Include subcollections</span>
+		</div>
+	{/if}
 </FilterPopoverFrame>

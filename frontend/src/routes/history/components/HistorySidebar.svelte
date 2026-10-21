@@ -2,6 +2,7 @@
 	import { historyCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { historyStore } from '$lib/stores/history';
 	import CollectionLibrarySidebar from '$lib/components/collections/CollectionLibrarySidebar.svelte';
+	import CollectionActionsMenu from '$lib/components/collections/CollectionActionsMenu.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
 	import { buildSmartViews, createFilterSelection } from '$lib/components/collections/scopeActions';
 
@@ -9,18 +10,20 @@
 	let favoritesView: SmartView;
 	let unsortedView: SmartView;
 
-	export let onCollapse: () => void;
+	export let onCollapse: (() => void) | undefined = undefined;
+	export let part: 'sidebar' | 'actions' = 'sidebar';
 
 	$: collections = $collectionsStore.collections;
 	$: smartCounts = $collectionsStore.smartCounts;
 	$: activeId = $historyStore.filters.collectionId;
+	$: activeCollection = collections.find((c) => c.id === activeId);
 	$: favoritesOnly = !!$historyStore.filters.favoritesOnly;
 	$: unsorted = !!$historyStore.filters.unsorted;
 	$: directOnly = !!$historyStore.filters.directOnly;
 	$: isAll = !activeId && !favoritesOnly && !unsorted;
 	$: void collectionsStore.setDirectOnly(directOnly);
 
-	const { applySelection, setDirectOnly } = createFilterSelection(
+	const { applySelection } = createFilterSelection(
 		(key, value) => historyStore.setFilter(key, value),
 		() => historyStore.loadGenerations()
 	);
@@ -58,18 +61,29 @@
 	};
 </script>
 
-<CollectionLibrarySidebar
-	storageKey="history-expanded-collections"
-	rulesScope="history"
-	{collections}
-	{activeId}
-	{allView}
-	{favoritesView}
-	{unsortedView}
-	{directOnly}
-	onDirectOnlyChange={setDirectOnly}
-	autoOrganizeSubject="generations"
-	{treeActions}
-	onCreateRoot={(name) => collectionsStore.create(name, null)}
-	{onCollapse}
-/>
+{#if part === 'actions'}
+	{#if activeCollection}
+		<CollectionActionsMenu
+			variant="toolbar"
+			item={activeCollection}
+			{collections}
+			{treeActions}
+			rulesScope="history"
+		/>
+	{/if}
+{:else}
+	<CollectionLibrarySidebar
+		storageKey="history-expanded-collections"
+		label="History"
+		rulesScope="history"
+		{collections}
+		{activeId}
+		{allView}
+		{favoritesView}
+		{unsortedView}
+		autoOrganizeSubject="generations"
+		{treeActions}
+		onCreateRoot={(name) => collectionsStore.create(name, null)}
+		{onCollapse}
+	/>
+{/if}

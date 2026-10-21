@@ -25,6 +25,7 @@
 		loadedCount = 0,
 		total = 0,
 		sidebarTree,
+		wideSidebar = false,
 		sectionTrailing,
 		overflow,
 		primary,
@@ -47,6 +48,7 @@
 		loadedCount?: number;
 		total?: number;
 		sidebarTree?: Snippet;
+		wideSidebar?: boolean;
 		sectionTrailing?: Snippet<[S]>;
 		overflow?: Snippet<[() => void]>;
 		primary?: Snippet;
@@ -90,7 +92,7 @@
 
 <div class="flex {heightClass} bg-canvas text-fg">
 	{#if hasSidebar && sidebarOpen}
-		<aside class="hidden w-60 flex-shrink-0 flex-col border-r border-line bg-surface-1 md:flex">
+		<aside class="hidden {wideSidebar ? 'w-[272px]' : 'w-60'} flex-shrink-0 flex-col border-r border-line bg-surface-1 md:flex">
 			<Pane label={title} onCollapse={() => setSidebarOpen(false)}>
 				{#snippet subheader()}
 					<div class="flex-shrink-0 space-y-0.5 border-b border-line p-2" role="listbox" aria-label="{title} sections">

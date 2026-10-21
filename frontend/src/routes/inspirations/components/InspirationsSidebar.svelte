@@ -2,15 +2,20 @@
 	import { inspirationsStore } from '$lib/stores/inspirations';
 	import { inspirationsCollectionsStore } from '$lib/stores/inspirationsCollections';
 	import CollectionLibrarySidebar from '$lib/components/collections/CollectionLibrarySidebar.svelte';
+	import CollectionActionsMenu from '$lib/components/collections/CollectionActionsMenu.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
 
-	let { onCollapse }: { onCollapse: () => void } = $props();
+	let {
+		onCollapse,
+		part = 'sidebar'
+	}: { onCollapse?: () => void; part?: 'sidebar' | 'actions' } = $props();
 
 	let collections = $derived($inspirationsCollectionsStore.collections);
 	let smartCounts = $derived($inspirationsCollectionsStore.smartCounts);
 	let filters = $derived($inspirationsStore.filters);
 	let activeId = $derived(filters.collectionId);
 	let directOnly = $derived(!!filters.directOnly);
+	let activeCollection = $derived(collections.find((c) => c.id === activeId));
 
 	$effect(() => {
 		void inspirationsCollectionsStore.setDirectOnly(directOnly);
@@ -24,11 +29,6 @@
 		inspirationsStore.setFilter('collectionId', patch.collectionId);
 		inspirationsStore.setFilter('saved', !!patch.saved);
 		inspirationsStore.setFilter('unsorted', !!patch.unsorted);
-		await inspirationsStore.load();
-	}
-
-	async function setDirectOnly(value: boolean) {
-		inspirationsStore.setFilter('directOnly', value);
 		await inspirationsStore.load();
 	}
 
@@ -75,17 +75,26 @@
 	};
 </script>
 
-<CollectionLibrarySidebar
-	storageKey="inspirations-expanded-collections"
-	label="Inspirations"
-	{collections}
-	{activeId}
-	{allView}
-	{favoritesView}
-	{unsortedView}
-	{directOnly}
-	onDirectOnlyChange={setDirectOnly}
-	{treeActions}
-	onCreateRoot={(name) => inspirationsCollectionsStore.create(name, null)}
-	{onCollapse}
-/>
+{#if part === 'actions'}
+	{#if activeCollection}
+		<CollectionActionsMenu
+			variant="toolbar"
+			item={activeCollection}
+			{collections}
+			{treeActions}
+		/>
+	{/if}
+{:else}
+	<CollectionLibrarySidebar
+		storageKey="inspirations-expanded-collections"
+		label="Inspirations"
+		{collections}
+		{activeId}
+		{allView}
+		{favoritesView}
+		{unsortedView}
+		{treeActions}
+		onCreateRoot={(name) => inspirationsCollectionsStore.create(name, null)}
+		{onCollapse}
+	/>
+{/if}

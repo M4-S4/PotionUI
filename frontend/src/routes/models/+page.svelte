@@ -1,5 +1,4 @@
 <script lang="ts">
-	import tooltip from '$lib/actions/tooltip';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
 	import { collectionQueryParams } from '$lib/components/collections/selection';
@@ -18,6 +17,9 @@
 	import QuickTagFilterBar from '$lib/components/QuickTagFilterBar.svelte';
 	import { PageHeader, PageTitle, IconButton, Pagination } from '$lib/components/ui';
 	import ModelLibrarySidebar from './components/ModelLibrarySidebar.svelte';
+	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
+	import SubcollectionFilters from '$lib/components/collections/SubcollectionFilters.svelte';
+	import { modelLibraryStore } from '$lib/stores/modelLibrary';
 	import ModelSelectionToolbar from './components/ModelSelectionToolbar.svelte';
 
 	// This is the user-facing library. It shows nothing operational - no file size,
@@ -301,38 +303,30 @@
 	}
 </script>
 
+{#snippet modelCollections(part: 'sidebar' | 'actions', onCollapse?: () => void)}
+	<ModelLibrarySidebar
+		{part}
+		activeCollectionId={collectionId}
+		{favoritesOnly}
+		{unsorted}
+		{directOnly}
+		onSelectUnsorted={selectUnsorted}
+		onSelectAll={selectAllModels}
+		onSelectFavorites={selectFavorites}
+		onSelectCollection={selectCollection}
+		{onCollapse}
+	/>
+{/snippet}
+
 <div class="flex min-h-screen bg-canvas">
 	<!-- Left folder-tree panel (collapsible), pinned while the grid scrolls -->
 	{#if sidebarOpen}
 		<aside
-			class="hidden md:block w-60 flex-shrink-0 self-stretch min-h-screen border-r border-line bg-surface-1 z-20"
+			class="hidden md:block w-[272px] flex-shrink-0 self-stretch min-h-screen border-r border-line bg-surface-1 z-20"
 		>
 			<div class="sticky top-0 h-screen overflow-hidden">
-				<ModelLibrarySidebar
-					activeCollectionId={collectionId}
-					{favoritesOnly}
-					{unsorted}
-					{directOnly}
-					onDirectOnlyChange={setDirectOnly}
-					onSelectUnsorted={selectUnsorted}
-					onSelectAll={selectAllModels}
-					onSelectFavorites={selectFavorites}
-					onSelectCollection={selectCollection}
-					onCollapse={() => (sidebarOpen = false)}
-				/>
+				{@render modelCollections('sidebar', () => (sidebarOpen = false))}
 			</div>
-		</aside>
-	{:else}
-		<aside class="hidden md:block w-8 flex-shrink-0 self-stretch min-h-screen border-r border-line bg-surface-1 z-20">
-			<button
-				class="sticky top-0 flex h-screen w-full flex-col items-center gap-2 pt-3 text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
-				on:click={() => (sidebarOpen = true)}
-				use:tooltip={'Show library'}
-				aria-label="Show library"
-			>
-				<Icon name="chevron-right" className="w-4 h-4" />
-				<Icon name="folder" className="w-4 h-4" />
-			</button>
 		</aside>
 	{/if}
 
@@ -342,6 +336,9 @@
 	<div class="sticky top-0 z-30">
 	<PageHeader wrap sticky={false}>
 		<div class="flex items-center gap-2 md:gap-4 flex-wrap w-full">
+			<CollectionSidebarSheet label="Models" collapsed={!sidebarOpen} onExpand={() => (sidebarOpen = true)}>
+				{@render modelCollections('sidebar')}
+			</CollectionSidebarSheet>
 			<PageTitle title="Models" count={totalCount} countLabel="models" />
 
 			<!-- Divider -->
@@ -416,6 +413,14 @@
 					<option value="asc">Asc</option>
 				</select>
 
+				<SubcollectionFilters
+					class="flex-shrink-0"
+					collections={$modelLibraryStore.collections}
+					activeId={collectionId}
+					{directOnly}
+					onDirectOnlyChange={setDirectOnly}
+				/>
+
 				{#if hasActiveFilters}
 					<button
 						class="text-xs text-fg-muted hover:text-fg transition-colors flex items-center gap-1 whitespace-nowrap"
@@ -432,6 +437,7 @@
 
 			<!-- Right: Actions -->
 			<div class="flex items-center gap-2 ml-auto md:ml-0">
+				{@render modelCollections('actions')}
 				<IconButton icon="refresh" label="Refresh models" onclick={() => loadModels()} />
 			</div>
 		</div>

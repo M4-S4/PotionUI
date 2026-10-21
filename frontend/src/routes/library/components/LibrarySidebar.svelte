@@ -2,6 +2,7 @@
 	import { libraryCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { libraryStore } from '$lib/stores/library';
 	import CollectionLibrarySidebar from '$lib/components/collections/CollectionLibrarySidebar.svelte';
+	import CollectionActionsMenu from '$lib/components/collections/CollectionActionsMenu.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
 	import { buildSmartViews, createFilterSelection } from '$lib/components/collections/scopeActions';
 
@@ -9,18 +10,20 @@
 	let favoritesView: SmartView;
 	let unsortedView: SmartView;
 
-	export let onCollapse: () => void;
+	export let onCollapse: (() => void) | undefined = undefined;
+	export let part: 'sidebar' | 'actions' = 'sidebar';
 
 	$: collections = $collectionsStore.collections;
 	$: smartCounts = $collectionsStore.smartCounts;
 	$: activeId = $libraryStore.filters.collectionId;
+	$: activeCollection = collections.find((c) => c.id === activeId);
 	$: favoritesOnly = !!$libraryStore.filters.favoritesOnly;
 	$: unsorted = !!$libraryStore.filters.unsorted;
 	$: directOnly = !!$libraryStore.filters.directOnly;
 	$: isAll = !activeId && !favoritesOnly && !unsorted;
 	$: void collectionsStore.setDirectOnly(directOnly);
 
-	const { applySelection, setDirectOnly } = createFilterSelection(
+	const { applySelection } = createFilterSelection(
 		(key, value) => libraryStore.setFilter(key, value),
 		() => libraryStore.load()
 	);
@@ -56,18 +59,29 @@
 	};
 </script>
 
-<CollectionLibrarySidebar
-	storageKey="library-expanded-collections"
-	rulesScope="library"
-	{collections}
-	{activeId}
-	{allView}
-	{favoritesView}
-	{unsortedView}
-	{directOnly}
-	onDirectOnlyChange={setDirectOnly}
-	autoOrganizeSubject="uploads"
-	{treeActions}
-	onCreateRoot={(name) => collectionsStore.create(name, null)}
-	{onCollapse}
-/>
+{#if part === 'actions'}
+	{#if activeCollection}
+		<CollectionActionsMenu
+			variant="toolbar"
+			item={activeCollection}
+			{collections}
+			{treeActions}
+			rulesScope="library"
+		/>
+	{/if}
+{:else}
+	<CollectionLibrarySidebar
+		storageKey="library-expanded-collections"
+		label="Library"
+		rulesScope="library"
+		{collections}
+		{activeId}
+		{allView}
+		{favoritesView}
+		{unsortedView}
+		autoOrganizeSubject="uploads"
+		{treeActions}
+		onCreateRoot={(name) => collectionsStore.create(name, null)}
+		{onCollapse}
+	/>
+{/if}

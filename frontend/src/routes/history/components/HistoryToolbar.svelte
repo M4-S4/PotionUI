@@ -14,12 +14,18 @@
 	import { buildImportBundleTabData, buildReuseTabTitle, resolveReusePresetLabel } from '$lib/utils/historyReuse';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
-	import { PageHeader, PageTitle, IconButton, Badge, ModelPickTrigger } from '$lib/components/ui';
+	import { PageHeader, PageTitle, IconButton, ModelPickTrigger } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { api } from '$lib/services/api/index';
 	import ModelAssignmentModal from '$lib/components/modals/ModelAssignmentModal.svelte';
 	import HistorySearchableFilter from './HistorySearchableFilter.svelte';
+	import HistorySidebar from './HistorySidebar.svelte';
+	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
+	import { excludesSubcollections } from '$lib/components/collections/subcollections';
+	import IncludeSubcollections from '$lib/components/collections/IncludeSubcollections.svelte';
+	import FiltersPopover from '$lib/components/collections/FiltersPopover.svelte';
+	import { historyCollectionsStore } from '$lib/stores/collections';
 	import type { HistorySearchMode, SortBy, SortDir } from '$lib/types/history';
 	import { computeAnchoredMenuPosition } from '$lib/utils/menuPosition';
 	import { hasConvertibleHistoryFilters, historyFilterRule } from '$lib/organize/filterPrefill';
@@ -30,47 +36,22 @@
 	export let onOpenUpload: () => void;
 	export let onOpenAddTag: () => void;
 	export let onOpenDeleteByCriteria: () => void;
+	export let sidebarOpen = true;
+	export let onOpenSidebar: () => void = () => {};
 
 	$: currentState = $historyStore;
+	$: excludingSubcollections = excludesSubcollections(
+		$historyCollectionsStore.collections,
+		currentState.filters.collectionId,
+		currentState.filters.directOnly
+	);
 	$: facets = currentState.facets;
 
 	let isMoreMenuOpen = false;
-	let isFiltersOpen = false;
 	let isModelPickerOpen = false;
-	let filtersButtonEl: HTMLButtonElement;
-	let filtersPanelEl: HTMLDivElement;
-	let filtersPanelPosition = { top: 0, left: 0 };
 	let moreMenuButtonEl: HTMLDivElement;
 	let moreMenuPanelEl: HTMLDivElement;
 	let moreMenuPosition = { top: 0, left: 0 };
-
-	// The toolbar's sticky header (+page.svelte) establishes its own stacking
-	// context (position:sticky + z-index), which caps any z-index inside it —
-	// the grid's per-card selection checkbox (GenerationCard.svelte, z-40) sits
-	// outside that context entirely and paints above it regardless of the
-	// panel's own z-index. `portal` (see $lib/actions/portal.ts) renders the
-	// panel at body level to escape that ancestor stacking context instead of
-	// fighting it with a bigger number. Both dropdowns below use it.
-
-	function updateFiltersPanelPosition() {
-		if (!filtersButtonEl) return;
-		const panelWidth = filtersPanelEl?.getBoundingClientRect().width ?? 352;
-		filtersPanelPosition = computeAnchoredMenuPosition(filtersButtonEl, { width: panelWidth });
-	}
-
-	function toggleFiltersPanel() {
-		isFiltersOpen = !isFiltersOpen;
-		if (isFiltersOpen) {
-			updateFiltersPanelPosition();
-			// The button's position is known immediately; the panel's own width
-			// isn't until it exists in the DOM, so refine once it has mounted.
-			requestAnimationFrame(updateFiltersPanelPosition);
-		}
-	}
-
-	function closeFiltersPanel() {
-		isFiltersOpen = false;
-	}
 
 	function updateMoreMenuPosition() {
 		if (!moreMenuButtonEl) return;
@@ -199,7 +180,6 @@
 	}
 
 	function openModelPicker() {
-		closeFiltersPanel();
 		isModelPickerOpen = true;
 	}
 
@@ -233,6 +213,11 @@
 
 	function handleClearAllFilters() {
 		historyStore.clearFilters();
+		handleFilterChange();
+	}
+
+	function handleDirectOnlyChange(value: boolean) {
+		historyStore.setFilter('directOnly', value);
 		handleFilterChange();
 	}
 
@@ -305,7 +290,6 @@
 		const names = (ids: string[]) =>
 			currentState.availableTags.filter((tag) => ids.includes(tag.id)).map((tag) => tag.name);
 		const rule = await historyFilterRule(currentState.filters, { tagNames: names });
-		closeFiltersPanel();
 		await startRuleFrom(rule);
 	}
 
@@ -320,7 +304,8 @@
 		!!currentState.filters.mode ||
 		!!currentState.filters.presetId ||
 		!!currentState.filters.modelName ||
-		!!currentState.filters.usedPhrasebookValueId;
+		!!currentState.filters.usedPhrasebookValueId ||
+		excludingSubcollections;
 
 	// Filters tucked into the "Filters" popover — surfaced via the trigger's
 	// badge count and the active-filter chip row so their state is never hidden.
@@ -332,7 +317,8 @@
 		(currentState.filters.modelName ? 1 : 0) +
 		(currentState.filters.minRating ? 1 : 0) +
 		(currentState.filters.usedPhrasebookValueId ? 1 : 0) +
-		(currentState.filters.systemTag ? 1 : 0);
+		(currentState.filters.systemTag ? 1 : 0) +
+		(excludingSubcollections ? 1 : 0);
 </script>
 
 {#if isModelPickerOpen}
@@ -358,6 +344,9 @@
 <PageHeader wrap sticky={false}>
 	<div class="flex flex-col gap-2 w-full">
 		<div class="flex flex-wrap items-center gap-2 xl:gap-4 w-full">
+			<CollectionSidebarSheet label="History" collapsed={!sidebarOpen} onExpand={onOpenSidebar}>
+				<HistorySidebar />
+			</CollectionSidebarSheet>
 			<PageTitle title="History" count={currentState.totalCount} countLabel="generations" />
 
 			<!-- Divider -->
@@ -463,173 +452,150 @@
 					</select>
 				{/if}
 
-				<!-- Filters popover: date, status, mode, model, rating, phrasebook-used -->
-				<div class="relative history-filters-menu">
-					<button
-						bind:this={filtersButtonEl}
-						type="button"
-						class="input text-xs py-1.5 px-2.5 bg-surface-2/50 w-auto flex items-center gap-1.5 {advancedActiveCount > 0
-							? 'text-signal'
-							: 'text-fg-muted'}"
-						aria-haspopup="dialog"
-						aria-expanded={isFiltersOpen}
-						on:click={toggleFiltersPanel}
-					>
-						<Icon name="filter" className="w-3.5 h-3.5" />
-						Filters
-						{#if advancedActiveCount > 0}
-							<Badge variant="signal" size="sm">{advancedActiveCount}</Badge>
-						{/if}
-					</button>
-					{#if isFiltersOpen}
-						<div
-							use:portal
-							use:overlayLayer
-							bind:this={filtersPanelEl}
-							use:dismiss={{ onDismiss: dismissFrom('.history-filters-menu', closeFiltersPanel) }}
-							class="fixed z-overlay w-[22rem] max-w-[90vw] bg-surface-2 rounded-xl border border-line-strong shadow-floating p-3"
-							style="top: {filtersPanelPosition.top}px; left: {filtersPanelPosition.left}px;"
-							role="dialog"
-							aria-label="Advanced filters"
-						>
-							<div class="grid grid-cols-2 gap-2.5">
-								<div class="col-span-2">
-									<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Search mode</span>
-									<div class="flex items-center gap-0.5 bg-surface-3/50 rounded p-0.5" role="radiogroup" aria-label="Search mode">
-										{#each searchModes as searchMode}
-											<button
-												role="radio"
-												aria-checked={currentState.filters.searchMode === searchMode.value}
-												use:tooltip={searchMode.title}
-												class="flex-1 px-2 py-1 text-xs rounded-sm transition-colors duration-100 {currentState.filters.searchMode === searchMode.value
-													? 'bg-signal/10 text-signal'
-													: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-												on:click={() => handleSearchModeChange(searchMode.value)}
-											>
-												{searchMode.label}
-											</button>
-										{/each}
-									</div>
-								</div>
-
-								<div class="col-span-2">
-									<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Date</span>
-									<div class="flex items-center gap-0.5 bg-surface-3/50 rounded p-0.5">
-										{#each datePresets as preset}
-											<button
-												class="flex-1 px-2 py-1 text-xs rounded-sm transition-colors duration-100 {currentState.filters.datePreset === preset.value
-													? 'bg-signal/10 text-signal'
-													: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-												on:click={() => handleDatePresetChange(preset.value)}
-											>
-												{preset.label}
-											</button>
-										{/each}
-									</div>
-								</div>
-
-								<div>
-									<label class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1" for="history-filter-status">
-										Status
-									</label>
-									<select
-										id="history-filter-status"
-										class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full"
-										value={currentState.filters.status}
-										on:change={(e) => handleStatusChange(e.currentTarget.value)}
-									>
-										<option value="all">All Status</option>
-										<option value="completed">Completed</option>
-										<option value="failed">Failed</option>
-										<option value="cancelled">Cancelled</option>
-										<option value="pending">Pending</option>
-										<option value="running">Running</option>
-									</select>
-								</div>
-
-								{#if facets.modes.length > 0}
-									<div>
-										<label class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1" for="history-filter-mode">
-											Mode
-										</label>
-										<select
-											id="history-filter-mode"
-											class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full"
-											value={currentState.filters.mode ?? ''}
-											on:change={(e) => handleModeChange(e.currentTarget.value)}
-										>
-											<option value="">All Modes</option>
-											{#each facets.modes as m}
-												<option value={m.value}>{modeLabel(m.value)} ({m.count})</option>
-											{/each}
-										</select>
-									</div>
-								{/if}
-
-								<div class={facets.modes.length > 0 ? '' : 'col-span-2'}>
-									<span class="block text-xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Model</span>
-									<ModelPickTrigger
-										id="history-filter-model"
-										class="text-xs py-1.5 px-2 bg-surface-3/50"
-										value={currentState.filters.modelName || null}
-										placeholder="All Models"
-										onopen={openModelPicker}
-										onclear={() => handleModelChange('')}
-									/>
-								</div>
-
-								<div>
-									<label class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1" for="history-filter-rating">
-										Min rating
-									</label>
-									<select
-										id="history-filter-rating"
-										class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full"
-										value={currentState.filters.minRating ?? 0}
-										on:change={(e) => handleMinRatingChange(parseInt(e.currentTarget.value))}
-									>
-										{#each minRatingOptions as opt}
-											<option value={opt.value}>{opt.label}</option>
-										{/each}
-									</select>
-								</div>
-
-								<div class="col-span-2">
-									<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Phrasebook used</span>
-									<HistorySearchableFilter
-										placeholder="Any value"
-										icon="tag"
-										selectedId={currentState.filters.usedPhrasebookValueId}
-										selectedLabel={currentState.filters.usedPhrasebookLabel}
-										search={searchPhrasebookOptions}
-										onSelect={handleUsedPhrasebookSelect}
-									/>
-								</div>
-							</div>
-
-							<div class="mt-3 pt-2.5 border-t border-line-strong/70 flex items-center justify-between">
-								<span class="text-2xs text-fg-subtle">{advancedActiveCount} active</span>
-								{#if canMakeRule}
+				<FiltersPopover
+					activeCount={advancedActiveCount}
+					canClear={hasActiveFilters}
+					onClear={handleClearAllFilters}
+				>
+					{#snippet children(close)}
+						<div class="col-span-2">
+							<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Search mode</span>
+							<div class="flex items-center gap-0.5 bg-surface-3/50 rounded p-0.5" role="radiogroup" aria-label="Search mode">
+								{#each searchModes as searchMode}
 									<button
-										class="text-xs text-fg-muted hover:text-fg transition-colors flex items-center gap-1"
-										on:click={handleMakeRule}
+										role="radio"
+										aria-checked={currentState.filters.searchMode === searchMode.value}
+										use:tooltip={searchMode.title}
+										class="flex-1 px-2 py-1 text-xs rounded-sm transition-colors duration-100 {currentState.filters.searchMode === searchMode.value
+											? 'bg-signal/10 text-signal'
+											: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+										on:click={() => handleSearchModeChange(searchMode.value)}
 									>
-										<Icon name="sparkles" className="w-3 h-3" />
-										Make a rule from this filter
+										{searchMode.label}
 									</button>
-								{/if}
-								<button
-									class="text-xs text-fg-muted hover:text-fg transition-colors flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
-									disabled={!hasActiveFilters}
-									on:click={handleClearAllFilters}
-								>
-									<Icon name="close" className="w-3 h-3" />
-									Clear all
-								</button>
+								{/each}
 							</div>
 						</div>
-					{/if}
-				</div>
+
+						<div class="col-span-2">
+							<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Date</span>
+							<div class="flex items-center gap-0.5 bg-surface-3/50 rounded p-0.5">
+								{#each datePresets as preset}
+									<button
+										class="flex-1 px-2 py-1 text-xs rounded-sm transition-colors duration-100 {currentState.filters.datePreset === preset.value
+											? 'bg-signal/10 text-signal'
+											: 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+										on:click={() => handleDatePresetChange(preset.value)}
+									>
+										{preset.label}
+									</button>
+								{/each}
+							</div>
+						</div>
+
+						<div>
+							<label class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1" for="history-filter-status">
+								Status
+							</label>
+							<select
+								id="history-filter-status"
+								class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full"
+								value={currentState.filters.status}
+								on:change={(e) => handleStatusChange(e.currentTarget.value)}
+							>
+								<option value="all">All Status</option>
+								<option value="completed">Completed</option>
+								<option value="failed">Failed</option>
+								<option value="cancelled">Cancelled</option>
+								<option value="pending">Pending</option>
+								<option value="running">Running</option>
+							</select>
+						</div>
+
+						{#if facets.modes.length > 0}
+							<div>
+								<label class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1" for="history-filter-mode">
+									Mode
+								</label>
+								<select
+									id="history-filter-mode"
+									class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full"
+									value={currentState.filters.mode ?? ''}
+									on:change={(e) => handleModeChange(e.currentTarget.value)}
+								>
+									<option value="">All Modes</option>
+									{#each facets.modes as m}
+										<option value={m.value}>{modeLabel(m.value)} ({m.count})</option>
+									{/each}
+								</select>
+							</div>
+						{/if}
+
+						<div class={facets.modes.length > 0 ? '' : 'col-span-2'}>
+							<span class="block text-xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Model</span>
+							<ModelPickTrigger
+								id="history-filter-model"
+								class="text-xs py-1.5 px-2 bg-surface-3/50"
+								value={currentState.filters.modelName || null}
+								placeholder="All Models"
+								onopen={() => {
+								close();
+								openModelPicker();
+							}}
+								onclear={() => handleModelChange('')}
+							/>
+						</div>
+
+						<div>
+							<label class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1" for="history-filter-rating">
+								Min rating
+							</label>
+							<select
+								id="history-filter-rating"
+								class="input text-xs py-1.5 px-2 bg-surface-3/50 w-full"
+								value={currentState.filters.minRating ?? 0}
+								on:change={(e) => handleMinRatingChange(parseInt(e.currentTarget.value))}
+							>
+								{#each minRatingOptions as opt}
+									<option value={opt.value}>{opt.label}</option>
+								{/each}
+							</select>
+						</div>
+
+						<div class="col-span-2">
+							<span class="block text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">Phrasebook used</span>
+							<HistorySearchableFilter
+								placeholder="Any value"
+								icon="tag"
+								selectedId={currentState.filters.usedPhrasebookValueId}
+								selectedLabel={currentState.filters.usedPhrasebookLabel}
+								search={searchPhrasebookOptions}
+								onSelect={handleUsedPhrasebookSelect}
+							/>
+						</div>
+
+						<IncludeSubcollections
+							collections={$historyCollectionsStore.collections}
+							activeId={currentState.filters.collectionId}
+							directOnly={!!currentState.filters.directOnly}
+							onDirectOnlyChange={handleDirectOnlyChange}
+						/>
+					{/snippet}
+					{#snippet footerAction(close)}
+						{#if canMakeRule}
+							<button
+								class="text-xs text-fg-muted hover:text-fg transition-colors flex items-center gap-1"
+								on:click={() => {
+									close();
+									handleMakeRule();
+								}}
+							>
+								<Icon name="sparkles" className="w-3 h-3" />
+								Make a rule from this filter
+							</button>
+						{/if}
+					{/snippet}
+				</FiltersPopover>
 			</div>
 
 			<!-- Right: view controls + actions -->
@@ -666,6 +632,7 @@
 					{/each}
 				</div>
 
+				<HistorySidebar part="actions" />
 				<IconButton icon="refresh" label="Refresh" onclick={() => historyStore.loadGenerations()} />
 
 				<!-- Overflow menu: rarer actions -->
@@ -834,6 +801,17 @@
 					>
 						<Icon name="sparkles" className="w-3 h-3" />
 						<span class="truncate max-w-[8rem]">{currentState.filters.systemTag.replace(/_/g, ' ')}</span>
+						<Icon name="close" className="w-3 h-3" />
+					</button>
+				{/if}
+
+				{#if excludingSubcollections}
+					<button
+						class="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-dashed border-line bg-surface-2/50 text-xs text-fg-muted hover:text-fg transition-colors flex-shrink-0"
+						use:tooltip={'Include subcollections again'}
+						on:click={() => handleDirectOnlyChange(false)}
+					>
+						<span>Without subcollections</span>
 						<Icon name="close" className="w-3 h-3" />
 					</button>
 				{/if}

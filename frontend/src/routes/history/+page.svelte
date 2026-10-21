@@ -1,5 +1,4 @@
 <script lang="ts">
-	import tooltip from '$lib/actions/tooltip';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
 	import { generationIdOf } from '$lib/generation/messages/wire';
@@ -28,7 +27,6 @@
 	import { createUrlState } from '$lib/utils/urlState';
 	import { generationIdFromUrl, hrefWithGeneration } from '$lib/utils/deepLink';
 	import UploadGenerationModal from '$lib/components/modals/UploadGenerationModal.svelte';
-	import Icon from '$lib/components/Icon.svelte';
 	import HistoryToolbar from './components/HistoryToolbar.svelte';
 	import HistoryTagsBar from './components/HistoryTagsBar.svelte';
 	import HistorySidebar from './components/HistorySidebar.svelte';
@@ -378,29 +376,19 @@
 
 <div class="flex h-[100dvh] bg-canvas">
 	{#if sidebarOpen}
-		<aside class="hidden md:flex w-60 flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
+		<aside class="hidden md:flex w-[272px] flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
 			<div class="flex-1 min-h-0">
 				<HistorySidebar onCollapse={() => (sidebarOpen = false)} />
 			</div>
 			<HistoryUsageCard />
-		</aside>
-	{:else}
-		<aside class="hidden md:flex w-8 flex-shrink-0 flex-col border-r border-line bg-surface-1 z-20">
-			<button
-				class="flex h-full w-full flex-col items-center gap-2 pt-3 text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
-				on:click={() => (sidebarOpen = true)}
-				use:tooltip={'Show library'}
-				aria-label="Show library"
-			>
-				<Icon name="chevron-right" className="w-4 h-4" />
-				<Icon name="folder" className="w-4 h-4" />
-			</button>
 		</aside>
 	{/if}
 
 	<div class="flex-1 min-w-0 flex flex-col min-h-0">
 		<div class="flex-shrink-0 z-30">
 			<HistoryToolbar
+				{sidebarOpen}
+				onOpenSidebar={() => (sidebarOpen = true)}
 				onOpenUpload={() => (showUploadModal = true)}
 				onOpenAddTag={() => (showAddTagModal = true)}
 				onOpenDeleteByCriteria={() => (showDeleteByCriteriaModal = true)}

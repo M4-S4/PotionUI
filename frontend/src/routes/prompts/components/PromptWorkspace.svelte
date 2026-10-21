@@ -17,6 +17,8 @@
 	import { LIBRARY_SECTIONS, sectionHref, withSection } from '../library/librarySection';
 	import PromptsGrid from './PromptsGrid.svelte';
 	import PromptsSidebar from './PromptsSidebar.svelte';
+	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
+	import { excludesSubcollections } from '$lib/components/collections/subcollections';
 	import PromptFiltersPopover from '$lib/prompts/PromptFiltersPopover.svelte';
 	import PromptImportModal from './PromptImportModal.svelte';
 	import PromptDetailView from './PromptDetailView.svelte';
@@ -122,7 +124,7 @@
 	}
 
 	function clearFilters() {
-		updateFilters(promptFilters.clearAll(filters));
+		urlState.debounced({ filters: promptFilters.clearAll(filters), direct: false });
 	}
 
 	function openPrompt(prompt: Prompt) {
@@ -241,6 +243,8 @@
 	loadModels();
 	promptsCollectionsStore.load();
 	$: promptCollections = $promptsCollectionsStore.collections;
+	$: excludingSubcollections = excludesSubcollections(promptCollections, collectionId, directOnly);
+	$: popoverFilterCount = filterCount + (excludingSubcollections ? 1 : 0);
 
 	let mode: 'create' | 'edit' = 'edit';
 	let selected: Prompt | null = null;
@@ -848,9 +852,24 @@
 	}
 </script>
 
+{#snippet collectionsPanel(part: 'sidebar' | 'actions')}
+	<PromptsSidebar
+		{part}
+		activeId={collectionId}
+		{favoritesOnly}
+		{unsorted}
+		{directOnly}
+		onSelectAll={() => setCollectionFilter(undefined)}
+		onSelectFavorites={setFavoritesFilter}
+		onSelectUnsorted={setUnsortedFilter}
+		onSelectFolder={(id) => setCollectionFilter(id)}
+	/>
+{/snippet}
+
 <LibraryShell
 	title="Prompt Library"
 	persistKey="prompt-library"
+	wideSidebar
 	sections={LIBRARY_SECTIONS}
 	section="prompts"
 	onSelectSection={(id) => goto(sectionHref(id))}
@@ -864,6 +883,9 @@
 	{total}
 >
 	{#snippet toolbar()}
+		<CollectionSidebarSheet label="Prompts">
+			{@render collectionsPanel('sidebar')}
+		</CollectionSidebarSheet>
 		<LibraryFilterBar
 			q={filters.q}
 			onQueryChange={updateQuery}
@@ -872,7 +894,7 @@
 			sortBy={filters.sortBy}
 			sortOptions={SORT_OPTIONS}
 			onSortChange={updateSort}
-			{filterCount}
+			filterCount={popoverFilterCount}
 		>
 			{#snippet popover(close)}
 				<PromptFiltersPopover
@@ -881,23 +903,18 @@
 					onChange={updateFilters}
 					onOpenModelPicker={() => (showModelFilterPicker = true)}
 					onClose={close}
+					onClearAll={clearFilters}
+					collections={promptCollections}
+					activeId={collectionId}
+					{directOnly}
+					onDirectOnlyChange={setDirectOnly}
 				/>
 			{/snippet}
 		</LibraryFilterBar>
 	{/snippet}
 
 	{#snippet sidebarTree()}
-		<PromptsSidebar
-			activeId={collectionId}
-			{favoritesOnly}
-			{unsorted}
-			{directOnly}
-			onSelectAll={() => setCollectionFilter(undefined)}
-			onSelectFavorites={setFavoritesFilter}
-			onSelectUnsorted={setUnsortedFilter}
-			onSelectFolder={(id) => setCollectionFilter(id)}
-			onDirectOnlyChange={setDirectOnly}
-		/>
+		{@render collectionsPanel('sidebar')}
 	{/snippet}
 
 	{#snippet overflow(close)}
@@ -956,6 +973,7 @@
 	{/snippet}
 
 	{#snippet primary()}
+		{@render collectionsPanel('actions')}
 		<Button size="sm" variant="primary" icon="plus" onclick={startNewPrompt}>New prompt</Button>
 	{/snippet}
 
