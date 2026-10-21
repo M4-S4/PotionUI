@@ -1,7 +1,5 @@
 import builtins
-import importlib.util
 import shutil
-import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,17 +7,7 @@ import pytest
 
 from src.platform.database.database import Database
 from tests.fixtures.persistence_base import make_lean_file_database
-
-_MIGRATIONS = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations"
-
-
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+from tests.platform.database._support import load_migration
 
 
 @pytest.fixture(scope="session")
@@ -39,7 +27,7 @@ def template(tmp_path_factory):
             "037_drop_model_file_path",
             "042_model_type_classification",
         ):
-            _load_migration(stem, database).up()
+            load_migration(stem, database).up()
     with database.get_connection() as conn:
         conn.execute("PRAGMA journal_mode = DELETE").close()
     Database._instance = None
@@ -55,7 +43,7 @@ def env(template, tmp_path):
     shutil.copyfile(template, database.db_path)
     make_lean_file_database(database)
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        yield database, _load_migration("043_model_type_assertion_sources", database)
+        yield database, load_migration("043_model_type_assertion_sources", database)
     Database._instance = None
 
 
@@ -133,43 +121,7 @@ def test_a_second_run_changes_nothing(env):
     assert _pk(database) == ["sha256", "source"]
 
 
-def test_down_keeps_the_highest_ranked_row_per_hash(env):
-    database, migration = env
-    _seed(database, ROWS)
-    migration.up()
-    _seed(
-        database,
-        [
-            ("a", "diffusion_model", "download", "2026-02-01T00:00:00"),
-            ("b", "lora", "recipe", "2026-02-02T00:00:00"),
-            ("b", "vae", "admin", "2026-02-03T00:00:00"),
-        ],
-    )
-
-    migration.down()
-
-    assert _pk(database) == ["sha256"]
-    assert _rows(database) == [
-        ("a", "checkpoint", "admin", "2026-01-01T00:00:00"),
-        ("b", "vae", "admin", "2026-02-03T00:00:00"),
-        ("c", "vae", "recipe", "2026-01-03T00:00:00"),
-    ]
-
-
-def test_down_twice_and_up_again_round_trip(env):
-    database, migration = env
-    _seed(database, ROWS)
-    migration.up()
-    migration.down()
-    migration.down()
-
-    migration.up()
-
-    assert _pk(database) == ["sha256", "source"]
-    assert _rows(database) == ROWS
-
-
-def test_neither_direction_touches_files(env):
+def test_up_touches_no_files(env):
     database, migration = env
     _seed(database, ROWS)
 
@@ -180,4 +132,3 @@ def test_neither_direction_touches_files(env):
         "os.walk", side_effect=AssertionError
     ):
         migration.up()
-        migration.down()

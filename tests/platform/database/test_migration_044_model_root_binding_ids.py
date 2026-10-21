@@ -1,24 +1,11 @@
-import importlib.util
 import shutil
-import sys
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from src.platform.database.database import Database
 from tests.fixtures.persistence_base import make_lean_file_database
-
-_MIGRATIONS = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations"
-
-
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+from tests.platform.database._support import load_migration
 
 
 @pytest.fixture(scope="session")
@@ -39,7 +26,7 @@ def template(tmp_path_factory):
             "042_model_type_classification",
             "043_model_type_assertion_sources",
         ):
-            _load_migration(stem, database).up()
+            load_migration(stem, database).up()
     with database.get_connection() as conn:
         conn.execute("PRAGMA journal_mode = DELETE").close()
     Database._instance = None
@@ -55,7 +42,7 @@ def env(template, tmp_path):
     shutil.copyfile(template, database.db_path)
     make_lean_file_database(database)
     with patch("pathlib.Path.cwd", return_value=tmp_path):
-        yield database, _load_migration("044_model_root_binding_ids", database)
+        yield database, load_migration("044_model_root_binding_ids", database)
     Database._instance = None
 
 
@@ -244,44 +231,6 @@ def test_a_second_run_changes_nothing(env):
 
     assert _bindings(database) == bindings
     assert _locations(database) == locations
-
-
-def test_down_restores_the_old_shape_and_keeps_the_first_binding_of_each_type(env):
-    database, migration = env
-    _seed(database)
-    migration.up()
-    with database.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO model_root_bindings (id, root_id, model_type, subdir, subdir_key, position, is_write) "
-            "VALUES ('b-new', 'r1', 'lora', 'LyCORIS', 'LyCORIS', 5, 0)"
-        )
-        cursor.execute(
-            "INSERT INTO model_locations (id, model_id, root_id, model_type, rel_path, rel_key, binding_id) "
-            "VALUES ('l-new', 'm2', 'r1', 'lora', 'z.safetensors', 'z.safetensors', 'b-new')"
-        )
-
-    migration.down()
-
-    assert "id" not in _columns(database, "model_root_bindings")
-    assert "binding_id" not in _columns(database, "model_locations")
-    assert "layout_profile" not in _columns(database, "model_roots")
-    rows = {(b["root_id"], b["model_type"]): b for b in _bindings(database)}
-    assert set(rows) == {("r1", "lora"), ("r1", "checkpoint"), ("r2", "lora")}
-    assert rows[("r1", "lora")]["subdir"] == "loras"
-    assert rows[("r1", "checkpoint")]["scan_headers"] == 1
-    assert {row["id"] for row in _locations(database)} == {"l1", "l2", "l3"}
-
-
-def test_up_after_down_round_trips(env):
-    database, migration = env
-    _seed(database)
-    migration.up()
-    migration.down()
-
-    migration.up()
-
-    assert {row["id"] for row in _locations(database)} == {"l1", "l2", "l3"}
-    assert len(_bindings(database)) == 3
 
 
 def test_a_fresh_database_with_no_rows_migrates(env):

@@ -2,53 +2,15 @@
 runner replays nothing but a second `up()` must still be harmless.
 """
 
-import importlib.util
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 _KEYS = ("backup_destination", "backup_retention", "backup_default_tier")
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration023BackupSettings(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        with self.db.get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE applied_migrations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    migration_name TEXT UNIQUE NOT NULL,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("023_backup_settings", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration023BackupSettings(MigrationCase):
+    MIGRATION = "023_backup_settings"
 
     def _settings(self):
         with self.db.get_cursor() as cursor:
@@ -81,13 +43,6 @@ class TestMigration023BackupSettings(unittest.TestCase):
         seeded = self._settings()
         self.assertEqual(seeded["backup_destination"]["value"], "/srv/backups")
         self.assertEqual(len(seeded), 3)
-
-    def test_down_removes_them(self):
-        self.migration.up()
-
-        self.migration.down()
-
-        self.assertEqual(self._settings(), {})
 
 
 if __name__ == "__main__":

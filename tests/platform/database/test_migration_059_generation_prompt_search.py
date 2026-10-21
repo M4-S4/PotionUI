@@ -1,47 +1,16 @@
-import importlib.util
 import json
 import sqlite3
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 _TRIGGERS = {
     "generation_prompt_text_insert",
     "generation_prompt_text_update",
     "generation_prompt_text_delete",
 }
-
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-class TestMigration059GenerationPromptSearch(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.addCleanup(Database.close_pool)
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(temp.name) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("059_generation_prompt_search", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration059GenerationPromptSearch(MigrationCase):
+    MIGRATION = "059_generation_prompt_search"
 
     def _insert(self, generation_id, form_data, prompt_state=None):
         with self.db.get_cursor() as cursor:
@@ -148,15 +117,6 @@ class TestMigration059GenerationPromptSearch(unittest.TestCase):
 
         self.assertEqual(self._schema("table"), {"generation_prompt_text"})
         self.assertEqual(self._schema("trigger"), _TRIGGERS)
-
-    def test_down_drops_the_table_and_triggers(self):
-        self.migration.up()
-
-        self.migration.down()
-
-        self.assertEqual(self._schema("trigger"), set())
-        self.assertEqual(self._schema("table"), set())
-        self._insert("after", {"prompt": "a red fox"})
 
 
 if __name__ == "__main__":

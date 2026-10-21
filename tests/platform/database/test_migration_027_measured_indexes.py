@@ -1,16 +1,7 @@
-import importlib.util
 import sqlite3
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 _DROPPED = (
     "idx_mcp_tokens_hash",
@@ -28,31 +19,13 @@ _DROPPED = (
 )
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration027MeasuredIndexes(unittest.TestCase):
+class TestMigration027MeasuredIndexes(MigrationCase):
+    MIGRATION = "027_measured_indexes"
+    PREREQUISITES = ("001_baseline", "014_generations_user_created_index", "018_users_nocase_unique")
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        _load_migration("014_generations_user_created_index", self.db).up()
-        _load_migration("018_users_nocase_unique", self.db).up()
-        self.migration = _load_migration("027_measured_indexes", self.db)
+        super().setUp()
         self.migration.up()
-
-    def tearDown(self):
-        Database._instance = None
 
     def _plan(self, sql, params=()):
         with self.db.get_cursor() as cursor:

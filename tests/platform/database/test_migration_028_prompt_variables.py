@@ -1,46 +1,12 @@
-import importlib.util
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+class TestMigration028PromptVariables(MigrationCase):
+    MIGRATION = "028_prompt_variables"
 
-
-class TestMigration028PromptVariables(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        with self.db.get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE applied_migrations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    migration_name TEXT UNIQUE NOT NULL,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("028_prompt_variables", self.db)
-
+    def pre_state(self):
         with self.db.get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO users (id, username, email, password_hash) "
@@ -49,9 +15,6 @@ class TestMigration028PromptVariables(unittest.TestCase):
             cursor.execute(
                 "INSERT INTO prompts (id, user_id, flattened_text) VALUES ('p1', 'u1', 'a fox')"
             )
-
-    def tearDown(self):
-        Database._instance = None
 
     def _columns(self):
         with self.db.get_connection() as conn:

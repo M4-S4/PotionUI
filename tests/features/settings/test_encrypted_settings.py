@@ -18,7 +18,7 @@ from src.platform.security.secrets import (
 from src.platform.security.user import AccountType, User
 from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
-from tests.platform.database.test_migration_060_tab_drafts import _load_migration
+from tests.platform.database._support import load_migration
 
 PLAINTEXT = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 
@@ -28,7 +28,7 @@ def stack():
     database = ct.TestDatabase()
     configure_secret_cipher(SecretCipher([generate_key()]))
     with patch("src.platform.database.database.db", database):
-        _load_migration("001_baseline", database).up()
+        load_migration("001_baseline", database).up()
         repository = SettingRepository()
         settings = Settings(repository)
         controller = SettingsController(

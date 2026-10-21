@@ -14,7 +14,7 @@ from src.platform.security.secrets import (
     resolve_secret_keys,
 )
 from src.platform.settings.repository import SettingRepository
-from tests.platform.database.test_migration_060_tab_drafts import _load_migration
+from tests.platform.database._support import load_migration
 
 PLAINTEXT = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "rotate_secret_key.py"
@@ -46,7 +46,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.delenv(ENV_KEY_FILE, raising=False)
     configure_secret_cipher(None)
     with patch("src.platform.database.database.db", database):
-        _load_migration("001_baseline", database).up()
+        load_migration("001_baseline", database).up()
         with database.get_connection() as conn:
             conn.execute(
                 "UPDATE settings SET value = ? WHERE key = 's3_secret_key'",

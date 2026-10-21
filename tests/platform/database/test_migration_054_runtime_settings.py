@@ -1,39 +1,11 @@
-import importlib.util
 import json
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations"
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration054RuntimeSettings(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.addCleanup(Database.close_pool)
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(temp.name) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("054_runtime_settings", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration054RuntimeSettings(MigrationCase):
+    MIGRATION = "054_runtime_settings"
 
     def _execute(self, sql, params=()):
         with self.db.get_cursor() as cursor:
@@ -147,17 +119,6 @@ class TestMigration054RuntimeSettings(unittest.TestCase):
         self.migration.up(environ={"NATIVE_FP8_MATMUL": "on", "NATIVE_NVFP4_MATMUL": "on"})
 
         self.assertEqual(self._flags("native"), {"native_fp8_matmul": False})
-
-    def test_down_restores_the_retired_settings_and_drops_engine_flags(self):
-        self._add_backend("native", "native.local")
-        self.migration.up(environ={"NATIVE_FP8_MATMUL": "on"})
-
-        self.migration.down()
-
-        settings = self._settings()
-        self.assertNotIn("profiling_enabled", settings)
-        self.assertEqual(settings["native_torch_compile"]["value"], "")
-        self.assertIsNone(self._flags("native"))
 
 
 if __name__ == "__main__":

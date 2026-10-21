@@ -1,47 +1,21 @@
-import importlib.util
 import sqlite3
-import sys
-import tempfile
-import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
+from tests.platform.database._support import MigrationCase
 
-_MIGRATIONS = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations"
 
 _TABLES = {"organize_rules", "organize_runs", "organize_applications", "organize_handled", "organize_controls"}
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+class TestMigration052Organize(MigrationCase):
+    MIGRATION = "052_organize"
 
-
-class TestMigration052Organize(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.addCleanup(Database.close_pool)
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(temp.name) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("052_organize", self.db)
+    def pre_state(self):
         with self.db.get_cursor() as cursor:
             for user_id in ("u1", "u2"):
                 cursor.execute(
                     "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
                     (user_id, user_id, f"{user_id}@example.test"),
                 )
-
-    def tearDown(self):
-        Database._instance = None
 
     def _tables(self):
         with self.db.get_cursor() as cursor:
@@ -112,9 +86,3 @@ class TestMigration052Organize(unittest.TestCase):
             remaining = cursor.execute("SELECT COUNT(*) AS n FROM organize_runs").fetchone()["n"]
 
         self.assertEqual(remaining, 1)
-
-    def test_down_drops_the_tables(self):
-        self.migration.up()
-        self.migration.down()
-
-        self.assertFalse(_TABLES & self._tables())

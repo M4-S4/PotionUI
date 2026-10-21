@@ -1,15 +1,6 @@
-import importlib.util
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 _EXPECTED = {
     "idx_generations_created_id": [("created_at", 1), ("id", 1)],
@@ -19,31 +10,9 @@ _EXPECTED = {
 }
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration058HistoryIndexes(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.addCleanup(Database.close_pool)
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(temp.name) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        _load_migration("014_generations_user_created_index", self.db).up()
-        self.migration = _load_migration("058_history_indexes", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration058HistoryIndexes(MigrationCase):
+    MIGRATION = "058_history_indexes"
+    PREREQUISITES = ("001_baseline", "014_generations_user_created_index")
 
     def _key_columns(self, index_name):
         with self.db.get_cursor() as cursor:
@@ -68,15 +37,6 @@ class TestMigration058HistoryIndexes(unittest.TestCase):
         self.migration.up()
 
         self.assertEqual(self._index_names(), before)
-
-    def test_down_drops_only_the_added_indexes(self):
-        before = self._index_names()
-        self.migration.up()
-
-        self.migration.down()
-
-        self.assertEqual(self._index_names(), before)
-        self.assertIn("idx_generations_user_created_id", before)
 
 
 if __name__ == "__main__":

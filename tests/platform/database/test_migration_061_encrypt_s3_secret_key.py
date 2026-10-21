@@ -7,7 +7,7 @@ from src.platform.security.secrets import (
     configure_secret_cipher,
     generate_key,
 )
-from tests.platform.database.test_migration_060_tab_drafts import _load_migration
+from tests.platform.database._support import load_migration
 
 PLAINTEXT = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 
@@ -17,8 +17,8 @@ def env():
     database = ct.TestDatabase()
     cipher = SecretCipher([generate_key()])
     configure_secret_cipher(cipher)
-    _load_migration("001_baseline", database).up()
-    yield database, cipher, _load_migration("061_encrypt_s3_secret_key", database)
+    load_migration("001_baseline", database).up()
+    yield database, cipher, load_migration("061_encrypt_s3_secret_key", database)
     configure_secret_cipher(None)
     database.close()
 

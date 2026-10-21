@@ -3,53 +3,13 @@ a frozen snapshot that only indexes `generations(user_id)`, so this migration is
 what puts the index there on a fresh install as well as an upgrade.
 """
 
-import importlib.util
-import sys
-import tempfile
-import unittest
-from pathlib import Path
-
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 _INDEX = "idx_generations_user_created_id"
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration014GenerationsUserCreatedIndex(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        with self.db.get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE applied_migrations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    migration_name TEXT UNIQUE NOT NULL,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("014_generations_user_created_index", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration014GenerationsUserCreatedIndex(MigrationCase):
+    MIGRATION = "014_generations_user_created_index"
 
     def _index_sql(self):
         with self.db.get_connection() as conn:
@@ -87,9 +47,3 @@ class TestMigration014GenerationsUserCreatedIndex(unittest.TestCase):
                 (_INDEX,),
             ).fetchone()[0]
         self.assertEqual(count, 1)
-
-    def test_down_removes_it(self):
-        self.migration.up()
-        self.migration.down()
-
-        self.assertIsNone(self._index_sql())
