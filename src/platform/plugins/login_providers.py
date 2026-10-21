@@ -1,8 +1,11 @@
+import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
 
+
+logger = logging.getLogger(__name__)
 
 PLUGIN_ROUTE_PREFIX = "/api/plugins/"
 
@@ -29,9 +32,24 @@ class LoginProviderDefinition:
     label: str
     start_path: str
     source: str = "core"
+    auto_redirect: Optional[Callable[[], bool]] = None
+
+    def wants_auto_redirect(self) -> bool:
+        if self.auto_redirect is None:
+            return False
+        try:
+            return bool(self.auto_redirect())
+        except Exception:
+            logger.exception("Login provider '%s' auto_redirect check failed", self.id)
+            return False
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"id": self.id, "label": self.label, "start_path": self.start_path}
+        return {
+            "id": self.id,
+            "label": self.label,
+            "start_path": self.start_path,
+            "auto_redirect": self.wants_auto_redirect(),
+        }
 
 
 class LoginProviderRegistry(SourcedRegistry[LoginProviderDefinition]):

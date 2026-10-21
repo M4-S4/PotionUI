@@ -49,6 +49,7 @@ class LoginProviderResponse(BaseModel):
     id: str
     label: str
     start_path: str
+    auto_redirect: bool = False
 
 
 class ExternalLoginExchange(BaseModel):

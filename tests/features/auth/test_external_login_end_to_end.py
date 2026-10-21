@@ -169,6 +169,7 @@ class TestExternalLoginEndToEnd(unittest.TestCase):
                     "id": stub_plugin.PLUGIN_ID,
                     "label": stub_plugin.LABEL,
                     "start_path": stub_plugin.START_PATH,
+                    "auto_redirect": False,
                 }
             ],
         )

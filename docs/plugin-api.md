@@ -354,7 +354,7 @@ from src.plugin_api import register_login_provider, sign_in_external
 
 ### Putting the button on the login page
 
-`register_login_provider(id, label, start_path)` adds one entry to the list the login page
+`register_login_provider(id, label, start_path, auto_redirect=None)` adds one entry to the list the login page
 renders under the local username/password form, as a button reading `Continue with {label}`.
 
 ```python
@@ -374,8 +374,14 @@ but core cannot tell whose it is and will not clean it up for you — call
 Registering the same provider id twice raises `DuplicateLoginProviderError`; a missing
 label or a relative `start_path` raises `InvalidLoginProviderError`.
 
+`auto_redirect` is an optional zero-argument callable returning a bool, called every time the
+list is served (so an admin toggle applies without a restart). While it returns true the login
+page sends signed-out visitors straight to that provider's `start_path` and hides the local
+form; `/login?local=1` always brings the form back. A callable that raises counts as false.
+Only the first provider whose callable returns true is auto-redirected to.
+
 `GET /api/auth/providers` serves the list, unauthenticated, as
-`[{"id": ..., "label": ..., "start_path": ...}]` in registration order. The login page
+`[{"id": ..., "label": ..., "start_path": ..., "auto_redirect": false}]` in registration order. The login page
 renders nothing at all when it is empty.
 
 ### Signing the user in

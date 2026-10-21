@@ -40,8 +40,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix=ROUTER_PREFIX)
 
 
+def _auto_redirect_enabled() -> bool:
+    settings = load_settings()
+    return settings.auto_redirect and settings.is_configured()
+
 def enable() -> None:
-    register_login_provider(PLUGIN_ID, load_settings().label, START_PATH)
+    register_login_provider(
+        PLUGIN_ID,
+        load_settings().label,
+        START_PATH,
+        auto_redirect=_auto_redirect_enabled,
+    )
 
 
 def disable() -> None:

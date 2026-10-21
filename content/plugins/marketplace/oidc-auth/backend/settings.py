@@ -24,6 +24,7 @@ class OIDCSettings:
     scopes: str
     label: str
     redirect_uri_override: Optional[str]
+    auto_redirect: bool = False
 
     def is_configured(self) -> bool:
         if not (self.issuer_url and self.client_id and self.client_secret):
@@ -44,4 +45,5 @@ def load_settings(repository: Optional[PluginRepository] = None) -> OIDCSettings
         scopes=values["scopes"],
         label=values["label"],
         redirect_uri_override=(values["redirect_uri"] or "").strip() or None,
+        auto_redirect=bool(values["auto_redirect"]),
     )

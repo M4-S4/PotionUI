@@ -62,8 +62,37 @@ def test_providers_lists_a_registered_provider(client, clean_registry):
             "id": "acme-sso",
             "label": "Acme SSO",
             "start_path": "/api/plugins/acme-sso/start",
+            "auto_redirect": False,
         }
     ]
+
+
+def test_providers_reports_auto_redirect_live(client, clean_registry):
+    enabled = {"value": False}
+    register_login_provider(
+        "acme-sso",
+        "Acme SSO",
+        "/api/plugins/acme-sso/start",
+        auto_redirect=lambda: enabled["value"],
+    )
+
+    assert client.get("/api/auth/providers").json()[0]["auto_redirect"] is False
+    enabled["value"] = True
+    assert client.get("/api/auth/providers").json()[0]["auto_redirect"] is True
+
+
+def test_providers_treats_a_failing_auto_redirect_check_as_off(client, clean_registry):
+    def boom():
+        raise RuntimeError("settings unavailable")
+
+    register_login_provider(
+        "acme-sso", "Acme SSO", "/api/plugins/acme-sso/start", auto_redirect=boom
+    )
+
+    response = client.get("/api/auth/providers")
+
+    assert response.status_code == 200
+    assert response.json()[0]["auto_redirect"] is False
 
 
 def test_providers_keeps_registration_order(client, clean_registry):
