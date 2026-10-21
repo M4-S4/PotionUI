@@ -90,6 +90,35 @@ describe('tooltip action', () => {
 		action.destroy();
 		expect(bubbleText()).toBeNull();
 	});
+
+	it('wrap lets a long text break onto several lines', async () => {
+		const { node } = attach({ text: 'Cinematic lighting studies, glass, liquids and reflections', wrap: true });
+		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
+		const style = document.body.querySelector<HTMLElement>('[role="tooltip"]')!.getAttribute('style') ?? '';
+		expect(style).not.toContain('max-content');
+		expect(style).toContain('max-width: min(360px');
+	});
+
+	it('keeps one line without wrap', async () => {
+		const { node } = attach('Copy');
+		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
+		const style = document.body.querySelector<HTMLElement>('[role="tooltip"]')!.getAttribute('style') ?? '';
+		expect(style).toContain('min-width: max-content');
+	});
+
+	it('focusSelf ignores focus that lands on a descendant', async () => {
+		const { node } = attach({ text: 'Row name', focusSelf: true }, 'div');
+		const child = document.createElement('button');
+		node.appendChild(child);
+		child.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		await Promise.resolve();
+		expect(bubbleText()).toBeNull();
+		node.dispatchEvent(new FocusEvent('focusin'));
+		await Promise.resolve();
+		expect(bubbleText()).toBe('Row name');
+	});
 });
 
 describe('tooltip action during teardown', () => {

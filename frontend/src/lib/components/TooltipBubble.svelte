@@ -11,6 +11,7 @@
 		position = 'top',
 		kbd,
 		kbdSize = 'sm',
+		wrap = false,
 		id
 	}: {
 		text: string;
@@ -18,6 +19,7 @@
 		position?: Position;
 		kbd?: string;
 		kbdSize?: 'sm' | 'md';
+		wrap?: boolean;
 		id?: string;
 	} = $props();
 
@@ -57,7 +59,7 @@
 	role="tooltip"
 	use:portal
 	use:overlayLayer={'tooltip'}
-	style="min-width: max-content; max-width: 300px; {style}"
+	style="{wrap ? 'max-width: min(360px, calc(100vw - 24px));' : 'min-width: max-content; max-width: 300px;'} {style}"
 	class="fixed z-tooltip px-2 py-1 text-xs font-medium text-fg bg-surface-3 rounded-md shadow-lg pointer-events-none animate-in fade-in duration-150 break-words flex items-center gap-1.5"
 >
 	<span>{text}</span>

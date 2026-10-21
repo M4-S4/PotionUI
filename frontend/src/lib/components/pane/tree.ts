@@ -68,3 +68,27 @@ export function descendantIds<T extends TreeItem>(items: T[], id: string): Set<s
 	}
 	return result;
 }
+
+export function filterTree<T>(nodes: PaneTreeNode<T>[], keep: (item: T) => boolean): PaneTreeNode<T>[] {
+	const out: PaneTreeNode<T>[] = [];
+	for (const node of nodes) {
+		const children = filterTree(node.children, keep);
+		if (children.length > 0 || keep(node.item)) out.push({ ...node, children });
+	}
+	return out;
+}
+
+export function ancestorsOf<T extends TreeItem>(items: T[], id: string): T[] {
+	const byId = new Map(items.map((item) => [item.id, item]));
+	const chain: T[] = [];
+	const seen = new Set<string>([id]);
+	let parentId = byId.get(id)?.parent_id ?? null;
+	while (parentId !== null && !seen.has(parentId)) {
+		const parent = byId.get(parentId);
+		if (!parent) break;
+		seen.add(parentId);
+		chain.unshift(parent);
+		parentId = parent.parent_id ?? null;
+	}
+	return chain;
+}

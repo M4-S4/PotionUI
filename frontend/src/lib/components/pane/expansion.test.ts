@@ -65,4 +65,13 @@ describe('ExpansionState', () => {
 		expect(state.has('b')).toBe(false);
 		expect(state.has('a')).toBe(true);
 	});
+
+	it('clear collapses everything and persists the empty set', () => {
+		const state = new ExpansionState('pane:clear');
+		state.expandMany(['a', 'b']);
+		state.clear();
+		expect(state.has('a')).toBe(false);
+		expect(state.has('b')).toBe(false);
+		expect(new ExpansionState('pane:clear').has('a')).toBe(false);
+	});
 });

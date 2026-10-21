@@ -238,7 +238,9 @@ export const iconPaths: Record<string, string | string[]> = {
 		'M8 15c2.500 1 5.500 1 8 0',
 		'M9 11.500v.5',
 		'M15 11.500v.5'
-	]
+	],
+	'sidebar-collapse': ['M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M9 4v16', 'm16 9-3 3 3 3'],
+	'sidebar-expand': ['M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M9 4v16', 'm13 9 3 3-3 3']
 };
 
 // Helper function to get icon path(s) by name

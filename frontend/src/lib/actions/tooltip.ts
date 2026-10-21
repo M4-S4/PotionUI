@@ -7,6 +7,8 @@ export interface TooltipOptions {
 	delay?: number;
 	kbd?: string;
 	truncateOnly?: boolean;
+	wrap?: boolean;
+	focusSelf?: boolean;
 }
 
 export type TooltipParam = string | null | undefined | TooltipOptions;
@@ -56,6 +58,7 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 				anchor: node,
 				position: options.position,
 				kbd: options.kbd,
+				wrap: options.wrap,
 				id
 			}
 		});
@@ -75,7 +78,10 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 	}
 
 	const onEnter = () => schedule(options.delay ?? 200);
-	const onFocus = () => schedule(0);
+	const onFocus = (e: FocusEvent) => {
+		if (options.focusSelf && e.target !== node) return;
+		schedule(0);
+	};
 	const onKeydown = (e: KeyboardEvent) => {
 		if (e.key === 'Escape') hide();
 	};

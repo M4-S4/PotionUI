@@ -7,6 +7,7 @@
 
 	let {
 		label,
+		labelStyle = 'eyebrow',
 		count,
 		onCollapse,
 		searchable = false,
@@ -28,6 +29,7 @@
 		footer
 	}: {
 		label: string;
+		labelStyle?: 'eyebrow' | 'title';
 		count?: number;
 		onCollapse?: () => void;
 		searchable?: boolean;
@@ -91,8 +93,8 @@
 </script>
 
 <div class="flex flex-col h-full min-h-0 text-sm {className}">
-	<div class="flex items-center gap-2 px-3 min-h-header border-b border-line flex-shrink-0">
-		<span class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle truncate">{label}</span>
+	<div class="flex items-center gap-2 min-h-header border-b border-line flex-shrink-0 {labelStyle === 'title' ? 'pl-5 pr-4' : 'px-3'}">
+		<span class="truncate {labelStyle === 'title' ? 'text-md font-semibold text-fg' : 'font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle'}">{label}</span>
 		{#if count !== undefined}
 			<span class="font-mono text-xs tabular-nums text-fg-subtle">{count}</span>
 		{/if}
