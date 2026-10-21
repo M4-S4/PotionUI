@@ -15,7 +15,7 @@
 	import StudioPromptSheet from './StudioPromptSheet.svelte';
 	import StudioSettingsSheet from './StudioSettingsSheet.svelte';
 	import StudioPresetSessionSheet from './StudioPresetSessionSheet.svelte';
-	import StudioChatSheet from './StudioChatSheet.svelte';
+	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import { modeLabel as resolveModeLabel } from '$lib/utils/modeLabel.svelte';
 
 	export let tab: Tab;
@@ -65,7 +65,7 @@
 		return () => observer.disconnect();
 	});
 
-	type SheetName = 'prompt' | 'settings' | 'preset' | 'chat';
+	type SheetName = 'prompt' | 'settings' | 'preset';
 	let openSheet: SheetName | null = null;
 	function closeSheet() {
 		openSheet = null;
@@ -98,7 +98,7 @@
 		{presetName}
 		{modeLabel}
 		onOpenPresetSheet={() => (openSheet = 'preset')}
-		onOpenChatSheet={() => (openSheet = 'chat')}
+		onOpenChatSheet={() => chatPanelStore.open()}
 	/>
 
 	<StudioDock
@@ -157,6 +157,4 @@
 		onClose={closeSheet}
 		onFormulaApplied={() => (openSheet = 'settings')}
 	/>
-{:else if openSheet === 'chat'}
-	<StudioChatSheet onClose={closeSheet} />
 {/if}

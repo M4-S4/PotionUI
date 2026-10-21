@@ -1,5 +1,5 @@
 <script lang="ts">
-	import StudioSheet from './StudioSheet.svelte';
+	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import PresetControls from '../PresetControls.svelte';
 	import SessionPill from '$lib/components/session/SessionPill.svelte';
 	import { tabsStore } from '$lib/stores/tabs';

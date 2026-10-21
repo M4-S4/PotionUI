@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import DrawerShell from '$lib/components/drawer/DrawerShell.svelte';
 	import DrawerHeader from '$lib/components/drawer/DrawerHeader.svelte';
-	import StudioSheet from '../../../routes/generate/components/studio/StudioSheet.svelte';
+	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import { Button, Switch } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import AxisCard from './AxisCard.svelte';

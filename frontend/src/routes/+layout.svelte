@@ -6,7 +6,8 @@
 	import { authStore } from '$lib/stores/auth';
 	import { installLimitsWatcher, refreshLimits, resetLimitsState } from '$lib/plans/store';
 	import { keybindingsStore } from '$lib/stores/keybindings';
-	import { chatPanelStore } from '$lib/stores/chatPanel';
+	import { chatPanelStore, isChatPanelOpen } from '$lib/stores/chatPanel';
+	import { isMobile } from '$lib/stores/viewport';
 	import { init as initKeyboard, destroy as destroyKeyboard } from '$lib/services/keyboard';
 	import { registerComponent } from '$lib/plugin-api/componentRegistry';
 	import { initHostApi } from '$lib/plugin-api/host';
@@ -36,6 +37,7 @@
 	let SidebarComponent: any = null;
 	let MobileTabBarComponent: any = null;
 	let GlobalChatPanelComponent: any = null;
+	let ChatSheetComponent: any = null;
 	let KeyboardShortcutsModalComponent: any = null;
 	let NotificationPanelComponent: any = null;
 
@@ -68,6 +70,7 @@
 			sidebar,
 			mobileTabBar,
 			globalChatPanel,
+			chatSheet,
 			keyboardModal,
 			notificationPanel,
 			historyModal,
@@ -85,6 +88,7 @@
 			import('$lib/components/Sidebar.svelte'),
 			import('$lib/components/MobileTabBar.svelte'),
 			import('$lib/components/GlobalChatPanel.svelte'),
+			import('$lib/components/ChatSheet.svelte'),
 			import('$lib/components/KeyboardShortcutsModal.svelte'),
 			import('$lib/components/notifications/NotificationPanel.svelte'),
 			import('$lib/components/modals/GenerationHistoryModal.svelte'),
@@ -103,6 +107,7 @@
 		SidebarComponent = sidebar.default;
 		MobileTabBarComponent = mobileTabBar.default;
 		GlobalChatPanelComponent = globalChatPanel.default;
+		ChatSheetComponent = chatSheet.default;
 		KeyboardShortcutsModalComponent = keyboardModal.default;
 		NotificationPanelComponent = notificationPanel.default;
 
@@ -299,9 +304,8 @@
 				</div>
 			</div>
 		{/if}
-		<div class="hidden md:block">
-			{#if GlobalChatPanelComponent}<svelte:component this={GlobalChatPanelComponent} />{/if}
-		</div>
+		{#if !$isMobile && GlobalChatPanelComponent}<svelte:component this={GlobalChatPanelComponent} />{/if}
+		{#if $isMobile && $isChatPanelOpen && ChatSheetComponent}<svelte:component this={ChatSheetComponent} />{/if}
 		{#if KeyboardShortcutsModalComponent}<svelte:component this={KeyboardShortcutsModalComponent} />{/if}
 		{#if NotificationPanelComponent}<svelte:component this={NotificationPanelComponent} />{/if}
 		<ToastContainer />

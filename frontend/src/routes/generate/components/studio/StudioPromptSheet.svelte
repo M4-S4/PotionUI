@@ -1,5 +1,5 @@
 <script lang="ts">
-	import StudioSheet from './StudioSheet.svelte';
+	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import PromptSection from '../PromptSection.svelte';
 	import type { Tab } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';

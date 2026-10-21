@@ -1,5 +1,5 @@
 <script lang="ts">
-	import StudioSheet from './StudioSheet.svelte';
+	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import GenerationFormPane from '../GenerationFormPane.svelte';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import type { Tab } from '$lib/types/tabs';
