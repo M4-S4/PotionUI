@@ -196,3 +196,78 @@ describe('SegmentListApplyModal prompt library', () => {
 		expect(rows()[2].textContent).toContain('Third');
 	});
 });
+
+describe('SegmentListApplyModal filters popover dismissal', () => {
+	const filtersTrigger = () => findButton(dialog(), (text) => text.startsWith('Filters'))!;
+	const popover = () => dialog().querySelector<HTMLElement>('[role="dialog"]');
+	const pickerOpen = () => document.body.textContent?.includes('Filter prompts by model') ?? false;
+
+	function pointerdown(el: Element) {
+		el.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+	}
+
+	function escape() {
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+	}
+
+	async function openPopover() {
+		mounted = mountModal();
+		await settle();
+		pointerdown(filtersTrigger());
+		filtersTrigger().click();
+		await settle();
+		expect(popover()).not.toBeNull();
+	}
+
+	it('closes on Escape', async () => {
+		await openPopover();
+		escape();
+		await settle();
+		expect(popover()).toBeNull();
+	});
+
+	it('ends closed when the trigger is pressed while open', async () => {
+		await openPopover();
+		pointerdown(filtersTrigger());
+		filtersTrigger().click();
+		await settle();
+		expect(popover()).toBeNull();
+	});
+
+	it('closes on an outside press', async () => {
+		await openPopover();
+		pointerdown(searchInput());
+		await settle();
+		expect(popover()).toBeNull();
+	});
+
+	it('keeps the popover and dialog when Escape closes the nested model picker', async () => {
+		await openPopover();
+		findButton(popover()!, (text) => text.includes('Any'))!.click();
+		await settle();
+		expect(pickerOpen()).toBe(true);
+
+		escape();
+		await settle();
+
+		expect(pickerOpen()).toBe(false);
+		expect(popover()).not.toBeNull();
+		expect(dialog()).toBeTruthy();
+	});
+
+	it('keeps the popover open on a press inside the model picker', async () => {
+		await openPopover();
+		findButton(popover()!, (text) => text.includes('Any'))!.click();
+		await settle();
+		expect(pickerOpen()).toBe(true);
+
+		const heading = Array.from(document.body.querySelectorAll('*')).find(
+			(el) => el.children.length === 0 && el.textContent === 'Filter prompts by model'
+		)!;
+		pointerdown(heading);
+		await settle();
+
+		expect(popover()).not.toBeNull();
+		expect(pickerOpen()).toBe(true);
+	});
+});

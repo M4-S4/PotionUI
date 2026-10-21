@@ -1,4 +1,5 @@
 <script lang="ts">
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { createEventDispatcher, onMount, tick } from 'svelte';
 	import { downloadStore, remoteBackends, type QueueModelDownloadOptions } from '$lib/stores/downloads';
@@ -287,15 +288,11 @@
 		dispatch('close');
 	}
 
-	function handleClickOutsideTagDropdown(e: MouseEvent) {
-		const target = e.target as HTMLElement;
-		if (!target.closest('.tag-search-container')) {
-			showTagDropdown = false;
-		}
+	function handleTagDropdownDismiss(reason: DismissReason, event: Event) {
+		if (reason === 'outside' && event.target instanceof Element && event.target.closest('.tag-search-container')) return;
+		showTagDropdown = false;
 	}
 </script>
-
-<svelte:window onclick={handleClickOutsideTagDropdown} />
 
 <ConfirmDialog
 	isOpen={true}
@@ -604,7 +601,7 @@
 								/>
 
 								{#if showTagDropdown && (tagSearchResults.length > 0 || searchingTags)}
-									<div class="absolute z-10 w-full mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-y-auto">
+									<div use:dismiss={{ onDismiss: handleTagDropdownDismiss }} class="absolute z-10 w-full mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-y-auto">
 										{#if searchingTags}
 											<div class="px-3 py-2 text-sm text-fg-subtle">Searching...</div>
 										{:else}

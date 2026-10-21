@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { isAxiosError } from 'axios';
+	import dismiss from '$lib/actions/dismiss';
 	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { page } from '$app/stores';
 	import { logger, getApiErrorMessage } from '$lib/utils/logger';
@@ -251,12 +252,6 @@
 	}
 
 	onMount(() => {
-		const handleClickOutside = (event: MouseEvent) => {
-			if (tagDropdownRef && !tagDropdownRef.contains(event.target as Node)) {
-				isTagDropdownOpen = false;
-			}
-		};
-
 		Promise.all([loadModels(), loadModelTypes(), loadAvailableTags(), loadBackendNames(), loadAssignmentSummary(), loadUnindexedCount()])
 			.catch((error) => logger.error('Error loading models data:', error))
 			.finally(() => {
@@ -265,9 +260,6 @@
 		Promise.all([loadDefinitions(), loadModelTypesDictionaryForAttributes()]).finally(() => {
 			attrLoading = false;
 		});
-
-		document.addEventListener('mousedown', handleClickOutside);
-		return () => document.removeEventListener('mousedown', handleClickOutside);
 	});
 
 	$effect(() => {
@@ -794,7 +786,7 @@
 									class="input"
 								/>
 								{#if isTagDropdownOpen}
-									<div class="absolute top-full left-0 right-0 z-50 mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-auto">
+									<div use:dismiss={{ onDismiss: () => (isTagDropdownOpen = false), ignore: [tagDropdownRef], escape: false }} class="absolute top-full left-0 right-0 z-50 mt-1 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-48 overflow-auto">
 										{#if filteredTags.length === 0}
 											<div class="p-2 text-sm text-fg-subtle text-center">No tags found</div>
 										{:else}

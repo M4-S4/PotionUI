@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { page } from '$app/stores';
+	import dismiss from '$lib/actions/dismiss';
 	import { goto } from '$app/navigation';
 	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { api } from '$lib/services/api/index';
@@ -337,14 +338,6 @@
 		headerOverflowOpen = false;
 	}
 
-	function handleWindowClick(event: MouseEvent) {
-		if (headerOverflowOpen && headerOverflowEl && !headerOverflowEl.contains(event.target as Node)) closeHeaderOverflow();
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') closeHeaderOverflow();
-	}
-
 	function handleAccessChanged(presetId: string, event: CustomEvent<{ userCount: number; groupCount: number }>) {
 		presets = presets.map((preset) =>
 			preset.id === presetId
@@ -357,8 +350,6 @@
 		);
 	}
 </script>
-
-<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
 
 <LibraryShell
 	title="Presets"
@@ -469,6 +460,7 @@
 									<div
 										class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[180px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating"
 										role="menu"
+										use:dismiss={{ onDismiss: closeHeaderOverflow, ignore: [headerOverflowEl] }}
 									>
 										<button
 											type="button"

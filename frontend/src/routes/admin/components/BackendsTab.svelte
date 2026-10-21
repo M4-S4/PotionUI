@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { isAxiosError } from 'axios';
@@ -301,18 +302,6 @@
 		loadBackendsHealth();
 	});
 	onDestroy(unsubscribeComputeStatus);
-
-	function handleWindowClick(event: MouseEvent) {
-		const target = event.target as Element | null;
-		if (target?.closest('[role="dialog"], [role="alertdialog"], [aria-label="Close modal"]')) return;
-		if (detailOverflowOpen && detailOverflowEl && !detailOverflowEl.contains(event.target as Node)) {
-			detailOverflowOpen = false;
-		}
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') detailOverflowOpen = false;
-	}
 
 	async function loadEngines() {
 		try {
@@ -747,8 +736,6 @@
 	/>
 {/snippet}
 
-<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
-
 <LibraryShell
 	title="Backends"
 	persistKey="admin-backends-library"
@@ -856,7 +843,7 @@
 									<IconButton icon="more" label="More actions" ariaExpanded={detailOverflowOpen} active={detailOverflowOpen} onclick={() => (detailOverflowOpen = !detailOverflowOpen)} />
 								</Tooltip>
 								{#if detailOverflowOpen}
-									<div class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[200px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating" role="menu">
+									<div class="absolute right-0 top-[calc(100%+6px)] z-40 min-w-[200px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating" role="menu" use:dismiss={{ onDismiss: () => (detailOverflowOpen = false), ignore: [detailOverflowEl] }}>
 										<button
 											type="button"
 											role="menuitem"

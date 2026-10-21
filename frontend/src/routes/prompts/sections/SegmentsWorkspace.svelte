@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
+	import dismiss from '$lib/actions/dismiss';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { createUrlState } from '$lib/utils/urlState';
@@ -440,16 +441,11 @@
 
 	function handleWindowKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
-		if (moveMenuOpen) moveMenuOpen = false;
-		else if (selectedIds.size > 0) clearSelection();
-	}
-
-	function handleWindowClick(event: MouseEvent) {
-		if (moveMenuOpen && moveMenuEl && !moveMenuEl.contains(event.target as Node)) moveMenuOpen = false;
+		if (selectedIds.size > 0) clearSelection();
 	}
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} onclick={handleWindowClick} />
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <LibraryShell
 	title="Prompt Library"
@@ -618,6 +614,7 @@
 				<div
 					class="absolute bottom-[calc(100%+6px)] left-0 z-50 max-h-64 min-w-[200px] overflow-y-auto rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating"
 					role="menu"
+					use:dismiss={{ onDismiss: () => (moveMenuOpen = false), ignore: [moveMenuEl] }}
 				>
 					{#each categories as category (category.id)}
 						<button

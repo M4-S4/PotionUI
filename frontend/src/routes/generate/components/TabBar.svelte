@@ -1,4 +1,5 @@
 <script lang="ts">
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { api } from '$lib/services/api';
 	import type { Workspace, WorkspaceData } from '$lib/types/generation';
@@ -169,11 +170,9 @@
 		}
 	}
 
-	function handleWorkspaceClickOutside(event: MouseEvent) {
-		const target = event.target as HTMLElement;
-		if (!target.closest('.workspace-menu-container')) {
-			showWorkspaceMenu = false;
-		}
+	function handleWorkspaceDismiss(reason: DismissReason, event: Event) {
+		if (reason === 'outside' && event.target instanceof Element && event.target.closest('.workspace-menu-container')) return;
+		showWorkspaceMenu = false;
 	}
 
 	function toggleWorkspaceMenu() {
@@ -340,7 +339,7 @@
 						<!-- Anchored right: the trigger now sits at the right edge of the
 						     tab bar (see comment above), so a left-0 dropdown ran off
 						     the viewport edge. Opening leftward keeps it on screen. -->
-						<div class="absolute right-0 top-full mt-1 z-50 bg-surface-1 border border-line-strong rounded-lg shadow-floating min-w-[260px] py-1">
+						<div use:dismiss={{ onDismiss: handleWorkspaceDismiss }} class="absolute right-0 top-full mt-1 z-50 bg-surface-1 border border-line-strong rounded-lg shadow-floating min-w-[260px] py-1">
 							<div class="px-3 py-2 text-xs font-semibold text-fg-muted uppercase tracking-wider border-b border-line">Workspaces</div>
 
 							<!-- Save current -->
@@ -410,8 +409,6 @@
 		</div>
 	</div>
 </div>
-
-<svelte:window on:click={handleWorkspaceClickOutside} />
 
 <!-- Save Workspace Modal -->
 <ConfirmDialog

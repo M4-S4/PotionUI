@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import { api } from '$lib/services/api';
 	import type { Prompt, SegmentTemplate } from '$lib/types/segments';
 	import { flattenRichSegments, type SegmentApplyMode } from '$lib/utils/richSegments';
@@ -243,19 +244,6 @@
 		updateFilters({ ...filters, modelId: model?.id || '' });
 	}
 
-	function ownDialog(): Element | null {
-		return bodyEl?.closest('[role="dialog"]') ?? null;
-	}
-
-	function handleWindowClick(event: MouseEvent) {
-		if (!filtersOpen) return;
-		const target = event.target as Element | null;
-		if (!target || filtersTriggerEl?.contains(target)) return;
-		const dialog = target.closest('[role="dialog"], [role="alertdialog"], [aria-label="Close modal"]');
-		if (dialog && dialog !== ownDialog()) return;
-		filtersOpen = false;
-	}
-
 	function moveSelection(step: 1 | -1) {
 		if (!visibleItems.length) return;
 		const index = visibleItems.findIndex((item) => item.id === selectedId);
@@ -286,14 +274,6 @@
 		dispatch('close');
 	}
 
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (!isOpen || showModelPicker || !filtersOpen) return;
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			filtersOpen = false;
-		}
-	}
-
 	function requestApply() {
 		if (!selectedItem || !applyMode) return false;
 		if (applyMode === 'replace' && targetHasMeaningfulContent) {
@@ -310,8 +290,6 @@
 		resetSelection();
 	}
 </script>
-
-<svelte:window on:click|capture={handleWindowClick} on:keydown|capture={handleWindowKeydown} />
 
 <ConfirmDialog
 	bind:this={dialog}
@@ -364,7 +342,10 @@
 						<Icon name="chevron-down" className="h-3 w-3 text-fg-subtle" />
 					</button>
 					{#if filtersOpen}
-						<div class="absolute right-0 top-[calc(100%+6px)] z-40">
+						<div
+							class="absolute right-0 top-[calc(100%+6px)] z-40"
+							use:dismiss={{ onDismiss: () => (filtersOpen = false), ignore: [filtersTriggerEl] }}
+						>
 							<PromptFiltersPopover
 								{filters}
 								{modelLabel}
