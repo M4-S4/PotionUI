@@ -378,8 +378,8 @@
 				handleSelectCategory(category);
 			}
 		} else {
-			const valueIndex = autocompleteSelectedIndex - totalCategories;
-			handleSelectValue(autocompleteSuggestions[valueIndex]);
+			const valueItem = autocompleteSuggestions[autocompleteSelectedIndex - totalCategories];
+			if (valueItem) handleSelectValue(valueItem);
 		}
 	}
 

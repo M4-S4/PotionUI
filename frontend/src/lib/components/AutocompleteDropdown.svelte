@@ -267,7 +267,7 @@
 			{#if isLoading}
 				<div class="px-3 py-2 text-sm text-fg-subtle">Loading suggestions...</div>
 			{:else if categories.length > 0 || suggestions.length > 0}
-				<div bind:this={dropdownRef} class="picker-rows" role="listbox">
+				<div bind:this={dropdownRef} class="picker-rows" role="listbox" aria-label="Suggestions">
 					{#if categories.length > 0}
 						<div class="picker-section-title">Categories <span>Browse deeper</span></div>
 						{#each categories as category, index}
@@ -431,7 +431,7 @@
 				</div>
 			{/if}
 
-			<div bind:this={dropdownRef} class="flex-1 min-h-0 overflow-y-auto" role="listbox">
+			<div bind:this={dropdownRef} class="flex-1 min-h-0 overflow-y-auto" role="listbox" aria-label="Suggestions">
 				<!-- Categories Section -->
 				{#if categories.length > 0}
 					{#if categories.length > 0 && suggestions.length > 0}

@@ -66,14 +66,8 @@ async function attachFirstFormSuggestion(page: Page, chipInput: Locator): Promis
 	await expect(chipInput.locator('.inline-chip-container')).toHaveCount(1);
 }
 
-/** AutocompleteDropdown.svelte's own `[role="option"]` rows, scoped to its
- *  `role="listbox"` container. A page-wide `[role="option"]` locator also
- *  matches PaneRow's option rows in CollectionLibrarySidebar (the /models
- *  page's permanent left sidebar, e.g. its "All models" row) — an unrelated
- *  component this spec's fixed-instance page happens to render underneath
- *  the chat panel. */
 function suggestOptions(page: Page): Locator {
-	return page.locator('[role="listbox"] [role="option"]');
+	return page.getByRole('listbox', { name: 'Suggestions' }).getByRole('option');
 }
 
 test.describe('ChatChipInput browser interactions', () => {
