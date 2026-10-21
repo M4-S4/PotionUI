@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { ThumbnailProfileName, ThumbnailStats } from '$lib/services/admin-api';
@@ -92,7 +92,7 @@
 			syncPolling();
 		} catch (e: any) {
 			logger.error('Failed to load thumbnail settings:', e);
-			error = e.response?.data?.message || e.message || 'Failed to load thumbnail settings.';
+			error = getApiErrorMessage(e, 'Failed to load thumbnail settings.');
 		} finally {
 			loading = false;
 		}
@@ -141,7 +141,7 @@
 		} catch (e: any) {
 			confirmOpen = false;
 			const status = e?.response?.status;
-			const message = e.response?.data?.message || e.message || 'Failed to start regeneration.';
+			const message = getApiErrorMessage(e, 'Failed to start regeneration.');
 			toasts.error(message);
 			if (status === 409) await load();
 		} finally {
@@ -157,7 +157,7 @@
 				stats = stats ? { ...stats, job: response.data } : stats;
 			}
 		} catch (e: any) {
-			toasts.error(e.response?.data?.message || e.message || 'Failed to cancel regeneration.');
+			toasts.error(getApiErrorMessage(e, 'Failed to cancel regeneration.'));
 		} finally {
 			cancelling = false;
 		}

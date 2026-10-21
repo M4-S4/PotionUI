@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { createVisiblePoll } from '$lib/utils/visiblePoll';
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { LogLevel, LogTail } from '$lib/services/admin-api';
 	import { Alert, Button, CopyButton, EmptyState, IconButton, SegmentedControl, Spinner, Switch } from '$lib/components/ui';
@@ -68,7 +68,7 @@
 			}
 		} catch (e: any) {
 			logger.error('Failed to load the log tail:', e);
-			error = e.response?.data?.message || e.message || 'Failed to load the log tail.';
+			error = getApiErrorMessage(e, 'Failed to load the log tail.');
 		} finally {
 			loading = false;
 		}

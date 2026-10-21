@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import * as adminApi from '$lib/services/admin-api';
@@ -120,7 +120,7 @@
 			syncPolling();
 		} catch (e: any) {
 			logger.error('Failed to load backup settings:', e);
-			error = e.response?.data?.message || e.message || 'Failed to load backup settings.';
+			error = getApiErrorMessage(e, 'Failed to load backup settings.');
 		} finally {
 			loading = false;
 		}
@@ -170,7 +170,7 @@
 			}
 		} catch (e: any) {
 			const status = e?.response?.status;
-			toasts.error(e.response?.data?.message || e.message || 'Failed to start backup.');
+			toasts.error(getApiErrorMessage(e, 'Failed to start backup.'));
 			if (status === 409) await load();
 		} finally {
 			runInFlight = false;
@@ -196,7 +196,7 @@
 			else toasts.error(response.message ?? 'Failed to delete the archive.');
 		} catch (e: any) {
 			deleteTarget = null;
-			toasts.error(e.response?.data?.message || e.message || 'Failed to delete the archive.');
+			toasts.error(getApiErrorMessage(e, 'Failed to delete the archive.'));
 		} finally {
 			deleting = false;
 		}

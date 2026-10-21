@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/services/api/index';
+	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { invokeBackendQuickAction } from '$lib/services/admin-api';
 	import type { BackendQuickAction } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
@@ -229,7 +230,7 @@
 				}
 			}
 		} catch (e: any) {
-			const message = e.response?.data?.message || e.message || `${action.label} failed`;
+			const message = getApiErrorMessage(e, `${action.label} failed`);
 			if (modalOpen) {
 				errorMessage = message;
 				phase = 'error';

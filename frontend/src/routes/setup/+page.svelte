@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
@@ -40,7 +41,7 @@
 		try {
 			report = await api.getReadiness();
 		} catch (err: any) {
-			loadError = err?.response?.data?.detail?.message || err?.message || 'Could not load readiness.';
+			loadError = getApiErrorMessage(err, 'Could not load readiness.');
 		} finally {
 			loading = false;
 			refreshing = false;
@@ -168,11 +169,7 @@
 			const result = await api.getSetupRecipes();
 			recipes = result.recipes;
 		} catch (err: any) {
-			recipesError =
-				err?.response?.data?.detail?.message ||
-				err?.response?.data?.detail ||
-				err?.message ||
-				"Couldn't load the setup recipes.";
+			recipesError = getApiErrorMessage(err, "Couldn't load the setup recipes.");
 		} finally {
 			recipesLoading = false;
 		}
@@ -189,7 +186,7 @@
 			const created = await api.createSetupRun(recipe.id);
 			session.adopt(created);
 		} catch (err: any) {
-			startError = err?.response?.data?.detail || err?.message || "Couldn't start this recipe.";
+			startError = getApiErrorMessage(err, "Couldn't start this recipe.");
 		} finally {
 			startingRecipeId = null;
 		}

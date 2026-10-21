@@ -9,6 +9,7 @@
 	 * `generation` alone.
 	 */
 	import { browser } from '$app/environment';
+	import { getApiErrorMessage } from '$lib/utils/logger';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { AdminGenerationListItem, GenerationFailureDetail, RunReport } from '$lib/services/admin-api';
 	import type { GenerationCost } from '$lib/utils/cloudCost';
@@ -101,7 +102,7 @@
 				failureError = response.message || 'Failed to load failure detail';
 			}
 		} catch (e: any) {
-			failureError = e?.response?.data?.message || e?.message || 'Failed to load failure detail';
+			failureError = getApiErrorMessage(e, 'Failed to load failure detail');
 		} finally {
 			failureLoading = false;
 		}
