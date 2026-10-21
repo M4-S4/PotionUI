@@ -7,18 +7,22 @@
 	import Tooltip from './Tooltip.svelte';
 	import VariableSelect from './VariableSelect.svelte';
 	import { Button, IconButton } from '$lib/components/ui';
-	import { MAX_BRANCHES, MAX_TESTS, MAX_VALUES, type ConditionOp } from '$lib/utils/promptConditions';
+	import tooltip from '$lib/actions/tooltip';
+	import { MAX_BRANCHES, MAX_STRING_CHARS, MAX_TESTS, MAX_VALUES, type ConditionOp } from '$lib/utils/promptConditions';
 	import {
+		checkDraft,
 		conditionIssue,
 		conditionValues,
 		conditionVarKind,
 		defaultTest,
 		draftFromRaw,
+		draftProblemText,
+		fitsCondition,
 		lastRunFor,
+		nestedToElseIf,
 		operatorChoice,
 		operatorsFor,
 		plainConditionSummary,
-		rawFromDraft,
 		retargetTest,
 		setTestOperator,
 		type BranchDraft,
@@ -51,8 +55,10 @@
 	);
 	let pendingCreate = $state<{ branch: number; test: number; name: string } | null>(null);
 
-	const nextRaw = $derived(rawFromDraft(draft, variables));
+	const checked = $derived(checkDraft(draft, variables));
+	const nextRaw = $derived(checked.raw);
 	const invalid = $derived(nextRaw === null);
+	const canUseElseIf = $derived(nestedToElseIf(draft) !== null);
 	const shownRaw = $derived(nextRaw ?? raw);
 	const summaryText = $derived(plainConditionSummary(shownRaw));
 	const issue = $derived(checkVariables ? conditionIssue(shownRaw, variables) : null);
@@ -165,6 +171,25 @@
 		});
 	}
 
+	function useElseIf() {
+		edit((d) => {
+			const next = nestedToElseIf(d);
+			if (next) d.branches = next.branches;
+		});
+	}
+
+	function branchFlagged(branch: number): boolean {
+		return checked.problems.some((p) => 'branch' in p && p.branch === branch);
+	}
+
+	function testFlagged(branch: number, test: number): boolean {
+		return checked.problems.some((p) => p.kind === 'value' && p.branch === branch && p.test === test);
+	}
+
+	function bodyFlagged(branch: number): boolean {
+		return checked.problems.some((p) => p.kind === 'nested' && p.branch === branch);
+	}
+
 	function removeBranch(index: number) {
 		edit((d) => {
 			if (d.branches[index]?.kind !== 'if') d.branches.splice(index, 1);
@@ -211,6 +236,7 @@
 		if (suppress) e.preventDefault();
 	}
 
+	const tooLongHint = `Longer than ${MAX_STRING_CHARS} characters, so it can't be used in a condition`;
 	const sectionLabel = 'font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle';
 	const fieldClass = 'input h-9 min-w-0 py-1 text-sm max-md:h-11';
 </script>
@@ -220,7 +246,8 @@
 {#snippet testRow(branch: BranchDraft, bi: number, test: BranchDraft['tests'][number], ti: number)}
 	{@const kind = conditionVarKind(test.var, variables)}
 	{@const ops = operatorsFor(kind)}
-	<div class="space-y-2" data-testid="condition-test">
+	{@const flagged = testFlagged(bi, ti)}
+	<div class="space-y-2" data-testid="condition-test" data-invalid={flagged ? 'true' : undefined}>
 		<div class="flex items-center gap-2">
 			<VariableSelect
 				class="min-w-0 flex-1"
@@ -252,32 +279,35 @@
 				<span class="text-sm text-fg-subtle">Nothing to enter</span>
 			{:else if kind === 'number' && (test.op === 'in' || test.op === 'not in')}
 				<div class="flex flex-wrap items-center gap-2">
-					<div class="w-36">
+					<div class="w-36 {flagged ? 'rounded ring-1 ring-warning/60' : ''}">
 						<NumberStepper
 							value={Number(test.low)}
 							step={numberStep(test.var)}
 							decimals={numberPlaces(test.var)}
+							commitOnInput
 							label="From"
 							onChange={(v) => setNumber(bi, ti, 'low', v)}
 						/>
 					</div>
 					<span class="text-fg-subtle">&ndash;</span>
-					<div class="w-36">
+					<div class="w-36 {flagged ? 'rounded ring-1 ring-warning/60' : ''}">
 						<NumberStepper
 							value={Number(test.high)}
 							step={numberStep(test.var)}
 							decimals={numberPlaces(test.var)}
+							commitOnInput
 							label="To"
 							onChange={(v) => setNumber(bi, ti, 'high', v)}
 						/>
 					</div>
 				</div>
 			{:else if kind === 'number' || test.op === '<' || test.op === '<=' || test.op === '>' || test.op === '>='}
-				<div class="w-40">
+				<div class="w-40 {flagged ? 'rounded ring-1 ring-warning/60' : ''}">
 					<NumberStepper
 						value={Number(test.number)}
 						step={numberStep(test.var)}
 						decimals={numberPlaces(test.var)}
+						commitOnInput
 						label="Value"
 						onChange={(v) => setNumber(bi, ti, 'number', v)}
 					/>
@@ -285,13 +315,23 @@
 			{:else if kind === 'choice'}
 				<div class="flex min-w-0 flex-wrap gap-1.5" role="group" aria-label="Values">
 					{#each optionsOf(test.var) as option (option)}
+						{@const usable = fitsCondition(option)}
+						{@const pressed = usable && test.strings.includes(option)}
 						<button
 							type="button"
-							aria-pressed={test.strings.includes(option)}
-							class="max-w-full whitespace-normal break-words rounded border px-2.5 py-1.5 text-left text-sm font-medium transition-colors max-md:py-2.5 {test.strings.includes(option)
-								? 'border-signal/40 bg-signal/15 text-signal'
-								: 'border-line bg-surface-2 text-fg-muted hover:text-fg'}"
-							onclick={() => toggleOption(bi, ti, option)}
+							aria-pressed={pressed}
+							aria-disabled={usable ? undefined : 'true'}
+							use:tooltip={usable ? null : tooLongHint}
+							class="max-w-full whitespace-normal break-words rounded border px-2.5 py-1.5 text-left text-sm font-medium transition-colors max-md:py-2.5 {!usable
+								? 'cursor-not-allowed border-line bg-surface-2 text-fg-subtle opacity-60'
+								: pressed
+									? 'border-signal/40 bg-signal/15 text-signal'
+									: flagged
+										? 'border-warning/40 bg-surface-2 text-fg-muted hover:text-fg'
+										: 'border-line bg-surface-2 text-fg-muted hover:text-fg'}"
+							onclick={() => {
+								if (usable) toggleOption(bi, ti, option);
+							}}
 						>
 							{option}
 						</button>
@@ -300,10 +340,11 @@
 			{:else}
 				<input
 					type="text"
-					class="{fieldClass} w-full"
+					class="{fieldClass} w-full {flagged ? 'border-warning/60' : ''}"
 					aria-label="Text"
+					aria-invalid={flagged ? 'true' : undefined}
 					placeholder="text"
-					maxlength="80"
+					maxlength={MAX_STRING_CHARS}
 					value={test.strings[0] ?? ''}
 					oninput={(e) => setText(bi, ti, e.currentTarget.value)}
 				/>
@@ -332,9 +373,10 @@
 	<div class="space-y-3 p-5" role="group" aria-label="Edit condition" data-testid="condition-editor-body">
 		{#each draft.branches as branch, bi (bi)}
 			<div
-				class="space-y-3 rounded-lg border border-line bg-surface-2/40 p-3"
+				class="space-y-3 rounded-lg border bg-surface-2/40 p-3 {branchFlagged(bi) ? 'border-warning/50' : 'border-line'}"
 				data-testid="condition-branch"
 				data-kind={branch.kind}
+				data-invalid={branchFlagged(bi) ? 'true' : undefined}
 			>
 				<div class="flex items-center gap-2">
 					<span class="{sectionLabel} flex-1">{branchLabel(branch)}</span>
@@ -376,10 +418,11 @@
 					</div>
 				{/if}
 				<textarea
-					class="input min-h-[5rem] w-full resize-y py-2 text-sm leading-5"
+					class="input min-h-[5rem] w-full resize-y py-2 text-sm leading-5 {bodyFlagged(bi) ? 'border-warning/60' : ''}"
 					rows="3"
 					placeholder={branch.kind === 'else' ? 'Nothing is added otherwise' : 'Text added when this is true'}
 					aria-label="{branchLabel(branch)} text"
+					aria-invalid={bodyFlagged(bi) ? 'true' : undefined}
 					value={branch.body}
 					oninput={(e) => setBody(bi, e.currentTarget.value)}
 				></textarea>
@@ -396,9 +439,16 @@
 		</div>
 
 		{#if invalid}
-			<p class="text-sm text-warning" role="alert" data-testid="condition-invalid">
-				Finish the highlighted values to save this change. Branch text can't contain another condition.
-			</p>
+			<ul class="space-y-1.5 text-sm text-warning" role="alert" data-testid="condition-invalid">
+				{#each checked.problems as problem, pi (pi)}
+					<li class="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="condition-problem">
+						<span class="min-w-0">{draftProblemText(problem, draft, variables)}</span>
+						{#if problem.kind === 'nested' && problem.branch === draft.branches.length - 1 && canUseElseIf}
+							<Button variant="secondary" size="xs" onclick={useElseIf}>Use Else if</Button>
+						{/if}
+					</li>
+				{/each}
+			</ul>
 		{/if}
 		{#if issue}
 			<p class="text-sm text-warning" role="status" data-testid="condition-issue">

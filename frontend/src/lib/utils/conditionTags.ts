@@ -1,5 +1,6 @@
 import {
 	MAX_BRANCHES,
+	MAX_HEAD_CHARS,
 	MAX_STRING_CHARS,
 	MAX_TESTS,
 	MAX_VALUES,
@@ -45,6 +46,21 @@ export interface BranchDraft {
 
 export interface ConditionDraft {
 	branches: BranchDraft[];
+}
+
+export type ValueProblem = 'empty' | 'too-long' | 'number' | 'reversed' | 'too-many';
+
+export type DraftProblem =
+	| { kind: 'value'; branch: number; test: number; reason: ValueProblem }
+	| { kind: 'tests'; branch: number }
+	| { kind: 'head'; branch: number }
+	| { kind: 'nested'; branch: number }
+	| { kind: 'branches' }
+	| { kind: 'grammar' };
+
+export interface DraftCheck {
+	raw: string | null;
+	problems: DraftProblem[];
 }
 
 export interface OperatorChoice {
@@ -108,8 +124,20 @@ export function isValidNumberText(text: string): boolean {
 	return NUMBER_PATTERN.test(text) && text.length <= 20;
 }
 
-export function isValidString(text: string): boolean {
-	return text.length >= 1 && text.length <= MAX_STRING_CHARS;
+function stringProblem(text: string): ValueProblem | null {
+	if (text.length === 0) return 'empty';
+	return Array.from(text).length > MAX_STRING_CHARS ? 'too-long' : null;
+}
+
+export function fitsCondition(text: string): boolean {
+	return stringProblem(text) === null;
+}
+
+function firstOption(name: string, variables: VariablesMap): string {
+	const def = normalizeVariableDef(variables[name]);
+	if (def.type !== 'choice') return '';
+	const options = def.options.map((o) => optionText(o).trim()).filter((o) => o);
+	return options.find(fitsCondition) ?? options[0] ?? '';
 }
 
 function emptyTest(name: string): TestDraft {
@@ -131,9 +159,7 @@ export function defaultTest(name: string, variables: VariablesMap): TestDraft {
 			test.high = last;
 		}
 	} else if (kind === 'choice') {
-		const def = normalizeVariableDef(variables[name]);
-		const first = def.type === 'choice' ? def.options.map((o) => optionText(o).trim()).find((o) => o) : undefined;
-		test.strings = [first ?? ''];
+		test.strings = [firstOption(name, variables)];
 	} else {
 		test.op = 'is empty';
 	}
@@ -150,10 +176,10 @@ export function retargetTest(test: TestDraft, name: string, variables: Variables
 export function setTestOperator(test: TestDraft, op: ConditionOp, variables: VariablesMap): TestDraft {
 	const kind = conditionVarKind(test.var, variables);
 	const next = { ...test, op };
-	if (kind === 'choice' && (op === 'in' || op === 'not in') && next.strings.every((s) => !s)) {
-		const def = normalizeVariableDef(variables[test.var]);
-		const first = def.type === 'choice' ? def.options.map((o) => optionText(o).trim()).find((o) => o) : undefined;
-		next.strings = [first ?? ''];
+	const listed = op === 'in' || op === 'not in';
+	if (!listed && next.strings.length > 1) next.strings = [next.strings.find((s) => s) ?? ''];
+	if (kind === 'choice' && op !== 'is empty' && op !== 'is not empty' && next.strings.every((s) => !s)) {
+		next.strings = [firstOption(test.var, variables)];
 	}
 	return next;
 }
@@ -212,47 +238,134 @@ export function draftFromRaw(raw: string): ConditionDraft | null {
 	return parsed ? draftFromBlock(parsed.blocks[0]) : null;
 }
 
-export function testFromDraft(draft: TestDraft, variables: VariablesMap): ConditionTest | null {
+type TestRead = { test: ConditionTest; problem: null } | { test: null; problem: ValueProblem };
+
+function readTest(draft: TestDraft, variables: VariablesMap): TestRead {
 	const base = { var: draft.var, start: 0, end: 0 };
 	const kind = conditionVarKind(draft.var, variables);
 	const op = draft.op;
-	if (op === 'is empty' || op === 'is not empty') return { ...base, kind: 'none', op };
+	const ok = (test: ConditionTest): TestRead => ({ test, problem: null });
+	const fail = (problem: ValueProblem): TestRead => ({ test: null, problem });
+	if (op === 'is empty' || op === 'is not empty') return ok({ ...base, kind: 'none', op });
 	if (op === 'in' || op === 'not in') {
 		if (kind === 'number') {
-			if (!isValidNumberText(draft.low) || !isValidNumberText(draft.high)) return null;
-			if (Number(draft.low) > Number(draft.high)) return null;
-			return { ...base, kind: 'range', op, low: draft.low, high: draft.high };
+			if (!isValidNumberText(draft.low) || !isValidNumberText(draft.high)) return fail('number');
+			if (Number(draft.low) > Number(draft.high)) return fail('reversed');
+			return ok({ ...base, kind: 'range', op, low: draft.low, high: draft.high });
 		}
 		const strings = draft.strings.filter((s) => s !== '');
-		if (strings.length === 0 || strings.length > MAX_VALUES || !strings.every(isValidString)) return null;
-		return { ...base, kind: 'strings', op, strings };
+		if (strings.length === 0) return fail('empty');
+		if (strings.length > MAX_VALUES) return fail('too-many');
+		const problem = strings.map(stringProblem).find((p) => p !== null);
+		return problem ? fail(problem) : ok({ ...base, kind: 'strings', op, strings });
 	}
 	if (op === 'contains' || op === 'not contains') {
 		const text = draft.strings[0] ?? '';
-		return isValidString(text) ? { ...base, kind: 'string', op, strings: [text] } : null;
+		const problem = stringProblem(text);
+		return problem ? fail(problem) : ok({ ...base, kind: 'string', op, strings: [text] });
 	}
 	if (kind === 'number' || op === '<' || op === '<=' || op === '>' || op === '>=') {
-		return isValidNumberText(draft.number) ? { ...base, kind: 'number', op, number: draft.number } : null;
+		return isValidNumberText(draft.number) ? ok({ ...base, kind: 'number', op, number: draft.number }) : fail('number');
 	}
 	const text = draft.strings[0] ?? '';
-	return isValidString(text) ? { ...base, kind: 'string', op, strings: [text] } : null;
+	const problem = stringProblem(text);
+	return problem ? fail(problem) : ok({ ...base, kind: 'string', op, strings: [text] });
+}
+
+export function testFromDraft(draft: TestDraft, variables: VariablesMap): ConditionTest | null {
+	return readTest(draft, variables).test;
+}
+
+export function checkDraft(draft: ConditionDraft, variables: VariablesMap): DraftCheck {
+	const problems: DraftProblem[] = [];
+	const parts: string[] = [];
+	if (draft.branches.length > MAX_BRANCHES) problems.push({ kind: 'branches' });
+	draft.branches.forEach((branch, index) => {
+		if (NESTED_TAG.test(branch.body)) problems.push({ kind: 'nested', branch: index });
+		if (branch.kind === 'else') {
+			parts.push(`<<else>>${branch.body}`);
+			return;
+		}
+		if (branch.tests.length === 0 || branch.tests.length > MAX_TESTS) {
+			problems.push({ kind: 'tests', branch: index });
+			return;
+		}
+		const tests: ConditionTest[] = [];
+		branch.tests.forEach((draftTest, test) => {
+			const read = readTest(draftTest, variables);
+			if (read.test !== null) tests.push(read.test);
+			else problems.push({ kind: 'value', branch: index, test, reason: read.problem });
+		});
+		if (tests.length < branch.tests.length) return;
+		const head = formatCondition(tests, branch.joiner);
+		if (Array.from(head).length > MAX_HEAD_CHARS) problems.push({ kind: 'head', branch: index });
+		parts.push(`<<${branch.kind === 'if' ? 'if' : 'else if'} ${head}>>${branch.body}`);
+	});
+	if (problems.length > 0) return { raw: null, problems };
+	const raw = `${parts.join('')}<<end>>`;
+	return parseConditionRaw(raw) ? { raw, problems } : { raw: null, problems: [{ kind: 'grammar' }] };
 }
 
 export function rawFromDraft(draft: ConditionDraft, variables: VariablesMap): string | null {
-	const parts: string[] = [];
-	for (const branch of draft.branches) {
-		if (NESTED_TAG.test(branch.body)) return null;
-		if (branch.kind === 'else') {
-			parts.push(`<<else>>${branch.body}`);
-			continue;
-		}
-		const tests = branch.tests.map((t) => testFromDraft(t, variables));
-		if (tests.length === 0 || tests.length > MAX_TESTS || tests.some((t) => t === null)) return null;
-		const head = formatCondition(tests as ConditionTest[], branch.joiner);
-		parts.push(`<<${branch.kind === 'if' ? 'if' : 'else if'} ${head}>>${branch.body}`);
+	return checkDraft(draft, variables).raw;
+}
+
+export function nestedToElseIf(draft: ConditionDraft): ConditionDraft | null {
+	const last = draft.branches[draft.branches.length - 1];
+	if (!last || last.kind !== 'else') return null;
+	const inner = draftFromRaw(last.body.trim());
+	if (!inner) return null;
+	const branches: BranchDraft[] = [
+		...draft.branches.slice(0, -1),
+		...inner.branches.map((b, i): BranchDraft => (i === 0 ? { ...b, kind: 'elseif' } : b))
+	];
+	return branches.length <= MAX_BRANCHES ? { branches } : null;
+}
+
+export function branchName(draft: ConditionDraft, index: number): string {
+	const branch = draft.branches[index];
+	if (!branch || branch.kind === 'if') return 'If';
+	if (branch.kind === 'else') return 'Otherwise';
+	if (draft.branches.filter((b) => b.kind === 'elseif').length < 2) return 'Else if';
+	return `Else if ${draft.branches.slice(0, index + 1).filter((b) => b.kind === 'elseif').length}`;
+}
+
+function valueProblemText(reason: ValueProblem, test: TestDraft, variables: VariablesMap): string {
+	const target = `$${test.var}`;
+	switch (reason) {
+		case 'empty':
+			if (test.op === 'in' || test.op === 'not in') return `pick at least one value for ${target}.`;
+			return conditionVarKind(test.var, variables) === 'choice'
+				? `pick a value for ${target}.`
+				: `type the text to compare ${target} with.`;
+		case 'too-long':
+			return conditionVarKind(test.var, variables) === 'choice'
+				? `the option picked for ${target} is longer than ${MAX_STRING_CHARS} characters and can't be used in a condition.`
+				: `the value for ${target} is longer than ${MAX_STRING_CHARS} characters and can't be used in a condition.`;
+		case 'number':
+			return `enter a number for ${target}.`;
+		case 'reversed':
+			return `the From number for ${target} is above To.`;
+		case 'too-many':
+			return `pick at most ${MAX_VALUES} values for ${target}.`;
 	}
-	if (draft.branches.length > MAX_BRANCHES) return null;
-	return `${parts.join('')}<<end>>`;
+}
+
+export function draftProblemText(problem: DraftProblem, draft: ConditionDraft, variables: VariablesMap): string {
+	switch (problem.kind) {
+		case 'branches':
+			return `A condition can have at most ${MAX_BRANCHES} branches.`;
+		case 'grammar':
+			return "This condition can't be saved as it is. Shorten its text or check its variable names.";
+		case 'nested':
+			return `${branchName(draft, problem.branch)} text contains another condition. Conditions can't be nested, so add an Else if instead.`;
+		case 'tests':
+			return `${branchName(draft, problem.branch)} needs 1 to ${MAX_TESTS} tests.`;
+		case 'head':
+			return `${branchName(draft, problem.branch)} is too long to save. Remove a test or pick shorter values.`;
+		case 'value':
+			return `${branchName(draft, problem.branch)}: ${valueProblemText(problem.reason, draft.branches[problem.branch].tests[problem.test], variables)}`;
+	}
 }
 
 export function defaultConditionRaw(variables: VariablesMap, body = ''): string {

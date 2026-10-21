@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+	branchName,
+	checkDraft,
 	conditionIssue,
 	conditionReadersFor,
 	conditionTagWarnings,
@@ -7,16 +9,22 @@ import {
 	conditionValues,
 	countConditionBlocks,
 	defaultConditionRaw,
+	defaultTest,
 	draftFromRaw,
+	draftProblemText,
+	fitsCondition,
 	lastRunFor,
+	nestedToElseIf,
 	operatorsFor,
 	plainConditionSummary,
 	rawFromDraft,
 	retargetTest,
 	setTestOperator,
 	summarizeCondition,
-	testFromDraft
+	testFromDraft,
+	type ConditionDraft
 } from './conditionTags';
+import { MAX_STRING_CHARS, MAX_TESTS } from './promptConditions';
 import type { VariablesMap } from './variableDefs';
 
 const variables: VariablesMap = {
@@ -58,13 +66,179 @@ describe('draft round trip', () => {
 		expect(rawFromDraft(draft, variables)).toBe('<<if $name = "say \\"hi\\"">>a<<end>>');
 	});
 
-	it('limits tests to six and strings to 80 characters', () => {
+	it('limits tests to six and strings to the value cap', () => {
 		const draft = draftFromRaw('<<if $name = "x">>a<<end>>')!;
-		draft.branches[0].tests[0].strings = ['x'.repeat(81)];
+		draft.branches[0].tests[0].strings = ['x'.repeat(MAX_STRING_CHARS + 1)];
 		expect(rawFromDraft(draft, variables)).toBeNull();
 		const six = draftFromRaw('<<if $name = "x">>a<<end>>')!;
 		six.branches[0].tests = Array.from({ length: 7 }, () => ({ ...six.branches[0].tests[0] }));
 		expect(rawFromDraft(six, variables)).toBeNull();
+	});
+});
+
+describe('draft problems', () => {
+	const draftOf = (raw: string): ConditionDraft => draftFromRaw(raw)!;
+
+	it('writes a complete draft with no problems', () => {
+		expect(checkDraft(draftOf(CANONICAL), variables)).toEqual({ raw: CANONICAL, problems: [] });
+	});
+
+	it('names the branch, the test and the reason of each unfinished value', () => {
+		const draft = draftOf('<<if $name = "a">>x<<else if $age in 18..30 and $mood in "calm">>y<<end>>');
+		draft.branches[0].tests[0].strings = [''];
+		draft.branches[1].tests[0].low = '40';
+		draft.branches[1].tests[1].strings = Array.from({ length: 13 }, (_, i) => `v${i}`);
+		expect(checkDraft(draft, variables)).toEqual({
+			raw: null,
+			problems: [
+				{ kind: 'value', branch: 0, test: 0, reason: 'empty' },
+				{ kind: 'value', branch: 1, test: 0, reason: 'reversed' },
+				{ kind: 'value', branch: 1, test: 1, reason: 'too-many' }
+			]
+		});
+	});
+
+	it('tells a bad number and a value over the limit apart', () => {
+		const draft = draftOf('<<if $age > 1 and $name contains "a">>x<<end>>');
+		draft.branches[0].tests[0].number = '6.';
+		draft.branches[0].tests[1].strings = ['x'.repeat(MAX_STRING_CHARS + 1)];
+		expect(checkDraft(draft, variables).problems).toEqual([
+			{ kind: 'value', branch: 0, test: 0, reason: 'number' },
+			{ kind: 'value', branch: 0, test: 1, reason: 'too-long' }
+		]);
+	});
+
+	it('counts the length limit in characters, like the parser', () => {
+		const draft = draftOf('<<if $name = "a">>x<<end>>');
+		draft.branches[0].tests[0].strings = ['🙂'.repeat(MAX_STRING_CHARS)];
+		const raw = rawFromDraft(draft, variables);
+		expect(raw).not.toBeNull();
+		expect(draftFromRaw(raw!)).not.toBeNull();
+	});
+
+	it('flags nested text, a branch without tests and too many branches', () => {
+		const draft = draftOf('<<if $age > 1>>x<<else>>y<<end>>');
+		draft.branches[1].body = 'y <<if $age > 2>>z<<end>>';
+		draft.branches[0].tests = [];
+		expect(checkDraft(draft, variables).problems).toEqual([
+			{ kind: 'tests', branch: 0 },
+			{ kind: 'nested', branch: 1 }
+		]);
+		const many = draftOf('<<if $age > 1>>x<<end>>');
+		many.branches = Array.from({ length: 9 }, (_, i) => ({ ...many.branches[0], kind: i === 0 ? 'if' : 'elseif' }));
+		expect(checkDraft(many, variables).problems).toEqual([{ kind: 'branches' }]);
+	});
+
+	it('refuses a head the parser would not read back', () => {
+		const long = draftOf('<<if $name = "a">>x<<end>>');
+		long.branches[0].tests = Array.from({ length: MAX_TESTS }, () => ({
+			...long.branches[0].tests[0],
+			strings: ['x'.repeat(MAX_STRING_CHARS)]
+		}));
+		expect(checkDraft(long, variables).problems).toEqual([{ kind: 'head', branch: 0 }]);
+		const name = 'v'.repeat(61);
+		const unreadable = draftOf('<<if $age is empty>>x<<end>>');
+		unreadable.branches[0].tests[0].var = name;
+		expect(checkDraft(unreadable, variables)).toEqual({ raw: null, problems: [{ kind: 'grammar' }] });
+	});
+});
+
+describe('problem messages', () => {
+	const draft = draftFromRaw(
+		'<<if $mood = "calm">>a<<else if $mood in "calm">>b<<else if $age in 18..30>>c<<else>>d<<end>>'
+	)!;
+
+	it('names branches the way the editor shows them', () => {
+		expect([0, 1, 2, 3].map((i) => branchName(draft, i))).toEqual(['If', 'Else if 1', 'Else if 2', 'Otherwise']);
+		const single = draftFromRaw('<<if $age > 1>>a<<else if $age > 2>>b<<end>>')!;
+		expect(branchName(single, 1)).toBe('Else if');
+	});
+
+	it('words each value reason for the variable it is about', () => {
+		const text = (branch: number, reason: 'empty' | 'too-long' | 'number' | 'reversed' | 'too-many') =>
+			draftProblemText({ kind: 'value', branch, test: 0, reason }, draft, variables);
+		expect(text(0, 'empty')).toBe('If: pick a value for $mood.');
+		expect(text(1, 'empty')).toBe('Else if 1: pick at least one value for $mood.');
+		expect(text(0, 'too-long')).toBe(
+			`If: the option picked for $mood is longer than ${MAX_STRING_CHARS} characters and can't be used in a condition.`
+		);
+		expect(text(1, 'too-many')).toBe('Else if 1: pick at most 12 values for $mood.');
+		expect(text(2, 'reversed')).toBe('Else if 2: the From number for $age is above To.');
+		expect(text(2, 'number')).toBe('Else if 2: enter a number for $age.');
+		const named = draftFromRaw('<<if $name = "a">>a<<end>>')!;
+		expect(draftProblemText({ kind: 'value', branch: 0, test: 0, reason: 'empty' }, named, variables)).toBe(
+			'If: type the text to compare $name with.'
+		);
+	});
+
+	it('words branch-wide problems', () => {
+		expect(draftProblemText({ kind: 'nested', branch: 3 }, draft, variables)).toBe(
+			"Otherwise text contains another condition. Conditions can't be nested, so add an Else if instead."
+		);
+		expect(draftProblemText({ kind: 'tests', branch: 1 }, draft, variables)).toBe('Else if 1 needs 1 to 6 tests.');
+		expect(draftProblemText({ kind: 'head', branch: 0 }, draft, variables)).toBe(
+			'If is too long to save. Remove a test or pick shorter values.'
+		);
+		expect(draftProblemText({ kind: 'branches' }, draft, variables)).toBe('A condition can have at most 8 branches.');
+		expect(draftProblemText({ kind: 'grammar' }, draft, variables)).toContain("can't be saved as it is");
+	});
+});
+
+describe('nested condition to else if', () => {
+	const withOtherwise = (body: string) => {
+		const draft = draftFromRaw('<<if $age > 65>>grey<<else>>x<<end>>')!;
+		draft.branches[1].body = body;
+		return draft;
+	};
+
+	it('turns an otherwise that is only a condition into its branches', () => {
+		const next = nestedToElseIf(withOtherwise(' <<if $age < 25>>young<<else if $age < 40>>mid<<else>>auburn<<end>> '))!;
+		expect(rawFromDraft(next, variables)).toBe(
+			'<<if $age > 65>>grey<<else if $age < 25>>young<<else if $age < 40>>mid<<else>>auburn<<end>>'
+		);
+	});
+
+	it('leaves shapes whose meaning would change', () => {
+		expect(nestedToElseIf(withOtherwise('auburn <<if $age < 25>>young<<end>>'))).toBeNull();
+		expect(nestedToElseIf(withOtherwise('<<if $age < 25>>young<<end>> auburn'))).toBeNull();
+		const inIf = draftFromRaw('<<if $age > 65>>grey<<end>>')!;
+		inIf.branches[0].body = '<<if $age < 70>>young<<end>>';
+		expect(nestedToElseIf(inIf)).toBeNull();
+	});
+
+	it('stops at the branch limit', () => {
+		const heads = Array.from({ length: 6 }, (_, i) => `<<else if $age = ${i + 20}>>b${i}`).join('');
+		const outer = draftFromRaw(`<<if $age > 65>>a${heads}<<else>>x<<end>>`)!;
+		outer.branches[outer.branches.length - 1].body = '<<if $age < 5>>c<<else>>d<<end>>';
+		expect(outer.branches.length).toBe(8);
+		expect(nestedToElseIf(outer)).toBeNull();
+	});
+});
+
+describe('default values', () => {
+	const long = 'x'.repeat(MAX_STRING_CHARS + 1);
+	const looks: VariablesMap = {
+		look: { type: 'choice', mode: 'shuffle', pinnedIndex: null, options: [long, 'linen', 'silk'] },
+		name: variables.name
+	};
+
+	it('starts a choice test on the first option short enough to compare', () => {
+		expect(defaultTest('look', looks)).toMatchObject({ op: '=', strings: ['linen'] });
+		expect(fitsCondition('x'.repeat(MAX_STRING_CHARS))).toBe(true);
+		expect(fitsCondition(long)).toBe(false);
+	});
+
+	it('fills a choice value when a test leaves is empty, but leaves text for the user', () => {
+		const empty = draftFromRaw('<<if $look is empty>>a<<end>>')!.branches[0].tests[0];
+		expect(setTestOperator(empty, '=', looks).strings).toEqual(['linen']);
+		const text = draftFromRaw('<<if $name is empty>>a<<end>>')!.branches[0].tests[0];
+		expect(setTestOperator(text, '=', looks).strings).toEqual(['']);
+	});
+
+	it('keeps one value when a list test becomes a single comparison', () => {
+		const listed = draftFromRaw('<<if $look in "linen", "silk">>a<<end>>')!.branches[0].tests[0];
+		expect(setTestOperator(listed, '=', looks).strings).toEqual(['linen']);
+		expect(setTestOperator(listed, 'not in', looks).strings).toEqual(['linen', 'silk']);
 	});
 });
 

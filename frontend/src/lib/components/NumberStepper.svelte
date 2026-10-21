@@ -7,6 +7,7 @@
 		decimals = 0,
 		min = undefined,
 		max = undefined,
+		commitOnInput = false,
 		label,
 		onChange
 	}: {
@@ -15,6 +16,7 @@
 		decimals?: number;
 		min?: number;
 		max?: number;
+		commitOnInput?: boolean;
 		label: string;
 		onChange: (value: number) => void;
 	} = $props();
@@ -33,13 +35,23 @@
 		onChange(clamp(value + direction * unit));
 	}
 
+	function parse(text: string): number | null {
+		const raw = text.trim().replace(',', '.');
+		const parsed = raw === '' ? NaN : Number(raw);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+
 	function commitDraft() {
 		if (draft === null) return;
-		const raw = draft.trim().replace(',', '.');
+		const parsed = parse(draft);
 		draft = null;
-		const parsed = raw === '' ? NaN : Number(raw);
-		if (!Number.isFinite(parsed)) return;
-		onChange(clamp(parsed));
+		if (parsed !== null) onChange(clamp(parsed));
+	}
+
+	function handleInput(text: string) {
+		draft = text;
+		const parsed = commitOnInput ? parse(text) : null;
+		if (parsed !== null) onChange(clamp(parsed));
 	}
 
 	const shown = $derived(draft ?? value.toFixed(Math.min(Math.max(decimals, 0), 10)));
@@ -61,7 +73,7 @@
 		class="min-w-0 flex-1 bg-transparent px-1 text-center font-mono text-sm tabular-nums text-fg outline-none"
 		aria-label={label}
 		value={shown}
-		oninput={(e) => (draft = e.currentTarget.value)}
+		oninput={(e) => handleInput(e.currentTarget.value)}
 		onblur={commitDraft}
 		onkeydown={(e) => {
 			if (e.key === 'Enter') commitDraft();
