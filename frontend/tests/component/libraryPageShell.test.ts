@@ -96,7 +96,7 @@ describe('library page', () => {
 		expect(api.getLibraryFacets).toHaveBeenCalled();
 		expect(api.listCollections).toHaveBeenCalled();
 		// The library owns its own tag vocabulary, never the generation one.
-		expect(api.getTags).toHaveBeenCalledWith('UPLOAD');
+		expect(api.getTags).toHaveBeenCalledWith('UPLOAD', expect.any(AbortSignal));
 	});
 
 	it('shows the empty state with a way in when the library holds nothing', async () => {
