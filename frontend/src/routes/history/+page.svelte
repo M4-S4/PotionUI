@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
+	import { generationIdOf } from '$lib/generation/messages/wire';
 	import { goto } from '$app/navigation';
 	import {
 		historyStore,
@@ -164,7 +165,7 @@
 
 	function handleWsMessage(message: WebSocketMessage) {
 		const m = message as Record<string, any>;
-		let generationId: string | undefined = m.generation_id;
+		const generationId = generationIdOf(message);
 		let status: string | null = null;
 		let progress: number | undefined;
 
@@ -173,13 +174,10 @@
 			progress = typeof m.progress === 'number' ? m.progress : undefined;
 		} else if (m.type === 'generation_complete') {
 			status = 'completed';
-			generationId = m.data?.id ?? m.data?.generation_id ?? generationId;
 		} else if (m.type === 'generation_error') {
 			status = 'failed';
-			generationId = m.data?.generation_id ?? m.data?.id ?? generationId;
 		} else if (m.type === 'generation_cancelled') {
 			status = 'cancelled';
-			generationId = m.data?.id ?? generationId;
 		} else {
 			return;
 		}

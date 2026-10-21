@@ -5,7 +5,8 @@ import { api } from '$lib/services/api/index';
 import type { GenerationRequest } from '$lib/services/api/index';
 import { refusalFromError } from '$lib/plans/refusal';
 import { hasAxisEditor } from '$lib/fields/registry';
-import { applyCellMessage, COMPARE_MESSAGE_TYPES, COMPARE_TERMINAL_TYPES, generationIdOf } from './compareMessages';
+import { applyCellMessage, COMPARE_MESSAGE_TYPES } from './compareMessages';
+import { TERMINAL_TYPES, generationIdOf } from '$lib/generation/messages/wire';
 import { buildAxisCandidates } from './candidates';
 import { cellCount, effectiveAxes } from './axisValues';
 import { shortfallFromError, type DailyShortfall } from './compareLimits';
@@ -627,7 +628,7 @@ export function observeGenerationMessage(message: { type: string; [key: string]:
 	grid.cells[entry.index] = next;
 	if (next.status === cell.status && PROGRESS_MESSAGE_TYPES.has(message.type)) touchProgress();
 	else touch();
-	if (COMPARE_TERMINAL_TYPES.has(message.type)) {
+	if (TERMINAL_TYPES.has(message.type)) {
 		if (next.status === 'completed') rememberCellDuration(entry.tabId, generationId);
 		else runStarted.delete(generationId);
 		scheduleRefresh(entry.tabId);
