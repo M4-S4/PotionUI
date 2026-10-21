@@ -91,14 +91,22 @@ class PresetController(BaseController):
     def _supports_prompt_batch(self, engine: Optional[str]) -> bool:
         return self.backend_registry.engine_supports_prompt_batch(engine)
 
+    def _engine_available(self, engine: Optional[str]) -> bool:
+        return bool(engine) and bool(self.backend_registry.get_backends_for_engine(engine))
+
     def _list_presets(self, current_user: User, include_uninstalled: bool) -> List[Dict[str, Any]]:
         data = operations.list_presets(self.collaborators, current_user, include_uninstalled)
         by_preset = (
             self.recipe_links.recipes_by_preset(current_user) if self.recipe_links is not None else {}
         )
+        engines: Dict[Optional[str], bool] = {}
         for preset in data:
+            engine = preset.get('engine')
+            if engine not in engines:
+                engines[engine] = self._engine_available(engine)
             preset['recipes'] = by_preset.get(preset['id'], [])
-            preset['supports_prompt_batch'] = self._supports_prompt_batch(preset.get('engine'))
+            preset['supports_prompt_batch'] = self._supports_prompt_batch(engine)
+            preset['engine_available'] = engines[engine]
         return data
 
     @guarded(None, Fail("preset_list_failed", "Failed to list presets", status=500))
@@ -223,6 +231,26 @@ class PresetController(BaseController):
 
     async def get_mode_labels(self) -> APIResponse:
         return self.success_response(data={"labels": dict(MODE_LABELS)})
+
+    @_guarded("preset_picker_state_failed", "Failed to load the preset picker state")
+    async def get_picker_state(self, current_user: User) -> APIResponse:
+        data = await asyncio.to_thread(operations.get_picker_state, self.collaborators, current_user)
+        return self.success_response(data=data)
+
+    @_guarded("preset_pin_failed", "Failed to pin the preset")
+    async def pin_preset(self, preset_id: str, current_user: User) -> APIResponse:
+        data = await asyncio.to_thread(operations.pin_preset, self.collaborators, current_user, preset_id)
+        return self.success_response(data=data)
+
+    @_guarded("preset_unpin_failed", "Failed to unpin the preset")
+    async def unpin_preset(self, preset_id: str, current_user: User) -> APIResponse:
+        data = await asyncio.to_thread(operations.unpin_preset, self.collaborators, current_user, preset_id)
+        return self.success_response(data=data)
+
+    @_guarded("preset_recent_failed", "Failed to record the recent preset")
+    async def push_recent_preset(self, preset_id: str, current_user: User) -> APIResponse:
+        data = await asyncio.to_thread(operations.push_recent_preset, self.collaborators, current_user, preset_id)
+        return self.success_response(data=data)
 
     @_guarded("modes_get_failed", "Failed to get modes")
     async def get_available_modes(self, preset_id: str) -> APIResponse:
@@ -371,6 +399,22 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/mode-labels", response_model=APIResponse, summary="Get Mode Display Names")
     async def get_mode_labels(current_user=Depends(get_current_active_user)):
         return await controller.get_mode_labels()
+
+    @router.get("/picker-state", response_model=APIResponse, summary="Get Pinned and Recent Presets")
+    async def get_picker_state(current_user: User = Depends(get_current_active_user)):
+        return await controller.get_picker_state(current_user)
+
+    @router.put("/picker-state/pinned/{preset_id}", response_model=APIResponse, summary="Pin a Preset")
+    async def pin_preset(preset_id: str, current_user: User = Depends(get_current_active_user)):
+        return await controller.pin_preset(preset_id, current_user)
+
+    @router.delete("/picker-state/pinned/{preset_id}", response_model=APIResponse, summary="Unpin a Preset")
+    async def unpin_preset(preset_id: str, current_user: User = Depends(get_current_active_user)):
+        return await controller.unpin_preset(preset_id, current_user)
+
+    @router.post("/picker-state/recent/{preset_id}", response_model=APIResponse, summary="Record a Recently Chosen Preset")
+    async def push_recent_preset(preset_id: str, current_user: User = Depends(get_current_active_user)):
+        return await controller.push_recent_preset(preset_id, current_user)
 
     @router.get("/{preset_id}", response_model=APIResponse, summary="Get Preset Details")
     async def get_preset(preset_id: str, current_user=Depends(get_current_active_user)):

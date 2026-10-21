@@ -45,6 +45,12 @@ from src.features.presets.operations.form_overrides import (
 from src.features.presets.operations.requirements import (
     get_preset_requirements,
 )
+from src.features.presets.operations.picker_state import (
+    get_picker_state,
+    pin_preset,
+    unpin_preset,
+    push_recent_preset,
+)
 
 __all__ = [
     "list_presets",
@@ -63,4 +69,8 @@ __all__ = [
     "get_form_overrides_inventory",
     "set_form_overrides",
     "get_preset_requirements",
+    "get_picker_state",
+    "pin_preset",
+    "unpin_preset",
+    "push_recent_preset",
 ]
