@@ -83,7 +83,7 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	await page.keyboard.type('How should I use my variables?');
 	await composer.locator('button[aria-label="Send message"]').click();
 
-	const chip = page.locator(`span[title="${VARIABLE_VALUE}"]`);
+	const chip = page.locator(`span[data-tooltip="${VARIABLE_VALUE}"]`);
 	await expect(chip).toBeVisible({ timeout: 30000 });
 	await expect(chip).toContainText(VARIABLE_NAME);
 
@@ -93,6 +93,7 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 
 	await screenshot(page, JOURNEY, 'variable-chip-rendered');
 	await chip.hover();
+	await expect(page.getByRole('tooltip')).toHaveText(VARIABLE_VALUE);
 	await screenshot(page, JOURNEY, 'conversation-final');
 
 	console.log(

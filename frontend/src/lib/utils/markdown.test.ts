@@ -482,7 +482,9 @@ describe('decorateVariableChips', () => {
 		const out = decorateVariableChips('use ${mood} please', tips);
 		expect(out).toContain('border-accent/30');
 		expect(out).toContain('bg-accent/10');
-		expect(out).toContain('title="one of noir, sunlit — shuffles each generation"');
+		expect(out).toContain('data-tooltip="one of noir, sunlit — shuffles each generation"');
+		expect(out).toContain('tabindex="0"');
+		expect(out).not.toContain('title=');
 		expect(out).toContain('>mood<');
 		expect(out).not.toContain('${mood}');
 	});

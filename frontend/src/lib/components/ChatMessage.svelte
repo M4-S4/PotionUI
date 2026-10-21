@@ -1,5 +1,6 @@
 <script lang="ts">
 	import tooltip from '$lib/actions/tooltip';
+	import delegatedTooltip from '$lib/actions/delegatedTooltip';
 	import { slide } from 'svelte/transition';
 	import {
 		processMarkdown,
@@ -341,7 +342,7 @@
 					Stopped at the output limit; the reply may be incomplete.
 				</div>
 			{/if}
-			<div class="assistant-copy">
+			<div class="assistant-copy" use:delegatedTooltip>
 				{@html renderedHtml}{#if isStreaming}<span class="inline-block w-2 h-4 ml-0.5 bg-signal animate-pulse rounded-sm"></span>{/if}
 
 				{#if replyContract?.improved?.length}
@@ -510,7 +511,7 @@
 				<span class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-disabled"> · {formatTime(timestamp)}</span>
 			{/if}
 		</div>
-		<div class="{compact ? 'text-xs' : 'text-sm'} text-warning bg-warning/10 rounded-lg {compact ? 'px-3 py-2' : 'px-4 py-3'} border border-line leading-normal max-w-none">
+		<div class="{compact ? 'text-xs' : 'text-sm'} text-warning bg-warning/10 rounded-lg {compact ? 'px-3 py-2' : 'px-4 py-3'} border border-line leading-normal max-w-none" use:delegatedTooltip>
 			{@html processMarkdown(content, { variableChips })}
 		</div>
 	</div>

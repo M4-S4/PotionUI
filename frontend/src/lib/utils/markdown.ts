@@ -228,9 +228,9 @@ export function decorateVariableChips(html: string, tooltips: Record<string, str
 	return html.replace(VARIABLE_DECORATION_RE, (match, codeEl, tag, name) => {
 		if (codeEl !== undefined || tag !== undefined) return match; // structural — leave untouched
 		if (!(name in tooltips)) return match; // unknown variable — literal text
-		const title = escapeHtmlAttr(tooltips[name]);
+		const tooltip = escapeHtmlAttr(tooltips[name]);
 		return (
-			`<span class="inline-flex items-center align-middle mx-0.5 rounded border border-accent/30 bg-accent/10 px-1 leading-none" title="${title}">` +
+			`<span class="inline-flex items-center align-middle mx-0.5 rounded border border-accent/30 bg-accent/10 px-1 leading-none" data-tooltip="${tooltip}" tabindex="0">` +
 			`<span class="font-mono text-xs text-fg-subtle">$</span>` +
 			`<span class="font-mono text-xs text-fg">${name}</span>` +
 			`</span>`
