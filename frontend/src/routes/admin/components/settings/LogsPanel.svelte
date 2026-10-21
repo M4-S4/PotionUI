@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import { logger } from '$lib/utils/logger';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { LogLevel, LogTail } from '$lib/services/admin-api';
@@ -39,37 +40,16 @@
 	let hasNewSincePause = $state(false);
 
 	let listEl = $state<HTMLDivElement | undefined>();
-	let pollHandle: ReturnType<typeof setInterval> | undefined;
+	const poll = createVisiblePoll(load, POLL_MS);
 
-	onMount(() => {
-		load();
-		syncPolling();
-		document.addEventListener('visibilitychange', syncPolling);
-	});
+	onMount(() => void load());
 
-	onDestroy(() => {
-		stopPolling();
-		document.removeEventListener('visibilitychange', syncPolling);
-	});
+	onDestroy(() => poll.stop());
 
 	$effect(() => {
-		autoFollow;
-		syncPolling();
+		if (autoFollow) poll.start();
+		else poll.stop();
 	});
-
-	function syncPolling() {
-		stopPolling();
-		if (autoFollow && document.visibilityState === 'visible') {
-			pollHandle = setInterval(load, POLL_MS);
-		}
-	}
-
-	function stopPolling() {
-		if (pollHandle !== undefined) {
-			clearInterval(pollHandle);
-			pollHandle = undefined;
-		}
-	}
 
 	async function load() {
 		error = null;

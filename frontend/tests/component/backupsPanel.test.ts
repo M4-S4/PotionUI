@@ -214,3 +214,67 @@ describe('BackupsPanel', () => {
 		expect(adminApi.deleteBackup).toHaveBeenCalledWith('potionui-20260909-config.tar.zst');
 	});
 });
+
+describe('BackupsPanel job polling', () => {
+	function runningJob(status: 'running' | 'done' = 'running') {
+		return {
+			id: 'job-1',
+			status,
+			tier: 'config',
+			started_at: '2026-09-09T10:00:00+00:00',
+			finished_at: null,
+			archive: null,
+			bytes: 0,
+			mirror: null,
+			last_error: null
+		};
+	}
+
+	async function flush() {
+		for (let i = 0; i < 6; i++) await vi.advanceTimersByTimeAsync(0);
+	}
+
+	afterEach(() => {
+		vi.useRealTimers();
+		Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+	});
+
+	it('polls the running job every 2s, then stops and reloads once it finishes', async () => {
+		vi.useFakeTimers();
+		vi.mocked(adminApi.getBackups)
+			.mockResolvedValueOnce({ success: true, data: overview({ job: runningJob() }) })
+			.mockResolvedValue({ success: true, data: overview({ job: runningJob('done') }) });
+		vi.mocked(adminApi.getBackupJob)
+			.mockResolvedValueOnce({ success: true, data: runningJob() })
+			.mockResolvedValue({ success: true, data: runningJob('done') });
+
+		mounted = mountPanel();
+		await flush();
+		expect(adminApi.getBackups).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(adminApi.getBackupJob).toHaveBeenCalledTimes(1);
+		expect(adminApi.getBackups).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(2000);
+		await flush();
+		expect(adminApi.getBackupJob).toHaveBeenCalledTimes(2);
+		expect(adminApi.getBackups).toHaveBeenCalledTimes(2);
+
+		await vi.advanceTimersByTimeAsync(10000);
+		expect(adminApi.getBackupJob).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not poll the job while the tab is hidden', async () => {
+		vi.useFakeTimers();
+		vi.mocked(adminApi.getBackups).mockResolvedValue({ success: true, data: overview({ job: runningJob() }) });
+		vi.mocked(adminApi.getBackupJob).mockResolvedValue({ success: true, data: runningJob() });
+		Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+
+		mounted = mountPanel();
+		await flush();
+		await vi.advanceTimersByTimeAsync(10000);
+
+		expect(adminApi.getBackupJob).not.toHaveBeenCalled();
+	});
+});

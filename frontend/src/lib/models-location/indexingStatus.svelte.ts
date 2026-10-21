@@ -1,5 +1,6 @@
 import { api } from '$lib/services/api';
 import { logger } from '$lib/utils/logger';
+import { createVisiblePoll } from '$lib/utils/visiblePoll';
 import type { IndexingStatus } from '$lib/services/api/models';
 import { indexingIsRunning } from './indexingDisplay';
 
@@ -11,7 +12,7 @@ class IndexingStatusStore {
 	error = $state<string | null>(null);
 
 	private subscribers = 0;
-	private timer: ReturnType<typeof setInterval> | null = null;
+	private poll = createVisiblePoll(() => this.refresh(), POLL_INTERVAL_MS);
 	private inFlight: Promise<void> | null = null;
 
 	subscribe(): () => void {
@@ -64,15 +65,11 @@ class IndexingStatusStore {
 	}
 
 	private ensurePolling(): void {
-		if (this.timer !== null) return;
-		this.timer = setInterval(() => void this.refresh(), POLL_INTERVAL_MS);
+		this.poll.start();
 	}
 
 	private stopPolling(): void {
-		if (this.timer !== null) {
-			clearInterval(this.timer);
-			this.timer = null;
-		}
+		this.poll.stop();
 	}
 }
 

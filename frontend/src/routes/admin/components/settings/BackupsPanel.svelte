@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { logger } from '$lib/utils/logger';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { BackupArchive, BackupJob, BackupOverview, BackupTier } from '$lib/services/admin-api';
@@ -47,7 +48,7 @@
 	let deleteTarget = $state<BackupArchive | null>(null);
 	let deleting = $state(false);
 
-	let pollHandle: ReturnType<typeof setInterval> | null = null;
+	const jobPoll = createVisiblePoll(pollJob, 2000);
 
 	function isTier(value: unknown): value is BackupTier {
 		return value === 'config' || value === 'media' || value === 'all';
@@ -91,7 +92,7 @@
 	});
 
 	onMount(load);
-	onDestroy(stopPolling);
+	onDestroy(() => jobPoll.stop());
 
 	// The shared save bar persists our keys on its own schedule - once it
 	// does, `savedSnapshot` (the tab's `snapshot`) moves and the destination
@@ -130,22 +131,13 @@
 		onSettingChange('backup_retention', Number.isFinite(parsed) ? parsed : 0);
 	}
 
-	function startPolling() {
-		stopPolling();
-		now = Date.now();
-		pollHandle = setInterval(pollJob, 2000);
-	}
-
-	function stopPolling() {
-		if (pollHandle !== null) {
-			clearInterval(pollHandle);
-			pollHandle = null;
-		}
-	}
-
 	function syncPolling() {
-		if (job?.status === 'running') startPolling();
-		else stopPolling();
+		if (job?.status === 'running') {
+			now = Date.now();
+			jobPoll.start();
+		} else {
+			jobPoll.stop();
+		}
 	}
 
 	async function pollJob() {
@@ -156,7 +148,7 @@
 			const next = response.data ?? null;
 			job = next;
 			if (!next || next.status !== 'running') {
-				stopPolling();
+				jobPoll.stop();
 				if (next?.status === 'failed') toasts.error(next.last_error ?? 'Backup failed.');
 				else if (next?.status === 'done') toasts.success(`Backup finished · ${formatBytes(next.bytes)}`);
 				await load();

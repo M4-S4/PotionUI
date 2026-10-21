@@ -114,3 +114,43 @@ describe('LogsPanel', () => {
 		expect(mounted.target.textContent).toContain('No log lines yet');
 	});
 });
+
+describe('LogsPanel polling', () => {
+	async function flush() {
+		for (let i = 0; i < 6; i++) await vi.advanceTimersByTimeAsync(0);
+	}
+
+	afterEach(() => {
+		vi.useRealTimers();
+		Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+	});
+
+	it('re-fetches the tail every 3s while auto-follow is on', async () => {
+		vi.useFakeTimers();
+		vi.mocked(adminApi.getLogTail).mockResolvedValue({ success: true, data: tail() });
+
+		mounted = mountPanel();
+		await flush();
+		expect(adminApi.getLogTail).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(3000);
+		expect(adminApi.getLogTail).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not re-fetch while the tab is hidden and refreshes as soon as it returns', async () => {
+		vi.useFakeTimers();
+		vi.mocked(adminApi.getLogTail).mockResolvedValue({ success: true, data: tail() });
+		mounted = mountPanel();
+		await flush();
+		expect(adminApi.getLogTail).toHaveBeenCalledTimes(1);
+
+		Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+		await vi.advanceTimersByTimeAsync(12000);
+		expect(adminApi.getLogTail).toHaveBeenCalledTimes(1);
+
+		Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+		document.dispatchEvent(new Event('visibilitychange'));
+		await flush();
+		expect(adminApi.getLogTail).toHaveBeenCalledTimes(2);
+	});
+});

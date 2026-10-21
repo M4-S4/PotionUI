@@ -170,3 +170,47 @@ describe('ContentSafetyPanel', () => {
 		panel.destroy();
 	});
 });
+
+describe('ContentSafetyPanel status polling', () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	async function mountWithFakeTimers() {
+		vi.useFakeTimers();
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const component = createClassComponent({
+			component: ContentSafetyPanel as never,
+			target,
+			props: { settings: { content_policy_nsfw: 'blur' }, onSettingChange: vi.fn() }
+		});
+		for (let i = 0; i < 6; i++) await vi.advanceTimersByTimeAsync(0);
+		return () => {
+			component.$destroy();
+			target.remove();
+		};
+	}
+
+	it('re-fetches the status every 5s while a backfill is running', async () => {
+		vi.mocked(adminApi.getContentSafetyStatus).mockResolvedValue(
+			statusPayload({ backfill: { total: 200, rated: 50, running: true } }) as never
+		);
+		const destroy = await mountWithFakeTimers();
+		expect(adminApi.getContentSafetyStatus).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(5000);
+		expect(adminApi.getContentSafetyStatus).toHaveBeenCalledTimes(2);
+		destroy();
+	});
+
+	it('does not re-fetch while nothing is running', async () => {
+		vi.mocked(adminApi.getContentSafetyStatus).mockResolvedValue(statusPayload() as never);
+		const destroy = await mountWithFakeTimers();
+
+		await vi.advanceTimersByTimeAsync(20000);
+
+		expect(adminApi.getContentSafetyStatus).toHaveBeenCalledTimes(1);
+		destroy();
+	});
+});

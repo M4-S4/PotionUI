@@ -163,3 +163,68 @@ describe('ThumbnailsPanel', () => {
 		expect(adminApi.getThumbnailStats).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe('ThumbnailsPanel job polling', () => {
+	function job(status: 'running' | 'cancelling' | 'done') {
+		return {
+			id: 'job-1',
+			status,
+			total: 10,
+			done: 3,
+			failed: 0,
+			current: null,
+			started_at: null,
+			finished_at: null,
+			last_error: null,
+			errors: []
+		};
+	}
+
+	async function flush() {
+		for (let i = 0; i < 6; i++) await vi.advanceTimersByTimeAsync(0);
+	}
+
+	afterEach(() => {
+		vi.useRealTimers();
+		Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+	});
+
+	it('polls a running job every 2s, then stops and reloads stats once it is done', async () => {
+		vi.useFakeTimers();
+		vi.mocked(adminApi.getThumbnailStats)
+			.mockResolvedValueOnce({ success: true, data: stats({ job: job('running') }) })
+			.mockResolvedValue({ success: true, data: stats({ job: job('done') }) });
+		vi.mocked(adminApi.getThumbnailJob)
+			.mockResolvedValueOnce({ success: true, data: job('running') })
+			.mockResolvedValue({ success: true, data: job('done') });
+
+		mounted = mountPanel();
+		await flush();
+		expect(adminApi.getThumbnailStats).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(adminApi.getThumbnailJob).toHaveBeenCalledTimes(1);
+		expect(adminApi.getThumbnailStats).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(2000);
+		await flush();
+		expect(adminApi.getThumbnailJob).toHaveBeenCalledTimes(2);
+		expect(adminApi.getThumbnailStats).toHaveBeenCalledTimes(2);
+
+		await vi.advanceTimersByTimeAsync(10000);
+		expect(adminApi.getThumbnailJob).toHaveBeenCalledTimes(2);
+	});
+
+	it('does not poll the job while the tab is hidden', async () => {
+		vi.useFakeTimers();
+		vi.mocked(adminApi.getThumbnailStats).mockResolvedValue({ success: true, data: stats({ job: job('running') }) });
+		vi.mocked(adminApi.getThumbnailJob).mockResolvedValue({ success: true, data: job('running') });
+		Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+
+		mounted = mountPanel();
+		await flush();
+		await vi.advanceTimersByTimeAsync(10000);
+
+		expect(adminApi.getThumbnailJob).not.toHaveBeenCalled();
+	});
+});

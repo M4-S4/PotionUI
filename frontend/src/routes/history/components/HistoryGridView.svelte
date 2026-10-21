@@ -12,6 +12,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { historyStore } from '$lib/stores/history';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import { buildHistoryReuseTabData, buildReuseTabTitle } from '$lib/utils/historyReuse';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import type { ActiveGrid } from '$lib/generation/compare/compareStore.svelte';
@@ -30,10 +31,15 @@
 	let viewIndex = $state<number | null>(null);
 	let exporting = $state(false);
 	let confirmingDelete = $state(false);
-	let timer: ReturnType<typeof setTimeout> | null = null;
 	let stopped = false;
+	const poll = createVisiblePoll(load, POLL_MS);
 
 	let viewing = $derived(grid && viewIndex !== null && viewIndex < grid.cells.length ? viewIndex : null);
+
+	function syncPoll() {
+		if (grid && gridProgress(grid).active) poll.start();
+		else poll.stop();
+	}
 
 	async function load() {
 		try {
@@ -43,8 +49,7 @@
 			failure = getErrorMessage(error);
 			logger.error('Failed to load the grid', failure);
 		}
-		if (stopped) return;
-		if (grid && gridProgress(grid).active) timer = setTimeout(load, POLL_MS);
+		if (!stopped) syncPoll();
 	}
 
 	$effect(() => {
@@ -54,22 +59,19 @@
 		void load();
 		return () => {
 			stopped = true;
-			if (timer) clearTimeout(timer);
+			poll.stop();
 		};
 	});
 
 	onDestroy(() => {
 		stopped = true;
-		if (timer) clearTimeout(timer);
+		poll.stop();
 	});
 
 	async function retry() {
 		try {
 			grid = await retryGridFailed(gridId);
-			if (!stopped && grid && gridProgress(grid).active) {
-				if (timer) clearTimeout(timer);
-				timer = setTimeout(load, POLL_MS);
-			}
+			if (!stopped) syncPoll();
 		} catch (error) {
 			toasts.error(getErrorMessage(error));
 		}
