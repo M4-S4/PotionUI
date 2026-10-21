@@ -231,6 +231,15 @@ export function getFilledIconPaths(name: string | undefined): string[] {
 	return spriteFilledGlyphs[name] ?? [];
 }
 
+export function iconSvgMarkup(name: string): string {
+	const stroked = [getIconPath(name) ?? []].flat();
+	const lines = [
+		...stroked.map((d) => `\t<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${d}" />`),
+		...getFilledIconPaths(name).map((d) => `\t<path fill="currentColor" stroke="none" d="${d}" />`)
+	];
+	return `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">\n${lines.join('\n')}\n</svg>`;
+}
+
 // Helper function to check if an icon exists
 export function hasIcon(name: string): boolean {
 	return name in iconPaths;

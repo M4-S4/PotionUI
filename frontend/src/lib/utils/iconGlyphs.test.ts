@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getFilledIconPaths, getIconPath, hasIcon } from './IconLibrary';
+import { getFilledIconPaths, getIconPath, hasIcon, iconSvgMarkup } from './IconLibrary';
 import { spriteFilledGlyphs, spriteGlyphs } from './iconGlyphs';
 import { segmentMenuActions } from './segmentActions';
 import { actionCardIcon } from '$lib/chat/actionCard';
@@ -78,5 +78,17 @@ describe('icon references in the app', () => {
 		const icons = actions.map((a) => a.icon).filter(Boolean) as string[];
 		expect(icons.length).toBeGreaterThan(0);
 		for (const icon of icons) expect(hasIcon(`composer-${icon}`), icon).toBe(true);
+	});
+});
+
+describe('iconSvgMarkup', () => {
+	it('copies every stroked path of a multi-path glyph', () => {
+		const markup = iconSvgMarkup('braces');
+		expect(markup.match(/stroke-width="2"/g)).toHaveLength(2);
+	});
+
+	it('copies filled shapes as filled paths', () => {
+		const markup = iconSvgMarkup('composer-grip');
+		expect(markup.match(/fill="currentColor" stroke="none"/g)).toHaveLength(6);
 	});
 });
