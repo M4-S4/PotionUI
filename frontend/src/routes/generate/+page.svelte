@@ -120,6 +120,7 @@
 	import { recipeCatalog, loadRecipeCatalog } from '$lib/stores/recipeCatalog';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { EmptyState, Button } from '$lib/components/ui';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 
 	let ws: WebSocketService | null = null;
 	let isConnected = false;
@@ -661,6 +662,18 @@
 		if (updates) tabsStore.updateTab(tab.id, updates);
 	}
 	$: generatingTabName = $generatingTab?.name;
+	$: panelPresetInfo = presets.find((preset: any) => preset.id === currentTab.selectedPreset);
+	$: panelPreset = panelPresetInfo
+		? {
+				id: panelPresetInfo.id,
+				name: panelPresetInfo.name,
+				cover: panelPresetInfo.media?.cover ?? null,
+				category: panelPresetInfo.category ?? null
+			}
+		: null;
+	$: panelModeLabel = currentTab.selectedMode
+		? modeLabel(currentTab.selectedMode, (modesPerTab[currentTab.id] || []).find((mode: any) => mode.id === currentTab.selectedMode)?.label)
+		: '';
 	$: generation = currentTab.generation;
 	$: isGenerating = generation.isGenerating;
 
@@ -2058,6 +2071,8 @@
 			isActiveTabGenerating={$isActiveTabGenerating}
 			onSwitchToGeneratingTab={switchToGeneratingTab}
 			onClearQueue={clearGenerationQueue}
+			preset={panelPreset}
+			modeLabel={panelModeLabel}
 			tabId={currentTab.id}
 			workbenchFloating={!!currentTab.workbenchFloating}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}

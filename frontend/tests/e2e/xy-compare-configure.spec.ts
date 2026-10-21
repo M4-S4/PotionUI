@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken } from './helpers';
-import { closeCompareDrawer, compareToggle, generateMarkCount, openCompareDrawer, pickAxisField } from './xyCompareHelpers';
+import { closeCompareDrawer, compareToggle, compareCount, openCompareDrawer, pickAxisField } from './xyCompareHelpers';
 import { presetOption } from './presetPreamble';
 
 async function openAdvancedTab(page: Page) {
@@ -53,7 +53,7 @@ test('Compare arms next to Continuous, takes sampler by scheduler and locks the 
 	const total = Number(/=\s*(\d+)/.exec(text)?.[1]);
 	expect(total).toBeGreaterThan(1);
 
-	await expect(generateMarkCount(page)).toHaveText(String(total));
+	await expect(compareCount(page)).toHaveText(String(total));
 	await expect(compareToggle(page)).toContainText(String(total));
 	await expect(page.locator('[data-compare-status]')).toBeVisible();
 

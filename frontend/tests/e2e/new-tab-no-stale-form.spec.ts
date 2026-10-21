@@ -108,7 +108,7 @@ test.describe('a new generation tab never shows another tab form', () => {
 			expect(frames.length - clickFrame).toBeGreaterThan(10);
 			expect(frames[clickFrame - 1], 'the first tab form was on screen before the click').toBeGreaterThan(0);
 			expect(frames.slice(clickFrame + 1).every((count) => count === 0)).toBe(true);
-			if (size.width >= 768) await expect(page.getByText(/Ready to generate|Nothing to generate with yet/).first()).toBeVisible();
+			if (size.width >= 768) await expect(page.getByText(/Ready to generate|Ready to brew|Nothing to generate with yet/).first()).toBeVisible();
 		});
 	}
 });

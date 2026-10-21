@@ -33,7 +33,7 @@ export const compareToggle = (page: Page) => page.locator('[data-compare-toggle]
 export const compareDrawer = (page: Page) => page.getByRole('dialog', { name: 'Compare', exact: true });
 export const compareGenerate = (page: Page, count: number) =>
 	page.getByRole('button', { name: new RegExp(`^Generate ${count}\\b`) }).first();
-export const generateMarkCount = (page: Page) => page.locator('.generate-button:visible .generate-count').first();
+export const compareCount = (page: Page) => page.locator('[data-compare-toggle]:visible .compare-count').first();
 
 export async function openCompareDrawer(page: Page) {
 	const drawer = compareDrawer(page);

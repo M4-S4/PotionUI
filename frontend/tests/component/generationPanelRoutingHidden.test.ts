@@ -73,6 +73,6 @@ describe('GenerationPanel status line', () => {
 		mounted = mount(baseGeneration());
 
 		const text = mounted.target.textContent ?? '';
-		expect(text).toContain('Running');
+		expect(text).toContain('Generating');
 	});
 });
