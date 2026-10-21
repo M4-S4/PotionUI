@@ -818,226 +818,61 @@ def test_estimate_text_encoder_gb_returns_none_for_unmeasurable_encoder():
     assert _estimate_text_encoder_gb(_StubTE()) is None
 
 
-def test_move_to_trims_host_allocator_after_streamer_teardown_regardless_of_destination():
-    """A NativeModel transitioning OUT of partial residency (an active
-    streamer torn down) must trim glibc's heap regardless of which device the
-    move is headed to.
+class _TrimModule:
+    def to(self, device):
+        return self
 
-    Teardown itself materialises a fresh CPU copy of every leaf -- including
-    ones that were previously GPU-resident, and previously-PINNED streamed
-    leaves get a fresh UNPINNED copy (see memory/partial.py's
-    ``_move_own_tensors``) -- before this same ``move_to()`` re-uploads
-    everything. That churn is CPU-side even when the final destination is
-    cuda, so gating the trim on "destination is cpu" (as the plain
-    non-streamer offload branch does) missed it entirely: a partial->full DiT
-    restore (``dit_restore.py``'s warm-start) measured a real RSS INCREASE
-    during exactly this transition because it was never trimmed.
-    """
+
+class _TrimStreamer:
+    def __init__(self):
+        self.active = True
+        self.torn_down = False
+        self.pinned_gb = 0.0
+
+    def teardown(self):
+        self.torn_down = True
+        self.active = False
+
+
+_TRIM_CASES = [
+    ("move_to_cuda_tears_down_streamer", "move_to", 5.0, True, True),
+    ("move_to_cuda_small_without_streamer", "move_to", 1.0, False, False),
+    ("move_to_cuda_big_without_streamer", "move_to", 23.0, False, True),
+    ("offload_tears_down_streamer", "offload", 23.3, True, True),
+    ("offload_small_streamer_below_gate", "offload", 1.0, True, False),
+    ("unload_tears_down_streamer", "unload", 23.3, True, True),
+    ("unload_without_streamer", "unload", 23.3, False, False),
+]
+
+
+@pytest.mark.parametrize(
+    "action,size_gb,streamer,trimmed",
+    [case[1:] for case in _TRIM_CASES],
+    ids=[case[0] for case in _TRIM_CASES],
+)
+def test_host_allocator_trim_follows_streamer_teardown_and_size_gate(
+    monkeypatch, action, size_gb, streamer, trimmed
+):
     import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
-    calls = []
-    original = lifecycle.trim_host_allocator
-    monkeypatch_target = "trim_host_allocator"
-
-    def _fake_trim():
-        calls.append(1)
-
-    setattr(lifecycle, monkeypatch_target, _fake_trim)
-    try:
-        class _FakeModule:
-            def to(self, device):
-                self.last_device = str(device)
-                return self
-
-        class _FakeStreamer:
-            def __init__(self):
-                self.active = True
-                self.torn_down = False
-                self.pinned_gb = 0.0
-
-            def teardown(self):
-                self.torn_down = True
-                self.active = False
-
-        model = NativeModel("diffusion_model", _FakeModule(), estimated_vram_gb=5.0)
-        fake_streamer = _FakeStreamer()
+    trims = []
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: trims.append(1))
+    model = NativeModel("diffusion_model", _TrimModule(), estimated_vram_gb=size_gb)
+    fake_streamer = _TrimStreamer()
+    if streamer:
         model._streamer = fake_streamer
 
+    if action == "move_to":
         model.move_to("cuda:0")
+    else:
+        getattr(model, action)()
 
-        assert fake_streamer.torn_down
-        assert calls, "trim_host_allocator must fire when tearing down an active streamer, even moving to cuda"
-    finally:
-        setattr(lifecycle, monkeypatch_target, original)
-
-
-def test_move_to_skips_trim_when_no_streamer_was_active():
-    """The trim added for streamer-teardown must not fire on a plain move with
-    no partial-residency history -- it's gated on ``teardown_from_streamer``,
-    not on every ``move_to`` call. ``estimated_vram_gb`` is kept under the
-    size gate here so the (separate) big-component to-cuda trim -- see
-    ``test_move_to_cuda_trims_host_allocator_for_big_components`` -- doesn't
-    also fire and confound this test's own assertion."""
-    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
-
-    calls = []
-    original = lifecycle.trim_host_allocator
-    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
-    try:
-        class _FakeModule:
-            def to(self, device):
-                return self
-
-        model = NativeModel("diffusion_model", _FakeModule(), estimated_vram_gb=1.0)
-        model.move_to("cuda:0")
-        assert not calls
-    finally:
-        setattr(lifecycle, "trim_host_allocator", original)
-
-
-def test_move_to_cuda_trims_host_allocator_for_big_components():
-    """The old CPU copy released on the way TO the GPU fragments the glibc
-    heap exactly like the way-down (offload) direction does -- see
-    ``trim_host_allocator``'s docstring (a warm LTX ``move_to(cuda)`` dropped
-    RSS by only 0.87GB where ~23GB of CPU weights were released). Mirrors the
-    offload branch's existing >2GB gate, and mirrors ``stream_to``'s own
-    to-cuda trim for the partial-residency path."""
-    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
-
-    calls = []
-    original = lifecycle.trim_host_allocator
-    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
-    try:
-        class _FakeModule:
-            def to(self, device):
-                return self
-
-        model = NativeModel("diffusion_model", _FakeModule(), estimated_vram_gb=23.0)
-        model.move_to("cuda:0")
-        assert calls == [1]
-    finally:
-        setattr(lifecycle, "trim_host_allocator", original)
-
-
-def test_offload_trims_host_allocator_after_streamer_teardown():
-    """`offload()` has its OWN early-return branch for an active streamer
-    (it never reaches `move_to()`), so `move_to()`'s teardown-trim fix does
-    NOT cover it. RAM ratchet fix: a maintainer capture
-    caught RSS climbing 69.8GB -> 74.1GB in the ~6s between the
-    `native.offload` mark and the `streamer.teardown` mark it emits,
-    immediately preceding an earlyoom kill -- exactly this untrimmed path."""
-    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
-
-    calls = []
-    original = lifecycle.trim_host_allocator
-    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
-    try:
-        class _FakeModule:
-            def to(self, device):
-                return self
-
-        class _FakeStreamer:
-            def __init__(self):
-                self.active = True
-                self.pinned_gb = 0.0
-
-            def teardown(self):
-                self.active = False
-
-        model = NativeModel("diffusion_model", _FakeModule(), estimated_vram_gb=23.3)
-        model._streamer = _FakeStreamer()
-
-        model.offload()
-
-        assert not model._streamer.active
+    assert bool(trims) is trimmed
+    assert fake_streamer.torn_down is streamer
+    if action == "offload":
         assert model.device == "cpu"
-        assert calls, "trim_host_allocator must fire when offload() tears down an active streamer"
-    finally:
-        setattr(lifecycle, "trim_host_allocator", original)
-
-
-def test_offload_skips_trim_below_the_size_gate():
-    """Same gate as move_to()/stream_to(): a component below the 2GB
-    threshold isn't worth the trim cost."""
-    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
-
-    calls = []
-    original = lifecycle.trim_host_allocator
-    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
-    try:
-        class _FakeModule:
-            def to(self, device):
-                return self
-
-        class _FakeStreamer:
-            def __init__(self):
-                self.active = True
-                self.pinned_gb = 0.0
-
-            def teardown(self):
-                self.active = False
-
-        model = NativeModel("diffusion_model", _FakeModule(), estimated_vram_gb=1.0)
-        model._streamer = _FakeStreamer()
-
-        model.offload()
-
-        assert not calls
-    finally:
-        setattr(lifecycle, "trim_host_allocator", original)
-
-
-def test_unload_trims_host_allocator_after_streamer_teardown():
-    """Same gap as offload()'s fix 3/3, for the lifecycle-eviction path:
-    unload() tears down an active streamer inline and never routed through
-    move_to() either."""
-    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
-
-    calls = []
-    original = lifecycle.trim_host_allocator
-    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
-    try:
-        class _FakeModule:
-            def to(self, device):
-                return self
-
-        class _FakeStreamer:
-            def __init__(self):
-                self.active = True
-                self.pinned_gb = 0.0
-
-            def teardown(self):
-                self.active = False
-
-        model = NativeModel("diffusion_model", _FakeModule(), estimated_vram_gb=23.3)
-        model._streamer = _FakeStreamer()
-
-        model.unload()
-
+    if action == "unload":
         assert model.module is None
-        assert calls, "trim_host_allocator must fire when unload() tears down an active streamer"
-    finally:
-        setattr(lifecycle, "trim_host_allocator", original)
-
-
-def test_unload_skips_trim_when_no_streamer_was_active():
-    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
-
-    calls = []
-    original = lifecycle.trim_host_allocator
-    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
-    try:
-        class _FakeModule:
-            def to(self, device):
-                return self
-
-        model = NativeModel("diffusion_model", _FakeModule(), estimated_vram_gb=23.3)
-        model.unload()
-
-        assert model.module is None
-        assert not calls
-    finally:
-        setattr(lifecycle, "trim_host_allocator", original)
 
 
 def test_offload_still_moves_module_to_cpu_unchanged():
