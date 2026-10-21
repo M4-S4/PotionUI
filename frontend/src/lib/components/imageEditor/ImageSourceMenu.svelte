@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
 	import UploadLibraryModal from '$lib/components/modals/UploadLibraryModal.svelte';
 	import { Spinner } from '$lib/components/ui';
@@ -109,15 +110,10 @@
 		);
 	}
 
-	function onWindowClick(event: MouseEvent) {
-		const target = event.target as HTMLElement | null;
-		if (showHistory || showLibrary) return;
-		if (!target?.closest('[data-image-source-menu]') && !target?.closest('[data-image-source-trigger]')) {
-			onClose();
-		}
-	}
+	let triggers: HTMLElement[] = [];
 
 	onMount(() => {
+		triggers = Array.from(document.querySelectorAll<HTMLElement>('[data-image-source-trigger]'));
 		window.addEventListener('paste', onPaste);
 	});
 
@@ -127,10 +123,9 @@
 	});
 </script>
 
-<svelte:window on:click={onWindowClick} />
-
 <div
 	data-image-source-menu
+	use:dismiss={{ onDismiss: onClose, ignore: triggers }}
 	role="menu"
 	aria-label={mode === 'open' ? 'Open an image' : 'Add an image as a layer'}
 	class="absolute left-2 top-full mt-1 z-20 w-72 max-w-[calc(100vw-1rem)] rounded-xl border border-line-strong bg-surface-1 shadow-floating p-1.5 flex flex-col gap-0.5"

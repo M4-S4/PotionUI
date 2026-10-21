@@ -142,9 +142,9 @@ describe('ToolsMenu', () => {
 		render({});
 		const [first, second] = Array.from(menu().querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
 		first.focus();
-		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true }));
+		document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
 		expect(document.activeElement).toBe(second);
-		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true }));
+		document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
 		expect(document.activeElement).toBe(first);
 	});
 

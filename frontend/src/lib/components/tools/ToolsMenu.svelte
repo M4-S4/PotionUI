@@ -5,6 +5,8 @@
 	import { getIconPath } from '$lib/utils/IconLibrary';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
+	import menuNav from '$lib/actions/menuNav';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import {
 		toolLabel,
@@ -144,15 +146,6 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (!open) return;
-		if (event.key === 'Escape') {
-			if (submenu) {
-				submenu = null;
-				return;
-			}
-			onClose();
-			(trigger?.querySelector('button') as HTMLButtonElement | null)?.focus();
-			return;
-		}
 		if (
 			(variant === 'entry' || variant === 'bar') &&
 			!event.ctrlKey &&
@@ -167,18 +160,18 @@
 				return;
 			}
 		}
-		if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-		if (!menuEl?.contains(document.activeElement)) return;
-		event.preventDefault();
-		const all = items();
-		const at = all.indexOf(document.activeElement as HTMLButtonElement);
-		focusItem(at + (event.key === 'ArrowDown' ? 1 : -1));
 	}
 
-	function handlePointerDown(event: PointerEvent) {
-		if (!open) return;
-		const target = event.target as Node;
-		if (trigger?.contains(target) || menuEl?.contains(target)) return;
+	function dismissMenu(reason: DismissReason) {
+		if (reason === 'escape') {
+			if (submenu) {
+				submenu = null;
+				return;
+			}
+			onClose();
+			(trigger?.querySelector('button') as HTMLButtonElement | null)?.focus();
+			return;
+		}
 		onClose();
 	}
 
@@ -232,7 +225,6 @@
 
 <svelte:window
 	onkeydown={handleKeydown}
-	onpointerdown={handlePointerDown}
 	onscrollcapture={handleViewportChange}
 	onresize={handleViewportChange}
 />
@@ -411,6 +403,8 @@
 			<div class="absolute inset-0 bg-black/60" aria-hidden="true"></div>
 			<div
 				bind:this={menuEl}
+				use:dismiss={{ onDismiss: dismissMenu, ignore: [trigger] }}
+				use:menuNav={'[role="menuitem"]'}
 				class="relative max-h-[80dvh] overflow-y-auto bg-surface-1 border-t border-line-strong rounded-t-xl shadow-overlay p-2 flex flex-col"
 				role="menu"
 				data-tools-menu
@@ -444,6 +438,8 @@
 			use:portal
 			use:overlayLayer
 			bind:this={menuEl}
+			use:dismiss={{ onDismiss: dismissMenu, ignore: [trigger] }}
+			use:menuNav={'[role="menuitem"]'}
 			class="fixed z-overlay overflow-y-auto bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-1 flex flex-col"
 			style={positionStyle}
 			role="menu"

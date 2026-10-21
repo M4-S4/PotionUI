@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onDestroy, onMount, tick } from 'svelte';
+	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Badge, Button } from '$lib/components/ui';
+	import { Badge, Button, Menu } from '$lib/components/ui';
 	import {
 		deleteMineFilter,
 		errorText,
@@ -17,7 +18,6 @@
 	import { ThumbCache, renderThumb } from '$lib/filters/thumbs';
 	import type { FilterItem } from '$lib/filters/types';
 	import { toasts } from '$lib/stores/toast';
-	import FilterMineMenu from './FilterMineMenu.svelte';
 	import { PAINT_ICONS } from './icons';
 	import { paintFilters } from './registries';
 	import type { PaintSession, SessionSnapshot } from './session';
@@ -134,6 +134,11 @@
 		await tick();
 		group?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus();
 	}
+
+	const MINE_MENU_ITEMS = [
+		{ id: 'rename', label: 'Rename', icon: 'edit' },
+		{ id: 'delete', label: 'Delete', icon: 'trash', danger: true }
+	];
 
 	function startRename(item: FilterItem) {
 		renaming = item.id;
@@ -266,11 +271,27 @@
 					</Tooltip>
 					{#if item.owned}
 						<span class="absolute right-1 top-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
-							<FilterMineMenu
-								name={item.name}
-								onRename={() => startRename(item)}
-								onDelete={() => (deleting = item)}
-							/>
+							<Menu
+								label="More actions for {item.name}"
+								menuLabel="Actions for {item.name}"
+								items={MINE_MENU_ITEMS}
+								width={160}
+								preferred="up"
+								onselect={(id) => (id === 'rename' ? startRename(item) : (deleting = item))}
+							>
+								{#snippet trigger({ open, toggle })}
+									<button
+										type="button"
+										aria-label="More actions for {item.name}"
+										aria-haspopup="menu"
+										aria-expanded={open}
+										class="inline-flex h-5 w-5 items-center justify-center rounded bg-canvas/80 text-fg hover:bg-surface-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+										on:click={toggle}
+									>
+										<Icon name="more" className="h-3.5 w-3.5" />
+									</button>
+								{/snippet}
+							</Menu>
 						</span>
 					{/if}
 					{#if renaming === item.id}

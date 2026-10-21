@@ -1,4 +1,5 @@
 <script lang="ts">
+	import dismiss from '$lib/actions/dismiss';
 	import GenerationLayoutPicker from './GenerationLayoutPicker.svelte';
 	import AudienceToggle from '$lib/components/AudienceToggle.svelte';
 	import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
@@ -18,12 +19,10 @@
 		open = !open;
 	}
 
-	function handleWindowClick(event: MouseEvent) {
-		if (open && root && !root.contains(event.target as Node)) open = false;
+	function close() {
+		open = false;
 	}
 </script>
-
-<svelte:window on:click={handleWindowClick} />
 
 <div class="relative" bind:this={root}>
 	<button
@@ -46,6 +45,7 @@
 			class="absolute right-0 top-full z-50 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-line-strong bg-surface-1 p-3 shadow-floating"
 			role="menu"
 			aria-label="More view options"
+			use:dismiss={{ onDismiss: close, ignore: [root] }}
 		>
 			<div class="mb-3 border-b border-line px-1 pb-3">
 				<p class="label mb-2">Field visibility</p>

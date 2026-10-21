@@ -6,8 +6,7 @@
 	import DrawerGroupHead from '$lib/components/drawer/DrawerGroupHead.svelte';
 	import DrawerRow from '$lib/components/drawer/DrawerRow.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Button, Spinner } from '$lib/components/ui';
-	import FormulaRowMenu from './FormulaRowMenu.svelte';
+	import { Button, Menu, Spinner } from '$lib/components/ui';
 	import FormulaSaveView from './FormulaSaveView.svelte';
 	import FormulaApplyView from './FormulaApplyView.svelte';
 	import FormulaAppliedBar from './FormulaAppliedBar.svelte';
@@ -300,6 +299,13 @@
 		onApplied?.();
 	}
 
+	const FORMULA_MENU_ITEMS = [
+		{ id: 'rename', label: 'Rename', icon: 'edit' },
+		{ id: 'duplicate', label: 'Duplicate', icon: 'copy' },
+		{ id: 'update', label: 'Update from current form', icon: 'refresh' },
+		{ id: 'delete', label: 'Delete', icon: 'trash', danger: true }
+	];
+
 	async function handleMenu(formula: Formula, action: MenuAction) {
 		if (action === 'rename') {
 			renamingId = formula.id;
@@ -479,7 +485,13 @@
 										<Tooltip text={fullDateTime(formula.updated_at)} position="bottom" delay={300}>
 											<span class="flex-shrink-0 px-1 font-mono text-xs tabular-nums text-fg-subtle">{savedDate(formula)}</span>
 										</Tooltip>
-										<FormulaRowMenu name={formula.name} onAction={(action) => handleMenu(formula, action)} />
+										<Menu
+											label={`More actions for ${formula.name}`}
+											menuLabel={`Actions for ${formula.name}`}
+											tooltip="More actions"
+											items={FORMULA_MENU_ITEMS}
+											onselect={(id) => handleMenu(formula, id as MenuAction)}
+										/>
 									{/snippet}
 								</DrawerRow>
 							{/if}
