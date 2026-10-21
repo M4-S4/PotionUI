@@ -246,8 +246,7 @@ class TestTagController:
         assert result.error == "create_tag_failed"
 
     @pytest.mark.asyncio
-    async def test_create_tag_blocked_by_hook(self, controller, mock_operations, sample_user):
-        """Test tag creation blocked by plugin hook."""
+    async def test_create_tag_value_error_is_reported_as_failure(self, controller, mock_operations, sample_user):
         mock_operations.create_tag.side_effect = ValueError("Not allowed")
 
         request = CreateTagRequest(name="Test", type=TagType.MODEL)
@@ -337,8 +336,7 @@ class TestTagController:
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_delete_tag_blocked_by_hook(self, controller, mock_operations, mock_repository, sample_user, sample_model_tag):
-        """Test tag deletion blocked by plugin hook."""
+    async def test_delete_tag_value_error_is_reported_as_failure(self, controller, mock_operations, mock_repository, sample_user, sample_model_tag):
         mock_repository.get_tag_by_id.return_value = sample_model_tag
         mock_operations.delete_tag.side_effect = ValueError("Cannot delete system tag")
 

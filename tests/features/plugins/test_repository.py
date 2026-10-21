@@ -83,17 +83,15 @@ class TestPluginRepository(PersistenceTestBase):
     def test_get_all_plugins(self):
         """Test getting all plugins"""
         plugin1 = self._create_sample_plugin("plugin_01")
-        plugin1.name = "Plugin A"
+        plugin1.name = "Plugin B"
         plugin2 = self._create_sample_plugin("plugin_02")
-        plugin2.name = "Plugin B"
+        plugin2.name = "Plugin A"
 
         self.repo.create_plugin(plugin1)
         self.repo.create_plugin(plugin2)
 
         all_plugins = self.repo.get_all_plugins()
-        self.assertEqual(len(all_plugins), 2)
-        self.assertEqual(all_plugins[0].name, "Plugin A")
-        self.assertEqual(all_plugins[1].name, "Plugin B")
+        self.assertEqual([p.name for p in all_plugins], ["Plugin A", "Plugin B"])
 
     def test_get_enabled_plugins(self):
         """Test getting only enabled plugins"""
@@ -185,6 +183,9 @@ class TestPluginRepository(PersistenceTestBase):
         fetched = self.repo.get_plugin_setting(plugin.id, "test_key")
         self.assertIsNotNone(fetched)
         self.assertEqual(fetched.setting_value, "test_value")
+
+        self.repo.set_plugin_setting(plugin.id, "empty_key", "")
+        self.assertEqual(self.repo.get_plugin_setting(plugin.id, "empty_key").setting_value, "")
 
     def test_set_plugin_setting_upsert(self):
         """Test that setting a plugin setting upserts"""

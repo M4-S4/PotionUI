@@ -75,7 +75,6 @@ class TestProviderRegistry(unittest.TestCase):
 
         service = ProviderRegistry(self.mock_registry)
 
-        self.assertIsNotNone(service)
         self.assertEqual(service._registry, self.mock_registry)
 
     @patch('src.features.providers.registry.PluginRepository')
@@ -123,7 +122,6 @@ class TestProviderRegistry(unittest.TestCase):
 
         metadata = service.get_provider_metadata('mock')
 
-        self.assertIsNotNone(metadata)
         self.assertEqual(metadata.id, 'mock')
 
     @patch('src.features.providers.registry.PluginRepository')
@@ -227,7 +225,6 @@ class TestProviderRegistry(unittest.TestCase):
 
         result = asyncio.run(run_test())
 
-        self.assertIsNotNone(result)
         self.assertEqual(result.provider_model_id, '12345')
         self.assertEqual(result.name, 'Mock Model')
 
@@ -261,7 +258,6 @@ class TestProviderRegistry(unittest.TestCase):
 
         schema = service.get_provider_settings_schema('mock')
 
-        self.assertIsNotNone(schema)
         self.assertEqual(schema['type'], 'object')
         self.assertIn('api_key', schema['properties'])
 

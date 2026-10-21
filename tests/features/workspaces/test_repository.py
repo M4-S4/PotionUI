@@ -1,4 +1,6 @@
 import unittest
+from datetime import timedelta
+from unittest.mock import patch
 import sys
 import os
 
@@ -245,12 +247,8 @@ class TestWorkspaceRepository(PersistenceTestBase):
         self.assertEqual(result.data["tabs"][0]["name"], "New Tab")
 
     def test_update_refreshes_updated_at(self):
-        """update() sets a new updated_at timestamp."""
         saved = self._saved()
-        original_updated_at = saved.updated_at
-
-        import time
-        time.sleep(0.01)  # Ensure time difference
+        later = saved.updated_at + timedelta(hours=1)
 
         updated = Workspace(
             id=saved.id,
@@ -260,10 +258,11 @@ class TestWorkspaceRepository(PersistenceTestBase):
             created_at=saved.created_at
         )
 
-        result = self.repository.update(updated)
+        with patch("src.features.workspaces.repository.now_utc", return_value=later):
+            result = self.repository.update(updated)
 
-        # updated_at should be set (may equal original in fast tests, but must not be None)
-        self.assertIsNotNone(result.updated_at)
+        self.assertEqual(result.updated_at, later)
+        self.assertEqual(self.repository.get_by_id(saved.id).updated_at, later)
 
     def test_update_persists_to_database(self):
         """update() changes are visible on subsequent get_by_id()."""

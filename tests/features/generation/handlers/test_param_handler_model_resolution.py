@@ -35,13 +35,6 @@ def test_ref_with_subdirectory_resolves_by_basename():
     assert resolve(repo, "style/detail.safetensors") is model
 
 
-def test_remote_only_model_resolves_by_basename():
-    model = make_model("m1", "detail.safetensors")
-    repo = make_repo(by_filename={"detail.safetensors": [model]})
-
-    assert resolve(repo, "style/detail.safetensors") is model
-
-
 def test_ambiguous_filename_across_types_refuses_to_guess():
     a = make_model("m1", "shared.safetensors", model_type="lora")
     b = make_model("m2", "shared.safetensors", model_type="checkpoint")

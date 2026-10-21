@@ -86,25 +86,14 @@ def test_negative_start_is_clamped_to_zero():
     assert (start_frame, end_frame) == (0, 2000)
 
 
-def test_bite_check_off_by_one_on_frame_offset():
-    """Bite-check: an off-by-one on the frame offset (e.g. `start_seconds *
-    sample_rate + 1`) must make this fail. Also documents that the window is
-    a plain `round()`, not `int()`/floor - 2.5s at 1000Hz is frame 2500
-    exactly here, so use a value where floor and round diverge."""
-    # 1.2345s @ 1000Hz -> 1234.5 frames -> round() = 1234 (banker's rounding
-    # rounds .5 to even; 1234 is even) or 1236 for a naive int()+1 bug either
-    # way this pins the exact value round() gives.
-    start_frame, _ = compute_trim_window(1.2345, 1.0, sample_rate=1000, total_frames=100000)
-    assert start_frame == round(1.2345 * 1000)
+def test_fractional_start_rounds_to_nearest_frame():
+    start_frame, _ = compute_trim_window(1.2346, 1.0, sample_rate=1000, total_frames=100000)
+    assert start_frame == 1235
 
 
-def test_bite_check_clamp_uses_total_frames_not_start_plus_requested():
-    """Bite-check: a broken clamp that returns `start_frame + requested_frames`
-    unconditionally (ignoring `total_frames`) would return an end_frame past
-    the file - this pins that it never exceeds total_frames."""
+def test_end_frame_is_clamped_to_total_frames():
     start_frame, end_frame = compute_trim_window(9.0, 5.0, sample_rate=1000, total_frames=10000)
-    assert end_frame == 10000
-    assert end_frame <= 10000
+    assert (start_frame, end_frame) == (9000, 10000)
 
 
 # -- end-to-end through the pipe: assert the ACTUAL decoded output --------------
@@ -219,10 +208,7 @@ def test_audio_io_is_declared_as_an_array():
     assert outs["audio"].is_array is True
 
 
-def test_two_file_list_returns_two_trimmed_files_bite_check(tmp_path):
-    """Bite-check: reverting to unwrapping `audio[0]` and returning a bare
-    `PipeOutput(output={"audio": result})` makes this go red (a one-element
-    result / a crash iterating a bare path downstream)."""
+def test_two_file_list_returns_two_trimmed_files(tmp_path):
     source_a = _write_wav(tmp_path, name="a.wav", duration_seconds=10.0, sample_rate=8000, channels=1)
     source_b = _write_wav(tmp_path, name="b.wav", duration_seconds=6.0, sample_rate=8000, channels=2)
     pipe = _pipe(start_seconds=1.0, duration_seconds=2.0)
@@ -315,12 +301,8 @@ def test_policy_pcm_s8_widens_to_pcm16():
 
 
 def test_policy_unknown_subtype_falls_back_to_float_not_silent_pcm16():
-    """Bite-check: an unrecognised (compressed/companded) source subtype must
-    not silently fall back to the old PCM_16 default - it gets the documented
-    FLOAT fallback instead."""
     read_dtype, write_subtype = resolve_trim_io_policy("VORBIS")
     assert (read_dtype, write_subtype) == ("float32", "FLOAT")
-    assert write_subtype != "PCM_16"
 
 
 def test_policy_falls_back_to_float_when_chosen_subtype_unsupported_for_wav(monkeypatch):
@@ -341,10 +323,6 @@ def test_policy_falls_back_to_float_when_chosen_subtype_unsupported_for_wav(monk
 # -- end-to-end: sample precision survives the trim, not just the frame count --
 
 def test_pcm24_low_amplitude_samples_are_bit_identical_to_source_window(tmp_path):
-    """Bite-check: at this amplitude (2e-5), 16-bit PCM's resolution
-    (~3.05e-5) can't represent the signal at all - a `subtype`-less
-    `sf.write` (the old behaviour) quantizes every sample to 0. This must
-    fail red against that code and pass once the trim preserves PCM_24."""
     sample_rate = 8000
     t = np.arange(int(2.0 * sample_rate)) / sample_rate
     full = (2e-5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
@@ -599,12 +577,6 @@ class _RecordingFakeDest:
 
 
 def test_max_read_size_is_bounded_by_the_block_constant_on_a_huge_window(monkeypatch):
-    """Bite-check: a single unbounded `read(frames=frame_count, ...)` (the
-    old implementation) would request all 50,000,000 frames in one call.
-    This asserts every read the pipe issues is capped at `_TRIM_BLOCK_FRAMES`,
-    and that the destination never receives more than one block's worth of
-    data at a time - the live payload never exceeds one block regardless of
-    how long the requested window is."""
     total_frames = 50_000_000
     source = _RecordingFakeSource(samplerate=8000, channels=2, subtype="PCM_16", total_frames=total_frames)
     dest = _RecordingFakeDest()

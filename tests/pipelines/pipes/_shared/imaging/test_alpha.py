@@ -32,8 +32,7 @@ def test_alpha_bbox_empty_image_returns_none():
     assert alpha_bbox(_rgba(arr), threshold=16) is None
 
 
-def test_alpha_bbox_bite_check_threshold_matters():
-    """Break the threshold comparison direction; the test must go red."""
+def test_alpha_bbox_threshold_is_exclusive():
     arr = np.zeros((10, 10, 4), dtype=np.uint8)
     arr[..., 3] = 10  # below the default threshold of 16
     assert alpha_bbox(_rgba(arr), threshold=16) is None
