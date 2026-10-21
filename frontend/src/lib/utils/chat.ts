@@ -4,6 +4,7 @@
 
 import type { ParsedContent } from '$lib/types/chat';
 import { parseServerDate } from '$lib/utils/relativeTime';
+import { startOfDay } from '$lib/utils/time';
 
 /**
  * Format a token count with a 'k' suffix for values >= 1000.
@@ -68,7 +69,6 @@ export function groupSessionsByDate<T extends { updated_at?: string; created_at?
 	sessions: T[],
 	now: Date = new Date()
 ): SessionDateGroup<T>[] {
-	const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 	const today = startOfDay(now);
 
 	const buckets: Record<SessionDateGroup<T>['label'], T[]> = {

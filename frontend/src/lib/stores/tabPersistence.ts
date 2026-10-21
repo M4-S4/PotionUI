@@ -157,11 +157,3 @@ export function loadTabsFromLocalStorage(): PersistedTabsState | null {
 
 // Exported for unit testing the one-time migration in isolation.
 export { migrateLegacyTabIds, isLegacyTabId };
-
-export function debounce<T extends (...args: any[]) => void>(fn: T, ms: number): T {
-	let timer: ReturnType<typeof setTimeout>;
-	return ((...args: any[]) => {
-		clearTimeout(timer);
-		timer = setTimeout(() => fn(...args), ms);
-	}) as T;
-}

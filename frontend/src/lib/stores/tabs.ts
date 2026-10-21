@@ -1,6 +1,7 @@
 import { writable, derived, type Readable } from 'svelte/store';
 import type { Tab, GenerationState } from '$lib/types/tabs';
-import { saveTabsToLocalStorage, loadTabsFromLocalStorage, debounce } from './tabPersistence';
+import { saveTabsToLocalStorage, loadTabsFromLocalStorage } from './tabPersistence';
+import { debounce } from '$lib/utils/time';
 import { DEFAULT_PROMPT_PANEL_WIDTH } from './generationLayout';
 import { randomUUID } from '$lib/utils/uuid';
 import { getGlobalSoundDefault } from '$lib/utils/soundSettings';

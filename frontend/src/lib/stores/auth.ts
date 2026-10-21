@@ -10,6 +10,7 @@ import { tabsStore } from '$lib/stores/tabs';
 import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
 import { LAST_USER_ID_KEY } from '$lib/stores/identityScopedStorage';
 import { activeAccount } from '$lib/stores/accountRegistry';
+import { sleep } from '$lib/utils/time';
 import {
 	clearAllAccounts,
 	currentRegistry,
@@ -123,7 +124,7 @@ function createAuthStore() {
 				}
 				logger.error('Failed to fetch user info on init:', err);
 			}
-			await new Promise((resolve) => setTimeout(resolve, delay));
+			await sleep(delay);
 			delay = Math.min(delay * 2, INIT_RETRY_MAX_MS);
 		}
 	}

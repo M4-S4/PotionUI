@@ -97,6 +97,7 @@ import {
 import { withoutQueueEntry } from '$lib/generation/messages/ownership';
 import { retireGeneration } from '$lib/generation/messages/generationOutputs';
 import { ensureSubscribed } from './subscriptions';
+import { sleep } from '$lib/utils/time';
 
 /** Minimal surface `reconcileTabGenerations` needs from `tabsStore` -- the
  *  real store (`$lib/stores/tabs`) satisfies this as-is. */
@@ -166,10 +167,6 @@ const KNOWN_GENERATION_STATUSES = new Set(['pending', 'running', 'completed', 'f
 
 function hasRecognizedStatus(data: GenerationStatus | null | undefined): data is GenerationStatus {
 	return !!data && typeof data.status === 'string' && KNOWN_GENERATION_STATUSES.has(data.status);
-}
-
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -287,7 +284,7 @@ async function fetchOutputs(
 	const attempt = await fetchOutputsOnce(api, generationId);
 	if (attempt.outputs || signal?.aborted) return attempt.outputs;
 	if (isRetry) return null;
-	await delay(retryDelayMs);
+	await sleep(retryDelayMs);
 	if (signal?.aborted) return null;
 	return fetchOutputs(api, generationId, retryDelayMs, signal, true);
 }
@@ -639,7 +636,7 @@ export async function reconcileTabGenerations(
 			// `activeGenerationId`/the run/its routing untouched and try once
 			// more after a delay.
 			if (!isRetry) {
-				await delay(retryDelayMs);
+				await sleep(retryDelayMs);
 				if (signal?.aborted) return;
 				await reconcileOne(generationId, true);
 			}

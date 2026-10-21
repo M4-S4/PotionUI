@@ -5,7 +5,7 @@
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import type { LibrarySectionMeta } from '$lib/components/library/librarySection';
-	import { debounce } from '$lib/stores/tabPersistence';
+	import { debounce } from '$lib/utils/time';
 	import LLMConfigTab from './LLMConfigTab.svelte';
 	import SessionsDebugTab from './SessionsDebugTab.svelte';
 	import {

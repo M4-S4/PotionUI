@@ -6,6 +6,7 @@ import type { MediaRef } from '$lib/types/tabs';
 import type { Segment } from '$lib/types/segments';
 import { sortByStart } from '$lib/components/video-director/timelineCore';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
+import { isRecord, mergeRawCapabilities } from '$lib/utils/records';
 import type {
 	DirectorCapabilities,
 	DirectorMode,
@@ -72,10 +73,6 @@ export const DEFAULT_TIMELINE_SHOT_ID = 'shot-1';
 /** What `_normalize_media` falls back to when a keyframe-capable mode declares
  * no `max_keyframes` (src/features/video_director/normalize.py). */
 export const DEFAULT_MAX_KEYFRAMES = 8;
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 function num(v: unknown, fallback: number): number {
 	return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
@@ -346,22 +343,6 @@ function parseModeCapability(
  * identical to the backend -- there is no separate coercion path to drift
  * out of sync with `parseModeCapability`.
  */
-export function mergeRawCapabilities(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
-	const merged: Record<string, unknown> = { ...base };
-	for (const [key, value] of Object.entries(override)) {
-		if (key !== 'modes') merged[key] = value;
-	}
-	const baseModes = isRecord(base.modes) ? base.modes : {};
-	const overrideModes = isRecord(override.modes) ? override.modes : {};
-	const mergedModes: Record<string, unknown> = { ...baseModes };
-	for (const [compMode, compOverride] of Object.entries(overrideModes)) {
-		const baseEntry = baseModes[compMode];
-		mergedModes[compMode] = isRecord(compOverride) && isRecord(baseEntry) ? { ...baseEntry, ...compOverride } : compOverride;
-	}
-	merged.modes = mergedModes;
-	return merged;
-}
-
 /**
  * The single entry point for reading Director capabilities everywhere they're
  * used (the editor mount gate, UnifiedAIChat's form_state export, submission,

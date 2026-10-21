@@ -5,6 +5,7 @@
 	import { api } from '$lib/services/api/index';
 	import type { SetupStatus } from '$lib/services/api/setup';
 	import { decideRootDestination, canDecideRootDestination } from '$lib/utils/setupRouting';
+	import { sleep } from '$lib/utils/time';
 
 	let statusChecked = false;
 	let setupStatus: SetupStatus | null = null;
@@ -34,7 +35,7 @@
 					break;
 				}
 				stillStarting = true;
-				await new Promise((resolve) => setTimeout(resolve, STATUS_RETRY_MS));
+				await sleep(STATUS_RETRY_MS);
 			}
 		}
 		stillStarting = false;

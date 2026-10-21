@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import { Input, IconButton, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
-	import { debounce } from '$lib/stores/tabPersistence';
+	import { debounce } from '$lib/utils/time';
 	import { nextIndex, focusableRows, type NavKey } from './keynav';
 
 	let {

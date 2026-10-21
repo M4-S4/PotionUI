@@ -5,7 +5,7 @@
 	import * as adminApi from '$lib/services/admin-api';
 	import type { AdminGenerationDetailResult, AdminGenerationListItem } from '$lib/services/admin-api';
 	import type { User } from '$lib/stores/auth';
-	import { debounce } from '$lib/stores/tabPersistence';
+	import { debounce } from '$lib/utils/time';
 	import { timeAgo, parseServerDate } from '$lib/utils/relativeTime';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';

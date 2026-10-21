@@ -1,5 +1,6 @@
 import type { Session, SessionVersionSummary } from '$lib/types/api';
 import { parseServerDate } from '$lib/utils/relativeTime';
+import { startOfDay } from '$lib/utils/time';
 
 export interface Group<T> {
 	label: string;
@@ -7,10 +8,6 @@ export interface Group<T> {
 }
 
 const DAY_MS = 86_400_000;
-
-function startOfDay(date: Date): number {
-	return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
 
 function dayDiff(date: Date, now: Date): number {
 	return Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);

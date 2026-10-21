@@ -3,7 +3,8 @@ import { cloudModelId } from '$lib/form/capabilityBinder';
 import type { DirectorCapabilities, DirectorMediaValue, VideoDirectorValue } from '$lib/types/videoDirector';
 import type { DirectorRunState } from '$lib/types/tabs';
 import { formatUsd, parseAmount } from '$lib/utils/cloudCost';
-import { deriveChainSegmentSubType, mergeRawCapabilities, modelShotDurationReasons } from '$lib/utils/videoDirector';
+import { deriveChainSegmentSubType, modelShotDurationReasons } from '$lib/utils/videoDirector';
+import { mergeRawCapabilities } from '$lib/utils/records';
 
 export interface DirectorModelOverlay {
 	label: string | null;
