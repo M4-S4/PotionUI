@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "scenario": "apply_variable_confirmed",
+  "capture": "replay",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Pin mood to sunlit."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "manage_prompt_variables",
+          "arguments": {
+            "operations": [
+              {
+                "op": "set",
+                "name": "mood",
+                "type": "choice",
+                "options": ["noir", "sunlit"],
+                "mode": "pin",
+                "pinned_index": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "manage_prompt_variables",
+      "content": "{\"status\": \"applied\", \"tab_id\": \"chat-eval-tab\", \"rev\": 1, \"applied_count\": 1, \"applied_changes\": [{\"field_name\": \"${mood}\", \"old_value\": \"not set\", \"new_value\": \"pinned to sunlit\"}], \"summary\": \"Applied 1 variable change. ${mood}: not set -> pinned to sunlit\"}",
+      "outcome": "applied"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "get_form_state",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_form_state",
+      "content": "{\"prompt\": \"portrait of a woman, ${mood} lighting\"}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "Done - the mood variable is now pinned to sunlit."
+    }
+  ]
+}

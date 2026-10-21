@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 class Continuation:
     message_id: str
     tool_index: int
+    tool_name: str
+    tool_call_id: str
     rounds_used: int
     applied_calls: Set[str]
     context_metadata: Optional[Dict[str, Any]]
@@ -232,6 +234,8 @@ class ToolCallDispatcher:
         return Continuation(
             message_id=message_id,
             tool_index=tool_index,
+            tool_name=executions[tool_index].get("tool_name") or "",
+            tool_call_id=executions[tool_index].get("tool_call_id") or "",
             rounds_used=int(metadata.get("turn_rounds") or 0),
             applied_calls=tool_transcript.applied_call_keys(chain),
             context_metadata=metadata.get("context_metadata"),

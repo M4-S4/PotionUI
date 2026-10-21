@@ -259,16 +259,17 @@ class TestToolActionTagSurvivesSectionParsing:
 
 class TestApprovalContinuation:
     def test_it_asks_for_one_short_sentence_and_forbids_a_bare_ok(self):
-        from src.features.chat.reply_contract import APPROVAL_CONTINUATION_NOTE
+        from src.features.chat.reply_contract import APPROVAL_CONTINUATION_TEMPLATE
 
-        assert "one short sentence" in APPROVAL_CONTINUATION_NOTE
-        assert "last tool result" in APPROVAL_CONTINUATION_NOTE
-        assert "earlier" in APPROVAL_CONTINUATION_NOTE
-        assert "OK" in APPROVAL_CONTINUATION_NOTE
+        assert "one short sentence" in APPROVAL_CONTINUATION_TEMPLATE
+        assert "earlier" in APPROVAL_CONTINUATION_TEMPLATE
+        assert "OK" in APPROVAL_CONTINUATION_TEMPLATE
+        assert "last tool result" not in APPROVAL_CONTINUATION_TEMPLATE
 
-    def test_it_is_a_trailing_user_context_message(self):
-        from src.features.chat.reply_contract import APPROVAL_CONTINUATION_NOTE, approval_continuation_message
+    def test_it_is_a_trailing_user_context_message_naming_the_approved_call(self):
+        from src.features.chat.reply_contract import approval_continuation_message
 
-        message = approval_continuation_message()
+        message = approval_continuation_message("manage_prompt_variables", "v1")
         assert message["role"] == "user"
-        assert APPROVAL_CONTINUATION_NOTE in message["content"]
+        assert "`manage_prompt_variables`" in message["content"]
+        assert "(id v1)" in message["content"]

@@ -278,6 +278,12 @@ def _validate_operations(
     return validated_ops, preview_rows, errors
 
 
+def _applied_summary(rows: List[Dict[str, Any]]) -> str:
+    lines = [f"{row['field_name']}: {row['old_value']} -> {row['new_value']}" for row in rows]
+    noun = "change" if len(rows) == 1 else "changes"
+    return f"Applied {len(rows)} variable {noun}. " + "; ".join(lines)
+
+
 class ManagePromptVariablesTool(BaseTool):
     """Creates, updates, and removes the generate tab's ${name} prompt variables."""
 
@@ -439,14 +445,10 @@ class ManagePromptVariablesTool(BaseTool):
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         operations = kwargs.get("operations", [])
 
-        # Approval is the USER agreeing to the change, not evidence the form
-        # state is unchanged since the preview - and these arguments are
-        # replayed from storage, so the preview's checks don't carry over.
-        # Re-run them.
         tab_id, existing, load_error = _load_variables(context, kwargs)
         if load_error:
             return ToolResult(success=False, data="", error=load_error)
-        validated_ops, _preview_rows, errors = _validate_operations(operations, existing)
+        validated_ops, applied_rows, errors = _validate_operations(operations, existing)
 
         if errors and not validated_ops:
             return ToolResult(success=False, data="", error="; ".join(errors))
@@ -462,6 +464,8 @@ class ManagePromptVariablesTool(BaseTool):
             "tab_id": tab_id,
             "rev": draft.rev,
             "applied_count": len(validated_ops),
+            "applied_changes": applied_rows,
+            "summary": _applied_summary(applied_rows),
         }
         if errors:
             payload["rejected_operations"] = errors

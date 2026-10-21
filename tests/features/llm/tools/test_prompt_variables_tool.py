@@ -286,7 +286,14 @@ class TestExecuteConfirmed:
         )
         assert result.success is True
         payload = json.loads(result.data)
-        assert payload == {"status": "applied", "tab_id": "tab-1", "rev": 1, "applied_count": 1}
+        assert payload["status"] == "applied"
+        assert (payload["tab_id"], payload["rev"], payload["applied_count"]) == ("tab-1", 1, 1)
+        [row] = payload["applied_changes"]
+        assert row["field_name"] == "${mood}"
+        assert row["old_value"] == "not set"
+        assert "noir" in row["new_value"]
+        assert payload["summary"].startswith("Applied 1 variable change.")
+        assert "${mood}" in payload["summary"]
         assert "action" not in payload
         assert stored(ctx) == {"mood": {"type": "text", "value": "noir"}}
 

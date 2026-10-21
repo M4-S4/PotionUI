@@ -79,18 +79,19 @@ TOOL_LOOP_CONTINUATION_NUDGE = (
 )
 
 
-APPROVAL_CONTINUATION_NOTE = (
-    "The user just resolved the pending tool call (approved or declined); "
-    "its outcome is the last tool result in the conversation above. Reply with "
-    "one short sentence saying what was done, naming the item or change exactly "
-    "as that last tool result states it (never a name from an earlier search or "
-    "tool result), or that nothing was applied. Never answer with only an "
-    "acknowledgment such as \"OK\"."
+APPROVAL_CONTINUATION_TEMPLATE = (
+    "The user just resolved the pending `{tool_name}` tool call (id {tool_call_id}); "
+    "its outcome is that call's tool result in the conversation above, even when "
+    "other tool results follow it. Reply with one short sentence saying what was "
+    "done, naming the item or change exactly as that result states it (never a "
+    "name from an earlier search or another tool result), or that it was declined "
+    "or failed. Never answer with only an acknowledgment such as \"OK\"."
 )
 
 
-def approval_continuation_message() -> Dict[str, str]:
-    return {"role": "user", "content": f"<context>\n{APPROVAL_CONTINUATION_NOTE}\n</context>"}
+def approval_continuation_message(tool_name: str, tool_call_id: str) -> Dict[str, str]:
+    note = APPROVAL_CONTINUATION_TEMPLATE.format(tool_name=tool_name, tool_call_id=tool_call_id)
+    return {"role": "user", "content": f"<context>\n{note}\n</context>"}
 
 
 def parse_reply_contract(content: str) -> Tuple[str, Optional[Dict[str, Any]]]:

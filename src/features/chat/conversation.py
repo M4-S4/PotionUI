@@ -603,7 +603,7 @@ class ConversationRunner:
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
         if continuation is not None:
-            conversation_history.append(approval_continuation_message())
+            conversation_history.append(approval_continuation_message(continuation.tool_name, continuation.tool_call_id))
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
         budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)

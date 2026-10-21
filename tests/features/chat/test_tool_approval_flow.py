@@ -266,8 +266,6 @@ class TestResolve:
 
     @pytest.mark.asyncio
     async def test_continuation_asks_for_a_one_sentence_confirmation(self, chat_db):
-        from src.features.chat.reply_contract import APPROVAL_CONTINUATION_NOTE
-
         tool = _SetValueTool()
         manager, _repo, session_id, llm, message_id, _events = await _paused(tool)
         first_system = llm.calls[0]["system"]
@@ -276,10 +274,9 @@ class TestResolve:
         await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
 
         assert llm.calls[-1]["system"] == first_system
-        assert APPROVAL_CONTINUATION_NOTE not in json.dumps(llm.calls[0]["messages"])
+        assert "just resolved the pending" not in json.dumps(llm.calls[0]["messages"])
         last = llm.calls[-1]["messages"][-1]
-        assert last["role"] == "user"
-        assert APPROVAL_CONTINUATION_NOTE in last["content"]
+        assert last == approval_continuation_message("set_value", "c1")
 
     @pytest.mark.asyncio
     async def test_failure_reaches_continuation(self, chat_db):
@@ -368,7 +365,7 @@ class TestContinuation:
                 "role": "tool", "tool_call_id": "c2", "name": "echo",
                 "content": "Not run: waiting for approval of set_value. Call it again if still needed.",
             },
-            approval_continuation_message(),
+            approval_continuation_message("set_value", "c1"),
         ]
 
         reply = _done(events)["assistant_message"]
@@ -682,6 +679,35 @@ class TestFormStateSyncAcrossChainedApprovals:
         assert "mood" in drafts.variables(USER_ID, "tab-1")
         assert drafts.find(USER_ID, "tab-2") is None
         assert [m["tab_id"] for _, m in notifier.sent] == ["tab-1"]
+
+    @pytest.mark.asyncio
+    async def test_follow_up_turn_sees_the_applied_rows_and_a_note_naming_the_approved_call(self, chat_db):
+        llm = _ScriptedLLM([
+            {"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]},
+            {"tool_calls": [_call("e1", "echo")]},
+            {"content": "Pinned mood to sunlit."},
+        ])
+        drafts, _notifier = make_manager()
+        manager, _repo, session_id = _manager([ManagePromptVariablesTool(), _EchoTool()], llm, tab_drafts=drafts)
+        events = await _stream(manager, session_id, "pin mood", context_metadata=copy.deepcopy(self._CONTEXT))
+        message_id = _done(events)["assistant_message"]["id"]
+        await _resolve(manager, session_id, message_id)
+
+        await _stream(manager, session_id, context_metadata=None,
+                      continue_from={"message_id": message_id, "tool_index": 0})
+
+        final = llm.calls[-1]["messages"]
+        applied = next(m for m in final if m.get("tool_call_id") == "v1")
+        payload = json.loads(applied["content"])
+        assert payload["status"] == "applied"
+        assert [row["field_name"] for row in payload["applied_changes"]] == ["${mood}"]
+        assert payload["applied_changes"][0]["new_value"]
+        assert "${mood}" in payload["summary"]
+        note = next(m for m in final if m["role"] == "user" and "just resolved the pending" in m["content"])
+        assert "manage_prompt_variables" in note["content"] and "v1" in note["content"]
+        assert "last tool result" not in note["content"]
+        assert final.index(applied) < final.index(note)
+        assert any(m.get("tool_call_id") == "e1" for m in final)
 
     @pytest.mark.asyncio
     async def test_declining_the_change_writes_and_pushes_nothing(self, chat_db):

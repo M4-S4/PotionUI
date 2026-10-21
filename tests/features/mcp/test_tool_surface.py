@@ -424,7 +424,12 @@ class TestTabDraftTools:
         result = await _call(world, "manage_prompt_variables", {"tab_id": "tab-a", "operations": [MOOD_OP]})
 
         assert result["isError"] is False, result["content"][0]["text"]
-        assert _payload(result) == {"status": "applied", "tab_id": "tab-a", "rev": 1, "applied_count": 1}
+        payload = _payload(result)
+        assert (payload["status"], payload["tab_id"], payload["rev"], payload["applied_count"]) == ("applied", "tab-a", 1, 1)
+        [row] = payload["applied_changes"]
+        assert row["field_name"] == "${mood}" and row["old_value"] == "not set"
+        assert "sunlit" in row["new_value"]
+        assert payload["summary"].startswith("Applied 1 variable change.") and "${mood}" in payload["summary"]
         assert world.drafts.variables("user-1", "tab-a")["mood"]["pinnedIndex"] == 1
         [(pushed_to, message)] = world.notifier.sent
         assert pushed_to == "user-1" and message["type"] == "tab_variables_changed" and message["tab_id"] == "tab-a"
