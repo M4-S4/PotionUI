@@ -27,15 +27,11 @@
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import {
 		GENERATION_SORT_OPTIONS,
-		clearAllGenerationsFilters,
-		clearGenerationsFilterChip,
-		generationsFilterActiveCount,
 		generationsFilterChips,
-		generationsFiltersFromSearchParams,
-		generationsFiltersToSearchParams,
 		generationsSortParams,
 		type GenerationSortBy,
-		type GenerationsFilters
+		type GenerationsFilters,
+		generationsFilters
 	} from './generationsFilters';
 
 	const FILTER_PARAM_KEYS = ['q', 'status', 'category', 'user', 'from', 'to', 'sort_by'];
@@ -71,9 +67,9 @@
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const detailOpen = $derived(!!viewId);
 
-	const filters = $derived(generationsFiltersFromSearchParams($page.url.searchParams));
+	const filters = $derived(generationsFilters.fromSearchParams($page.url.searchParams));
 	const filtersKey = $derived(JSON.stringify(filters));
-	const activeFilterCount = $derived(generationsFilterActiveCount(filters));
+	const activeFilterCount = $derived(generationsFilters.activeCount(filters));
 	const chips = $derived(generationsFilterChips(filters, (userId) => usersById.get(userId)?.username ?? userId));
 	const section = $derived(sectionFromStatus(filters.status));
 	const sort = $derived(sortStateFromSortBy(filters.sortBy));
@@ -173,7 +169,7 @@
 	function applyFilters(next: GenerationsFilters) {
 		const url = new URL($page.url);
 		for (const key of FILTER_PARAM_KEYS) url.searchParams.delete(key);
-		for (const [key, value] of generationsFiltersToSearchParams(next)) url.searchParams.set(key, value);
+		for (const [key, value] of generationsFilters.toSearchParams(next)) url.searchParams.set(key, value);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
@@ -196,11 +192,11 @@
 	}
 
 	function onRemoveChip(key: string) {
-		applyFilters(clearGenerationsFilterChip(filters, key));
+		applyFilters(generationsFilters.clearChip(filters, key));
 	}
 
 	function onClearAllFilters() {
-		applyFilters(clearAllGenerationsFilters(filters));
+		applyFilters(generationsFilters.clearAll(filters));
 	}
 
 	function selectSection(id: GenerationSection) {

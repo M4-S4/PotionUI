@@ -10,17 +10,11 @@
 	import SessionsDebugTab from './SessionsDebugTab.svelte';
 	import {
 		LLM_CONFIG_SORT_OPTIONS,
-		llmConfigFiltersFromSearchParams,
-		llmConfigFiltersToSearchParams,
 		type LLMConfigFilters,
-		type LLMConfigSortBy
+		type LLMConfigSortBy,
+		llmConfigFilters
 	} from './llmConfigFilters';
-	import {
-		SESSIONS_SORT_OPTIONS,
-		sessionsFiltersFromSearchParams,
-		sessionsFiltersToSearchParams,
-		type SessionsFilters
-	} from './sessionsFilters';
+	import { SESSIONS_SORT_OPTIONS, type SessionsFilters, sessionsFilters } from './sessionsFilters';
 
 	type LLMView = 'configuration' | 'sessions';
 
@@ -48,8 +42,8 @@
 	const shellCount = $derived(view === 'configuration' ? configVisible : sessionsTotal);
 	const sectionCounts = $derived({ configuration: configTotal, sessions: sessionsTotal });
 
-	const llmConfigFilters = $derived(llmConfigFiltersFromSearchParams($page.url.searchParams));
-	const sessionsFilters = $derived(sessionsFiltersFromSearchParams($page.url.searchParams));
+	const currentLlmConfigFilters = $derived(llmConfigFilters.fromSearchParams($page.url.searchParams));
+	const currentSessionsFilters = $derived(sessionsFilters.fromSearchParams($page.url.searchParams));
 
 	function selectSection(next: LLMView) {
 		if (next === view) return;
@@ -69,7 +63,7 @@
 		configFiltersDebounce = setTimeout(() => {
 			const url = new URL($page.url);
 			for (const key of ['q', 'sort_by']) url.searchParams.delete(key);
-			for (const [key, value] of llmConfigFiltersToSearchParams(next)) url.searchParams.set(key, value);
+			for (const [key, value] of llmConfigFilters.toSearchParams(next)) url.searchParams.set(key, value);
 			void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 		}, 250);
 	}
@@ -77,7 +71,7 @@
 	function updateSessionsFilters(next: SessionsFilters) {
 		const url = new URL($page.url);
 		for (const key of ['q', 'sort_by']) url.searchParams.delete(key);
-		for (const [key, value] of sessionsFiltersToSearchParams(next)) url.searchParams.set(key, value);
+		for (const [key, value] of sessionsFilters.toSearchParams(next)) url.searchParams.set(key, value);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
@@ -98,21 +92,21 @@
 	{#snippet toolbar()}
 		{#if view === 'configuration'}
 			<LibraryFilterBar
-				q={llmConfigFilters.q}
-				onQueryChange={(value) => updateConfigFilters({ ...llmConfigFilters, q: value })}
+				q={currentLlmConfigFilters.q}
+				onQueryChange={(value) => updateConfigFilters({ ...currentLlmConfigFilters, q: value })}
 				searchPlaceholder="Search by name or model…"
-				sortBy={llmConfigFilters.sortBy}
+				sortBy={currentLlmConfigFilters.sortBy}
 				sortOptions={LLM_CONFIG_SORT_OPTIONS}
-				onSortChange={(value) => updateConfigFilters({ ...llmConfigFilters, sortBy: value as LLMConfigSortBy })}
+				onSortChange={(value) => updateConfigFilters({ ...currentLlmConfigFilters, sortBy: value as LLMConfigSortBy })}
 			/>
 		{:else}
 			<LibraryFilterBar
-				q={sessionsFilters.q}
-				onQueryChange={(value) => debouncedUpdateSessionsFilters({ ...sessionsFilters, q: value })}
+				q={currentSessionsFilters.q}
+				onQueryChange={(value) => debouncedUpdateSessionsFilters({ ...currentSessionsFilters, q: value })}
 				searchPlaceholder="Search name, user, email…"
-				sortBy={sessionsFilters.sortBy}
+				sortBy={currentSessionsFilters.sortBy}
 				sortOptions={SESSIONS_SORT_OPTIONS}
-				onSortChange={(value) => updateSessionsFilters({ ...sessionsFilters, sortBy: value as SessionsFilters['sortBy'] })}
+				onSortChange={(value) => updateSessionsFilters({ ...currentSessionsFilters, sortBy: value as SessionsFilters['sortBy'] })}
 			/>
 		{/if}
 	{/snippet}
@@ -155,7 +149,7 @@
 	<div class="h-full min-h-0" class:hidden={view !== 'configuration'}>
 		<LLMConfigTab
 			bind:this={configTab}
-			filters={llmConfigFilters}
+			filters={currentLlmConfigFilters}
 			bind:total={configTotal}
 			bind:visibleCount={configVisible}
 			bind:detailOpen={configDetailOpen}
@@ -164,7 +158,7 @@
 	<div class="h-full min-h-0" class:hidden={view !== 'sessions'}>
 		<SessionsDebugTab
 			bind:this={sessionsTab}
-			filters={sessionsFilters}
+			filters={currentSessionsFilters}
 			bind:total={sessionsTotal}
 			bind:detailOpen={sessionsDetailOpen}
 			bind:clearingScope={sessionsClearingScope}
