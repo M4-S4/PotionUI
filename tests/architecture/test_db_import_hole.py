@@ -46,6 +46,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".git", "dist"}
 _DB_ASSIGNMENT = re.compile(r"\.db\s*=(?!=)")
+_MENTIONS_DB_NAME = re.compile(r"\bdb\b")
+_MENTIONS_DB_ATTRIBUTE = re.compile(r"\.db\b")
 
 # Every module whose `db` is the same frozen singleton handle.
 TARGET_MODULES = {
@@ -97,6 +99,13 @@ def _tree(index, path: Path) -> ast.Module | None:
         return None
 
 
+def _mentions(index, path: Path, pattern: re.Pattern) -> bool:
+    try:
+        return pattern.search(index.text(path)) is not None
+    except UnicodeDecodeError:
+        return False
+
+
 def _py_files(index, base: Path):
     if not base.exists():
         return
@@ -139,6 +148,8 @@ def _module_level_db_imports(index, path: Path) -> list[int]:
     """Line numbers of top-level `from <forbidden module> import db` (or
     `... as db`) statements - `tree.body` only, so anything nested inside a
     function or class (already call-time) is not a violation."""
+    if not _mentions(index, path, _MENTIONS_DB_NAME):
+        return []
     tree = _tree(index, path)
     if tree is None:
         return []
@@ -160,6 +171,8 @@ def _module_level_db_aliases(index, path: Path) -> list[int]:
     """Line numbers of top-level `<name> = <something>.db` assignments - the
     `import src.platform.database as X` / `X.db` spelling of the same freeze,
     which no `from ... import` check would see."""
+    if not _mentions(index, path, _MENTIONS_DB_ATTRIBUTE):
+        return []
     tree = _tree(index, path)
     if tree is None:
         return []
