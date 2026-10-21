@@ -200,7 +200,7 @@ function createAuthStore() {
 			loading: false,
 			error: null
 		});
-		hardNavigate('/login');
+		hardNavigate('/login?signedout=1');
 	}
 
 	return {
@@ -301,7 +301,7 @@ function createAuthStore() {
 				loading: false,
 				error: null
 			});
-			hardNavigate('/login');
+			hardNavigate('/login?signedout=1');
 		},
 
 		finishSignIn(path: string) {

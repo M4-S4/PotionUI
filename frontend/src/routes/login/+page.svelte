@@ -8,7 +8,14 @@
 	import type { SetupStatus, LoginProvider } from '$lib/services/api/index';
 	import { shouldShowRegisterLink } from '$lib/utils/setupRouting';
 	import { normalizeLoginProviders } from './loginProviders';
-	import { Alert, Button } from '$lib/components/ui';
+	import {
+		markAutoRedirectAttempt,
+		pickAutoRedirectProvider,
+		readAutoRedirectAttempt,
+		shouldAutoRedirect
+	} from './autoRedirect';
+	import { returnPathFromUrl, saveReturnPath } from '$lib/utils/returnPath';
+	import { Alert, Button, Spinner } from '$lib/components/ui';
 	import AuthShell from '$lib/components/auth/AuthShell.svelte';
 	import ContinueAsList from '$lib/components/accounts/ContinueAsList.svelte';
 	import {
@@ -31,6 +38,7 @@
 	let showPassword = false;
 	let setupStatus: SetupStatus | null = null;
 	let loginProviders: LoginProvider[] = [];
+	let redirectingTo: LoginProvider | null = null;
 
 	$: ({ error: storeError } = $authStore);
 
@@ -49,6 +57,12 @@
 	}
 	$: externalLoginFailed = $page.url.searchParams.get('error') === 'external_login';
 
+	$: signedOut = $page.url.searchParams.get('signedout') === '1';
+	$: localRecovery = $page.url.searchParams.get('local') === '1';
+	$: returnTo = returnPathFromUrl($page.url);
+	$: ssoProvider = addMode || localRecovery ? null : pickAutoRedirectProvider(loginProviders);
+	$: ssoFirst = ssoProvider !== null;
+
 	$: showRegisterLink = shouldShowRegisterLink(setupStatus);
 
 	onMount(async () => {
@@ -61,10 +75,22 @@
 		} catch {
 			setupStatus = null;
 		}
+		saveReturnPath(returnTo);
 		try {
 			loginProviders = normalizeLoginProviders(await api.getLoginProviders());
 		} catch {
 			loginProviders = [];
+		}
+		const target = shouldAutoRedirect({
+			providers: loginProviders,
+			params: $page.url.searchParams,
+			lastAttemptAt: readAutoRedirectAttempt(),
+			now: Date.now()
+		});
+		if (target && !$authStore.isAuthenticated) {
+			redirectingTo = target;
+			markAutoRedirectAttempt(Date.now());
+			continueWithProvider(target);
 		}
 	});
 
@@ -136,14 +162,14 @@
 		isLoading = false;
 
 		if (result.success) {
-			authStore.finishSignIn('/generate');
+			authStore.finishSignIn(returnTo ?? '/generate');
 		} else {
 			error = result.error || 'Login failed';
 		}
 	}
 
 	$: if ($authStore.isAuthenticated && !$authStore.loading && !addMode && $page.url.searchParams.get('add') !== '1') {
-		goto('/generate');
+		goto(returnTo ?? '/generate');
 	}
 </script>
 
@@ -190,6 +216,10 @@
 		</div>
 	{/if}
 
+	{#if signedOut && ssoFirst}
+		<Alert variant="info" class="mt-6">You have been signed out.</Alert>
+	{/if}
+
 	{#if externalLoginFailed}
 		<Alert variant="danger" class="mt-6">
 			Single sign-on did not complete. Your account may not be allowed to sign in here yet. Ask an administrator.
@@ -200,6 +230,12 @@
 		<Alert variant="danger" class="mt-6">{error || storeError}</Alert>
 	{/if}
 
+	{#if redirectingTo}
+		<div class="mt-10 flex flex-col items-center gap-3" role="status">
+			<Spinner size="lg" />
+			<p class="text-sm text-fg-muted">Redirecting to {redirectingTo.label}...</p>
+		</div>
+	{:else if !ssoFirst}
 	<form on:submit={handleSubmit}>
 		<div class="mt-[38px] flex flex-col gap-[22px]">
 			<div class="flex flex-col">
@@ -310,8 +346,10 @@
 			</div>
 		</div>
 	</form>
+	{/if}
 
-	{#if loginProviders.length > 0}
+	{#if loginProviders.length > 0 && !redirectingTo}
+		{#if !ssoFirst}
 		<div
 			class="mt-6 flex items-center gap-3 font-mono text-2xs uppercase tracking-[0.1em] text-fg-subtle"
 		>
@@ -319,6 +357,7 @@
 			<span>or</span>
 			<span class="h-px flex-1 bg-line"></span>
 		</div>
+		{/if}
 
 		<div class="mt-6 flex flex-col gap-3">
 			{#each loginProviders as provider (provider.id)}
@@ -345,7 +384,7 @@
 		</p>
 	{/if}
 
-	{#if showRegisterLink && !addMode}
+	{#if showRegisterLink && !addMode && !ssoFirst && !redirectingTo}
 		<p class="mt-8 text-base text-fg-subtle">
 			Don't have an account?
 			<a

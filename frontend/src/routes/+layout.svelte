@@ -25,6 +25,7 @@
 	import { themeStore } from '$lib/stores/theme';
 	import { printStartupBanner } from '$lib/utils/startupBanner';
 	import { resolveAuthLayoutMode } from '$lib/utils/authLayout';
+	import { loginUrlWithReturn } from '$lib/utils/returnPath';
 	import { Spinner, IconButton } from '$lib/components/ui';
 	import '../app.css';
 
@@ -251,7 +252,7 @@
 
 	// Redirect to login if not authenticated and not on public route
 	$: if (mounted && !$authStore.loading && !$authStore.isAuthenticated && !isPublicRoute) {
-		goto('/login');
+		goto(loginUrlWithReturn($page.url));
 	}
 
 	// Redirect to generate if authenticated and on public auth page
