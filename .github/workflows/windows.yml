@@ -104,13 +104,10 @@ jobs:
           - name: platform
             paths: >-
               tests/platform
-              tests/pipelines
               tests/features/plugins
               --ignore=tests/platform/runtime/native/test_engine.py
               --ignore=tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
-            serial_paths: >-
-              tests/platform/runtime/native/test_engine.py
-              tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
+            serial_paths: ""
           - name: features
             paths: >-
               tests/features/generation
@@ -119,7 +116,10 @@ jobs:
               tests/features/media_index
               tests/features/backends
               tests/features/models
-            serial_paths: ""
+              tests/pipelines
+            serial_paths: >-
+              tests/platform/runtime/native/test_engine.py
+              tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
           - name: rest
             paths: >-
               tests/

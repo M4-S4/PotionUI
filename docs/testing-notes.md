@@ -254,7 +254,18 @@ These are container/environment artefacts, not regressions caused by your change
   0.031. Not reproducible under a `taskset` 4-core simulation of the CI env,
   and no `set_num_threads`/`torch.backends`/default-dtype poisoner exists in
   the tree. The workflow runs these two files as a sequential step in the
-  platform shard; fold them back into the parallel step if root-caused.
+  features shard (`serial_paths`; the platform shard ignores them); fold them
+  back into the parallel step if root-caused.
+- **Shard layout (2026-10-21):** `tests/pipelines` runs in the features shard
+  and the platform shard keeps `tests/platform` + `tests/features/plugins`,
+  so the backend jobs are closer in length (Linux before: platform 309 s,
+  features 93 s, rest 241 s). The frontend job (388 s Linux, about 735 s
+  Windows) is the critical path, so this evens load rather than shortening the
+  workflow. `-n 2` inside `tests/plugins/run_suites.py` was evaluated and not
+  adopted: the plugin step is 34 s on Linux and 47 s on Windows inside the
+  non-critical `rest` job, and it is startup-bound (Linux already runs the
+  suites 10 at a time on 4 vCPUs), so worker-level parallelism saves
+  seconds at best.
 - **runner-CPU bf16 roulette (deterministic skip added):** part of GitHub's
   hosted runner fleet lacks native bf16 (no AMX/AVX512-BF16); torch's bf16
   conv2d fallback there is 10-20x slower, so a real sample+decode at size
