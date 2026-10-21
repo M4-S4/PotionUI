@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { GenerationState } from '$lib/types/tabs';
-import { deriveDeckThumb, formatClock, hasDeckResult, kindForCategory } from './deckThumb';
+import { deckAmbientSource, deriveDeckThumb, formatClock, hasDeckResult, kindForCategory } from './deckThumb';
 
 function generation(overrides: Partial<GenerationState> = {}): GenerationState {
 	return {
@@ -112,5 +112,30 @@ describe('helpers', () => {
 		expect(formatClock(59.6)).toBe('1:00');
 		expect(kindForCategory('3d')).toBe('mesh');
 		expect(kindForCategory('utility')).toBe('other');
+	});
+});
+
+describe('deckAmbientSource', () => {
+	const rest = (overrides: Partial<GenerationState>) => deckAmbientSource(deriveDeckThumb({ generation: generation(overrides), isGenerating: false, preset }));
+	const live = (current: Record<string, unknown>) => deckAmbientSource(deriveDeckThumb({ generation: generation({ currentGeneration: { id: 'g1', ...current } }), isGenerating: true, preset }));
+
+	it('glows from an image result or the live preview', () => {
+		expect(rest({ batchImages: [{ url: '/r.png' }] })).toBe('/r.png');
+		expect(live({ current_image: '/p.png' })).toBe('/p.png');
+	});
+
+	it.each([
+		['a content-flagged result', () => rest({ batchImages: [{ url: '/r.png', content_flagged: true }] })],
+		['an NSFW result', () => rest({ batchImages: [{ url: '/r.png', nsfw: true } as never] })],
+		['a flagged live preview', () => live({ current_image: '/p.png', content_flagged: true })],
+		['an NSFW live preview', () => live({ current_image: '/p.png', nsfw: true })],
+		['a suppressed live preview', () => live({ current_image: '/p.png', preview_suppressed: true })],
+		['a video result', () => rest({ batchVideos: [{ url: '/v.mp4', duration: 5 }] })],
+		['an audio result', () => rest({ batchAudios: [{ url: '/a.wav' } as never] })],
+		['a text output', () => rest({ pluginOutputs: { caption_text: {} } } as never)],
+		['the preset cover before any result', () => rest({})],
+		['a family tile without a cover', () => deckAmbientSource(deriveDeckThumb({ generation: generation(), isGenerating: false, preset: { ...preset, cover: null } }))]
+	])('never glows from %s', (_name, source) => {
+		expect(source()).toBeNull();
 	});
 });

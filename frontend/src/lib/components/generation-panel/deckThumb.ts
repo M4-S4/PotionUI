@@ -78,6 +78,12 @@ export function deriveDeckThumb(input: {
 	return { tile: 'family', preset };
 }
 
+export function deckAmbientSource(view: DeckThumbView): string | null {
+	if (view.tile === 'live') return view.src;
+	if (view.tile === 'media' && view.kind === 'image') return view.src;
+	return null;
+}
+
 export function hasDeckResult(view: DeckThumbView): boolean {
 	return view.tile === 'media' || (view.tile === 'icon' && !view.pending);
 }

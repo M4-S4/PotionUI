@@ -10,9 +10,10 @@
 	import Tooltip from './Tooltip.svelte';
 	import GenerateMark from './generation-panel/GenerateMark.svelte';
 	import DeckThumb from './generation-panel/DeckThumb.svelte';
+	import AmbientGlow from './AmbientGlow.svelte';
 	import { deriveMarkState, deriveModeChromeGlyph, formatDurationMs, formatDurationSeconds } from './generation-panel/barState';
 	import { deckEyebrow, deckTitle, deriveDeckState, shouldAnnounceQuarter, type DeckState } from './generation-panel/deckStatus';
-	import { deriveDeckThumb, hasDeckResult, type DeckThumbPreset } from './generation-panel/deckThumb';
+	import { deckAmbientSource, deriveDeckThumb, hasDeckResult, type DeckThumbPreset } from './generation-panel/deckThumb';
 	import { createStatusLineRotator, phaseFor } from './generation-panel/statusLines';
 	import { playfulStatusLines } from '$lib/stores/playfulStatusLines';
 	import { shortcutLabels } from '$lib/stores/keybindings';
@@ -323,6 +324,7 @@
 		resultStatus: currentGeneration?.status ?? null
 	});
 	$: thumbView = deriveDeckThumb({ generation, isGenerating, preset });
+	$: ambientSource = deckAmbientSource(thumbView);
 	$: hasResult = hasDeckResult(isGenerating ? deriveDeckThumb({ generation, isGenerating: false, preset }) : thumbView);
 	$: title = deckTitle({
 		state: deckState,
@@ -424,6 +426,10 @@
 </script>
 
 <div class="generation-panel" data-menu-dock data-state={deckState} aria-label="Generation controls" bind:this={panelRef}>
+	<div class="deck-ambient">
+		<AmbientGlow src={ambientSource} class="deck-halo" crossfade={400} {reducedMotion} />
+	</div>
+
 	{#if activeDrawer}
 		<div
 			class="backdrop"

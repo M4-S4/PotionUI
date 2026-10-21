@@ -41,10 +41,20 @@
 
   &[data-state="loading"] .progress-fill { width: 32%; animation: indeterminate 1.25s cubic-bezier(.4, 0, .2, 1) infinite; }
 
+  .deck-ambient { position: absolute; inset: 2px 0 0; z-index: -1; overflow: hidden; pointer-events: none; mask-image: linear-gradient(to right, black 88px, transparent 100px); --ambient-blur: 14px; --ambient-saturate: 1.4; --ambient-opacity: .55; --ambient-fade: 400ms; }
+
+  .deck-ambient .deck-halo { inset: auto; left: 28px; top: calc(50% - 31px); width: 60px; height: 60px; }
+
+  :root[data-theme='light'] & .deck-ambient { mix-blend-mode: color; --ambient-saturate: 2; --ambient-opacity: .9; }
+
   .deck { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 32px; padding: 0 28px; }
 
   @media (max-width: 1023px) {
     .deck { grid-template-columns: minmax(0, 1fr) auto auto; gap: 20px; padding: 0 20px; }
+
+    .deck-ambient { mask-image: linear-gradient(to right, black 80px, transparent 92px); }
+
+    .deck-ambient .deck-halo { left: 20px; }
   }
 
   .deck-status { min-width: 0; display: flex; align-items: center; gap: 14px; }

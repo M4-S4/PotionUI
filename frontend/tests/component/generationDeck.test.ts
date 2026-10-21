@@ -311,6 +311,27 @@ describe('generation deck with a floating workbench', () => {
 	});
 });
 
+describe('generation deck halo', () => {
+	const halo = () => [...mounted!.target.querySelectorAll('.deck-ambient img')].map((img) => img.getAttribute('src'));
+
+	it('glows behind an image result and behind the live preview', () => {
+		mounted = mount({ generation: generation({ batchImages: [{ url: '/r.png' }] }) });
+		expect(halo()).toEqual(['/r.png']);
+		mounted.destroy();
+		mounted = mount({ generation: running(0.4, { currentGeneration: { id: 'run-1', status: 'running', current_image: '/p.png' } }), isGenerating: true });
+		expect(halo()).toEqual(['/p.png']);
+	});
+
+	it.each([
+		['a content-flagged result', generation({ batchImages: [{ url: '/r.png', content_flagged: true }] })],
+		['a video result', generation({ batchVideos: [{ url: '/v.mp4', duration: 5 }] })]
+	])('shows no halo for %s', (_name, result) => {
+		mounted = mount({ generation: result });
+		expect(mounted.target.querySelector('.deck-ambient')).not.toBeNull();
+		expect(halo()).toEqual([]);
+	});
+});
+
 describe('generation deck teardown', () => {
 	it('leaves no timers behind when destroyed mid-run and mid-fade', () => {
 		vi.useFakeTimers();
