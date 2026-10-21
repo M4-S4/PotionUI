@@ -305,7 +305,7 @@ describe('UserMenu section cards', () => {
 		seed('alice', [{ id: 'alice' }, { id: 'bob' }]);
 		const menu = await openMenu();
 
-		expect(headers(menu.target)).toEqual(['Accounts 2 / 5', 'Workspace', 'Content', 'Session']);
+		expect(headers(menu.target)).toEqual(['Accounts 2 / 5', 'Workspace', 'Content', 'Community', 'Session']);
 		const identity = menu.target.querySelector('[data-testid="user-menu-identity"]')!;
 		expect(identity.textContent).toContain('alice');
 		expect(identity.textContent).toContain('Admin');
@@ -318,7 +318,7 @@ describe('UserMenu section cards', () => {
 		nsfwFilterStore.setRestricted(true);
 		const menu = await openMenu();
 
-		expect(headers(menu.target)).toEqual(['Accounts 1 / 5', 'Workspace', 'Session']);
+		expect(headers(menu.target)).toEqual(['Accounts 1 / 5', 'Workspace', 'Community', 'Session']);
 		expect(menu.target.querySelector('[role="radiogroup"]')).toBeNull();
 		menu.destroy();
 	});
@@ -413,7 +413,7 @@ describe('AccountsSheet (mobile)', () => {
 		const view = mount(AccountsSheet, { onClose: vi.fn() });
 		await tick();
 
-		expect(headers(document.body)).toEqual(['Accounts 2 / 5', 'Workspace', 'Content', 'Session']);
+		expect(headers(document.body)).toEqual(['Accounts 2 / 5', 'Workspace', 'Content', 'Community', 'Session']);
 		const row = document.querySelector('[data-testid="user-menu-content-row"]')!;
 		expect(row.className).toContain('flex-col');
 		expect(row.querySelector('[role="radiogroup"]')!.className).toContain('w-full');
