@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { formatBytes } from '$lib/utils/format';
+	import { formatTimecode } from '$lib/media/editors/timecode';
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { storage } from '$lib/utils/storage';
 	import type { AudioTrack, AudioTrackType, AudioPlayerState } from '$lib/types/audio';
@@ -45,8 +47,8 @@
 	$: currentTrack = tracks.find((t) => t.type === playerState.selectedTrack);
 	$: currentUrl = currentTrack?.url || currentTrack?.originalUrl || '';
 	$: hasMultipleTracks = tracks.length > 1;
-	$: formattedCurrentTime = formatTime(playerState.currentTime);
-	$: formattedDuration = formatTime(playerState.duration);
+	$: formattedCurrentTime = formatTimecode(playerState.currentTime);
+	$: formattedDuration = formatTimecode(playerState.duration);
 	$: progressPercentage = playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
 	$: volumePercentage = playerState.volume * 100;
 
@@ -302,16 +304,6 @@
 		dispatch('download', { trackType: playerState.selectedTrack });
 	}
 
-	function formatTime(seconds: number): string {
-		if (!isFinite(seconds) || isNaN(seconds)) {
-			return '0:00';
-		}
-
-		const mins = Math.floor(seconds / 60);
-		const secs = Math.floor(seconds % 60);
-		return `${mins}:${secs.toString().padStart(2, '0')}`;
-	}
-
 	// Global mouse event listeners for dragging
 	onMount(() => {
 		function handleGlobalMouseMove(event: MouseEvent) {
@@ -565,7 +557,7 @@
 								d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
 							/>
 						</svg>
-						<span>{formatTime(currentTrack.duration)}</span>
+						<span>{formatTimecode(currentTrack.duration)}</span>
 					</div>
 				{/if}
 
@@ -607,7 +599,7 @@
 								d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
 							/>
 						</svg>
-						<span>{(currentTrack.file_size / (1024 * 1024)).toFixed(2)} MB</span>
+						<span>{formatBytes(currentTrack.file_size)}</span>
 					</div>
 				{/if}
 			</div>

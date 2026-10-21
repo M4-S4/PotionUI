@@ -5,7 +5,8 @@
 	import { confidenceDisplay, digestConflictTooltip } from '$lib/utils/modelAvailability';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import type { ModelAvailabilityResponse } from '$lib/types/models';
-	import { formatBytes, formatDate } from './formatters';
+	import { formatBytes } from '$lib/utils/format';
+	import { formatDate } from './formatters';
 	import { DETAIL_INSET_CLASS } from '$lib/components/detail';
 
 	export let availability: ModelAvailabilityResponse | null = null;

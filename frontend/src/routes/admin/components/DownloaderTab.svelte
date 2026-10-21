@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { logger } from '$lib/utils/logger';
+	import { formatBytes } from '$lib/utils/format';
 	import {
 		downloadStore,
 		downloads,
@@ -166,8 +167,8 @@
 	}
 
 	function sizeLabel(download: Download): string {
-		if (download.total_bytes) return downloadStore.formatBytes(download.total_bytes);
-		if (download.downloaded_bytes) return downloadStore.formatBytes(download.downloaded_bytes);
+		if (download.total_bytes) return formatBytes(download.total_bytes);
+		if (download.downloaded_bytes) return formatBytes(download.downloaded_bytes);
 		return '—';
 	}
 

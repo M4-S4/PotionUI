@@ -1,5 +1,14 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { formatTimecode } from '$lib/media/editors/timecode';
+	import {
+		deriveMediaMetadata,
+		shouldProbeSize,
+		probeContentLength,
+		withProbedSize,
+		type MediaMetadata
+	} from '$lib/workbench/mediaMetadata';
+	import { fetchGenerationTags, saveGenerationTags, tagChips } from '$lib/workbench/generationTags';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { api } from '$lib/services/api';
 	import type { ImageData, VideoData } from '$lib/types/tabs';
@@ -276,12 +285,7 @@
 	}
 
 	let fetchedParams: Record<string, any> = {};
-	let imageMetadata: {
-		width: number;
-		height: number;
-		fileSize: string;
-		format: string;
-	} | null = null;
+	let imageMetadata: MediaMetadata | null = null;
 	let generationFiles: any[] = [];
 
 	// Tag management state
@@ -431,6 +435,7 @@
 
 	// Track the generation ID to avoid refetching on every render
 	let lastFetchedGenerationId: string | null = null;
+	let filesAttemptedFor: string | null = null;
 
 	// A generation is "settled" (has a final generation detail worth fetching --
 	// files/tags/has_profile) once it's completed OR failed. A failed run can
@@ -455,177 +460,65 @@
 	async function fetchGenerationFiles() {
 		const generation_id = currentGeneration?.generation_id || currentGeneration?.id;
 		if (!generation_id) return;
+		const attemptedId = currentGeneration.id;
 
 		try {
 			const response = await api.getGenerationById(generation_id, false, true);
 			if (response.success && response.data?.files) {
 				generationFiles = response.data.files;
 				hasProfile = response.data.has_profile === true;
-				lastFetchedGenerationId = currentGeneration.id;
+				lastFetchedGenerationId = attemptedId;
 			}
 		} catch (error) {
 			logger.error('Error fetching generation files:', error);
+		} finally {
+			filesAttemptedFor = attemptedId;
 		}
 	}
 
-	// Load metadata when workbench index or media type changes. `generationFiles`
-	// is referenced here (even though getCurrentFileMetadata() reads it) so this
-	// block also reruns once the async fetchGenerationFiles() call populates real
-	// width/height — otherwise the metadata calculated the instant the video/image
-	// becomes displayable (before that fetch resolves) never gets recomputed and a
-	// video with no live `resolution` (unlike images, see below) stays stuck at 0x0.
-	// Only raster outputs have width/height/size to probe. A mesh would
-	// otherwise take the `displayImage` branch (that URL is type-blind) and be
-	// fed to `new Image()` as a .glb.
+	$: awaitingFiles =
+		!!currentGeneration?.id && isSettledGeneration && filesAttemptedFor !== currentGeneration.id;
+
 	$: if (hasDisplayMedia && generationFiles && actions.hasPixelMetadata) {
 		if (displayFileType === 'video' && displayVideo) {
-			loadVideoMetadata();
+			loadVideoMetadata(!awaitingFiles);
 		} else if (displayImage) {
-			loadImageMetadata();
+			loadImageMetadata(!awaitingFiles);
 		}
 	} else if (hasDisplayMedia && !actions.hasPixelMetadata) {
 		imageMetadata = null;
 	}
 
-	function loadVideoMetadata() {
-		const currentItem = isGalleryMode ? getCurrentWorkbenchItem() : null;
-		const fileMetadata = getCurrentFileMetadata();
-
-		let videoMetadata = {
-			width: 0,
-			height: 0,
-			fileSize: 'Unknown',
-			format: 'MP4'
-		};
-
-		if (fileMetadata?.width && fileMetadata?.height) {
-			videoMetadata.width = fileMetadata.width;
-			videoMetadata.height = fileMetadata.height;
-		} else if (currentItem && 'resolution' in currentItem && currentItem.resolution && Array.isArray(currentItem.resolution) && currentItem.resolution.length >= 2) {
-			videoMetadata.width = currentItem.resolution[0];
-			videoMetadata.height = currentItem.resolution[1];
-		} else if (currentGeneration?.video_metadata?.resolution) {
-			videoMetadata.width = currentGeneration.video_metadata.resolution[0];
-			videoMetadata.height = currentGeneration.video_metadata.resolution[1];
-		}
-
-		if (fileMetadata?.file_size) {
-			const bytes = fileMetadata.file_size;
-			if (bytes < 1024) {
-				videoMetadata.fileSize = `${bytes} B`;
-			} else if (bytes < 1024 * 1024) {
-				videoMetadata.fileSize = `${(bytes / 1024).toFixed(1)} KB`;
-			} else {
-				videoMetadata.fileSize = `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	function probeFileSize(metadata: MediaMetadata, url: string) {
+		void probeContentLength(url).then((bytes) => {
+			if (bytes && imageMetadata === metadata) {
+				imageMetadata = withProbedSize(metadata, bytes);
 			}
-		}
-
-		const displayUrl = displayVideo ? getDisplayUrl(displayVideo) : null;
-		if (displayUrl) {
-			if (displayUrl.includes('.webm')) {
-				videoMetadata.format = 'WEBM';
-			} else if (displayUrl.includes('.avi')) {
-				videoMetadata.format = 'AVI';
-			} else if (displayUrl.includes('.mov')) {
-				videoMetadata.format = 'MOV';
-			} else {
-				videoMetadata.format = 'MP4';
-			}
-
-			if (!displayUrl.startsWith('blob:') && !displayUrl.startsWith('data:')) {
-				fetch(displayUrl, { method: 'HEAD' })
-					.then(response => {
-						const contentLength = response.headers.get('content-length');
-						if (contentLength) {
-							const bytes = parseInt(contentLength);
-							let sizeStr: string;
-							if (bytes < 1024) {
-								sizeStr = `${bytes} B`;
-							} else if (bytes < 1024 * 1024) {
-								sizeStr = `${(bytes / 1024).toFixed(1)} KB`;
-							} else {
-								sizeStr = `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-							}
-							if (imageMetadata) {
-								imageMetadata = { ...imageMetadata, fileSize: sizeStr };
-							} else {
-								imageMetadata = { ...videoMetadata, fileSize: sizeStr };
-							}
-						}
-					})
-					.catch(() => {});
-			}
-		}
-
-		imageMetadata = videoMetadata;
+		});
 	}
 
-	function loadImageMetadata() {
+	function loadVideoMetadata(filesReady: boolean) {
+		const currentItem = isGalleryMode ? getCurrentWorkbenchItem() : null;
+		const displayUrl = displayVideo ? getDisplayUrl(displayVideo) : null;
+		const fileMetadata = getCurrentFileMetadata();
+		const metadata = deriveMediaMetadata('video', fileMetadata, currentItem, currentGeneration, displayUrl);
+		imageMetadata = metadata;
+		if (metadata && displayUrl && shouldProbeSize({ kind: 'video', filesReady, fileMetadata, metadata, url: displayUrl })) {
+			probeFileSize(metadata, displayUrl);
+		}
+	}
+
+	function loadImageMetadata(filesReady: boolean) {
 		const currentItem = isGalleryMode ? getCurrentWorkbenchItem() : null;
 		const originalUrl = isGalleryMode ? getCurrentOriginalUrl() : displayImage;
 		const fileMetadata = getCurrentFileMetadata();
+		const metadata = deriveMediaMetadata('image', fileMetadata, currentItem, currentGeneration);
 
-		if (fileMetadata?.width && fileMetadata?.height) {
-			let fileSize: string = 'Unknown';
-			let format: string = 'PNG';
-
-			if (fileMetadata.file_size) {
-				const bytes = fileMetadata.file_size;
-				if (bytes < 1024) {
-					fileSize = `${bytes} B`;
-				} else if (bytes < 1024 * 1024) {
-					fileSize = `${(bytes / 1024).toFixed(1)} KB`;
-				} else {
-					fileSize = `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-				}
-			}
-
-			if (fileMetadata.mime_type) {
-				const mimeFormat = fileMetadata.mime_type.split('/')[1];
-				format = mimeFormat ? mimeFormat.toUpperCase() : 'PNG';
-			} else if (fileMetadata.file_path) {
-				const extension = fileMetadata.file_path.split('.').pop();
-				format = extension ? extension.toUpperCase() : 'PNG';
-			}
-
-			imageMetadata = {
-				width: fileMetadata.width,
-				height: fileMetadata.height,
-				fileSize,
-				format
-			};
-		} else if (currentItem && 'resolution' in currentItem && currentItem.resolution && Array.isArray(currentItem.resolution) && currentItem.resolution.length >= 2) {
-			imageMetadata = {
-				width: currentItem.resolution[0],
-				height: currentItem.resolution[1],
-				fileSize: 'Unknown',
-				format: 'PNG'
-			};
-
-			if (originalUrl) {
-				const displayUrl = getDisplayUrl(originalUrl);
-				if (!displayUrl.startsWith('blob:') && !displayUrl.startsWith('data:')) {
-					fetch(displayUrl, { method: 'HEAD' })
-						.then(response => {
-							const contentLength = response.headers.get('content-length');
-							if (contentLength && imageMetadata) {
-								const bytes = parseInt(contentLength);
-								let sizeStr: string;
-								if (bytes < 1024) {
-									sizeStr = `${bytes} B`;
-								} else if (bytes < 1024 * 1024) {
-									sizeStr = `${(bytes / 1024).toFixed(1)} KB`;
-								} else {
-									sizeStr = `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-								}
-								imageMetadata = { ...imageMetadata, fileSize: sizeStr };
-							}
-						})
-						.catch(() => {});
-				}
-			}
+		if (metadata) {
+			imageMetadata = metadata;
+			const url = originalUrl ? getDisplayUrl(originalUrl) : null;
+			if (url && shouldProbeSize({ kind: 'image', filesReady, fileMetadata, metadata, url })) probeFileSize(metadata, url);
 		} else if (originalUrl) {
-			const displayUrl = getDisplayUrl(originalUrl);
 			const img = new Image();
 			img.onload = () => {
 				imageMetadata = {
@@ -635,7 +528,7 @@
 					format: 'PNG'
 				};
 			};
-			img.src = displayUrl;
+			img.src = getDisplayUrl(originalUrl);
 		}
 	}
 
@@ -700,13 +593,10 @@
 		if (!generation_id) return;
 
 		try {
-			const response = await api.getGenerationById(generation_id, true, false);
-			if (response.success && response.data?.tags) {
-				selectedTags = response.data.tags.map((tag: any) => ({
-					id: tag.id,
-					name: tag.name
-				}));
-				selectedTagIds = selectedTags.map(tag => tag.id);
+			const tags = await fetchGenerationTags(generation_id);
+			if (tags) {
+				selectedTags = tags;
+				selectedTagIds = tags.map(tag => tag.id);
 			}
 		} catch (error) {
 			logger.error('[Workbench] Error loading tags:', error);
@@ -721,12 +611,12 @@
 		isSavingTags = true;
 
 		try {
-			const response = await api.updateGenerationTags(generation_id, newTagIds);
-			if (response.success) {
+			const tags = await saveGenerationTags(generation_id, newTagIds);
+			if (tags) {
 				selectedTagIds = newTagIds;
-				await loadGenerationTags();
+				selectedTags = tagChips(tags);
 			} else {
-				logger.error('[Workbench] Failed to update tags:', response.message);
+				logger.error('[Workbench] Failed to update tags');
 			}
 		} catch (error) {
 			logger.error('[Workbench] Error updating tags:', error);
@@ -825,12 +715,6 @@
 
 	function handleVideoMuteChange(event: CustomEvent<boolean>) {
 		isVideoMuted = event.detail;
-	}
-
-	function formatTime(seconds: number): string {
-		const mins = Math.floor(seconds / 60);
-		const secs = Math.floor(seconds % 60);
-		return `${mins}:${secs.toString().padStart(2, '0')}`;
 	}
 </script>
 
@@ -1270,7 +1154,7 @@
 
 				<!-- Time display -->
 				<span class="text-xs text-fg-muted font-mono tabular-nums w-20 text-center flex-shrink-0">
-					{formatTime(vpRegularCurrentTime)} / {formatTime(vpRegularDuration)}
+					{formatTimecode(vpRegularCurrentTime)} / {formatTimecode(vpRegularDuration)}
 				</span>
 
 				<!-- Seek/progress bar -->

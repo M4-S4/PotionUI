@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
+	import { formatBytes } from '$lib/utils/format';
+	import { tagChips, saveGenerationTags } from '$lib/workbench/generationTags';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { resolveReusePresetLabel } from '$lib/utils/historyReuse';
 	import { generationRunSummary, generationQueueLabel } from '$lib/utils/generationTime';
-	import type { GenerationHistoryItem, Tag } from '$lib/types/history';
+	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import portal from '$lib/actions/portal';
@@ -126,10 +128,7 @@
 
 	// Initialize tags from generation if provided (only once per generation)
 	$: if (generation?.tags && !tagsInitialized) {
-		selectedTags = generation.tags.map((tag: Tag) => ({
-			id: tag.id,
-			name: tag.name
-		}));
+		selectedTags = tagChips(generation.tags);
 		selectedTagIds = selectedTags.map(tag => tag.id);
 		tagsInitialized = true;
 	}
@@ -311,12 +310,9 @@
 			const response = await api.getGenerationById(activeGenerationId, true);
 			if (response.success && response.data) {
 				loadedGeneration = response.data;
-				selectedTags = response.data.tags?.map((tag: Tag) => ({
-					id: tag.id,
-					name: tag.name
-				})) || [];
+				selectedTags = tagChips(response.data.tags);
 				selectedTagIds = selectedTags.map(tag => tag.id);
-				tagsInitialized = true; // Mark as initialized after loading
+				tagsInitialized = true;
 			}
 		} catch (error) {
 			logger.error('Failed to load generation:', error);
@@ -354,16 +350,12 @@
 		isSavingTags = true;
 
 		try {
-			const response = await api.updateGenerationTags(activeGenerationId, newTagIds);
-			if (response.success && response.data) {
+			const tags = await saveGenerationTags(activeGenerationId, newTagIds);
+			if (tags) {
 				selectedTagIds = newTagIds;
-				selectedTags = response.data.tags?.map((tag: Tag) => ({
-					id: tag.id,
-					name: tag.name
-				})) || [];
-				// Update the loaded generation's tags if needed
+				selectedTags = tagChips(tags);
 				if (loadedGeneration) {
-					loadedGeneration.tags = response.data.tags;
+					loadedGeneration.tags = tags;
 				}
 			}
 		} catch (error) {
@@ -427,13 +419,6 @@
 				format: resolveAudioFormat(file)
 			}
 		];
-	}
-
-	function formatBytes(bytes?: number) {
-		if (!bytes) return 'Unknown';
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 	}
 
 	function formatDate(dateString?: string) {

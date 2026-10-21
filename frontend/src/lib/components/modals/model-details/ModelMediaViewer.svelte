@@ -2,7 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { formatBytes } from './formatters';
+	import { formatBytes } from '$lib/utils/format';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 
 	/** Preview/media files for the model (images, thumbnails, videos), pre-sorted by display_order. */
@@ -88,7 +88,7 @@
 				<!-- File size -->
 				{#if currentFile?.file_size}
 					<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
-						{formatBytes(currentFile.file_size)}
+						{currentFile.file_size ? formatBytes(currentFile.file_size) : 'Unknown'}
 					</span>
 				{/if}
 			</div>

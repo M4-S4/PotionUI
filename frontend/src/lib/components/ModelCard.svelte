@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { logger, getErrorMessage } from '$lib/utils/logger';
+	import { formatBytes } from '$lib/utils/format';
 	import { api } from '$lib/services/api/index';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 	import { isAvailabilityKnown } from '$lib/utils/modelAvailability';
@@ -88,18 +89,6 @@
 			logger.error('Failed to toggle model favorite:', getErrorMessage(error));
 		}
 	}
-
-	const formatFileSize = (bytes?: number) => {
-		if (!bytes) return 'Unknown';
-		const gb = bytes / (1024 * 1024 * 1024);
-		const mb = bytes / (1024 * 1024);
-
-		if (gb >= 1) {
-			return `${gb.toFixed(2)} GB`;
-		} else {
-			return `${mb.toFixed(1)} MB`;
-		}
-	};
 
 	// Include images, thumbnails, and videos (for their thumbnails). An admin-set
 	// preview is folded in ahead of provider files.
@@ -330,7 +319,7 @@
 					{/each}
 					{#if showTechnical && model.file_size}
 						<span class="flex-shrink-0 rounded bg-black/35 px-1.5 py-0.5 font-mono text-2xs text-white/65">
-							{formatFileSize(model.file_size)}
+							{formatBytes(model.file_size)}
 						</span>
 					{/if}
 				</div>

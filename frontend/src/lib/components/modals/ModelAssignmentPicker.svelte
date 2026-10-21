@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
+	import { formatBytes } from '$lib/utils/format';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import { authStore } from '$lib/stores/auth';
@@ -165,17 +166,6 @@
 		// modelDisplayName() never falls back to the bare id - keep that as the
 		// last resort here, since this grid has nothing else to show per card.
 		return modelDisplayName(model) || model.id;
-	}
-
-	function formatFileSize(bytes: number | null | undefined): string {
-		if (!bytes) return '';
-		if (bytes >= 1024 * 1024 * 1024) {
-			return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
-		}
-		if (bytes >= 1024 * 1024) {
-			return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-		}
-		return (bytes / 1024).toFixed(1) + ' KB';
 	}
 
 	function formatDate(isoString: string | null | undefined): string {
@@ -346,7 +336,7 @@
 							{/if}
 							<div class="flex items-center gap-1.5 text-2xs text-fg-subtle font-mono tabular-nums flex-wrap">
 								{#if model.file_size}
-									<span>{formatFileSize(model.file_size)}</span>
+									<span>{formatBytes(model.file_size)}</span>
 								{/if}
 								{#if model.indexed_at}
 									<span class="w-px h-2.5 bg-line"></span>
