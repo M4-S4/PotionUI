@@ -162,6 +162,7 @@ class TestSharpnessPipe:
         call_args = model.register_hook.call_args
         assert call_args[0][0] == "sharpness"
         assert isinstance(call_args[0][1], SharpnessHook)
+        assert call_args[0][1].sharpness.strength == 5.0
         assert result.output["model"] is model
 
     def test_process_skips_hook_when_strength_zero(self):
