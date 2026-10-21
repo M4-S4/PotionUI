@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Input } from '$lib/components/ui';
 	import { api } from '$lib/services/api';
@@ -28,7 +26,6 @@
 	let name = $state('');
 	let description = $state('');
 	let saving = $state(false);
-	const settlementGate = createConfirmSettlementGate();
 
 	let preview = $derived(flattenRichSegments(segments));
 	let sourceNames = $derived([...new Set(segments.map((s) => s.template?.name).filter(Boolean))]);
@@ -38,7 +35,6 @@
 		untrack(() => {
 			name = sourceNames.length === 1 ? (sourceNames[0] as string) : '';
 			description = '';
-			settlementGate.reset();
 		});
 	});
 
@@ -54,44 +50,29 @@
 			if (!response.success || !response.data) throw new Error(response.error || 'Save failed');
 			toasts.success('Segment Template saved');
 			onSaved();
+			return true;
 		} catch (error) {
 			toasts.error(error instanceof Error ? error.message : 'Failed to save Segment Template');
-			settlementGate.reset();
+			return false;
 		} finally {
 			saving = false;
 		}
 	}
-
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !!name.trim() && !saving, save);
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen || saving) return;
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	{isOpen}
 	title="Save as Segment Template"
 	size="md"
-	closeable={!saving}
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	busy={saving}
+	confirmLabel="Save Template"
+	confirmDisabled={!name.trim()}
+	onConfirm={save}
+	onCancel={onClose}
 >
-	<svelte:fragment slot="headerIcon">
+	{#snippet headerIconContent()}
 		<Icon name="layout-template" className="h-5 w-5 text-fg-muted" />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="space-y-4 p-4 sm:p-6">
 		<div>
@@ -116,14 +97,4 @@
 			</p>
 		</div>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Save Template"
-			busy={saving}
-			confirmDisabled={!name.trim()}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

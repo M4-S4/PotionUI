@@ -5,9 +5,7 @@
 	import { historyStore } from '$lib/stores/history';
 	import { createEventDispatcher } from 'svelte';
 	import type { Tag } from '$lib/types/history';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { refusalMessage } from '$lib/plans/refusal';
 	import { blockedUploadMessage } from '$lib/plans/uploadLimit';
@@ -21,9 +19,6 @@
 	let selectedTagIds: string[] = [];
 	let uploading = false;
 	let fileInput: HTMLInputElement;
-	let previousOpen = false;
-	const settlementGate = createConfirmSettlementGate();
-	$: if (isOpen !== previousOpen) { previousOpen = isOpen; if (isOpen) settlementGate.reset(); }
 
 	function handleClose() {
 		if (!uploading) {
@@ -31,22 +26,6 @@
 			selectedTagIds = [];
 			dispatch('close');
 		}
-	}
-
-	function handleCancel() {
-		settlementGate.settle(handleClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !uploading && !!files && files.length > 0, handleUpload);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (!isOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
 	}
 
 	function toggleTag(tagId: string) {
@@ -59,13 +38,13 @@
 
 	async function handleUpload() {
 		if (!files || files.length === 0) {
-			return;
+			return false;
 		}
 
 		const blocked = blockedUploadMessage(Array.from(files));
 		if (blocked) {
 			toasts.error(blocked);
-			return;
+			return false;
 		}
 
 		uploading = true;
@@ -73,29 +52,37 @@
 			const response = await api.uploadGenerations(Array.from(files), selectedTagIds);
 
 			if (response.success) {
-				// Reload history to show uploaded generations
 				await historyStore.loadGenerations();
 				dispatch('success', response);
 				handleClose();
-			} else {
-				logger.error('Upload failed:', response.error);
-				toasts.error(`Upload failed: ${response.error}`);
+				return true;
 			}
+			logger.error('Upload failed:', response.error);
+			toasts.error(`Upload failed: ${response.error}`);
+			return false;
 		} catch (error) {
 			logger.error('Upload error:', error);
 			toasts.error(refusalMessage(error) ?? 'Upload failed. Please try again.');
+			return false;
 		} finally {
 			uploading = false;
 		}
 	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal {isOpen} title="Upload Generations" size="lg" closeable={!uploading} handleEscapeKey={false} on:close={handleCancel}>
-	<svelte:fragment slot="headerIcon">
+<ConfirmDialog
+	{isOpen}
+	title="Upload Generations"
+	size="lg"
+	busy={uploading}
+	confirmLabel={uploading ? 'Uploading...' : 'Upload'}
+	confirmDisabled={!files || files.length === 0}
+	onConfirm={handleUpload}
+	onCancel={handleClose}
+>
+	{#snippet headerIconContent()}
 		<Icon name="upload" className="w-5 h-5 text-fg-muted flex-shrink-0" />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="p-4 md:p-6">
 		<p class="text-sm text-fg-muted mb-6">
@@ -164,14 +151,4 @@
 			{/if}
 		</div>
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel={uploading ? 'Uploading...' : 'Upload'}
-			busy={uploading}
-			confirmDisabled={!files || files.length === 0}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import BaseModal from './modals/BaseModal.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction } from './modals/confirmKeyboard';
+	import ConfirmDialog from './modals/ConfirmDialog.svelte';
 	import { Kbd } from '$lib/components/ui';
 	import type { Segment } from '$lib/types/segments';
 	import PromptSegmentMetadataEditor from './PromptSegmentMetadataEditor.svelte';
@@ -29,13 +28,12 @@
 	} = $props();
 
 	let draft = $state<Segment>(segment);
-	const settlementGate = createConfirmSettlementGate();
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	$effect(() => {
 		if (!isOpen) return;
 		untrack(() => {
 			draft = { ...segment };
-			settlementGate.reset();
 		});
 	});
 
@@ -45,35 +43,27 @@
 		draft = { ...draft, ...event.detail };
 	}
 
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
-	function handleConfirm() {
-		settlementGate.settle(() => {
-			onSave({
-				name: draft.name ?? undefined,
-				color: draft.color ?? undefined,
-				description: draft.description ?? undefined,
-				prefix: draft.prefix ?? undefined,
-				suffix: draft.suffix ?? undefined
-			});
-			onClose();
+	function save() {
+		onSave({
+			name: draft.name ?? undefined,
+			color: draft.color ?? undefined,
+			description: draft.description ?? undefined,
+			prefix: draft.prefix ?? undefined,
+			suffix: draft.suffix ?? undefined
 		});
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
+		onClose();
 	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal {isOpen} title="Segment details" size="lg" handleEscapeKey={false} on:close={handleCancel}>
+<ConfirmDialog
+	bind:this={dialog}
+	{isOpen}
+	title="Segment details"
+	size="lg"
+	confirmLabel="Save details"
+	onConfirm={save}
+	onCancel={onClose}
+>
 	<div class="segment-composer">
 		<div class="p-4 sm:p-6">
 			<PromptSegmentMetadataEditor segment={draft} on:change={handleChange} />
@@ -86,21 +76,21 @@
 		</div>
 	</div>
 
-	<svelte:fragment slot="footer">
+	{#snippet footerContent()}
 		<div class="segment-composer details-footer w-full">
 			<footer class="modal-foot">
-				<button type="button" class="small-button" onclick={handleCancel}>
+				<button type="button" class="small-button" onclick={() => dialog.cancel()}>
 					Cancel
 					<Kbd keys="Esc" />
 				</button>
-				<button type="button" class="small-button primary" onclick={handleConfirm}>
+				<button type="button" class="small-button primary" onclick={() => dialog.confirm()}>
 					Save details
 					<Kbd keys="Enter" />
 				</button>
 			</footer>
 		</div>
-	</svelte:fragment>
-</BaseModal>
+	{/snippet}
+</ConfirmDialog>
 
 <style>
 	/* The Save button used to be autofocused via ConfirmFooter's `initialFocus`

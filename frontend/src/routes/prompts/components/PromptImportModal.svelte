@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { api } from '$lib/services/api';
 	import type { PromptImportFileOutcome, PromptImportResult } from '$lib/services/api/prompts';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Alert, Badge, IconButton, Input, Spinner } from '$lib/components/ui';
@@ -85,7 +83,7 @@
 	}
 
 	async function submit() {
-		if (!canSubmit) return;
+		if (!canSubmit) return false;
 		submitting = true;
 		failureFiles = [];
 		failureMessage = '';
@@ -94,6 +92,7 @@
 			const response = await api.importPrompts(formData);
 			if (response.success && response.data) {
 				result = response.data;
+				return true;
 			} else if (response.error === 'nothing_imported') {
 				failureMessage = response.message || 'Nothing could be imported from what was provided.';
 				failureFiles = response.data?.files || [];
@@ -104,8 +103,8 @@
 			toasts.error(error instanceof Error ? error.message : 'Failed to import prompts');
 		} finally {
 			submitting = false;
-			settlementGate.reset();
 		}
+		return false;
 	}
 
 	function done() {
@@ -115,44 +114,27 @@
 
 	function importMore() {
 		resetForm();
-		settlementGate.reset();
-	}
-
-	const settlementGate = createConfirmSettlementGate();
-
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
-	function handleConfirm() {
-		if (result) {
-			settlementGate.settle(done);
-		} else {
-			settleIfEligible(settlementGate, canSubmit, submit);
-		}
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (modelPickerOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
 	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	isOpen={true}
 	title="Import prompts"
 	sizeClass="md:max-w-2xl md:w-full"
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	keyboard={!modelPickerOpen}
+	busy={submitting}
+	resetKey={result}
+	confirmLabel={result ? 'Done' : 'Import'}
+	confirmDisabled={!result && !canSubmit}
+	hideCancel={!!result}
+	secondaryLabel={result ? 'Import more' : undefined}
+	onSecondary={importMore}
+	onConfirm={result ? done : submit}
+	onCancel={onClose}
 >
-	<svelte:fragment slot="headerIcon">
+	{#snippet headerIconContent()}
 		<Icon name="upload" className="h-5 w-5 flex-shrink-0 text-fg-muted" />
-	</svelte:fragment>
+	{/snippet}
 
 	{#if result}
 		<div class="space-y-4 p-6">
@@ -313,25 +295,4 @@
 			</span>
 		</fieldset>
 	{/if}
-
-	<svelte:fragment slot="footer">
-		{#if result}
-			<ConfirmFooter
-				confirmLabel="Done"
-				hideCancel
-				secondaryLabel="Import more"
-				onSecondary={importMore}
-				onCancel={handleCancel}
-				onConfirm={handleConfirm}
-			/>
-		{:else}
-			<ConfirmFooter
-				confirmLabel="Import"
-				busy={submitting}
-				confirmDisabled={!canSubmit}
-				onCancel={handleCancel}
-				onConfirm={handleConfirm}
-			/>
-		{/if}
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

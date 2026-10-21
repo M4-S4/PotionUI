@@ -1,13 +1,11 @@
 <script lang="ts">
 	import { logger, getErrorMessage } from '$lib/utils/logger';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import { api } from '$lib/services/api/index';
 	import { toasts } from '$lib/stores/toast';
 	import { validatePublishForm } from '$lib/inspirations/publishValidation';
 	import portal from '$lib/actions/portal';
 	import type { GenerationHistoryItem } from '$lib/types/history';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 
 	export let generation: GenerationHistoryItem;
 	export let onClose: () => void;
@@ -44,25 +42,10 @@
 		selected = { ...selected, [filename]: !selected[filename] };
 	}
 
-	const settlementGate = createConfirmSettlementGate();
-
-	function handleCancel() {
-		settleIfEligible(settlementGate, !submitting, onClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !submitting, handleSubmit);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
-	}
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	function handleTitleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') handleConfirm();
+		if (e.key === 'Enter') dialog.confirm();
 	}
 
 	async function handleSubmit() {
@@ -73,8 +56,7 @@
 		});
 		if (!validation.valid) {
 			error = validation.error ?? 'Invalid form.';
-			settlementGate.reset();
-			return;
+			return false;
 		}
 		error = null;
 		submitting = true;
@@ -88,14 +70,14 @@
 			if (response.success) {
 				toasts.success('Published to Inspirations');
 				onClose();
-			} else {
-				toasts.error(response.error ?? response.message ?? 'Could not publish this generation.');
-				settlementGate.reset();
+				return true;
 			}
+			toasts.error(response.error ?? response.message ?? 'Could not publish this generation.');
+			return false;
 		} catch (e) {
 			logger.error('Publish to Inspirations failed:', getErrorMessage(e));
 			toasts.error('Could not publish this generation.');
-			settlementGate.reset();
+			return false;
 		} finally {
 			submitting = false;
 		}
@@ -106,10 +88,17 @@
      <body> and forms its own stacking context — without portaling here too,
      this modal's z-index is scoped inside that context and can render behind
      the parent's own content. -->
-<svelte:window on:keydown|capture={handleKeydown} />
-
 <div use:portal>
-<BaseModal isOpen={true} size="md" title="Publish to Inspirations" handleEscapeKey={false} on:close={handleCancel}>
+<ConfirmDialog
+	bind:this={dialog}
+	isOpen={true}
+	size="md"
+	title="Publish to Inspirations"
+	confirmLabel="Publish"
+	busy={submitting}
+	onConfirm={handleSubmit}
+	onCancel={onClose}
+>
 	<div class="p-4 md:p-6 flex flex-col gap-4">
 		<div>
 			<label class="block text-xs font-medium text-fg mb-1" for="inspiration-title">Title</label>
@@ -158,8 +147,5 @@
 			<p class="text-xs text-danger">{error}</p>
 		{/if}
 	</div>
-	<svelte:fragment slot="footer">
-		<ConfirmFooter confirmLabel="Publish" busy={submitting} onCancel={handleCancel} onConfirm={handleConfirm} />
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>
 </div>

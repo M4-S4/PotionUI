@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button } from '$lib/components/ui';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
 
 	export let isOpen: boolean = false;
 	/** Whether a tab OTHER than the one "Save" will act on also has unsaved
@@ -14,56 +12,22 @@
 	export let busy: boolean = false;
 
 	const dispatch = createEventDispatcher<{ save: void; discard: void; cancel: void }>();
-	const settlementGate = createConfirmSettlementGate();
-	$: if (isOpen) settlementGate.reset();
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	const titleId = `new-workspace-title-${Math.random().toString(36).slice(2, 9)}`;
-
-	function saveAction() {
-		dispatch('save');
-	}
-
-	function discardAction() {
-		dispatch('discard');
-	}
-
-	function cancelAction() {
-		dispatch('cancel');
-	}
-
-	function handleCancel() {
-		settleIfEligible(settlementGate, !busy, cancelAction);
-	}
-
-	function handleDiscard() {
-		settleIfEligible(settlementGate, !busy, discardAction);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !busy, saveAction);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (!isOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
+	bind:this={dialog}
 	{isOpen}
-	title=""
 	size="md"
 	hideCloseButton
-	closeable={!busy}
-	handleEscapeKey={false}
+	{busy}
 	dialogRole="alertdialog"
 	labelledBy={titleId}
-	on:close={handleCancel}
+	confirmLabel={busy ? 'Saving…' : 'Save & create new'}
+	onConfirm={() => dispatch('save')}
+	onCancel={() => dispatch('cancel')}
 >
 	<div class="p-7">
 		<div class="flex items-start gap-4">
@@ -81,16 +45,7 @@
 			</div>
 		</div>
 	</div>
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel={busy ? 'Saving…' : 'Save & create new'}
-			busy={busy}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		>
-			{#snippet leftActions()}
-				<Button variant="danger" disabled={busy} onclick={handleDiscard}>Discard &amp; create new</Button>
-			{/snippet}
-		</ConfirmFooter>
-	</svelte:fragment>
-</BaseModal>
+	{#snippet leftActions()}
+		<Button variant="danger" disabled={busy} onclick={() => dialog.settle(() => dispatch('discard'))}>Discard &amp; create new</Button>
+	{/snippet}
+</ConfirmDialog>

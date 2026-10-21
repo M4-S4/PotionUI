@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import BaseModal from './modals/BaseModal.svelte';
-	import ConfirmFooter from './modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './modals/confirmKeyboard';
+	import ConfirmDialog from './modals/ConfirmDialog.svelte';
 	import { findNameCollision } from '$lib/utils/variableNames';
 	import { parseVariablesImport, mergeVariablesDetailed, remapNote, type ParsedVariablesImport } from '$lib/utils/variablesTransfer';
 	import type { VariablesMap } from '$lib/utils/variableDefs';
@@ -11,16 +9,15 @@
 	export let existing: VariablesMap = {};
 
 	const dispatch = createEventDispatcher<{ close: void; confirm: { variables: VariablesMap; count: number } }>();
-	const settlementGate = createConfirmSettlementGate();
 
 	let text = '';
 	let mergeRule: 'keep' | 'replace' = 'replace';
 	let previousOpen = false;
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	$: if (isOpen !== previousOpen) {
 		previousOpen = isOpen;
 		if (isOpen) {
-			settlementGate.reset();
 			text = '';
 			mergeRule = 'replace';
 			prefillFromClipboard();
@@ -54,33 +51,31 @@
 		...(clashes.length > 0 ? [`${pluralize(clashes.length, 'name')} already exist${clashes.length === 1 ? 's' : ''}`] : [])
 	].join(' · ');
 
-	function handleCancel() {
-		settlementGate.settle(() => dispatch('close'));
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, canConfirm, () => {
-			dispatch('confirm', { variables: merge.variables, count: parsed.summary.variables });
-		});
+	function confirmImport() {
+		if (!canConfirm) return false;
+		dispatch('confirm', { variables: merge.variables, count: parsed.summary.variables });
+		return true;
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen) return;
-		if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-			event.preventDefault();
-			handleConfirm();
-			return;
-		}
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
+		if (!isOpen || event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return;
+		event.preventDefault();
+		dialog.confirm();
 	}
 </script>
 
 <svelte:window on:keydown|capture={handleKeydown} />
 
-<BaseModal {isOpen} title="Paste variables" size="sm" handleEscapeKey={false} on:close={handleCancel}>
+<ConfirmDialog
+	bind:this={dialog}
+	{isOpen}
+	title="Paste variables"
+	size="sm"
+	confirmLabel="Import"
+	confirmDisabled={!canConfirm}
+	onConfirm={confirmImport}
+	onCancel={() => dispatch('close')}
+>
 	<div class="space-y-3 p-4 sm:p-6">
 		<textarea
 			class="input w-full resize-none font-mono text-xs leading-relaxed"
@@ -138,8 +133,4 @@
 			</div>
 		{/if}
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter confirmLabel="Import" confirmDisabled={!canConfirm} onCancel={handleCancel} onConfirm={handleConfirm} />
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

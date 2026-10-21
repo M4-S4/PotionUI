@@ -6,9 +6,7 @@
 	import type { VariablesMap } from '$lib/utils/variableDefs';
 	import { summarizeVariables } from '$lib/utils/variablesTransfer';
 	import { toasts } from '$lib/stores/toast';
-	import BaseModal from './BaseModal.svelte';
-	import ConfirmFooter from './ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from './confirmKeyboard';
+	import ConfirmDialog from './ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
 	export let isOpen = false;
@@ -19,8 +17,7 @@
 	let name = '';
 	let saving = false;
 	let previousOpen = false;
-	const settlementGate = createConfirmSettlementGate();
-	$: if (isOpen !== previousOpen) { previousOpen = isOpen; if (isOpen) { name = ''; settlementGate.reset(); } }
+	$: if (isOpen !== previousOpen) { previousOpen = isOpen; if (isOpen) { name = ''; } }
 	$: preview = flattenRichSegments(segments);
 	$: variablesSummary = summarizeVariables(variables);
 	$: variablesSummaryLine =
@@ -40,34 +37,26 @@
 			if (!response.success || !response.data) throw new Error(response.error || 'Failed to save Prompt');
 			toasts.success('New detached Prompt saved');
 			dispatch('saved', { id: response.data.id });
+			return true;
 		} catch (error) {
 			toasts.error(error instanceof Error ? error.message : 'Failed to save Prompt');
+			return false;
 		} finally {
 			saving = false;
 		}
 	}
-
-	function handleCancel() {
-		settlementGate.settle(() => dispatch('close'));
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !saving, save);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (!isOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal {isOpen} title="Save as Prompt" sizeClass="md:max-w-lg md:w-full" handleEscapeKey={false} on:close={handleCancel}>
-	<svelte:fragment slot="headerIcon"><Icon name="save" className="h-5 w-5 text-fg-muted" /></svelte:fragment>
+<ConfirmDialog
+	{isOpen}
+	title="Save as Prompt"
+	sizeClass="md:max-w-lg md:w-full"
+	confirmLabel="Save Prompt"
+	busy={saving}
+	onConfirm={save}
+	onCancel={() => dispatch('close')}
+>
+	{#snippet headerIconContent()}<Icon name="save" className="h-5 w-5 text-fg-muted" />{/snippet}
 	<div class="space-y-4 p-4 sm:p-6">
 		<div><label class="mb-1.5 block text-sm font-medium text-fg" for="saved-prompt-name">Name <span class="font-normal text-fg-subtle">(optional)</span></label><input id="saved-prompt-name" class="input w-full" bind:value={name} placeholder="Content preview is used when unnamed" /></div>
 		<div><span class="mb-1.5 block text-sm font-medium text-fg">Composition</span><div class="max-h-36 overflow-y-auto rounded-lg border border-line bg-surface-2 p-3 text-sm text-fg-muted">{preview || 'Blank prompt'} </div><p class="mt-1.5 text-xs text-fg-subtle">{segments.length} segment{segments.length === 1 ? '' : 's'} · {usageHint} usage hint</p></div>
@@ -76,7 +65,4 @@
 		{/if}
 		<p class="text-xs text-fg-subtle">Only this segment list is saved. Preset, mode, form values, session, backend, seed, tags, and generation settings are not included.</p>
 	</div>
-	<svelte:fragment slot="footer">
-		<ConfirmFooter confirmLabel="Save Prompt" busy={saving} onCancel={handleCancel} onConfirm={handleConfirm} />
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

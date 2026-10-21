@@ -1,12 +1,5 @@
 <script lang="ts">
-	import { afterUpdate } from 'svelte';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import {
-		createConfirmSettlementGate,
-		getConfirmKeyboardAction,
-		settleIfEligible
-	} from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 
 	type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'full';
 
@@ -25,28 +18,6 @@
 	export let onCancel: () => void;
 	export let mountBody: (el: HTMLElement) => void | (() => void);
 
-	const settlementGate = createConfirmSettlementGate();
-
-	afterUpdate(() => {
-		if (isOpen && !busy) settlementGate.reset();
-	});
-
-	function handleCancel() {
-		settlementGate.settle(() => onCancel());
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !busy && !confirmDisabled, () => onConfirm());
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen || busy) return;
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
-	}
-
 	function bindBody(node: HTMLElement) {
 		const cleanup = mountBody?.(node);
 		return {
@@ -57,30 +28,21 @@
 	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	{isOpen}
 	{title}
 	{subtitle}
 	{size}
-	closeable={!busy}
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	{busy}
+	resetKey={busy}
+	{cancelLabel}
+	{confirmLabel}
+	{confirmVariant}
+	{confirmDisabled}
+	{summary}
+	{hideCancel}
+	onConfirm={() => onConfirm()}
+	onCancel={() => onCancel()}
 >
 	<div class="space-y-4 p-4 sm:p-6 min-w-0" use:bindBody></div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			{cancelLabel}
-			{confirmLabel}
-			{confirmVariant}
-			{busy}
-			{confirmDisabled}
-			{summary}
-			{hideCancel}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>
