@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, tick, untrack } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { IconButton, Input, Spinner, Switch } from '$lib/components/ui';
@@ -91,7 +92,7 @@
 	let savingToLibrary = $state(false);
 	let previewCanvas = $state<HTMLCanvasElement | null>(null);
 	let previewPane = $state<HTMLElement | null>(null);
-	let previewTimer: ReturnType<typeof setTimeout> | null = null;
+	const schedulePreview = debounce(() => untrack(renderPreview), PREVIEW_DEBOUNCE_MS);
 	// 1 is "fit"; the pane's own size decides what that means in pixels.
 	let zoom = $state(1);
 	let paneSize = $state({ width: PREVIEW_FALLBACK_WIDTH, height: PREVIEW_FALLBACK_HEIGHT });
@@ -273,8 +274,7 @@
 			compareLayout,
 			effectiveCompare
 		];
-		if (previewTimer) clearTimeout(previewTimer);
-		previewTimer = setTimeout(() => untrack(renderPreview), PREVIEW_DEBOUNCE_MS);
+		schedulePreview();
 	});
 
 	// The pane's size is what "fit" means, so it has to be measured rather than
@@ -399,7 +399,7 @@
 	}
 
 	onDestroy(() => {
-		if (previewTimer) clearTimeout(previewTimer);
+		schedulePreview.cancel();
 		for (const entry of loaded) entry.bitmap.close();
 	});
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
+	import { debounce } from '$lib/utils/time';
 	import { Spinner } from '$lib/components/ui';
 
 	interface Option {
@@ -28,7 +29,7 @@
 	let query = $state('');
 	let loading = $state(false);
 	let options = $state<Option[]>([]);
-	let debounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSearch = debounce(() => runSearch(), 250);
 	let rootEl: HTMLDivElement;
 
 	async function runSearch() {
@@ -44,8 +45,7 @@
 
 	function handleInput(event: Event) {
 		query = (event.currentTarget as HTMLInputElement).value;
-		clearTimeout(debounce);
-		debounce = setTimeout(runSearch, 250);
+		scheduleSearch();
 	}
 
 	function toggleOpen() {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { createEventDispatcher, onMount, onDestroy, getContext, tick, mount, unmount } from 'svelte';
 	import { api, type PhrasebookCategory, type PhrasebookValue } from '$lib/services/api/index';
 	import type { ChipData } from '$lib/types/segments';
@@ -164,7 +165,7 @@
 	let phrasebookTriggerNode: Text | null = null; // The text node containing the # trigger
 	let phrasebookTriggerOffset = -1; // Position of # in that text node
 	let phrasebookSwitchChipId: string | null = null;
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	const scheduleSuggestions = debounce((path: string) => fetchPhrasebookSuggestions(path), 200);
 	let phrasebookCache = new Map<string, any>();
 
 	// `$variable` picker state — mirrors the # phrasebook state above, but the
@@ -749,11 +750,7 @@
 				isPhrasebookOpen = true;
 
 				// Debounce API call
-				if (debounceTimer) clearTimeout(debounceTimer);
-
-				debounceTimer = setTimeout(() => {
-					fetchPhrasebookSuggestions(path);
-				}, 200);
+				scheduleSuggestions(path);
 				return;
 			}
 		}
@@ -1162,10 +1159,7 @@
 		phrasebookTriggerOffset = -1;
 		phrasebookSwitchChipId = null;
 
-		if (debounceTimer) {
-			clearTimeout(debounceTimer);
-			debounceTimer = null;
-		}
+		scheduleSuggestions.cancel();
 	}
 
 	// =====================

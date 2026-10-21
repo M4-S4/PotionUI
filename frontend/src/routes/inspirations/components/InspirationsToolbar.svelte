@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import { inspirationsStore } from '$lib/stores/inspirations';
 	import { PageHeader, PageTitle, IconButton } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -8,15 +9,14 @@
 
 	// Search matches title/description server-side, debounced - same pattern
 	// as the Library toolbar.
-	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSearch = debounce(() => inspirationsStore.load(), 300);
 	function handleSearchInput(event: Event) {
 		const value = (event.currentTarget as HTMLInputElement).value;
 		inspirationsStore.setFilter('search', value);
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => inspirationsStore.load(), 300);
+		scheduleSearch();
 	}
 
-	onDestroy(() => clearTimeout(searchDebounce));
+	onDestroy(scheduleSearch.cancel);
 
 	async function toggleSaved() {
 		inspirationsStore.setFilter('saved', !state.filters.saved);

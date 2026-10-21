@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import DrawerShell from '$lib/components/drawer/DrawerShell.svelte';
 	import DrawerHeader from '$lib/components/drawer/DrawerHeader.svelte';
 	import DrawerSearch from '$lib/components/drawer/DrawerSearch.svelte';
@@ -243,7 +244,11 @@
 
 	let planKey = '';
 	let planStale = $state(false);
-	let planTimer: ReturnType<typeof setTimeout> | undefined;
+	let planFormula: Formula | null = null;
+	const schedulePlan = debounce(() => {
+		const formula = planFormula;
+		if (formula && view === 'apply' && applying?.id === formula.id) void fetchPlan(formula);
+	}, 300);
 
 	$effect(() => {
 		const key = view === 'apply' && applying ? JSON.stringify(tab.formData ?? {}) : '';
@@ -256,14 +261,11 @@
 		}
 		if (!hadPlan) return;
 		planStale = true;
-		const formula = applying;
-		clearTimeout(planTimer);
-		planTimer = setTimeout(() => {
-			if (formula && view === 'apply' && applying?.id === formula.id) void fetchPlan(formula);
-		}, 300);
+		planFormula = applying;
+		schedulePlan();
 	});
 
-	onDestroy(() => clearTimeout(planTimer));
+	onDestroy(schedulePlan.cancel);
 
 	function changeLoraMode(mode: LoraMode) {
 		if (mode === loraMode || !applying) return;

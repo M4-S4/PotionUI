@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import { formatBytes } from '$lib/utils/format';
 	import { onMount } from 'svelte';
@@ -46,7 +47,11 @@
 	let modelTypes: string[] = [];
 	type ViewFilter = 'all' | 'assigned' | 'unassigned';
 	let viewFilter: ViewFilter = 'all';
-	let searchTimeout: ReturnType<typeof setTimeout> | null = null;
+	const applySearch = debounce(() => {
+		searchQuery = searchInputValue;
+		currentPage = 1;
+		loadModels();
+	}, 300);
 	let searchInputValue = '';
 
 	const viewOptions: { key: ViewFilter; label: string }[] = [
@@ -120,12 +125,7 @@
 
 	function handleSearchInput(value: string) {
 		searchInputValue = value;
-		if (searchTimeout) clearTimeout(searchTimeout);
-		searchTimeout = setTimeout(() => {
-			searchQuery = searchInputValue;
-			currentPage = 1;
-			loadModels();
-		}, 300);
+		applySearch();
 	}
 
 	function handleTypeChange(type: string) {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import { libraryStore } from '$lib/stores/library';
 	import { historyTileSize, type HistoryTileSize } from '$lib/stores/historyTileSize';
 	import { PageHeader, PageTitle, IconButton, Button } from '$lib/components/ui';
@@ -45,15 +46,14 @@
 	}
 
 	// Search matches the item's original filename server-side, debounced.
-	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSearch = debounce(() => libraryStore.load(), 300);
 	function handleSearchInput(event: Event) {
 		const value = (event.currentTarget as HTMLInputElement).value;
 		libraryStore.setFilter('search', value);
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => libraryStore.load(), 300);
+		scheduleSearch();
 	}
 
-	onDestroy(() => clearTimeout(searchDebounce));
+	onDestroy(scheduleSearch.cancel);
 
 	function handleWindowClick(event: MouseEvent) {
 		const target = event.target as HTMLElement;

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import { Badge, Input, Spinner } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
@@ -34,7 +35,7 @@
 	let applying = $state(false);
 	let error = $state<string | null>(null);
 	let requestSeq = 0;
-	let timer: ReturnType<typeof setTimeout> | null = null;
+	const schedulePreview = debounce(() => loadPreview(), 250);
 	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	let labelsById = $derived(new Map(values.map((v) => [v.id, v.label])));
@@ -84,14 +85,6 @@
 		}
 	}
 
-	function schedulePreview() {
-		if (timer) clearTimeout(timer);
-		timer = setTimeout(() => {
-			timer = null;
-			loadPreview();
-		}, 250);
-	}
-
 	$effect(() => {
 		if (!isOpen) return;
 		untrack(() => {
@@ -104,8 +97,7 @@
 		});
 		return () => {
 			requestSeq++;
-			if (timer) clearTimeout(timer);
-			timer = null;
+			schedulePreview.cancel();
 		};
 	});
 

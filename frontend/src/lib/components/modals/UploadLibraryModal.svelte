@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { onDestroy } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import { tagCatalog } from '$lib/stores/tagCatalog';
@@ -122,14 +123,13 @@
 		loadTags();
 	}
 
-	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSearch = debounce(() => loadItems(1), 300);
 	function handleSearchInput(event: Event) {
 		search = (event.currentTarget as HTMLInputElement).value;
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => loadItems(1), 300);
+		scheduleSearch();
 	}
 
-	onDestroy(() => clearTimeout(searchDebounce));
+	onDestroy(scheduleSearch.cancel);
 
 	function handleTagToggle(tagId: string) {
 		selectedTagIds = selectedTagIds.includes(tagId)
