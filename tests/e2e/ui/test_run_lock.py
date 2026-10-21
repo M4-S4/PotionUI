@@ -52,6 +52,10 @@ def _dead_pid():
     return proc.pid
 
 
+def _dead_holder(**extra):
+    return {"pid": _dead_pid(), "process_created": 1.0, **extra}
+
+
 def test_acquire_writes_this_process_into_the_lock_and_release_removes_it(tmp_path):
     lock = tmp_path / ".run.lock"
 
@@ -98,8 +102,9 @@ def test_a_waiting_run_takes_the_lock_once_the_holder_releases_it(tmp_path):
 
 def test_a_lock_left_by_a_dead_process_is_taken_over(tmp_path):
     lock = tmp_path / ".run.lock"
-    pid = _dead_pid()
-    lock.write_text(json.dumps({"pid": pid, "started_at": "2026-10-01T08:00:00+00:00"}), encoding="utf-8")
+    holder = _dead_holder(started_at="2026-10-01T08:00:00+00:00")
+    pid = holder["pid"]
+    lock.write_text(json.dumps(holder), encoding="utf-8")
     clock = FakeClock()
     messages = []
 
@@ -112,8 +117,7 @@ def test_a_lock_left_by_a_dead_process_is_taken_over(tmp_path):
 
 def test_a_takeover_never_deletes_a_lock_a_faster_waiter_created_meanwhile(tmp_path):
     lock = tmp_path / ".run.lock"
-    pid = _dead_pid()
-    lock.write_text(json.dumps({"pid": pid, "started_at": "2026-10-01T08:00:00+00:00"}), encoding="utf-8")
+    lock.write_text(json.dumps(_dead_holder(started_at="2026-10-01T08:00:00+00:00")), encoding="utf-8")
     rival = {"pid": os.getpid(), "process_created": None, "started_at": "rival"}
 
     def say(message):
@@ -131,7 +135,7 @@ def test_a_takeover_never_deletes_a_lock_a_faster_waiter_created_meanwhile(tmp_p
 def test_a_takeover_guard_left_by_a_crashed_run_does_not_block_forever(tmp_path):
     lock = tmp_path / ".run.lock"
     guard = tmp_path / ".run.lock.takeover"
-    lock.write_text(json.dumps({"pid": _dead_pid()}), encoding="utf-8")
+    lock.write_text(json.dumps(_dead_holder()), encoding="utf-8")
     guard.write_text("", encoding="utf-8")
     old = time.time() - run.UNREADABLE_LOCK_GRACE_SECONDS - 5
     os.utime(guard, (old, old))

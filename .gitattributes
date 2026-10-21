@@ -5,3 +5,4 @@ potionui text eol=lf
 *.sh text eol=lf
 potionui.cmd text eol=crlf
 content/plugins/*/*/frontend/dist/** text eol=lf
+content/plugins/*/*/frontend/src/** text eol=lf
