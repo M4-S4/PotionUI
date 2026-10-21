@@ -29,6 +29,7 @@ from src.platform.security.media_session import media_cookie_name
 from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
+from tests.fixtures.seed import seed_user
 
 PIXELS = b"\x89PNG-owner-pixels"
 
@@ -77,12 +78,8 @@ class World:
         self.other = _user("other")
         self.admin = _user("admin", AccountType.ADMIN)
         self.kid = _user("kid")
-        with db.get_cursor() as cursor:
-            for user in (self.owner, self.other, self.admin, self.kid):
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, ?, ?)",
-                    (user.id, user.username, user.email, "h", user.account_type.value),
-                )
+        for user in (self.owner, self.other, self.admin, self.kid):
+            seed_user(db, user.id, username=user.username, email=user.email, account_type=user.account_type.value)
 
     def generation(self, user, status="completed", content=PIXELS):
         generation_id = generate_ulid()

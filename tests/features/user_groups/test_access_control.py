@@ -10,6 +10,7 @@ from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.presets.repository import DatabasePresetRepository
 from src.features.user_groups.repository import UserGroupRepository
 from src.features.llm.repository import LLMRepository
+from tests.fixtures.seed import seed_user
 
 try:
     from src.platform.util.ids import generate_ulid
@@ -50,12 +51,7 @@ class TestUserGroupAccessControl(PersistenceTestBase):
     def create_test_user(self, username="testuser"):
         """Create a test user and return user_id."""
         user_id = generate_ulid()
-        with self.db.get_cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO users (id, username, email, password_hash)
-                VALUES (?, ?, ?, ?)
-            """, (user_id, username, f"{username}@test.com", "hash"))
-        return user_id
+        return seed_user(self.db, user_id, username=username)
 
     def create_test_preset(self, preset_id, yaml_preset_id):
         """Create a test preset and return database ID."""

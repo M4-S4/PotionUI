@@ -13,6 +13,7 @@ import src.platform.settings.repository as repository_module
 from src.platform.settings.records import SettingValueType
 from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
+from tests.fixtures.seed import seed_user
 
 SETTING_COUNT = 200
 TRACE_READS = 8
@@ -44,12 +45,7 @@ class TestGetSettingKeyedRead:
 
     def _create_user(self, repository, user_id):
         from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, ?, ?)",
-                (user_id, user_id, f"{user_id}@example.test", "test_hash", "USER"),
-            )
-        return user_id
+        return seed_user(db, user_id, password_hash="test_hash")
 
     def _count_conversions(self):
         conversions = []

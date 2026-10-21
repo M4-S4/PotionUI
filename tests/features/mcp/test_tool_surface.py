@@ -33,6 +33,7 @@ from src.features.segments.repository import (
     SegmentCategoryRepository,
     SegmentTemplateRepository,
 )
+from tests.fixtures.seed import seed_user
 
 EXPECTED_TOOLS = {
     "list_segment_categories", "get_saved_segments", "get_segment_templates",
@@ -155,12 +156,8 @@ class _FakePresetDb:
 
 @pytest.fixture
 def world(mcp_db):
-    with mcp_db.get_cursor() as cursor:
-        for user_id in ("user-1", "user-2"):
-            cursor.execute(
-                "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-                (user_id, user_id, f"{user_id}@example.com", "x"),
-            )
+    for user_id in ("user-1", "user-2"):
+        seed_user(mcp_db, user_id)
 
     categories = SegmentCategoryRepository()
     segments = SavedSegmentRepository()

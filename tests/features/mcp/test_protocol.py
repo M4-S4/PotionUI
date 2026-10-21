@@ -22,6 +22,7 @@ from src.features.mcp.protocol import (
     handle_method,
     parse_jsonrpc_request,
 )
+from tests.fixtures.seed import seed_user
 
 
 class _EchoTool(BaseTool):
@@ -384,13 +385,8 @@ class TestModelVisibilityOverMcp:
             sha256="a" * 64,
             model_type="checkpoint",
         ))
-        with mcp_db.get_cursor() as cursor:
-            for user_id, account_type in (("user-1", "USER"), ("admin-1", "ADMIN")):
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (user_id, user_id, f"{user_id}@x.com", "hash", account_type),
-                )
+        for user_id, account_type in (("user-1", "USER"), ("admin-1", "ADMIN")):
+            seed_user(mcp_db, user_id, account_type=account_type)
 
         registry = ToolRegistry()
         register_builtin_tools(registry)
@@ -474,12 +470,8 @@ class TestPromptReadTools:
         registry = ToolRegistry()
         registry.register(GetPromptTool())
         registry.register(ListPromptsTool())
-        with mcp_db.get_cursor() as cursor:
-            for user_id in ("user-1", "user-2"):
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-                    (user_id, user_id, f"{user_id}@example.com", "x"),
-                )
+        for user_id in ("user-1", "user-2"):
+            seed_user(mcp_db, user_id)
         repository = PromptRepository()
         saved = repository.create(Prompt(user_id="user-1", name="Study", segments=[RichSegment(content="a fox")]))
         collaborators = McpToolCollaborators(

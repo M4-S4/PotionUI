@@ -10,6 +10,7 @@ from src.platform.security.user import AccountType, User
 from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
+from tests.fixtures.seed import seed_user
 
 GB = 1024 ** 3
 
@@ -39,10 +40,7 @@ class Seeder:
             return [dict(row) for row in cursor.fetchall()]
 
     def user(self, user_id, admin=False):
-        self._exec(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', ?)",
-            (user_id, user_id, f"{user_id}@example.test", "ADMIN" if admin else "USER"),
-        )
+        seed_user(self.db, user_id, account_type="ADMIN" if admin else "USER")
         self.join(ALL_USERS_GROUP_ID, user_id)
         return User(username=user_id, email=f"{user_id}@example.test", password_hash="x",
                     account_type=AccountType.ADMIN if admin else AccountType.USER, id=user_id)

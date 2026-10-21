@@ -22,6 +22,7 @@ from src.features.segments.repository import (
     SegmentTemplateRepository,
 )
 from tests.conftest import TestDatabase
+from tests.fixtures.seed import seed_user
 
 
 class _Registry:
@@ -34,12 +35,8 @@ def scratch_db():
     test_database = TestDatabase.from_template()
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.database.migration_runner.db", test_database):
-        with test_database.get_cursor() as cursor:
-            for user_id in ("owner", "other"):
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-                    (user_id, user_id, f"{user_id}@example.test"),
-                )
+        for user_id in ("owner", "other"):
+            seed_user(test_database, user_id)
         yield test_database
     test_database.close()
 

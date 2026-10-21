@@ -12,6 +12,7 @@ if project_root not in sys.path:
 from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.llm.repository import LLMRepository
 from src.platform.util.ids import generate_ulid
+from tests.fixtures.seed import seed_user
 
 
 class TestLLMAssignmentSummary(PersistenceTestBase):
@@ -34,12 +35,7 @@ class TestLLMAssignmentSummary(PersistenceTestBase):
 
     def _create_user(self, username="testuser"):
         user_id = generate_ulid()
-        with self.db.get_cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-                (user_id, username, f"{username}@test.com", "hash")
-            )
-        return user_id
+        return seed_user(self.db, user_id, username=username)
 
     def _create_config(self, name="test-config"):
         config_id = generate_ulid()

@@ -17,15 +17,12 @@ from src.features.models.type_manager import ModelTypeManager
 from src.platform.database.rows import now_iso
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from tests.fixtures.model_index_fixtures import FLUX, LORA, Library, sha_of
+from tests.fixtures.seed import seed_user
 
 
 @pytest.fixture
 def lib(tmp_path, mock_db):
-    with mock_db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) "
-            "VALUES ('admin-1', 'admin', 'admin@example.test', 'x', 'ADMIN')"
-        )
+    seed_user(mock_db, "admin-1", username="admin", email="admin@example.test", account_type="ADMIN")
     return Library(tmp_path)
 
 
