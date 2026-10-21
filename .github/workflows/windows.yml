@@ -314,7 +314,7 @@ jobs:
           git -C .. status --porcelain -- content/plugins
           git -C .. diff --stat -- "content/plugins/*/*/frontend/dist"
           git -C .. diff --quiet -- "content/plugins/*/*/frontend/dist" || exit /b 1
-          for /f %%i in ('git -C .. status --porcelain -- content/plugins') do exit /b 1
+          for /f %%i in ('git -C .. ls-files --others --exclude-standard -- content/plugins') do exit /b 1
 
   frontend-build:
     name: frontend build (Windows, shared by e2e shards)
