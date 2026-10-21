@@ -102,7 +102,7 @@ function mountFormWithGeometryError() {
 		publishedValueOf: (name: string) => published[name],
 		chipOf: (fieldName: string) =>
 			target.querySelector<HTMLButtonElement>(
-				`[data-field-name="${fieldName}"] button[aria-label]`
+				`[data-field-name="${fieldName}"] button[aria-label^="Use "], [data-field-name="${fieldName}"] button[aria-label^="Switch to "]`
 			),
 		destroy: () => {
 			form.$destroy();
