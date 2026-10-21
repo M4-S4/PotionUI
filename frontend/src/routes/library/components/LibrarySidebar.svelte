@@ -3,6 +3,11 @@
 	import { libraryStore } from '$lib/stores/library';
 	import CollectionLibrarySidebar from '$lib/components/collections/CollectionLibrarySidebar.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
+	import { buildSmartViews, createFilterSelection } from '$lib/components/collections/scopeActions';
+
+	let allView: SmartView;
+	let favoritesView: SmartView;
+	let unsortedView: SmartView;
 
 	export let onCollapse: () => void;
 
@@ -15,21 +20,10 @@
 	$: isAll = !activeId && !favoritesOnly && !unsorted;
 	$: void collectionsStore.setDirectOnly(directOnly);
 
-	async function applySelection(patch: {
-		collectionId?: string;
-		favoritesOnly?: boolean;
-		unsorted?: boolean;
-	}) {
-		libraryStore.setFilter('collectionId', patch.collectionId);
-		libraryStore.setFilter('favoritesOnly', !!patch.favoritesOnly);
-		libraryStore.setFilter('unsorted', !!patch.unsorted);
-		await libraryStore.load();
-	}
-
-	async function setDirectOnly(value: boolean) {
-		libraryStore.setFilter('directOnly', value);
-		await libraryStore.load();
-	}
+	const { applySelection, setDirectOnly } = createFilterSelection(
+		(key, value) => libraryStore.setFilter(key, value),
+		() => libraryStore.load()
+	);
 
 	async function handleDelete(id: string, blockedIds: Set<string>) {
 		const response = await collectionsStore.remove(id);
@@ -40,30 +34,17 @@
 		return response;
 	}
 
-	$: allView = {
-		id: 'all',
+	$: ({ allView, favoritesView, unsortedView } = buildSmartViews({
 		icon: 'photo',
 		label: 'All uploads',
-		active: isAll,
-		count: smartCounts?.all,
-		onSelect: () => applySelection({})
-	} satisfies SmartView;
-	$: favoritesView = {
-		id: 'favorites',
-		icon: 'heart',
-		label: 'Favorites',
-		active: favoritesOnly,
-		count: smartCounts?.favorites,
-		onSelect: () => applySelection({ favoritesOnly: true })
-	} satisfies SmartView;
-	$: unsortedView = {
-		id: 'unsorted',
-		icon: 'inbox',
-		label: 'Unsorted',
-		active: unsorted,
-		count: smartCounts?.unsorted,
-		onSelect: () => applySelection({ unsorted: true })
-	} satisfies SmartView;
+		isAll,
+		favoritesOnly,
+		unsorted,
+		counts: smartCounts,
+		onAll: () => applySelection({}),
+		onFavorites: () => applySelection({ favoritesOnly: true }),
+		onUnsorted: () => applySelection({ unsorted: true })
+	}));
 
 	const treeActions: TreeActions = {
 		onSelect: (id) => applySelection({ collectionId: id }),

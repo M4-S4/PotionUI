@@ -5,6 +5,7 @@
 	import { createFlashMessage } from '$lib/utils/flashMessage';
 	import Icon from '$lib/components/Icon.svelte';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
+	import { createMembershipActions } from '$lib/components/collections/scopeActions';
 
 	// Self-contained floating action bar for the models grid's multi-select mode.
 	// The models page keeps selection state locally (no global "modelsStore" the
@@ -40,40 +41,14 @@
 		}
 	}
 
-	async function handleAddToCollection(collectionId: string): Promise<boolean> {
-		if (selectedIds.length === 0) return false;
-		try {
-			const response = await modelLibraryStore.addMembers(collectionId, selectedIds);
-			if (response.success) {
-				const added = response.data?.added ?? selectedIds.length;
-				onClearSelection();
-				flash(`Added ${added} to collection`);
-				return true;
-			}
-			flash('Failed to add to collection');
-			return false;
-		} catch (e) {
-			logger.error('Add to collection failed:', getErrorMessage(e));
-			flash('Failed to add to collection');
-			return false;
-		}
-	}
-
-	async function handleCreateAndAdd(name: string): Promise<boolean> {
-		try {
-			const created = await modelLibraryStore.create(name);
-			const collection = created.success ? created.data?.collection : undefined;
-			if (!collection) {
-				flash('Failed to create collection');
-				return false;
-			}
-			return await handleAddToCollection(collection.id);
-		} catch (e) {
-			logger.error('Create collection failed:', getErrorMessage(e));
-			flash('Failed to create collection');
-			return false;
-		}
-	}
+	const { addToCollection: handleAddToCollection, createAndAdd: handleCreateAndAdd } =
+		createMembershipActions({
+			getSelectedIds: () => selectedIds,
+			add: (collectionId, ids) => modelLibraryStore.addMembers(collectionId, ids),
+			create: (name) => modelLibraryStore.create(name),
+			clearSelection: () => onClearSelection(),
+			flash
+		});
 </script>
 
 <SelectionActionBar

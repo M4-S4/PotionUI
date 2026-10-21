@@ -3,6 +3,11 @@
 	import { modelLibraryStore } from '$lib/stores/modelLibrary';
 	import CollectionLibrarySidebar from '$lib/components/collections/CollectionLibrarySidebar.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
+	import { buildSmartViews } from '$lib/components/collections/scopeActions';
+
+	let allView: SmartView;
+	let favoritesView: SmartView;
+	let unsortedView: SmartView;
 
 	export let activeCollectionId: string | undefined;
 	export let favoritesOnly: boolean;
@@ -32,30 +37,17 @@
 		return response;
 	}
 
-	$: allView = {
-		id: 'all',
+	$: ({ allView, favoritesView, unsortedView } = buildSmartViews({
 		icon: 'model',
 		label: 'All models',
-		active: isAll,
-		count: smartCounts?.all,
-		onSelect: onSelectAll
-	} satisfies SmartView;
-	$: favoritesView = {
-		id: 'favorites',
-		icon: 'heart',
-		label: 'Favorites',
-		active: favoritesOnly,
-		count: smartCounts?.favorites,
-		onSelect: onSelectFavorites
-	} satisfies SmartView;
-	$: unsortedView = {
-		id: 'unsorted',
-		icon: 'inbox',
-		label: 'Unsorted',
-		active: unsorted,
-		count: smartCounts?.unsorted,
-		onSelect: onSelectUnsorted
-	} satisfies SmartView;
+		isAll,
+		favoritesOnly,
+		unsorted,
+		counts: smartCounts,
+		onAll: onSelectAll,
+		onFavorites: onSelectFavorites,
+		onUnsorted: onSelectUnsorted
+	}));
 
 	const treeActions: TreeActions = {
 		onSelect: onSelectCollection,
