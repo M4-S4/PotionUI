@@ -30,7 +30,8 @@
 	import WorkbenchProfileModal from '$lib/components/workbench/WorkbenchProfileModal.svelte';
 	import { authStore } from '$lib/stores/auth';
 	import { workbenchGallerySettingsStore } from '$lib/stores/workbenchGallerySettings';
-	import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
+	import { nsfwFilterStore, isNsfwFile, type ContentFlagged } from '$lib/stores/nsfwFilter';
+	import AmbientGlow from '$lib/components/AmbientGlow.svelte';
 	import { nsfwRevealStore } from '$lib/stores/nsfwReveal';
 	import ContentPolicyTile from '$lib/components/ContentPolicyTile.svelte';
 	import { resolveWorkbenchFileRenderer } from '$lib/registries/workbenchFileRendererRegistry';
@@ -222,15 +223,17 @@
 	// frame) are withheld rather than shown as no-ops.
 	$: actions = workbenchActionsFor(displayFileType);
 
-	// When true, the media "floats" on the page with an ambient color halo instead of
-	// sitting inside the bordered panel card (audio keeps the card; so do compare/zoom).
+	$: ambientBlocked = previewSuppressed || isNsfwFile(((isGalleryMode ? currentGalleryItem : currentGeneration) ?? {}) as ContentFlagged);
+	$: ambientKind = displayFileType === 'video' && displayVideo ? ('video' as const) : ('image' as const);
+	$: ambientSrc = ambientKind === 'video' && displayVideo ? getDisplayUrl(displayVideo) : displayImage ? getDisplayUrl(displayImage) : null;
 	$: showAmbient =
 		hasDisplayMedia &&
 		displayFileType !== 'audio' &&
 		!isFallbackFileType &&
 		(!!displayImage || !!displayVideo) &&
 		!isComparing &&
-		!isZoomMode;
+		!isZoomMode &&
+		!ambientBlocked;
 
 	// Responsive overlay chrome. The workbench panel is resizable independently of the
 	// viewport, so viewport breakpoints (sm:/md:) don't apply — we measure the panel's own
@@ -730,27 +733,8 @@
 	{#if hasDisplayMedia}
 		<!-- Main media display area -->
 		<div class="relative isolate flex items-center justify-center group {showAmbient ? '' : 'bg-surface-2'}" style="height: {maxHeight}px">
-			<!-- Ambient "screen extend" halo: a scaled, heavily-blurred echo of the current
-			     media that spills well past the media box and radiates onto the page. -->
 			{#if showAmbient}
-				<div class="ambient-glow" aria-hidden="true">
-					{#key displayImage || displayVideo}
-						{#if displayFileType === 'video' && displayVideo}
-							<!-- svelte-ignore a11y-media-has-caption -->
-							<video
-								src={getDisplayUrl(displayVideo)}
-								class="ambient-glow-media"
-								autoplay
-								muted
-								loop
-								playsinline
-								preload="auto"
-							></video>
-						{:else if displayImage}
-							<img src={getDisplayUrl(displayImage)} alt="" class="ambient-glow-media" />
-						{/if}
-					{/key}
-				</div>
+				<AmbientGlow src={ambientSrc} kind={ambientKind} />
 			{/if}
 
 			<!-- Left Navigation Arrow - hidden during comparison and zoom -->
@@ -1360,29 +1344,8 @@
 			<IconButton icon="chevron-right" label="Next item" variant="overlay" onclick={(e) => { e.stopPropagation(); handleNext(); }} class="absolute right-4 top-1/2 -translate-y-1/2 z-10" />
 		{/if}
 
-		<!-- Ambient "screen extend" background echo behind the full-screen media.
-		     A mesh has no flat 2D frame to blur (and, in gallery mode,
-		     `displayImage` resolves to the gallery item's URL regardless of its
-		     actual file type - it isn't image-gated the way `displayVideo` is -
-		     so a mesh entry must be excluded explicitly here or it would try to
-		     render its GLB URL as a broken <img>). -->
-		{#if displayFileType !== 'audio' && displayFileType !== 'mesh' && (displayImage || displayVideo)}
-			<div class="ambient-bg ambient-bg--modal" aria-hidden="true">
-				{#if displayFileType === 'video' && displayVideo}
-					<!-- svelte-ignore a11y-media-has-caption -->
-					<video
-						src={getDisplayUrl(displayVideo)}
-						class="ambient-media"
-						autoplay
-						muted
-						loop
-						playsinline
-						preload="auto"
-					></video>
-				{:else if displayImage}
-					<img src={getDisplayUrl(displayImage)} alt="" class="ambient-media" />
-				{/if}
-			</div>
+		{#if displayFileType !== 'audio' && displayFileType !== 'mesh' && (displayImage || displayVideo) && !ambientBlocked}
+			<AmbientGlow src={ambientSrc} kind={ambientKind} variant="fill" keyed={false} style="z-index: 0; --ambient-blur: 72px; --ambient-opacity: 0.6" />
 		{/if}
 
 		<!-- Modal content container - 80% width -->
@@ -1480,77 +1443,6 @@
 {/if}
 
 <style>
-	/* Ambient "screen extend" background — a scaled, heavily-blurred echo of the current
-	   media that projects its edge colors into the empty letterbox space behind it. */
-	.ambient-bg {
-		position: absolute;
-		inset: 0;
-		z-index: -1; /* below in-flow media, above the container's own background */
-		overflow: hidden;
-		pointer-events: none;
-	}
-
-	.ambient-media {
-		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		/* Overscale so the blur never reveals a hard media edge at the container bounds. */
-		transform: scale(1.35);
-		filter: blur(56px) saturate(1.35);
-		opacity: 0.55;
-		will-change: transform;
-		animation: ambient-in 0.5s var(--ease-out-quart, ease-out);
-	}
-
-	/* In-page floating halo. The box stays the same size as the media area (inset: 0) so it
-	   adds no scrollable overflow; the heavy blur is "ink" overflow that spreads the color
-	   past the box onto the page around the "floating" image/video without a scrollbar. */
-	.ambient-glow {
-		position: absolute;
-		inset: 0;
-		z-index: -1; /* behind the in-flow media, over the page background */
-		pointer-events: none;
-	}
-
-	.ambient-glow-media {
-		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		/* Large blur radius = how far the halo bleeds out; no transform/negative inset so
-		   nothing contributes to the panel's scroll height. */
-		filter: blur(90px) saturate(1.4);
-		opacity: 0.6;
-		animation: ambient-in 0.5s var(--ease-out-quart, ease-out);
-	}
-
-	/* In the full-screen preview the echo sits above the black scrim, so lift it a touch. */
-	.ambient-bg--modal {
-		z-index: 0;
-	}
-
-	.ambient-bg--modal .ambient-media {
-		opacity: 0.6;
-		filter: blur(72px) saturate(1.35);
-	}
-
-	@keyframes ambient-in {
-		from {
-			opacity: 0;
-		}
-		/* `to` is implicit — settles at each element's own opacity (0.55 / 0.6). */
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.ambient-media,
-		.ambient-glow-media {
-			animation: none;
-		}
-	}
-
 	/* Spinner sits on black media-chrome (processing pill) — stays white in both themes to match. */
 	.spinner {
 		width: 16px;
