@@ -7,6 +7,7 @@
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import { phrasebookStore } from '$lib/stores/phrasebook';
 	import type { PhrasebookFindMode, PhrasebookFindScope } from '$lib/types/api';
 	import { isSearching, nonDefaultFilterCount, type FindFilters } from '../phrasebookSearch';
@@ -123,9 +124,7 @@
 
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
-		const target = e.target as HTMLElement | null;
-		const tag = target?.tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+		if (isTypingInField(e)) return;
 		e.preventDefault();
 		inputEl?.focus();
 		inputEl?.select();

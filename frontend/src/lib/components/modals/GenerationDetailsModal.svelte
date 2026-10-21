@@ -11,6 +11,7 @@
 	import { generationRunSummary, generationQueueLabel } from '$lib/utils/generationTime';
 	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import portal from '$lib/actions/portal';
 	import BaseModal from './BaseModal.svelte';
@@ -92,13 +93,6 @@
 		} finally {
 			navigating = false;
 		}
-	}
-
-	function isTextEntryTarget(target: EventTarget | null): boolean {
-		const element = target as HTMLElement | null;
-		if (!element || typeof element.tagName !== 'string') return false;
-		if (element.isContentEditable) return true;
-		return ['input', 'textarea', 'select'].includes(element.tagName.toLowerCase());
 	}
 
 	// Generation data (will be loaded if only ID is provided)
@@ -450,7 +444,7 @@
 		if (
 			onArrowKey &&
 			['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) &&
-			!isTextEntryTarget(event.target)
+			!isTypingInField(event)
 		) {
 			const claimed = onArrowKey(
 				event.key as 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown',
@@ -462,7 +456,7 @@
 			}
 		}
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-		if (isTextEntryTarget(event.target)) return;
+		if (isTypingInField(event)) return;
 
 		const direction: -1 | 1 = event.key === 'ArrowRight' ? 1 : -1;
 

@@ -386,6 +386,22 @@ describe('multi face', () => {
 		expect(inspectorLabel(target).placeholder).toBe('a.png');
 	});
 
+	it('leaves a tool shortcut typed into the inspector label to the label', async () => {
+		const onOpenEditor = vi.fn();
+		const { target } = mount({ ...multi(), value: [imageItem('a'), imageItem('b')], onOpenEditor });
+		await tick();
+
+		const typed = new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true });
+		inspectorLabel(target).dispatchEvent(typed);
+		expect(typed.defaultPrevented).toBe(false);
+		expect(onOpenEditor).not.toHaveBeenCalled();
+
+		target
+			.querySelector('[data-media-inspector]')!
+			.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true }));
+		expect(onOpenEditor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'crop' }));
+	});
+
 	it('selects another item when its tile is pressed and shows that item in the inspector', async () => {
 		const { target } = mount({ ...multi(), value: [imageItem('a'), imageItem('b'), imageItem('c')] });
 		await tick();

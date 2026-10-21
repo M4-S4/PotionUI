@@ -50,6 +50,7 @@
 	import MediaStrip from './MediaStrip.svelte';
 	import MediaRow from './MediaRow.svelte';
 	import { findResourceSpec, mediaItemKey, resourceHandleLabel } from '$lib/utils/promptResources';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import {
 		EMPTY_PROMPT_RESOURCE_USAGE,
 		PROMPT_RESOURCE_USAGE_CONTEXT_KEY,
@@ -772,7 +773,7 @@
 	function handleRootKeydown(event: KeyboardEvent) {
 		if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
 		if (face !== 'inspector' && face !== 'strip') return;
-		if ((event.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
+		if (isTypingInField(event)) return;
 		const flatIndex = multiple ? selected : 0;
 		if (flatIndex === null) return;
 		if (event.key === 'Delete') {

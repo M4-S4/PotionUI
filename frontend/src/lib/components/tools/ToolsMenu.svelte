@@ -8,6 +8,7 @@
 	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import menuNav from '$lib/actions/menuNav';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import {
 		toolLabel,
 		type MediaTool,
@@ -151,7 +152,8 @@
 			!event.ctrlKey &&
 			!event.metaKey &&
 			!event.altKey &&
-			!submenu
+			!submenu &&
+			!isTypingInField(event)
 		) {
 			const target = acceleratorTarget(event.key);
 			if (target) {

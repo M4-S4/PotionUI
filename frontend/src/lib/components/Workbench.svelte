@@ -12,6 +12,7 @@
 	import { fetchGenerationTags, saveGenerationTags, tagChips } from '$lib/workbench/generationTags';
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { api } from '$lib/services/api';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import type { ImageData, VideoData } from '$lib/types/tabs';
 	import type { AudioData } from '$lib/types/audio';
 	import type { AudioTrack } from '$lib/types/audio';
@@ -391,7 +392,7 @@
 	// GenerationDetailsModal's handleKeyDown - only active while the modal is open,
 	// so it doesn't compete with the inline workbench's own arrow-key handling (it has none).
 	function handleModalKeyDown(event: KeyboardEvent) {
-		if (!showImageModal) return;
+		if (!showImageModal || isTypingInField(event)) return;
 		if (event.key === 'ArrowLeft' && workbenchIndex > 0) {
 			event.preventDefault();
 			handlePrevious();

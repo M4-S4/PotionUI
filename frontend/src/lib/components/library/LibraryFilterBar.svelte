@@ -5,6 +5,7 @@
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import dismiss from '$lib/actions/dismiss';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import Icon from '$lib/components/Icon.svelte';
 	import InputGroup from '$lib/components/ui/InputGroup.svelte';
 	import type { SortOption } from './librarySection';
@@ -83,9 +84,7 @@
 	});
 
 	function handleWindowKeydown(event: KeyboardEvent) {
-		const target = event.target as HTMLElement | null;
-		const isTyping = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
-		if (event.key === '/' && !isTyping) {
+		if (event.key === '/' && !isTypingInField(event)) {
 			event.preventDefault();
 			searchInputEl?.focus();
 		}

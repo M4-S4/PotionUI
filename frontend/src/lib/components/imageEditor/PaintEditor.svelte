@@ -4,6 +4,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
 	import { resumeKeyboard, suppressKeyboard } from '$lib/services/keyboard';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import type { EditorCommitFn, MediaEditorSource } from '$lib/media/editors/types';
 	import CanvasPanel from './CanvasPanel.svelte';
 	import type { DrawConfig } from './drawConfig';
@@ -217,18 +218,8 @@
 		sheet = null;
 	}
 
-	function isTyping(target: EventTarget | null): boolean {
-		if (!(target instanceof HTMLElement)) return false;
-		if (target.isContentEditable) return true;
-		if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true;
-		if (target instanceof HTMLInputElement) {
-			return !['range', 'color', 'checkbox', 'radio', 'button'].includes(target.type);
-		}
-		return false;
-	}
-
 	function onKeydown(event: KeyboardEvent) {
-		if (isTyping(event.target)) return;
+		if (isTypingInField(event)) return;
 		const key = event.key.toLowerCase();
 		const mod = event.ctrlKey || event.metaKey;
 
