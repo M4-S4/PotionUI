@@ -620,7 +620,7 @@
 	</svelte:fragment>
 	<svelte:fragment slot="header">
 		{#if activeGeneration}
-			<code class="font-mono text-2xs text-fg-disabled flex-shrink-0">{shortGenerationId}</code>
+			<code class="font-mono text-2xs text-fg-disabled flex-shrink-0 hidden sm:inline">{shortGenerationId}</code>
 		{/if}
 		<div class="flex-1"></div>
 		{#if activeGeneration}

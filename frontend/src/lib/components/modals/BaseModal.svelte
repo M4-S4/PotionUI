@@ -128,7 +128,7 @@
 							<slot name="headerIcon" />
 						{/if}
 						{#if title || subtitle}
-							<div class="min-w-0 flex-1">
+							<div class="min-w-[8rem] flex-1">
 								{#if title}
 									<h2 class="text-lg font-semibold text-fg truncate">{title}</h2>
 								{/if}
