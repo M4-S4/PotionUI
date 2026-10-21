@@ -97,7 +97,7 @@ test.describe('Formulas drawer', () => {
 		await saveSizeFormula(page, 'Wide frame');
 		await expect(drawer.locator('[data-highlight]')).toHaveCount(1);
 		await expect(page.locator('[data-testid="toast"], .toast')).toHaveCount(0);
-		await expect(button.locator('span.absolute')).toHaveText('1');
+		await expect(page.getByTestId('formulas-count')).toHaveText('1');
 		await page.screenshot({ path: shotPath(JOURNEY, 'list') });
 
 		await drawer.getByLabel('Search formulas').fill('zzz');
@@ -272,7 +272,7 @@ test.describe('Formulas drawer', () => {
 		const sessions = page.getByRole('dialog', { name: 'Sessions' });
 		await button.click();
 		await expect(formulas).toBeVisible();
-		await page.locator('button[aria-label="Session"]').first().click();
+		await page.locator('button[aria-label="Session"]').first().evaluate((el) => (el as HTMLElement).click());
 		await expect(sessions).toBeVisible();
 		await expect(formulas).toHaveCount(0);
 		await button.evaluate((el) => (el as HTMLElement).click());

@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
-import { selectPresetInPicker } from './presetPreamble';
+import { chooseLayout, selectPresetInPicker } from './presetPreamble';
 
 // Video Director auto-widen (PLAN.md §C W4) — an HTTP-only check can't see a
 // real layout reflow, so this drives a real browser: three-pane layout, an
@@ -35,14 +35,10 @@ async function ensureAssigned(page: Page, token: string, userId: string, preset:
 	await apiPost(page, `/api/presets/${preset.id}/assign`, token, { user_ids: [userId] });
 }
 
-/** Switches the active tab to three-pane layout via the tabs-row "…" overflow
- * menu's view-layout picker (`TabsOverflowMenu` -> `GenerationLayoutPicker`).
- * A no-op (returns true immediately) if the tab is already three-pane. */
 async function switchToThreePaneLayout(page: Page): Promise<void> {
 	const promptsPane = page.getByTestId('prompts-pane');
 	if (await promptsPane.isVisible({ timeout: 500 }).catch(() => false)) return;
-	await page.getByRole('button', { name: 'More view options' }).click();
-	await page.getByRole('option', { name: /Three panes/ }).click();
+	await chooseLayout(page, 'Three panes');
 	await expect(promptsPane).toBeVisible({ timeout: 10000 });
 }
 

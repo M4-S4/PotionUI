@@ -56,11 +56,14 @@ test('editing a segment after loading a session survives switching tabs and back
 
 	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
 	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 10000 });
+	const firstTab = page.locator('button.book-tab', { hasText: 'Generation 1' });
+	await expect(firstTab).not.toContainText('unsaved changes');
 
 	// Edit the segment further - now dirty against the saved baseline, never
 	// re-saved.
 	await typeIntoSegment(page, 'Positive segments', 0, ' Neon light flickers over the waves.');
 	await expect(page.getByRole('button', { name: 'Save session' })).toBeVisible({ timeout: 10000 });
+	await expect(firstTab).toContainText('unsaved changes', { timeout: 10000 });
 
 	const dirtyText = await mainList.textContent();
 	expect(dirtyText).toContain('A lighthouse on a stormy cliff.');
@@ -71,6 +74,8 @@ test('editing a segment after loading a session survives switching tabs and back
 	// Switch to a second tab and back - the exact repro from the bug report.
 	await page.getByRole('button', { name: 'Add new tab' }).click();
 	await expect(page.getByText('Generation 2', { exact: true })).toBeVisible();
+	await expect(page.locator('button.book-tab', { hasText: 'Generation 2' })).not.toContainText('unsaved changes');
+	await expect(firstTab).toContainText('unsaved changes', { timeout: 10000 });
 
 	await page.locator('button.book-tab', { hasText: 'Generation 1' }).click();
 
@@ -88,6 +93,7 @@ test('editing a segment after loading a session survives switching tabs and back
 	// The dirty indicator must still read dirty - not silently "Saved" as if
 	// the round trip re-synced against the server's (stale) saved copy.
 	await expect(page.getByRole('button', { name: 'Save session' })).toBeVisible({ timeout: 10000 });
+	await expect(firstTab).toContainText('unsaved changes');
 
 	await screenshot(page, JOURNEY, '01-after-tab-switch-round-trip');
 

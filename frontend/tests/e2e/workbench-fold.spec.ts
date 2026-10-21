@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, apiGet, apiPost } from './helpers';
+import { chooseLayout } from './presetPreamble';
 
 // Folding the docked workbench pane (`toggle_workbench_panel` keybinding,
 // default `e`) mirrors the existing left generation-form fold
@@ -58,9 +59,7 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 	const tablist = page.locator('[role="tablist"]').first();
 	await expect(tablist).toBeVisible({ timeout: 20000 });
 
-	// Switch to the three-pane layout so the fold is the vertical rail.
-	await page.getByRole('button', { name: 'More view options' }).click();
-	await page.getByRole('option', { name: /Three panes/ }).click();
+	await chooseLayout(page, 'Three panes');
 
 	const workbenchPane = page.locator('[data-testid="workbench-pane"]');
 	const promptsPane = page.locator('[data-testid="prompts-pane"]');
@@ -87,7 +86,7 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 	// Reload: the fold is persisted per tab, so it survives.
 	await page.waitForTimeout(600); // let the debounced localStorage save flush
 	await page.reload();
-	await expect(page.getByRole('button', { name: 'More view options' })).toBeVisible({ timeout: 20000 });
+	await expect(page.getByTestId('context-bar')).toBeVisible({ timeout: 20000 });
 	await expect(workbenchPane).toBeVisible({ timeout: 10000 });
 	const reloadedBox = await workbenchPane.boundingBox();
 	expect(reloadedBox).not.toBeNull();

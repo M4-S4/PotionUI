@@ -46,7 +46,7 @@
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import TabBar from './components/TabBar.svelte';
 	import GenerationPanels from './components/GenerationPanels.svelte';
-	import PresetControls from './components/PresetControls.svelte';
+	import DesktopWorkspace from './components/DesktopWorkspace.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
 	import { isNegativeInert, type NegativePromptDeclarations } from '$lib/generation/negativeApplied';
@@ -651,16 +651,6 @@
 	// Reactive subscriptions
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
-	// The generation bar's session cluster needs the same mode/variant shape
-	// PresetHeader gets per-tab below.
-	$: activeTabModes = (modesPerTab[activeTabId] || []).map((m) => ({
-		id: m.name,
-		label: m.label,
-		variants: m.variants,
-		sourcePlugin: m.source_plugin,
-		description: modeDescription(m),
-		icon: m.icon
-	}));
 	$: currentTab = $activeTab;
 	$: rewriteMergedFieldMarkers(currentTab, currentTabFieldAliases);
 
@@ -669,9 +659,6 @@
 		const updates = tabMergedMarkerUpdates(tab, aliases);
 		if (updates) tabsStore.updateTab(tab.id, updates);
 	}
-	// The generation bar's session cluster needs the same version-drift check
-	// PresetHeader/SessionPill get per-tab below.
-	$: currentTabPresetVersion = presets.find((p: any) => p.id === currentTab.selectedPreset)?.version;
 	$: generatingTabName = $generatingTab?.name;
 	$: generation = currentTab.generation;
 	$: isGenerating = generation.isGenerating;
@@ -1974,72 +1961,53 @@
 						onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
 						onMoveToWorkbench={handleMoveToWorkbench}
 					/>
-				{:else if !tab.selectedPreset || !tab.selectedMode}
-					<!-- Desktop: Placeholder when preset/mode not selected. The preset
-						card still needs to be reachable before either is chosen, so it
-						mounts in the same left settings-pane position GenerationPanels
-						uses once a preset+mode exist (PresetHeader isn't nested
-						inside GenerationPanels alone - it has to work before that
-						component ever mounts too). -->
-					<div class="flex h-full">
-						<div
-							class="flex-shrink-0 border-r border-line overflow-y-auto bg-surface-1/30 p-3"
-							style="width: min({leftPanelWidth}px, 45vw)"
-						>
-							<PresetControls
-								{tab}
-								{presets}
-								{readiness}
-								{isLoading}
-								isReloading={isReloadingPreset && tab.id === activeTabId}
-								availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon }))}
-								onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
-								onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
-								onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
-								onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
-							/>
-						</div>
-						<div class="flex flex-1 items-center justify-center pb-[var(--dock-height)]">
-							{@render noSelectionState()}
-						</div>
-					</div>
 				{:else}
-					<!-- Desktop: Resizable Two-Panel Layout -->
-					<GenerationPanels
+					<DesktopWorkspace
 						{tab}
-						{tabHandlers}
-						{promptRelayActive}
-						{videoDirectorActive}
-						{videoDirectorCaps}
-						{musicDirectorActive}
-						{musicDirectorCaps}
-						directorRuns={tab.directorRuns}
-						onDirectorCheckedChange={(checked) => handleDirectorCheckedChange(tab.id, checked)}
-						onDirectorGenerateShots={(shotIds) => submitVideoDirectorShots(tab.id, shotIds)}
-						{canBatch}
-						{negativePromptSupported}
-						{negativeInert}
-						{presetSegmentTemplates}
-						{presetStyles}
-						promptless={promptlessActive}
-						{isActive}
-						{leftPanelWidth}
-						{dynamicFormRefs}
 						{presets}
 						{readiness}
 						{isLoading}
 						isReloading={isReloadingPreset && tab.id === activeTabId}
 						availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin, description: modeDescription(m), icon: m.icon }))}
-						onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
-						onWorkbenchPrevious={handleWorkbenchPrevious}
-						onWorkbenchNext={handleWorkbenchNext}
-						onWorkbenchHeightChange={handleWorkbenchHeightChange}
-						onMoveToWorkbench={handleMoveToWorkbench}
 						onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
 						onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
 						onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
 						onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
-					/>
+					>
+						{#if !tab.selectedPreset || !tab.selectedMode}
+							<div class="flex h-full items-center justify-center pb-[var(--dock-height)]">
+								{@render noSelectionState()}
+							</div>
+						{:else}
+							<GenerationPanels
+								{tab}
+								{tabHandlers}
+								{promptRelayActive}
+								{videoDirectorActive}
+								{videoDirectorCaps}
+								{musicDirectorActive}
+								{musicDirectorCaps}
+								directorRuns={tab.directorRuns}
+								onDirectorCheckedChange={(checked) => handleDirectorCheckedChange(tab.id, checked)}
+								onDirectorGenerateShots={(shotIds) => submitVideoDirectorShots(tab.id, shotIds)}
+								{canBatch}
+								{negativePromptSupported}
+								{negativeInert}
+								{presetSegmentTemplates}
+								{presetStyles}
+								promptless={promptlessActive}
+								{isActive}
+								{leftPanelWidth}
+								{dynamicFormRefs}
+								{presets}
+								onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
+								onWorkbenchPrevious={handleWorkbenchPrevious}
+								onWorkbenchNext={handleWorkbenchNext}
+								onWorkbenchHeightChange={handleWorkbenchHeightChange}
+								onMoveToWorkbench={handleMoveToWorkbench}
+							/>
+						{/if}
+					</DesktopWorkspace>
 				{/if}
 			</div>
 
@@ -2087,11 +2055,7 @@
 			isActiveTabGenerating={$isActiveTabGenerating}
 			onSwitchToGeneratingTab={switchToGeneratingTab}
 			onClearQueue={clearGenerationQueue}
-			presetId={currentTab.selectedPreset}
-			currentMode={currentTab.selectedMode}
 			tabId={currentTab.id}
-			presetVersion={currentTabPresetVersion}
-			availableModes={activeTabModes}
 			workbenchFloating={!!currentTab.workbenchFloating}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>

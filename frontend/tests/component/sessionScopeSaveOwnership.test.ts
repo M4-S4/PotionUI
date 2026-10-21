@@ -1,16 +1,6 @@
-// @vitest-environment jsdom
-//
-// A session save is an async command whose completion writes tab-scoped state
-// (currentSession, the saved baseline via tabsStore, the dirty/saving flags).
-// The user can select another session — or switch tab entirely — while it is
-// still in flight, and the response then lands on a controller that represents
-// something else: the active session flips back to the one that was saved and
-// the new selection's dirty state is cleared under it. These mount the real
-// SessionCluster against the real tabsStore and hold `api.updateSession` open
-// with a deferred promise so that window is exercised through the real
-// reactivity graph rather than simulated.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
+import { flushSync } from 'svelte';
 import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
@@ -24,9 +14,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { api } = await import('$lib/services/api/index');
 const { tabsStore } = await import('$lib/stores/tabs');
-const { default: SessionCluster } = await import(
-	'$lib/components/generation-panel/SessionCluster.svelte'
-);
+const { default: SessionScopeFixture } = await import('./fixtures/SessionScopeFixture.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { collectTabSessionData } = await import('$lib/utils/sessionTabState');
 
@@ -59,11 +47,11 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-function mountCluster(tabId: string) {
+function mountScope(tabId: string) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const component = createClassComponent({
-		component: SessionCluster as never,
+		component: SessionScopeFixture as never,
 		target,
 		props: {
 			presetId: PRESET_ID,
@@ -75,16 +63,23 @@ function mountCluster(tabId: string) {
 	return {
 		target,
 		component,
-		sessionName: () => target.querySelector('.session-name')?.textContent,
-		saveStatus: () => target.querySelector('.session-state')?.textContent,
-		clickSave: () => target.querySelector<HTMLButtonElement>('.session-save-button')!.click(),
+		sessionName: () => target.querySelector('button[aria-label="Session"] span.truncate')?.textContent,
+		saveStatus: () => saveButton(target)?.getAttribute('aria-label'),
+		clickSave: () => saveButton(target)!.click(),
 		openSessionMenu: () =>
 			target.querySelector<HTMLButtonElement>('button[aria-label="Session"]')!.click(),
-		clickMenuItem: (label: string) => {
-			const row = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(
-				(el) => el.textContent?.includes(label) || el.getAttribute('aria-label')?.includes(label)
+		clickSessionRow: (name: string) => {
+			const row = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-session-row]')).find((el) =>
+				el.textContent?.includes(name)
 			);
 			row!.click();
+		},
+		openRename: (name: string) => {
+			document.body.querySelector<HTMLButtonElement>(`button[aria-label="More actions for ${name}"]`)!.click();
+			flushSync();
+			Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+				.find((el) => el.textContent?.includes('Rename'))!
+				.click();
 		},
 		confirmDiscard: () => {
 			Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button'))
@@ -98,11 +93,19 @@ function mountCluster(tabId: string) {
 	};
 }
 
+const SAVE_LABELS = ['Save session', 'Saving session', 'Session saved', 'Save as a new session'];
+
+function saveButton(target: HTMLElement): HTMLButtonElement | undefined {
+	return Array.from(target.querySelectorAll<HTMLButtonElement>('button')).find((el) =>
+		SAVE_LABELS.includes(el.getAttribute('aria-label') ?? '')
+	);
+}
+
 function tabState(id: string) {
 	return get(tabsStore).tabs.find((t) => t.id === id);
 }
 
-let mounted: ReturnType<typeof mountCluster> | undefined;
+let mounted: ReturnType<typeof mountScope> | undefined;
 let tabId: string;
 let otherTabId: string;
 
@@ -110,9 +113,6 @@ beforeEach(() => {
 	const sessionA = makeSession(SESSION_A, 'Session A');
 	const sessionB = makeSession(SESSION_B, 'Session B');
 
-	// A baseline recorded when session A was cleanly loaded; the tab's live
-	// draft (EDITED_SEGMENTS) differs from it, so the cluster starts dirty and
-	// the save button is a real save.
 	const savedSessionSignature = JSON.stringify(
 		collectTabSessionData(
 			{ promptSegments: ORIGINAL_SEGMENTS } as never,
@@ -151,16 +151,15 @@ afterEach(() => {
 	mounted = undefined;
 	tabsStore.removeTab(tabId);
 	tabsStore.removeTab(otherTabId);
-	// Return-value queues survive clearAllMocks and would leak into the next test.
 	vi.resetAllMocks();
 });
 
-describe('SessionCluster save ownership', () => {
+describe('SessionScope save ownership', () => {
 	it('drops a save response for a session the user already switched away from', async () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 		expect(mounted.sessionName()).toBe('Session A');
 
@@ -169,7 +168,7 @@ describe('SessionCluster save ownership', () => {
 
 		mounted.openSessionMenu();
 		await settle(10);
-		mounted.clickMenuItem('Session B');
+		mounted.clickSessionRow('Session B');
 		await settle(10);
 		mounted.confirmDiscard();
 		await settle(10);
@@ -183,23 +182,20 @@ describe('SessionCluster save ownership', () => {
 		});
 		await settle(10);
 
-		// The active session is still B, and B's baseline was not replaced by
-		// the snapshot A's save was built from.
 		expect(mounted.sessionName()).toBe('Session B');
 		expect(tabState(tabId)?.selectedSessionId).toBe(SESSION_B);
 		expect(tabState(tabId)?.savedSessionSignature).toBe(baselineForB);
 
-		// The saved session's own list entry still gets its refreshed record.
 		mounted.openSessionMenu();
 		await settle(10);
 		expect(document.body.textContent).toContain('Session A (saved)');
 	});
 
-	it('drops a save response after the cluster has been given another tab', async () => {
+	it('drops a save response after the scope has been given another tab', async () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 
 		mounted.clickSave();
@@ -207,7 +203,7 @@ describe('SessionCluster save ownership', () => {
 
 		mounted.component.$set({ tabId: otherTabId });
 		await settle(10);
-		expect(mounted.sessionName()).toBe('None');
+		expect(mounted.sessionName()).toBe('No saved session');
 
 		pending.resolve({
 			success: true,
@@ -215,7 +211,7 @@ describe('SessionCluster save ownership', () => {
 		});
 		await settle(10);
 
-		expect(mounted.sessionName()).toBe('None');
+		expect(mounted.sessionName()).toBe('No saved session');
 		expect(tabState(otherTabId)?.selectedSessionId).toBeFalsy();
 		expect(tabState(otherTabId)?.savedSessionSignature).toBeFalsy();
 	});
@@ -224,7 +220,7 @@ describe('SessionCluster save ownership', () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 
 		mounted.clickSave();
@@ -237,11 +233,9 @@ describe('SessionCluster save ownership', () => {
 		await settle(10);
 
 		expect(tabState(tabId)?.promptSegments).toEqual(LATER_SEGMENTS);
-		// The baseline is the snapshot that was actually sent, so the newer edit
-		// stays dirty instead of being silently absorbed as saved.
 		expect(tabState(tabId)?.savedSessionSignature).toContain('EDITED segment');
 		expect(tabState(tabId)?.savedSessionSignature).not.toContain('EDITED AGAIN');
-		expect(mounted.saveStatus()).toContain('Unsaved changes');
+		expect(mounted.saveStatus()).toBe('Save session');
 	});
 
 	it('lets an obsolete failure touch neither the error nor a newer save in flight', async () => {
@@ -251,7 +245,7 @@ describe('SessionCluster save ownership', () => {
 			.mockReturnValueOnce(failing.promise as never)
 			.mockReturnValueOnce(succeeding.promise as never);
 
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 
 		mounted.clickSave();
@@ -259,28 +253,27 @@ describe('SessionCluster save ownership', () => {
 
 		mounted.openSessionMenu();
 		await settle(10);
-		mounted.clickMenuItem('Session B');
+		mounted.clickSessionRow('Session B');
 		await settle(10);
 		mounted.confirmDiscard();
 		await settle(10);
 
 		mounted.clickSave();
 		await settle(10);
-		expect(mounted.saveStatus()).toContain('Saving');
+		expect(mounted.saveStatus()).toBe('Saving session');
 
 		failing.reject(new Error('network down'));
 		await settle(10);
 
-		// B's save is still running: A's rejection must not clear its flag.
-		expect(mounted.saveStatus()).toContain('Saving');
+		expect(mounted.saveStatus()).toBe('Saving session');
 
 		succeeding.resolve({ success: true, data: makeSession(SESSION_B, 'Session B') });
 		await settle(10);
-		expect(mounted.saveStatus()).not.toContain('Saving');
+		expect(mounted.saveStatus()).not.toBe('Saving session');
 
 		mounted.openSessionMenu();
 		await settle(10);
-		mounted.clickMenuItem('Rename');
+		mounted.openRename('Session B');
 		await settle(10);
 		expect(document.body.textContent).not.toContain('network down');
 	});
@@ -289,9 +282,9 @@ describe('SessionCluster save ownership', () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
-		expect(mounted.saveStatus()).toContain('Unsaved changes');
+		expect(mounted.saveStatus()).toBe('Save session');
 
 		mounted.clickSave();
 		await settle(10);
@@ -299,15 +292,15 @@ describe('SessionCluster save ownership', () => {
 		pending.resolve({ success: true, data: makeSession(SESSION_A, 'Session A') });
 		await settle(10);
 
-		expect(mounted.saveStatus()).toContain('Saved');
+		expect(mounted.saveStatus()).toBe('Session saved');
 		expect(tabState(tabId)?.savedSessionSignature).toContain('EDITED segment');
 	});
 
-	it('drops a save response that arrives after the cluster was destroyed', async () => {
+	it('drops a save response that arrives after the scope was destroyed', async () => {
 		const pending = deferred<unknown>();
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 
 		const baselineBeforeSave = tabState(tabId)?.savedSessionSignature;

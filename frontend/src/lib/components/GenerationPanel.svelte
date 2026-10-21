@@ -4,14 +4,12 @@
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
 	import type { GenerationState } from '$lib/types/tabs';
-	import type { PresetModeVariant } from '$lib/types/api';
 	import { parseTemplateMarkers } from '$lib/utils/templateProcessor';
 	import { contributionsForSlot } from '$lib/extensions/extensionSlots';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import Tooltip from './Tooltip.svelte';
 	import GenerateMark from './generation-panel/GenerateMark.svelte';
 	import PanelReadoutCell from './generation-panel/PanelReadoutCell.svelte';
-	import SessionCluster from './generation-panel/SessionCluster.svelte';
 	import { deriveMarkState, deriveModeChromeGlyph, formatDurationMs, formatDurationSeconds } from './generation-panel/barState';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { createGenerationModeController } from './generationModeController';
@@ -54,17 +52,7 @@
 	export let isActiveTabGenerating: boolean = false;
 	export let onSwitchToGeneratingTab: (() => void) | undefined = undefined;
 	export let onClearQueue: (() => void) | undefined = undefined;
-	// Forwarded to the session cluster.
-	export let presetId: string | null = null;
-	export let currentMode: string | null = null;
-	// No default-empty-string guard needed downstream: SessionCluster only
-	// starts fetching sessions once `presetId` is set, and an empty tabId
-	// just never matches a tab in tabsStore (inert, not an error) — safe for
-	// callers (e.g. the docs component gallery) that mount this panel without
-	// a real tab.
 	export let tabId: string = '';
-	export let presetVersion: string | undefined = undefined;
-	export let availableModes: Array<{ id: string; variants?: PresetModeVariant[] }> = [];
 	// While the floating workbench (`W`) is open, its window sits above this
 	// panel's own drawers (both z-30, whichever mounted later wins) — block
 	// opening a second overlay on top of it instead of letting them stack.
@@ -566,12 +554,7 @@
 			</div>
 		</section>
 
-		<!-- Context rail: session · save, last, elapsed, queue. Fixed order,
-			every cell always rendered — a value that doesn't exist yet reads
-			"none"/"empty" rather than the cell vanishing. -->
-		<section class="context-rail" aria-label="Session and run information">
-			<SessionCluster {presetId} {currentMode} {tabId} {presetVersion} {availableModes} />
-
+		<section class="context-rail" aria-label="Run information">
 			<PanelReadoutCell label="last" ariaLabel="Last generation duration">
 				<span class={lastText === 'none' ? 'text-fg-subtle' : ''}>{lastText}</span>
 			</PanelReadoutCell>

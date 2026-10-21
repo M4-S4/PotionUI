@@ -7,8 +7,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import PresetPicker from '$lib/components/preset/PresetPicker.svelte';
 	import { resolveVariant, sortVariants } from '$lib/utils/variants';
-	import { modeLabel } from '$lib/utils/modeLabel.svelte';
-	import { hasIcon } from '$lib/utils/IconLibrary';
+	import { presetModeOptions } from '$lib/utils/presetModeOptions';
 
 	export let presets: PresetInfo[] = [];
 	export let selectedPreset: string = '';
@@ -42,14 +41,7 @@
 	const NARROW_PANEL_PX = 340;
 	$: narrow = panelWidth > 0 && panelWidth < NARROW_PANEL_PX;
 	$: hasModeSelect = availableModes.length > 1;
-	$: modeOptions = availableModes.map((mode) => ({
-		value: mode.id,
-		label: modeLabel(mode.id, mode.label),
-		icon: mode.icon && hasIcon(mode.icon) ? mode.icon : undefined,
-		description: mode.description || undefined,
-		marker: mode.sourcePlugin ? '\u2022' : undefined,
-		markerLabel: mode.sourcePlugin ? `contributed by ${mode.sourcePlugin}` : undefined
-	}));
+	$: modeOptions = presetModeOptions(availableModes);
 
 	$: currentModeVariants = sortVariants(
 		availableModes.find((mode) => mode.id === selectedMode)?.variants
@@ -110,15 +102,6 @@
 				/>
 			</div>
 		{/if}
-
-		<div
-			class="flex flex-shrink-0 divide-x divide-line-strong overflow-hidden empty:hidden rounded border border-line-strong bg-surface-2"
-			role="group"
-			aria-label="Preset actions"
-			data-testid="preset-header-actions"
-		>
-			<slot name="mode-actions" />
-		</div>
 	</div>
 
 	{#if variantOptions.length > 1}

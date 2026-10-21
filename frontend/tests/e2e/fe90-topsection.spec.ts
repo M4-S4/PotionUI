@@ -47,8 +47,6 @@ test('top section — tabs row cluster + relocated preset header', async ({ page
 	// 1. Full page — the decisive comparison against generate_1a.png's top strip.
 	await screenshot(page, JOURNEY, '01-generate-full');
 
-	// 2. Tabs row close-up: tab list + session pill + overflow only (slimmer
-	// right cluster now that Simple/Advanced lives inside the overflow menu).
 	const tabBar = page.locator('.tab-bar-container').first();
 	await expect(tabBar).toBeVisible();
 	await tabBar.screenshot({ path: shotPath(JOURNEY, '02-tabs-row') });
@@ -72,25 +70,18 @@ test('top section — tabs row cluster + relocated preset header', async ({ page
 	await screenshot(page, JOURNEY, '04-session-panel-open');
 	await page.keyboard.press('Escape');
 
-	// 5. Open "…" overflow menu - must show BOTH the Simple/Advanced toggle
-	// (now a labeled "Field visibility" section) and the view-layout picker.
-	const overflowTrigger = page.getByRole('button', { name: 'More view options' });
-	await expect(overflowTrigger).toBeVisible();
-	await overflowTrigger.click();
-	const overflowMenu = page.getByRole('menu', { name: 'More view options' });
-	await expect(overflowMenu).toBeVisible();
-	await expect(overflowMenu.getByText('Field visibility')).toBeVisible();
-	await expect(overflowMenu.getByRole('button', { name: 'Advanced' })).toBeVisible();
-	await expect(overflowMenu.getByText('View layout')).toBeVisible();
-	await screenshot(page, JOURNEY, '05-overflow-menu-open');
+	const tools = page.getByRole('group', { name: 'Generation tools' });
+	await expect(tools).toBeVisible();
+	await expect(tools.getByRole('button', { name: /^Layout: / })).toBeVisible();
+	const simpleFields = tools.getByRole('button', { name: 'Field visibility: Simple' });
+	await expect(simpleFields).toBeVisible();
+	await screenshot(page, JOURNEY, '05-context-tools');
 
-	// 6. Simple/Advanced toggle (inside the menu) still writes the shared
-	// audience store - selecting it doesn't close the menu (only a layout
-	// pick does), so this stays in the same open state as step 5.
-	const advancedButton = overflowMenu.getByRole('button', { name: 'Advanced' });
-	await advancedButton.click();
+	await simpleFields.click();
+	const advancedFields = tools.getByRole('button', { name: 'Field visibility: Advanced' });
+	await expect(advancedFields).toHaveAttribute('aria-pressed', 'true');
 	await screenshot(page, JOURNEY, '06-advanced-audience');
-	await overflowTrigger.click(); // close
+	await advancedFields.click();
 
 	// 7. Mobile: the Studio "preset & session" sheet now mounts PresetHeader +
 	// SessionPill in place of the deleted PresetSessionBar / mobile carousel

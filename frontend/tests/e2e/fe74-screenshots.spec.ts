@@ -306,9 +306,12 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 				// picker modal.
 				// The mode control's button carries a native title; a plain role query
 				// also matches the Video Director's own collapsible header button.
-				const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
-				if (await videoModeBtn.count() > 0) {
-					await videoModeBtn.click();
+				const variantSegment = page.getByTestId('preset-variant-switch').getByRole('button').first();
+				if (await variantSegment.count() > 0) {
+					await variantSegment.click();
+					const videoOption = page.getByRole('option', { name: /^Video\b/ });
+					if (await videoOption.count() > 0) await videoOption.first().click();
+					else await page.keyboard.press('Escape');
 					await page.waitForTimeout(1000);
 				}
 				const pickerStillOpen = await page.getByRole('listbox', { name: 'Presets' }).isVisible().catch(() => false);

@@ -102,9 +102,25 @@ export async function selectPresetInPicker(page: Page, preset: DiscoveredPreset)
 	await confirm.click();
 	await expect(confirm).toBeHidden();
 	await page.waitForLoadState('networkidle');
-	const videoModeBtn = page.getByTestId('preset-variant-switch').locator('button').filter({ hasText: /^Video$/ });
-	if ((await videoModeBtn.count()) > 0) {
-		await videoModeBtn.click();
+	const variantSegment = page.getByTestId('preset-variant-switch').getByRole('button').first();
+	if ((await variantSegment.count()) > 0) {
+		await variantSegment.click();
+		const videoOption = page.getByRole('option', { name: /^Video\b/ });
+		if ((await videoOption.count()) > 0) await videoOption.first().click();
+		else await page.keyboard.press('Escape');
 	}
 	return true;
+}
+
+export async function chooseLayout(page: Page, layout: 'Two panes' | 'Three panes'): Promise<void> {
+	const tool = page.locator('[data-context-tool="layout"]');
+	if (await tool.isVisible().catch(() => false)) {
+		if ((await tool.getAttribute('aria-label')) !== `Layout: ${layout}`) await tool.click();
+		await expect(tool).toHaveAttribute('aria-label', `Layout: ${layout}`);
+		return;
+	}
+	await page.getByTestId('context-tools-more').click();
+	const item = page.getByRole('menuitem', { name: /^Layout: / });
+	if ((await item.getAttribute('aria-label')) !== `Layout: ${layout}`) await item.click();
+	else await page.keyboard.press('Escape');
 }

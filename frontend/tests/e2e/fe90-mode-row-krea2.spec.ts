@@ -71,5 +71,5 @@ test('mode row — Krea-2 with krea2-edit enabled (plugin-contributed mode)', as
 	await expect(modeSelect).toBeVisible();
 	await modeSelect.getByRole('button').first().click();
 	await expect(page.getByRole('option', { name: new RegExp(editMode!.label) })).toBeVisible();
-	await page.getByTestId('preset-header-row').screenshot({ path: shotPath(JOURNEY, '03-mode-row') });
+	await page.getByTestId('context-bar').screenshot({ path: shotPath(JOURNEY, '03-mode-row') });
 });

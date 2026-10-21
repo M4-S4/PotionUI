@@ -4,130 +4,159 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import SessionDrawer from '$lib/components/session/SessionDrawer.svelte';
+	import SessionPanel from '$lib/components/session/SessionPanel.svelte';
 	import { sideDrawer } from '$lib/stores/sideDrawer';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 
-	export let session: SessionPanelState;
-	export let actions: SessionPanelActions;
-	export let fieldLabels: FieldLabels = {};
-	export let compact = false;
+	let {
+		session,
+		actions,
+		fieldLabels = {},
+		layout = 'segment',
+		compact = false
+	}: {
+		session: SessionPanelState;
+		actions: SessionPanelActions;
+		fieldLabels?: FieldLabels;
+		layout?: 'segment' | 'sheet';
+		compact?: boolean;
+	} = $props();
 
-	$: ({
-		sessionControlsEnabled: enabled,
-		currentSession,
-		isQuickSaving: saving,
-		hasUnsavedChanges: dirty,
-		lastSavedTime,
-		autoSaveEnabled,
-		autoSaveInterval
-	} = session);
+	let open = $state(false);
+	let anchorEl = $state<HTMLElement>();
 
-	let open = false;
-	$: if ($sideDrawer === 'formulas') open = false;
+	let enabled = $derived(session.sessionControlsEnabled);
+	let current = $derived(session.currentSession);
+	let saving = $derived(session.isQuickSaving);
+	let dirty = $derived(session.hasUnsavedChanges);
 
-	function relativeTime(date: Date | null): string {
-		if (!date) return 'Saved';
-		const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
-		if (seconds < 10) return 'Saved just now';
-		if (seconds < 60) return `Saved ${seconds}s ago`;
-		const minutes = Math.floor(seconds / 60);
-		if (minutes < 60) return `Saved ${minutes}m ago`;
-		return `Saved ${date.toLocaleDateString()}`;
-	}
+	let label = $derived(current?.name ?? (enabled ? 'No saved session' : 'Session unavailable'));
+	let dotClass = $derived(
+		saving ? 'bg-signal-solid' : !current ? 'bg-fg-subtle' : dirty ? 'bg-warning-solid' : 'bg-success-solid'
+	);
+	let saveState = $derived<'unavailable' | 'new' | 'saving' | 'dirty' | 'saved'>(
+		!enabled ? 'unavailable' : !current ? 'new' : saving ? 'saving' : dirty ? 'dirty' : 'saved'
+	);
+	let saveLabel = $derived(
+		{
+			unavailable: 'Session save unavailable',
+			new: 'Save as a new session',
+			saving: 'Saving session',
+			dirty: 'Save session',
+			saved: 'Session saved'
+		}[saveState]
+	);
+	let saveDisabled = $derived(saveState === 'unavailable' || saveState === 'saved');
+	let saveTip = $derived(saveState === 'saved' ? 'Saved' : saveState === 'unavailable' ? 'Nothing to save' : saveLabel);
 
-	$: status = saving
-		? 'Saving…'
-		: dirty
-			? autoSaveEnabled
-				? `Unsaved · auto-save ${autoSaveInterval / 1000}s`
-				: 'Unsaved changes'
-			: currentSession
-				? autoSaveEnabled
-					? `Saved · auto-save ${autoSaveInterval / 1000}s`
-					: relativeTime(lastSavedTime)
-				: 'Choose or create a session';
+	$effect(() => {
+		if ($sideDrawer === 'formulas') open = false;
+	});
 
-	function toggleOpen() {
+	function toggle() {
+		if (!enabled) return;
 		open = !open;
 		if (open) sideDrawer.open('sessions');
+		else sideDrawer.close('sessions');
+	}
+
+	function close() {
+		open = false;
+		sideDrawer.close('sessions');
+	}
+
+	function save() {
+		if (saveDisabled) return;
+		if (!current) actions.saveAs();
+		else void actions.save();
 	}
 </script>
 
-<div
-	class="relative session-control flex items-stretch overflow-visible rounded-lg border border-line-strong bg-surface-2 transition-colors hover:border-line-hover {compact ? 'h-[34px] flex-shrink-0' : 'w-full min-w-0 sm:w-auto'}"
->
-	{#if compact}
+{#snippet saveButton(shape: string)}
+	<Tooltip text={saveTip} kbd={saveDisabled ? undefined : $shortcutLabels['save_session']} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
 		<button
 			type="button"
-			class="flex min-w-0 items-center gap-2 pl-3 pr-2.5 text-left transition-colors hover:bg-surface-3 disabled:opacity-50 disabled:cursor-not-allowed {enabled && ((!currentSession) || (currentSession && dirty)) ? 'rounded-l-lg' : 'rounded-lg'}"
-			on:click={toggleOpen}
-			disabled={!enabled}
-			aria-haspopup="dialog"
-			aria-expanded={open}
-			aria-label="Session"
+			class="flex w-[78px] flex-shrink-0 items-center justify-center gap-1.5 transition-colors {shape} {saveDisabled
+				? 'cursor-not-allowed font-medium text-fg-disabled'
+				: saveState === 'saving'
+					? 'font-medium text-fg-muted'
+					: 'font-semibold text-accent'}"
+			aria-label={saveLabel}
+			aria-disabled={saveDisabled ? 'true' : undefined}
+			data-testid="session-save"
+			onclick={save}
 		>
-			<span
-				class="h-[7px] w-[7px] flex-shrink-0 rounded-full {dirty
-					? 'bg-warning-solid'
-					: saving
-						? 'bg-signal-solid'
-						: currentSession
-							? 'bg-success-solid'
-							: 'bg-fg-subtle/40'}"
-				aria-hidden="true"
-			></span>
-			<span class="max-w-[9rem] truncate text-xs font-medium text-fg">{currentSession?.name || (enabled ? 'No saved session' : 'Session unavailable')}</span>
-			<Icon name="chevron-down" className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
-		</button>
-	{:else}
-		<button
-			type="button"
-			class="min-w-0 flex-1 sm:w-60 sm:flex-none flex items-center gap-2.5 px-2.5 py-1.5 text-left rounded-l-lg hover:bg-surface-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed {enabled && ((!currentSession) || (currentSession && dirty)) ? 'rounded-r-none' : 'rounded-r-lg'}"
-			on:click={toggleOpen}
-			disabled={!enabled}
-			aria-haspopup="dialog"
-			aria-expanded={open}
-		>
-			<span class="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded bg-surface-3 text-fg-muted">
-				<Icon name="document" className="w-4 h-4" />
-			</span>
-			<span class="min-w-0 flex-1">
-				<span class="block text-sm font-medium text-fg truncate">{currentSession?.name || (enabled ? 'No saved session' : 'Session unavailable')}</span>
-				<span class="block font-mono text-2xs truncate {dirty ? 'text-warning' : saving ? 'text-signal' : 'text-fg-subtle'}">{enabled ? status : 'Select a preset and mode'}</span>
-			</span>
-			<Icon name="chevron-down" className="w-4 h-4 flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
-		</button>
-	{/if}
-
-	{#if enabled && currentSession && dirty}
-		<Tooltip text={saving ? 'Saving session' : 'Save session'} kbd={$shortcutLabels['save_session']} position="top" delay={150} wrapperClass="flex items-stretch">
-			<button
-				type="button"
-				class="inline-flex items-center justify-center gap-1.5 rounded-r-lg border-l border-line-strong text-xs font-semibold text-signal transition-colors hover:bg-signal/10 disabled:cursor-wait disabled:opacity-60 {compact ? 'px-2.5' : 'min-w-16 px-3'}"
-				on:click={actions.save}
-				disabled={saving}
-				aria-label={saving ? 'Saving session' : 'Save session'}
-			>
-				{#if saving}<Spinner size="sm" />{:else if !compact}<Icon name="save" className="h-3.5 w-3.5" />{/if}
-				<span>{saving ? 'Saving' : 'Save'}</span>
-			</button>
-		</Tooltip>
-	{:else if enabled && !currentSession}
-		<Tooltip text="Save as a new session" kbd={$shortcutLabels['save_session']} position="top" delay={150} wrapperClass="flex items-stretch">
-			<button
-				type="button"
-				class="inline-flex items-center justify-center gap-1.5 rounded-r-lg border-l border-line-strong text-xs font-semibold text-signal transition-colors hover:bg-signal/10 {compact ? 'px-2.5' : 'px-3'}"
-				on:click={actions.saveAs}
-				aria-label="Save as a new session"
-			>
-				{#if !compact}<Icon name="plus" className="h-3.5 w-3.5" />{/if}
+			{#if saveState === 'saving'}
+				<Spinner size="sm" />
+				<span>Saving</span>
+			{:else}
+				<Icon name={current ? 'save' : 'plus'} className="h-3.5 w-3.5" />
 				<span>Save</span>
+			{/if}
+		</button>
+	</Tooltip>
+{/snippet}
+
+{#if layout === 'sheet'}
+	<div
+		bind:this={anchorEl}
+		class="flex h-[42px] min-w-0 items-stretch rounded border bg-surface-1 transition-colors {open
+			? 'border-line-hover'
+			: 'border-line-strong hover:border-line-hover'}"
+	>
+		<Tooltip text={current?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0 flex-1">
+			<button
+				type="button"
+				class="flex min-w-0 flex-1 items-center gap-2 rounded-l pl-3 pr-2.5 text-left transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+				aria-label="Session"
+				aria-haspopup="dialog"
+				aria-expanded={open}
+				disabled={!enabled}
+				onclick={toggle}
+			>
+				<span class="relative flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-surface-3 text-fg-muted">
+					<Icon name="document" className="h-3.5 w-3.5" />
+					<span class="status-dot absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full {dotClass}" aria-hidden="true"></span>
+				</span>
+				<span class="min-w-0 flex-1 truncate text-sm {current ? 'font-semibold text-fg' : 'font-medium text-fg-muted'}">{label}</span>
+				<Icon name="chevron-down" className="h-4 w-4 flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
 			</button>
 		</Tooltip>
-	{/if}
+		{@render saveButton(`rounded-r border-l border-line-strong text-sm ${saveDisabled ? '' : 'hover:bg-surface-2'}`)}
+	</div>
+{:else}
+	<div
+		bind:this={anchorEl}
+		class="flex h-8 {compact ? 'min-w-[176px]' : 'min-w-[224px]'} max-w-[404px] shrink items-center gap-1.5"
+		data-testid="context-session"
+	>
+		<Tooltip text={current?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex h-full min-w-0 flex-1">
+			<button
+				type="button"
+				class="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded px-2.5 text-left text-base font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {open
+					? 'bg-line-hover'
+					: 'bg-surface-3 hover:bg-line-hover'}"
+				aria-label="Session"
+				aria-haspopup="dialog"
+				aria-expanded={open}
+				disabled={!enabled}
+				onclick={toggle}
+			>
+				<span class="h-[7px] w-[7px] flex-shrink-0 rounded-full {dotClass}" aria-hidden="true"></span>
+				<span class="min-w-0 flex-1 truncate {current ? 'text-fg' : 'text-fg-muted'}">{label}</span>
+				<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
+			</button>
+		</Tooltip>
+		{@render saveButton(`h-7 rounded text-sm ${saveDisabled ? 'bg-surface-3/50' : 'bg-surface-3 hover:bg-line-hover'}`)}
+	</div>
+{/if}
 
-	{#if open}
-		<SessionDrawer {fieldLabels} {session} {actions} onClose={() => (open = false)} />
-	{/if}
-</div>
+{#if open}
+	<SessionPanel {fieldLabels} {session} {actions} anchor={anchorEl} fullscreen={layout === 'sheet'} onClose={close} />
+{/if}
+
+<style>
+	.status-dot {
+		box-shadow: 0 0 0 2px rgb(var(--surface-1));
+	}
+</style>

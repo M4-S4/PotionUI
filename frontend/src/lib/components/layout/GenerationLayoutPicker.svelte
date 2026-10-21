@@ -4,10 +4,6 @@
 
 	export let value: GenerationLayoutMode = 'two';
 	export let onChange: (mode: GenerationLayoutMode) => void;
-	// When true, render just the option grid (no trigger button, no
-	// floating chrome) - used by TabsOverflowMenu, which supplies its own
-	// trigger and panel and hosts this inline.
-	export let embedded = false;
 
 	let open = false;
 	let root: HTMLDivElement;
@@ -76,32 +72,28 @@
 
 <svelte:window on:click={handleWindowClick} />
 
-{#if embedded}
-	{@render layoutOptions()}
-{:else}
-	<div class="relative" bind:this={root}>
-		<button
-			type="button"
-			class="inline-flex h-10 items-center gap-2 rounded border border-line-strong bg-surface-2 px-3 text-sm text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-3 hover:text-fg"
-			on:click={() => (open = !open)}
-			aria-haspopup="listbox"
-			aria-expanded={open}
-			aria-label="Choose workspace layout"
-		>
-			<Icon name="layout-template" className="w-4 h-4 text-fg-subtle" />
-			<span class="hidden sm:inline">{selected.label}</span>
-			<span class="sm:hidden">{value === 'two' ? '2 panes' : '3 panes'}</span>
-			<Icon name="chevron-down" className="w-3.5 h-3.5 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
-		</button>
+<div class="relative" bind:this={root}>
+	<button
+		type="button"
+		class="inline-flex h-10 items-center gap-2 rounded border border-line-strong bg-surface-2 px-3 text-sm text-fg-muted transition-colors hover:border-line-hover hover:bg-surface-3 hover:text-fg"
+		on:click={() => (open = !open)}
+		aria-haspopup="listbox"
+		aria-expanded={open}
+		aria-label="Choose workspace layout"
+	>
+		<Icon name="layout-template" className="w-4 h-4 text-fg-subtle" />
+		<span class="hidden sm:inline">{selected.label}</span>
+		<span class="sm:hidden">{value === 'two' ? '2 panes' : '3 panes'}</span>
+		<Icon name="chevron-down" className="w-3.5 h-3.5 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
+	</button>
 
-		{#if open}
-			<div
-				class="absolute right-0 top-full z-50 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-line-strong bg-surface-1 p-3 shadow-floating"
-				role="listbox"
-				aria-label="Workspace layout"
-			>
-				{@render layoutOptions()}
-			</div>
-		{/if}
-	</div>
-{/if}
+	{#if open}
+		<div
+			class="absolute right-0 top-full z-50 mt-1 w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-line-strong bg-surface-1 p-3 shadow-floating"
+			role="listbox"
+			aria-label="Workspace layout"
+		>
+			{@render layoutOptions()}
+		</div>
+	{/if}
+</div>

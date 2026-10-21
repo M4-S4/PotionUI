@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, type Snippet } from 'svelte';
 	import type { PresetInfo } from '$lib/types/api';
 	import { availablePresetEngines, filterPresets } from '$lib/utils/presetFilter';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
@@ -32,6 +32,19 @@
 	// is wrong when there was never anything to filter. Fetched once by the
 	// parent page on empty-list detection, not polled.
 	export let readiness: ReadinessReport | null = null;
+	export let trigger:
+		| Snippet<
+				[
+					{
+						openPicker: () => void;
+						currentPreset: PresetInfo | null;
+						loading: boolean;
+						disabled: boolean;
+						expanded: boolean;
+					}
+				]
+		  >
+		| undefined = undefined;
 
 	const dispatch = createEventDispatcher<{ select: string; reload: void }>();
 
@@ -141,30 +154,34 @@
 	}
 </script>
 
-<button
-	type="button"
-	class="w-full h-full min-w-0 flex items-center gap-2 px-3 py-2 text-left bg-surface-1 border border-line-strong rounded hover:bg-surface-2 hover:border-line-hover focus:ring-1 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-	on:click={openPicker}
-	disabled={disabled || loading}
-	aria-haspopup="dialog"
-	class:preset-picker-cta={!currentPreset && !loading}
-	data-testid="preset-picker-trigger"
->
-	{#if loading}
-		<Spinner size="sm" />
-	{:else if currentPreset}
-		<PresetThumbnail
-			presetId={currentPreset.id}
-			presetName={currentPreset.name}
-			cover={currentPreset.media?.cover}
-			category={currentPreset.category}
-			size="w-6 h-6"
-			zoom={false}
-		/>
-	{/if}
-	<span class="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{currentPreset?.name || 'Choose a preset'}</span>
-	<Icon name="chevron-down" className="w-4 h-4 text-fg-subtle flex-shrink-0" />
-</button>
+{#if trigger}
+	{@render trigger({ openPicker, currentPreset, loading, disabled: disabled || loading, expanded: open })}
+{:else}
+	<button
+		type="button"
+		class="w-full h-full min-w-0 flex items-center gap-2 px-3 py-2 text-left bg-surface-1 border border-line-strong rounded hover:bg-surface-2 hover:border-line-hover focus:ring-1 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+		on:click={openPicker}
+		disabled={disabled || loading}
+		aria-haspopup="dialog"
+		class:preset-picker-cta={!currentPreset && !loading}
+		data-testid="preset-picker-trigger"
+	>
+		{#if loading}
+			<Spinner size="sm" />
+		{:else if currentPreset}
+			<PresetThumbnail
+				presetId={currentPreset.id}
+				presetName={currentPreset.name}
+				cover={currentPreset.media?.cover}
+				category={currentPreset.category}
+				size="w-6 h-6"
+				zoom={false}
+			/>
+		{/if}
+		<span class="min-w-0 flex-1 truncate text-sm font-semibold text-fg">{currentPreset?.name || 'Choose a preset'}</span>
+		<Icon name="chevron-down" className="w-4 h-4 text-fg-subtle flex-shrink-0" />
+	</button>
+{/if}
 
 <BaseModal
 	isOpen={open}
@@ -398,7 +415,7 @@
 		initial-value: 0deg;
 	}
 
-	.preset-picker-cta {
+	:global(.preset-picker-cta) {
 		border-color: transparent;
 		background:
 			linear-gradient(rgb(var(--surface-1)), rgb(var(--surface-1))) padding-box,
@@ -418,7 +435,7 @@
 			preset-cta-glow 2.4s ease-in-out infinite;
 	}
 
-	.preset-picker-cta:hover {
+	:global(.preset-picker-cta:hover) {
 		background:
 			linear-gradient(rgb(var(--surface-2)), rgb(var(--surface-2))) padding-box,
 			linear-gradient(rgb(var(--accent)), rgb(var(--accent))) border-box;
@@ -442,7 +459,7 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.preset-picker-cta {
+		:global(.preset-picker-cta) {
 			animation: none;
 			background:
 				linear-gradient(rgb(var(--surface-1)), rgb(var(--surface-1))) padding-box,

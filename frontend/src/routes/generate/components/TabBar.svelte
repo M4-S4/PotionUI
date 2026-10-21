@@ -4,11 +4,9 @@
 	import { tabsStore } from '$lib/stores/tabs';
 	import { api } from '$lib/services/api';
 	import type { Workspace, WorkspaceData } from '$lib/types/generation';
-	import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 	import { toasts } from '$lib/stores/toast';
 	import BookTab from '$lib/components/BookTab.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import TabsOverflowMenu from '$lib/components/layout/TabsOverflowMenu.svelte';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import NewWorkspaceModal from '$lib/components/modals/NewWorkspaceModal.svelte';
@@ -18,18 +16,11 @@
 	import { queryTabDirty } from '$lib/stores/workspaceDirtyQuery';
 	import CloseTabModal from '$lib/tabs/CloseTabModal.svelte';
 	import { requestCloseTab } from '$lib/tabs/closeConfirm';
-
-	// Mostly self-contained: reads/writes tabsStore directly. The session
-	// picker lives in the generation console bar's session/save cells, not here.
+	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
+	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
 
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
-	$: activeTab = tabs.find((t) => t.id === activeTabId);
-
-	function handleLayoutChange(mode: GenerationLayoutMode) {
-		if (!activeTab || mode === activeTab.layoutMode) return;
-		tabsStore.updateTab(activeTab.id, { layoutMode: mode });
-	}
 
 	let showWorkspaceMenu = false;
 	let workspaces: Workspace[] = [];
@@ -212,11 +203,6 @@
 	let newWorkspaceOtherTabsDirty = false;
 	let checkingNewWorkspace = false;
 
-	// The cheap cross-tab heuristic (workspaceHasUnsavedChanges) can't see a
-	// background tab's live prompt/form edits - only the ACTIVE tab's mounted
-	// SessionCluster knows that in real time. Ask it once, at click time (see
-	// stores/workspaceDirtyQuery.ts for why this is a one-shot query rather
-	// than a continuous push).
 	async function handleNewWorkspaceClick() {
 		if (checkingNewWorkspace) return;
 		checkingNewWorkspace = true;
@@ -246,10 +232,6 @@
 		tabsStore.reset();
 	}
 
-	// "Save" reuses the real save flow (SessionCluster's quick-save/save-as),
-	// requested through workspaceSaveRequest.ts since that UI only mounts for
-	// the active tab. A background tab's own unsaved edits are not saved by
-	// this - see NewWorkspaceModal's `otherTabsAlsoDirty` copy.
 	async function saveAndCreateNewWorkspace() {
 		newWorkspaceSaving = true;
 		try {
@@ -283,6 +265,7 @@
 						isActive={tab.id === activeTabId}
 						canDelete={tabs.length > 1}
 						isGenerating={tab.generation.isGenerating}
+						unsaved={tabShowsUnsavedChanges(tab, $tabSessionDirty)}
 						on:select={(e) => setActiveTab(e.detail.id)}
 						on:rename={handleTabRename}
 						on:delete={(e) => removeTab(e.detail.id)}
@@ -396,18 +379,6 @@
 						</div>
 					{/if}
 				</div>
-
-			<!-- Right cluster: overflow only - the session picker lives in the
-				generation console bar; Simple/Advanced moved into the
-				overflow menu alongside the layout picker. -->
-			{#if activeTab}
-				<div class="flex flex-shrink-0 items-center gap-2.5">
-					<TabsOverflowMenu
-						layoutValue={activeTab.layoutMode || 'two'}
-						onLayoutChange={handleLayoutChange}
-					/>
-				</div>
-			{/if}
 		</div>
 	</div>
 </div>

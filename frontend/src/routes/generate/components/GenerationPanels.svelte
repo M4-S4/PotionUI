@@ -3,7 +3,6 @@
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import PresetControls from './PresetControls.svelte';
 	import GenerationFormPane from './GenerationFormPane.svelte';
 	import GenerationWorkbenchPane from './GenerationWorkbenchPane.svelte';
 	import PromptSection from './PromptSection.svelte';
@@ -27,17 +26,8 @@
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetSegmentTemplate } from '$lib/utils/presetSegmentTemplates';
-	import type { PresetInfo, PresetModeVariant, PresetStyle } from '$lib/services/api/index';
-	import type { ReadinessReport } from '$lib/services/api/setup';
+	import type { PresetInfo, PresetStyle } from '$lib/services/api/index';
 
-	// Desktop panel layout for a single tab. Two modes, per-tab (toggle lives
-	// in the tabs-row overflow menu, persisted with the tab):
-	// - 'two':   form | workbench with prompts stacked below it
-	// - 'three': form | prompts | workbench — keeps prompts visible beside
-	//            tall portrait (9:16) media instead of below the fold.
-	// The dynamic form always stays in the leftmost pane, at a fixed width per
-	// viewport tier (leftPanelWidth), with a collapse toggle — not resizable
-	// Only the prompts/workbench split below stays user-resizable.
 	export let tab: Tab;
 	export let tabHandlers: any;
 	export let promptRelayActive: boolean;
@@ -75,25 +65,7 @@
 	export let onWorkbenchHeightChange: (event: CustomEvent<string>) => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
 
-	// The preset card + mode/variant selectors mount at the top of this
-	// settings pane, above DynamicForm (previously a full-width bar above the
-	// tabs, owned by the now-deleted PresetSessionBar).
 	export let presets: PresetInfo[] = [];
-	export let readiness: ReadinessReport | null = null;
-	export let isLoading = false;
-	export let isReloading = false;
-	export let availableModes: Array<{
-		id: string;
-		label: string;
-		variants?: PresetModeVariant[];
-		sourcePlugin?: string | null;
-		description?: string | null;
-		icon?: string | null;
-	}> = [];
-	export let onPresetChange: (presetId: string) => void;
-	export let onModeChange: (mode: string) => void;
-	export let onVariantChange: (variant: string) => void;
-	export let onReload: () => void;
 
 	// Prompts-pane resize (three-pane mode). Width persists per-tab; the drag
 	// measures against the pane's own left edge so it works regardless of
@@ -276,7 +248,6 @@
 </script>
 
 <div bind:this={panelsEl} bind:clientWidth={panelsWidth} data-testid="generation-panels-root" class="flex h-full">
-	<!-- Left Panel: Form -->
 	{#if formFolded}
 		<Tooltip text="Expand generation settings" kbd={$shortcutLabels['toggle_left_panel']} position="right" delay={150} wrapperClass="flex h-full flex-shrink-0">
 			<button
@@ -295,21 +266,7 @@
 	{:else}
 		<div class="flex h-full flex-shrink-0" style="width: {formPanelWidth}">
 			<div class="min-w-0 flex-1 overflow-y-auto bg-surface-1/30 pb-[var(--dock-height)]">
-			<div class="border-b border-line px-3 pb-3 pt-3">
-				<PresetControls
-					{tab}
-					{presets}
-					{readiness}
-					{isLoading}
-					{isReloading}
-					{availableModes}
-					{onPresetChange}
-					{onModeChange}
-					{onVariantChange}
-					{onReload}
-				/>
-			</div>
-			<div class="px-3 pb-4 pt-0.5">
+			<div class="px-3 pb-4 pt-3">
 				<GenerationFormPane
 					bind:formRef={dynamicFormRefs[tab.id]}
 					{tab}

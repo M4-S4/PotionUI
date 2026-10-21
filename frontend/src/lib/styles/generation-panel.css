@@ -103,37 +103,9 @@ button.readout { cursor: pointer; }
 
 button.readout:hover { background: rgb(var(--surface-3)); }
 
-.session-control { width: 218px; min-width: 0; display: flex; align-items: center; gap: 2px; padding: 4px 5px 4px 7px; border-right: 1px solid rgb(var(--line)); }
-
-.session-button { min-width: 0; height: 42px; display: flex; flex: 1; align-items: center; gap: 7px; padding: 0 5px; border: 0; border-radius: 7px; background: transparent; color: rgb(var(--fg)); cursor: pointer; text-align: left; }
-
-.session-button:hover { background: color-mix(in srgb, rgb(var(--fg)) 4%, transparent); }
-
-.cell-copy { min-width: 0; flex: 1; }
-
-.session-name-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
-
-.session-name { overflow: hidden; font-size: 11px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
-
-.session-state { display: flex; align-items: center; gap: 5px; margin-top: 4px; color: rgb(var(--fg-muted)); font-size: 9px; line-height: 1; }
-
 .cell-label { display: block; color: rgb(var(--fg-subtle)); font: 650 8px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
 
 .cell-value { display: block; margin-top: 5px; overflow: hidden; color: rgb(var(--fg)); font-size: 11px; font-weight: 590; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
-
-.dirty-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: rgb(var(--warning)); }
-
-.dirty-dot.is-saved { background: rgb(var(--success)); }
-
-.session-chevron { color: rgb(var(--fg-subtle)); }
-
-.session-chevron .icon { width: 12px; height: 12px; }
-
-.session-save-button { width: 32px; height: 32px; display: grid; flex: 0 0 auto; place-items: center; border: 0; border-radius: 7px; background: transparent; color: rgb(var(--fg-muted)); cursor: pointer; }
-
-.session-save-button:hover { background: rgb(var(--surface-3)); color: rgb(var(--fg)); }
-
-.session-save-button .icon { width: 14px; height: 14px; }
 
 .readout { width: 69px; display: flex; flex-direction: column; justify-content: center; padding: 0 10px; text-align: left; }
 
@@ -299,7 +271,7 @@ button.readout:hover { background: rgb(var(--surface-3)); }
 @media (max-width: 1180px) {
   .panel-bar { grid-template-columns: minmax(170px, 1fr) auto; padding-top: 14px; }
   .context-rail { grid-column: 1 / -1; grid-row: 2; width: 100%; }
-  .context-rail .session-control { flex: 1; width: auto; }
+  .context-rail .readout { flex: 1; width: auto; }
   & { overflow: visible; }
 }
 
@@ -322,7 +294,6 @@ button.readout:hover { background: rgb(var(--surface-3)); }
   .status-block { width: 100%; min-width: 0; }
   .commands { width: 100%; justify-content: space-between; }
   .context-rail { overflow-x: auto; }
-  .context-rail .session-control { min-width: 184px; }
   .readout { min-width: 58px; }
 }
 
@@ -383,8 +354,6 @@ button.readout:hover { background: rgb(var(--surface-3)); }
 
 /* Disabled controls: the mock never renders a disabled trigger, so it has
    no [disabled] styling of its own. */
-& .session-button:disabled,
-& .session-save-button:disabled,
 & .icon-button:disabled,
 & .mode-button:disabled,
 & .readout:disabled { opacity: .5; cursor: not-allowed; }

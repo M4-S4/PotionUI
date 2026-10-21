@@ -1,14 +1,3 @@
-// @vitest-environment jsdom
-//
-// `routes/generate/+page.svelte` wraps `<GenerationPanel>` (which nests
-// SessionCluster) in `{#key currentTab.id}` — switching the active tab
-// destroys the old tab's SessionCluster instance and creates a fresh one for
-// the tab being switched to. Switching back therefore mounts a *brand new*
-// SessionCluster for a tab that already has a live, unsaved draft (edited
-// promptSegments never written back to the session). This mounts the real
-// SessionCluster against the real tabsStore and simulates that destroy +
-// recreate cycle, asserting the dirty draft survives it and the component
-// never re-fetches the session it's already linked to.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import type { Segment } from '$lib/types/segments';
@@ -24,9 +13,7 @@ vi.mock('$lib/services/api/index', () => ({
 
 const { api } = await import('$lib/services/api/index');
 const { tabsStore } = await import('$lib/stores/tabs');
-const { default: SessionCluster } = await import(
-	'$lib/components/generation-panel/SessionCluster.svelte'
-);
+const { default: SessionScopeFixture } = await import('./fixtures/SessionScopeFixture.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { collectTabSessionData } = await import('$lib/utils/sessionTabState');
 
@@ -47,11 +34,11 @@ function makeSession(promptSegments: Segment[]) {
 	};
 }
 
-function mountCluster(tabId: string) {
+function mountScope(tabId: string) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const component = createClassComponent({
-		component: SessionCluster as never,
+		component: SessionScopeFixture as never,
 		target,
 		props: {
 			presetId: PRESET_ID,
@@ -70,13 +57,10 @@ function mountCluster(tabId: string) {
 }
 
 let tabId: string;
-let mounted: ReturnType<typeof mountCluster> | undefined;
+let mounted: ReturnType<typeof mountScope> | undefined;
 
 beforeEach(() => {
 	const originalSession = makeSession(ORIGINAL_SEGMENTS);
-	// The baseline recorded when the session was originally (cleanly) loaded —
-	// built from ORIGINAL_SEGMENTS, exactly like SessionCluster itself would
-	// record via recordSavedBaseline/applySessionModeData.
 	const savedSessionSignature = JSON.stringify(
 		collectTabSessionData(
 			{ promptSegments: ORIGINAL_SEGMENTS } as never,
@@ -90,8 +74,6 @@ beforeEach(() => {
 		selectedMode: CURRENT_MODE,
 		selectedSessionId: SESSION_ID,
 		savedSessionSignature,
-		// The user's live, never-saved edit — this is what must survive the
-		// tab round-trip untouched.
 		promptSegments: EDITED_SEGMENTS
 	});
 
@@ -112,16 +94,13 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe('SessionCluster survives a tab-switch destroy/recreate round trip', () => {
+describe('SessionScope survives a tab-switch destroy/recreate round trip', () => {
 	it('keeps the dirty draft and never re-fetches the still-linked session', async () => {
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 
-		// Switch away: {#key currentTab.id} destroys this tab's instance.
 		mounted.destroy();
-		// Switch back: {#key currentTab.id} creates a brand new instance for
-		// the same tabId, exactly as the generate page does today.
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 
 		expect(api.getSessionById).not.toHaveBeenCalled();
@@ -129,30 +108,11 @@ describe('SessionCluster survives a tab-switch destroy/recreate round trip', () 
 		const tab = get(tabsStore).tabs.find((t) => t.id === tabId);
 		expect(tab?.promptSegments).toEqual(EDITED_SEGMENTS);
 
-		// The dirty indicator must reflect the surviving draft, not silently go
-		// quiet as if the session were freshly (cleanly) loaded — sessionIsDirty
-		// compares the live signature against the baseline recorded at load
-		// time, never a server refetch. The status text lives in the mock's own
-		// passive `.session-state` line (inside `button[aria-label="Session"]`)
-		// — the save action itself is the mock's icon-only `.session-save-button`,
-		// which carries the dynamic aria-label but no visible text.
-		const statusText = mounted.target.querySelector('.session-state');
-		expect(statusText?.textContent).toContain('Unsaved changes');
+		expect(mounted.target.querySelector('button[aria-label="Save session"]')).not.toBeNull();
 	});
 });
 
-describe('SessionCluster survives a tab-switch round trip after loading (not saving) a session', () => {
-	// The bug report's tab had an EXISTING session applied through the picker
-	// (`handleSessionSelect` -> `applySessionModeData`), not a fresh
-	// save-as-new (`confirmSaveSession`). The two paths write different tab
-	// fields: applySessionModeData sets `sessionBaselineAwaitingFormNormalization:
-	// true` (DynamicForm's schema-default merge is expected to consume this
-	// once and normalize the baseline - see normalizeSessionBaselineFormData's
-	// doc comment); confirmSaveSession's save-as-new sets it to `false`
-	// straight away via recordSavedBaseline's default param. This drives the
-	// real picker click (not a hand-seeded store) so that divergence is
-	// exercised for real, then edits and round-trips exactly like the test
-	// above.
+describe('SessionScope survives a tab-switch round trip after loading (not saving) a session', () => {
 	beforeEach(() => {
 		tabsStore.updateTab(tabId, {
 			selectedSessionId: null,
@@ -163,11 +123,9 @@ describe('SessionCluster survives a tab-switch round trip after loading (not sav
 	});
 
 	it('keeps the post-load edit and never re-fetches after a destroy/recreate round trip', async () => {
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 
-		// Open the session picker and load the existing session - the real
-		// handleSessionSelect -> applySessionModeData path, not a seeded store.
 		mounted.target.querySelector<HTMLButtonElement>('button[aria-label="Session"]')!.click();
 		await settle(10);
 		const sessionRow = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[data-session-row]')).find(
@@ -181,19 +139,14 @@ describe('SessionCluster survives a tab-switch round trip after loading (not sav
 		let tab = get(tabsStore).tabs.find((t) => t.id === tabId);
 		expect(tab?.promptSegments).toEqual(ORIGINAL_SEGMENTS);
 		expect(tab?.selectedSessionId).toBe(SESSION_ID);
-		// applySessionModeData's markSaved branch - this is the field that
-		// diverges from a save-as-new.
 		expect(tab?.sessionBaselineAwaitingFormNormalization).toBe(true);
 
 		vi.mocked(api.getSessionById).mockClear();
 
-		// Edit after the load, same as the maintainer's repro - dirty against
-		// the just-loaded baseline, never re-saved.
 		tabsStore.updateTab(tabId, { promptSegments: EDITED_SEGMENTS });
 
-		// Switch away and back, exactly like the save-as-new test above.
 		mounted.destroy();
-		mounted = mountCluster(tabId);
+		mounted = mountScope(tabId);
 		await settle(10);
 
 		expect(api.getSessionById).not.toHaveBeenCalled();
@@ -201,7 +154,6 @@ describe('SessionCluster survives a tab-switch round trip after loading (not sav
 		tab = get(tabsStore).tabs.find((t) => t.id === tabId);
 		expect(tab?.promptSegments).toEqual(EDITED_SEGMENTS);
 
-		const statusText = mounted.target.querySelector('.session-state');
-		expect(statusText?.textContent).toContain('Unsaved changes');
+		expect(mounted.target.querySelector('button[aria-label="Save session"]')).not.toBeNull();
 	});
 });

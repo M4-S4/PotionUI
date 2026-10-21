@@ -83,7 +83,7 @@ describe('SessionPill New', () => {
 	it('unbinds the session and empties the draft without saving anything', async () => {
 		clickButton('Session');
 		await settle(10);
-		clickButton(/^New$/);
+		clickButton(/^New session$/);
 		await settle(10);
 		clickButton(/^Confirm/);
 		await settle(10);
@@ -101,7 +101,7 @@ describe('SessionPill New', () => {
 	it('leaves the draft alone when the discard prompt is refused', async () => {
 		clickButton('Session');
 		await settle(10);
-		clickButton(/^New$/);
+		clickButton(/^New session$/);
 		await settle(10);
 		const dialog = document.body.querySelector('[role="alertdialog"]')!;
 		dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
