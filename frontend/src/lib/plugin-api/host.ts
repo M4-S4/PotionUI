@@ -25,6 +25,7 @@ import { api } from '$lib/services/api';
 import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContext';
 import overlayLayer from '$lib/actions/overlayLayer';
 import { acquireLayer, releaseLayer } from '$lib/actions/layerStack';
+import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
 import { createImageEditorApi, type PluginImageEditorApi } from '$lib/components/imageEditor/registries';
@@ -56,6 +57,11 @@ export interface PluginLayersApi {
 	overlayLayer: typeof overlayLayer;
 	acquire: typeof acquireLayer;
 	release: typeof releaseLayer;
+}
+
+export interface PluginInputApi {
+	isTypingInField: typeof isTypingInField;
+	isEditableTarget: typeof isEditableTarget;
 }
 
 export interface PluginChatApi {
@@ -111,6 +117,7 @@ export interface PotionUIHostApi {
 	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
 	chat: PluginChatApi;
 	layers: PluginLayersApi;
+	input: PluginInputApi;
 	generation: { prepareRequest: typeof prepareRequestFromSession };
 	imageEditor: PluginImageEditorApi;
 }
@@ -185,6 +192,10 @@ export function initHostApi(): void {
 			overlayLayer,
 			acquire: acquireLayer,
 			release: releaseLayer
+		},
+		input: {
+			isTypingInField,
+			isEditableTarget
 		},
 		generation: {
 			prepareRequest: prepareRequestFromSession

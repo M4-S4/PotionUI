@@ -1944,6 +1944,35 @@ itself part of this same layering system: inside a `PluginModal`, or inside an e
 using `layers.overlayLayer` as described above. Mounting it into a plain, unlayered
 `<div>` risks its own picker rendering under whatever else happens to be open.
 
+## Keeping window shortcuts out of text fields
+
+A plugin page or modal that listens for keys on the window (Space to play, arrows to step,
+Ctrl+Z to undo) fires while the user types into any field that happens to sit under that
+window, unless the handler stands down. The host's own shortcuts share one guard, and it is
+exposed so a plugin behaves the same way:
+
+- `window.__potionui.input.isTypingInField(event)` takes a `keydown`/`keyup` and is true when
+  the key came from a text field (`input`, `textarea`, `select`, `contenteditable`, or a
+  `textbox`/`searchbox`/`combobox` role, including inside an open shadow root), during an IME
+  composition, or from a slider or radio control that owns the arrow keys. It leaves
+  checkboxes, buttons and range sliders alone for keys they do not use.
+- `window.__potionui.input.isEditableTarget(target)` is the underlying target check, for events
+  that are not keyboard events, such as `paste`. Pass `event.composedPath()[0] ?? event.target`.
+
+```js
+function onKey(event) {
+  if (window.__potionui?.input?.isTypingInField(event)) return;
+}
+
+function onPaste(event) {
+  const origin = event.composedPath()[0] ?? event.target;
+  if (window.__potionui?.input?.isEditableTarget(origin)) return;
+}
+```
+
+Feature-detect as with any other host API addition (`window.__potionui.input?.…`) and keep
+your own fallback for an older core build.
+
 ## Using the page header from a plugin page
 
 A plugin page is mounted under the app's page header (the plugin's icon and label). The
