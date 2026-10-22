@@ -171,14 +171,15 @@ def test_find_model_by_sha256_asks_for_the_admin_payload_and_hands_on_only_the_m
         monkeypatch,
         core_bridge.api_models,
         "model_for_sha256",
-        lambda sha256, admin=False: payload if sha256.strip().lower() == _SHA else None,
+        lambda sha256, size=None, hash_candidates="never", admin=False: payload if sha256.strip().lower() == _SHA else None,
     )
 
     found = core_bridge.find_model_by_sha256(" " + _SHA.upper())
 
     _assert_trimmed(found, payload)
-    assert lookup.calls == [{"sha256": " " + _SHA.upper(), "admin": True}]
-    assert core_bridge.find_model_by_sha256("cd" * 32) is None
+    assert lookup.calls == [{"sha256": " " + _SHA.upper(), "size": None, "hash_candidates": "background", "admin": True}]
+    assert core_bridge.find_model_by_sha256("cd" * 32, 4096) is None
+    assert lookup.calls[-1] == {"sha256": "cd" * 32, "size": 4096, "hash_candidates": "background", "admin": True}
     assert core_bridge.find_model_by_sha256("") is None
     assert len(lookup.calls) == 2
 
