@@ -263,11 +263,10 @@
 					<div class="popover-body">
 						{@render popover?.()}
 					</div>
-					{#if footer}
-						<footer class="popover-actions">
-							{@render footer()}
-						</footer>
-					{/if}
+					<footer class="popover-actions">
+						{@render footer?.()}
+						<button type="button" class="small-button primary popover-done" onclick={() => (open = false)}>Done</button>
+					</footer>
 				</div>
 			</div>
 		{/if}

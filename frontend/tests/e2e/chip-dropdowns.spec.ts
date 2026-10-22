@@ -184,7 +184,7 @@ for (const viewport of VIEWPORTS) {
 		await expect(variablePicker.locator('.picker-row').first()).toContainText('mood');
 		await expect(variablePicker.locator('.picker-row').first()).toContainText('Choice');
 		await expect(variablePicker.locator('mark').first()).toHaveText('mo');
-		if (viewport.width > 640) {
+		if (viewport.width >= 768) {
 			const box = await variablePicker.boundingBox();
 			expect(Math.round(box!.width)).toBe(CHIP_POPOVER_WIDTH);
 		}
@@ -198,7 +198,7 @@ for (const viewport of VIEWPORTS) {
 		await editor.locator('.variable-chip .chip-main').first().dispatchEvent('mousedown');
 		const variableDialog = page.getByRole('dialog', { name: 'Variable mood' });
 		await expect(variableDialog).toBeVisible();
-		if (viewport.width > 640) {
+		if (viewport.width >= 768) {
 			const box = await variableDialog.boundingBox();
 			expect(Math.round(box!.width)).toBe(CHIP_POPOVER_WIDTH);
 		}
@@ -213,7 +213,7 @@ for (const viewport of VIEWPORTS) {
 		const conditionDialog = page.getByRole('dialog', { name: 'Condition', exact: true });
 		await expect(conditionDialog).toBeVisible();
 		const modalBox = await conditionDialog.boundingBox();
-		if (viewport.width > 640) expect(Math.round(modalBox!.width)).toBe(720);
+		if (viewport.width >= 768) expect(Math.round(modalBox!.width)).toBe(Math.min(1040, viewport.width - 48));
 		else expect(Math.round(modalBox!.width)).toBe(viewport.width);
 		await conditionDialog.getByTestId('variable-select').first().click();
 		const picker = page.getByTestId('variable-picker');
@@ -232,15 +232,20 @@ for (const viewport of VIEWPORTS) {
 		await expect(picker).toBeHidden();
 		await expect(conditionDialog).toBeVisible();
 		await expect(conditionDialog.getByTestId('variable-select').first()).toContainText('$mood');
-		await expect(conditionDialog.getByRole('group', { name: 'Values' })).toBeVisible();
+		await expect(conditionDialog.getByTestId('option-select')).toBeVisible();
 		await settleAnimations(page);
 		await screenshot(page, JOURNEY, `04-condition-modal-${viewport.label}`);
 
 		await conditionDialog.getByTestId('variable-select').first().click();
 		await picker.getByRole('combobox', { name: 'Variable' }).fill('outfit');
 		await picker.getByRole('combobox', { name: 'Variable' }).press('Enter');
-		await expect(conditionDialog.getByRole('group', { name: 'Values' }).getByRole('button')).toHaveCount(LONG_OPTIONS.length);
-		await conditionDialog.getByRole('group', { name: 'Values' }).getByRole('button').nth(1).click();
+		await conditionDialog.getByTestId('option-select').first().click();
+		const values = page.getByTestId('option-picker');
+		await expect(values.getByRole('option')).toHaveCount(LONG_OPTIONS.length);
+		await expectInsideViewport(values, viewport.width);
+		await values.getByRole('option').nth(1).click();
+		await expect(values).toBeHidden();
+		await expect(conditionDialog.getByTestId('option-select').first()).toContainText(LONG_OPTIONS[1]);
 		await conditionDialog.getByRole('button', { name: 'Else if' }).click();
 		await conditionDialog.getByRole('button', { name: 'Otherwise' }).click();
 		const overflowing = await conditionDialog.getByTestId('condition-editor-body').evaluate((body) => {
@@ -273,7 +278,7 @@ for (const viewport of VIEWPORTS) {
 		const phrasePicker = page.locator('.phrasebook-picker');
 		await expect(phrasePicker).toBeVisible();
 		await expect(phrasePicker.locator('.phrase-value')).toHaveCount(PHRASE_VALUES.length);
-		if (viewport.width > 640) {
+		if (viewport.width >= 768) {
 			const box = await phrasePicker.boundingBox();
 			expect(Math.round(box!.width)).toBe(CHIP_POPOVER_WIDTH);
 		}

@@ -301,10 +301,6 @@ usageRollKey
 				<div class="section-label">Value</div>
 				<p class="helper">{def.value || '(empty)'}</p>
 			{/if}
-			<button type="button" class="small-button" style="margin-top: 8px" on:click={handleOpenManager}>
-				<Icon name="composer-braces" className="icon" strokeWidth={1.7} />
-				Edit in Variables
-			</button>
 		{:else if isUndefined}
 			<p class="text-xs text-fg-muted">
 				<span class="font-mono text-warning">${'{'}{name}{'}'}</span> isn't defined — it will expand to nothing.
@@ -422,8 +418,14 @@ usageRollKey
 	{#snippet footer()}
 		{#if variant === 'segment-composer'}
 			<button type="button" class="small-button danger" use:tooltip={'Remove this usage'} on:click={() => onRemove?.()}
-				>Remove usage</button
+				><Icon name="composer-trash" className="icon" strokeWidth={1.7} />Remove usage</button
 			>
+			{#if !isUndefined && def}
+				<button type="button" class="small-button" on:click={handleOpenManager}>
+					<Icon name="composer-braces" className="icon" strokeWidth={1.7} />
+					Edit in Variables…
+				</button>
+			{/if}
 		{/if}
 	{/snippet}
 </InlinePopoverChip>

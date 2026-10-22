@@ -259,7 +259,7 @@ button { cursor: pointer; }
 
 .resolved-body mark { color: rgb(var(--fg)); background: transparent; text-decoration: underline; text-decoration-color: rgb(var(--line-strong)); text-underline-offset: 3px; }
 
-.floating { position: absolute; z-index: 40; background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line-strong)); border-radius: 9px; box-shadow: var(--shadow-overlay); overflow: hidden; }
+.floating { position: absolute; z-index: 40; background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line-strong)); border-radius: 10px; box-shadow: var(--shadow-overlay); overflow: hidden; }
 
 .picker { width: 27rem; left: 52px; top: 250px; background: rgb(var(--surface-3)); border-radius: 10px; display: flex; flex-direction: column; max-height: 26rem; }
 
@@ -376,9 +376,9 @@ button { cursor: pointer; }
 
 .popover { right: 18px; top: 194px; }
 
-.popover-head { min-height: 51px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgb(var(--surface-2)); border-bottom: 1px solid rgb(var(--line)); }
+.popover-head { min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgb(var(--surface-2)); border-bottom: 1px solid rgb(var(--line)); }
 
-.popover-mark { width: 29px; height: 29px; display: grid; place-items: center; color: rgb(var(--fg)); background: rgb(var(--surface-3)); border: 1px solid rgb(var(--line)); border-radius: 6px; font: 600 10px "IBM Plex Mono"; }
+.popover-mark { width: 28px; height: 28px; display: grid; place-items: center; color: rgb(var(--fg)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 4px; font: 600 13px "IBM Plex Mono"; }
 
 .phrase-popover .popover-mark { color: rgb(var(--signal)); }
 
@@ -396,11 +396,11 @@ button { cursor: pointer; }
 
 .popover-title span { margin-top: 3px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; }
 
-.close { width: 25px; height: 25px; display: grid; place-items: center; color: rgb(var(--fg-subtle)); background: transparent; border-radius: 4px; }
+.close { width: 32px; height: 32px; display: grid; place-items: center; color: rgb(var(--fg-subtle)); background: transparent; border-radius: 4px; }
 
 .close:hover { color: rgb(var(--fg)); background: rgb(var(--surface-3)); }
 
-.close .icon { width: 12px; }
+.close .icon { width: 16px; height: 16px; }
 
 .popover-body { padding: 11px; }
 
@@ -473,7 +473,11 @@ button { cursor: pointer; }
 
 .small-button:hover { color: rgb(var(--fg)); border-color: rgb(var(--line-strong)); }
 
-.small-button.danger { margin-left: auto; color: rgb(var(--danger)); }
+.small-button.danger { color: rgb(var(--danger)); background: transparent; border-color: transparent; }
+
+.small-button.danger:hover { color: rgb(var(--danger)); background: rgb(var(--danger) / 0.1); border-color: transparent; }
+
+.popover-actions .popover-done { margin-left: auto; }
 
 .segment-menu { width: 205px; right: 7px; top: 34px; padding: 5px; }
 
@@ -778,7 +782,7 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 
 /* Popovers (phrase / variable / choice settings) — controls kept ≥28px tall */
 .popover-title strong {
-	font-size: 13px;
+	font-size: 14px;
 }
 .popover-title span {
 	font-size: 12px;

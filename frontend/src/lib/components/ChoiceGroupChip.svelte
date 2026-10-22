@@ -169,7 +169,7 @@
 
 	{#snippet footer()}
 		{#if variant === 'segment-composer'}
-			<button type="button" class="small-button danger" on:click={() => onremove?.()}>Remove group</button>
+			<button type="button" class="small-button danger" on:click={() => onremove?.()}><Icon name="composer-trash" className="icon" strokeWidth={1.7} />Remove group</button>
 		{/if}
 	{/snippet}
 </InlinePopoverChip>
