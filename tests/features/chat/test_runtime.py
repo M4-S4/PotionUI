@@ -210,6 +210,7 @@ class TestGetSession:
         """Should return session with messages."""
         mock_session = Mock()
         mock_session.user_id = "user-123"
+        mock_session.messages = []
         self.mock_repo.get_session_with_messages.return_value = mock_session
 
         result = self.manager.get_session("session-123", "user-123")

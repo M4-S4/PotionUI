@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional
 
 from src.features.llm.clients.tool_call_shape import normalize_tool_calls
-from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ToolCallDelta, Usage
+from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ThinkingDelta, ToolCallDelta, Usage
 from src.features.llm.repository import LLMConfig
 
 
@@ -333,6 +333,9 @@ class OpenAICompatSSEDecoder:
         if finish_reason:
             self._finish_reason = finish_reason
         delta = choices[0].get("delta", {})
+        thinking = delta.get("reasoning_content") or delta.get("reasoning")
+        if thinking and isinstance(thinking, str):
+            yield ThinkingDelta(thinking)
         content = delta.get("content")
         if content:
             yield TextDelta(content)

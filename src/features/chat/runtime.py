@@ -17,7 +17,7 @@ this once the rest of the process exists.
 """
 
 import logging
-from typing import AsyncGenerator, Dict, List, Optional, Any, Tuple
+from typing import AsyncGenerator, AsyncIterator, Dict, List, Optional, Any, Tuple
 
 from src.features.chat.dto import MessageResponse, SessionResponse, SendMessageResponse
 from src.features.chat.modes import ChatModeRegistry
@@ -181,6 +181,9 @@ class ChatRuntime:
 
     def get_session(self, session_id: str, user_id: str, tail: Optional[int] = None) -> SessionResponse:
         return self._sessions.get_session(session_id, user_id, tail=tail)
+
+    def visible_turn_events(self, session: SessionResponse, events: AsyncIterator[Dict[str, Any]]) -> AsyncIterator[Dict[str, Any]]:
+        return self._sessions.visible_turn_events(session, events)
 
     def get_session_messages(
         self, session_id: str, user_id: str, before: Optional[str] = None, limit: int = 60
@@ -349,7 +352,7 @@ class ChatRuntime:
         session = self._get_session_with_messages_or_raise(session_id)
         traces = chat_call_trace_repository.list_for_session(session_id)
         return {
-            "session": session.model_dump(),
+            "session": self._sessions.visible_session(session).model_dump(),
             "traces": traces,
         }
 

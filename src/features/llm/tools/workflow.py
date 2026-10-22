@@ -161,6 +161,16 @@ class AssistantDelta:
 
 
 @dataclass(frozen=True)
+class AssistantThinking:
+    content: str
+
+
+@dataclass(frozen=True)
+class AssistantThinkingEnded:
+    pass
+
+
+@dataclass(frozen=True)
 class ToolStarted:
     data: Dict[str, Any]
 

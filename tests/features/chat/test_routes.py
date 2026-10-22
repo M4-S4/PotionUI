@@ -1059,6 +1059,7 @@ class TestReattachStreamCursor:
     def mock_chat_manager(self):
         manager = Mock()
         manager.chat_mode_registry.get.return_value = None
+        manager.visible_turn_events.side_effect = lambda session, events: events
         return manager
 
     @pytest.fixture

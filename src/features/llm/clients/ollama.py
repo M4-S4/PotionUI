@@ -25,7 +25,7 @@ from src.features.llm.model_listing import (
     sorted_models,
 )
 from src.features.llm.clients.transport import record_trace, stream_timeout
-from src.features.llm.clients.wire_events import Done, TextDelta, ToolCalls, Usage
+from src.features.llm.clients.wire_events import Done, TextDelta, ThinkingDelta, ToolCalls, Usage
 from src.features.llm.repository import LLMConfig
 
 
@@ -253,7 +253,8 @@ class OllamaClient:
                 elif content:
                     logging.info(f"[Ollama Tools] Content preview: {content[:200]}")
 
-                if not content and message.get("thinking"):
+                thinking = message.get("thinking") or None
+                if not content and message.get("thinking") and not config.show_thinking:
                     logging.warning("Model returned empty content but has thinking field.")
                     content = message.get("thinking", "")
 
@@ -281,6 +282,7 @@ class OllamaClient:
                     tool_calls=tool_calls,
                     finish_reason=finish_reason,
                     completion=completion_outcome.from_ollama(finish_reason),
+                    thinking=thinking,
                 )
         except httpx.HTTPStatusError as e:
             logging.error(f"Ollama HTTP error: {e.response.text if e.response else str(e)}")
@@ -331,6 +333,8 @@ class OllamaClient:
                         if isinstance(event, TextDelta):
                             full_content_parts.append(event.text)
                             yield {"type": "token", "content": event.text}
+                        elif isinstance(event, ThinkingDelta):
+                            yield {"type": "thinking", "content": event.text}
                         elif isinstance(event, ToolCalls):
                             tool_calls = event.tool_calls
                         elif isinstance(event, Usage):

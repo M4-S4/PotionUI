@@ -223,3 +223,59 @@ async def test_a_non_200_status_raises_with_the_body_text(monkeypatch, client):
 async def test_a_non_200_status_raises_on_the_tools_stream_too(monkeypatch, client):
     with pytest.raises(ValueError, match="Ollama returned status 400: bad tools"):
         await _stream(monkeypatch, client, [b"bad tools"], tools=tool_schemas(), status=400)
+
+
+def _thought(thinking: str) -> bytes:
+    return _line({"message": {"content": "", "thinking": thinking}})
+
+
+def _thinking(events) -> list[str]:
+    return [e["content"] for e in events if e["type"] == "thinking"]
+
+
+async def test_thinking_chunks_stream_as_thinking_events(monkeypatch, client):
+    raw = _thought("let me ") + _thought("think") + _token("answer") + _done()
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert [e["type"] for e in events[:3]] == ["thinking", "thinking", "token"]
+    assert _thinking(events) == ["let me ", "think"]
+    assert _tokens(events) == ["answer"]
+
+
+async def test_thinking_never_leaks_into_the_answer_tokens(monkeypatch, client):
+    events = await _stream(monkeypatch, client, [_thought("secret") + _token("shown") + _done()])
+
+    assert _tokens(events) == ["shown"]
+
+
+async def test_a_thinking_line_split_across_chunks_is_reassembled(monkeypatch, client):
+    raw = _thought("hello there") + _token("x") + _done()
+
+    events = await _stream(monkeypatch, client, _split(raw, 10, 30))
+
+    assert _thinking(events) == ["hello there"]
+
+
+async def test_an_empty_thinking_field_emits_nothing(monkeypatch, client):
+    events = await _stream(monkeypatch, client, [_thought("") + _token("a") + _done()])
+
+    assert _thinking(events) == []
+
+
+async def test_a_chunk_with_thinking_and_content_yields_both(monkeypatch, client):
+    raw = _line({"message": {"content": "a", "thinking": "b"}}) + _done()
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _thinking(events) == ["b"]
+    assert _tokens(events) == ["a"]
+
+
+async def test_a_non_text_thinking_field_is_ignored(monkeypatch, client):
+    raw = _line({"message": {"content": "a", "thinking": {"nested": 1}}}) + _done()
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _thinking(events) == []
+    assert _tokens(events) == ["a"]

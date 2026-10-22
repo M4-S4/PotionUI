@@ -1914,7 +1914,7 @@
 					</div>
 				{/if}
 				{#each messages as message, idx (message.id ?? message.clientKey ?? idx)}
-					{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && idx === messages.length - 1}
+					{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && !message.thinking?.length && idx === messages.length - 1}
 						<!-- Nothing has happened for this turn yet (no content, no tool call, no
 						     trace step) — a bare "thinking" placeholder covers that brief gap
 						     for a tool called with no preceding narration. Once any of those
@@ -1949,6 +1949,7 @@
 								: undefined}
 							toolExecutions={message.tool_executions || []}
 							traceSteps={message.trace_steps || []}
+							thinking={message.thinking || []}
 							sources={message.sources || []}
 							sessionId={sessionId || ''}
 							messageId={message.id || ''}

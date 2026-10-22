@@ -14,6 +14,7 @@ export interface LLMConfig {
 	supports_vision?: boolean;
 	/** Extracts durable user facts from the transcript into memory notes. Default true. */
 	memory_reflection?: boolean;
+	show_thinking?: boolean;
 	is_default?: boolean;
 	provider_options?: OllamaOptions | OpenAIOptions | NativeOptions | Record<string, unknown>;
 }

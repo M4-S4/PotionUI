@@ -30,6 +30,9 @@ from src.features.chat.hooks import CHAT_MESSAGE_HOOKS, CHAT_RESPONSE_HOOKS
 from src.features.chat.modes import GENERATION_MODE_ID, ChatMode
 from src.features.chat.pre_chat_actions import PreChatActionResult
 from src.features.chat.reply_contract import TOOL_LOOP_CONTINUATION_NUDGE, approval_continuation_message
+from src.features.chat.thinking import (
+    THINKING, TEXT, ThinkingCapture, config_shows_thinking, visible_text, without_streamed_thinking,
+)
 from src.features.chat.tool_transcript import tool_metadata
 from src.features.llm import context_budget, trace_collector
 from src.features.llm.trace_repository import chat_call_trace_repository
@@ -657,9 +660,36 @@ class ConversationRunner:
         turn_completion: Optional[Dict[str, Any]] = None
         usage_data: Dict[str, Any] = {}
 
+        show_thinking = config_shows_thinking(self._m.llm_service, session.llm_config_id)
+        thinking = ThinkingCapture(show_thinking)
+
         _thinking_start = time.monotonic()
-        yield {"event": "status", "data": {"step": "thinking", "state": "started"}}
+        yield {
+            "event": "status",
+            "data": {
+                "step": "thinking", "state": "started",
+                **({"detail": {"thinking_visible": True}} if show_thinking else {}),
+            },
+        }
         _answering_started = False
+        _answering_start = _thinking_start
+
+        def _release(pieces):
+            nonlocal full_content, _answering_started, _answering_start
+            for piece in pieces:
+                if piece.kind == THINKING:
+                    yield {"event": "thinking", "data": {"content": piece.text, "segment": piece.segment}}
+                elif piece.kind == TEXT:
+                    if not _answering_started:
+                        _answering_start = time.monotonic()
+                        step_records.append({
+                            "step": "thinking",
+                            "duration_ms": int((_answering_start - _thinking_start) * 1000),
+                        })
+                        yield {"event": "status", "data": {"step": "answering", "state": "started"}}
+                        _answering_started = True
+                    full_content += piece.text
+                    yield {"event": "token", "data": {"content": piece.text}}
 
         try:
             if tools_enabled:
@@ -687,22 +717,25 @@ class ConversationRunner:
                     )) as agen:
                         async for event in agen:
                             if event["type"] in ("tool_start", "tool_end"):
+                                if event["type"] == "tool_start":
+                                    for released in _release(thinking.flush()):
+                                        yield released
                                 logger.debug(f"[ChatRuntime] Yielding SSE event: {event['type']} - {event['data'].get('tool_name', '')}")
                                 yield {"event": event["type"], "data": event["data"]}
                             elif event["type"] == "status":
                                 yield {"event": "status", "data": event["data"]}
+                            elif event["type"] == "thinking":
+                                for released in _release(thinking.on_thinking(event["data"]["content"])):
+                                    yield released
+                            elif event["type"] == "thinking_end":
+                                for released in _release(thinking.flush()):
+                                    yield released
                             elif event["type"] == "token":
-                                if not _answering_started:
-                                    _answering_start = time.monotonic()
-                                    step_records.append({
-                                        "step": "thinking",
-                                        "duration_ms": int((_answering_start - _thinking_start) * 1000),
-                                    })
-                                    yield {"event": "status", "data": {"step": "answering", "state": "started"}}
-                                    _answering_started = True
-                                full_content += event["data"]["content"]
-                                yield {"event": "token", "data": event["data"]}
+                                for released in _release(thinking.on_token(event["data"]["content"])):
+                                    yield released
                             elif event["type"] == "done":
+                                for released in _release(thinking.flush()):
+                                    yield released
                                 tool_executions = event["data"]["tool_executions"]
                                 transcript = self._list_or_empty(event["data"].get("tool_transcript"))
                                 rounds_used = self._int_or_zero(event["data"].get("rounds_used"))
@@ -712,6 +745,8 @@ class ConversationRunner:
                                 turn_completion = event["data"].get("completion")
                                 if not full_content:
                                     full_content = event["data"].get("full_content", "")
+                                    if show_thinking:
+                                        full_content = visible_text(full_content)
                                 # Extract token usage from done event
                                 usage_data = {
                                     "tokens_used": event["data"].get("tokens_used"),
@@ -753,9 +788,12 @@ class ConversationRunner:
                         options_override=mode.llm_options or None,
                     )) as agen:
                         async for event in agen:
-                            if event["type"] == "token":
-                                full_content += event["content"]
-                                yield {"event": "token", "data": {"content": event["content"]}}
+                            if event["type"] == "thinking":
+                                for released in _release(thinking.on_thinking(event["content"])):
+                                    yield released
+                            elif event["type"] == "token":
+                                for released in _release(thinking.on_token(event["content"])):
+                                    yield released
                             elif event["type"] == "usage":
                                 usage_data = {
                                     "tokens_used": event.get("tokens_used"),
@@ -764,6 +802,8 @@ class ConversationRunner:
                                 }
                                 thinking_mode = event.get("thinking_mode")
                                 turn_completion = event.get("completion")
+                for released in _release(thinking.flush()):
+                    yield released
 
             step_records.append({
                 "step": "answering",
@@ -799,8 +839,13 @@ class ConversationRunner:
                     completion=turn_completion,
                     tool_tier=tool_tier,
                     tools_deferred=deferred_tools,
+                    thinking_visible=show_thinking,
                 ),
             }
+
+            captured_thinking = thinking.segments()
+            if captured_thinking:
+                assistant_metadata['thinking'] = {"segments": captured_thinking}
 
             # Include token usage data in metadata
             if usage_data:
@@ -860,7 +905,7 @@ class ConversationRunner:
             yield {
                 "event": "done",
                 "data": {
-                    "assistant_message": assistant_message.model_dump(),
+                    "assistant_message": without_streamed_thinking(assistant_message.model_dump()),
                     "user_message": user_message.model_dump() if user_message else None,
                     "resolved_message": resolved_message,
                 }
@@ -1180,6 +1225,7 @@ class ConversationRunner:
         completion: Optional[Dict[str, Any]] = None,
         tool_tier: Optional[str] = None,
         tools_deferred: Optional[Dict[str, List[str]]] = None,
+        thinking_visible: bool = False,
     ) -> Dict[str, Any]:
         """Assemble the persisted per-message behavior-trace manifest.
 
@@ -1245,6 +1291,8 @@ class ConversationRunner:
             trace["history"] = history_info
         if context_ledger is not None:
             trace["context_ledger"] = context_ledger
+        if thinking_visible:
+            trace["thinking_visible"] = True
         return trace
 
     async def record_prompt_feedback(

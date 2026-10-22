@@ -23,7 +23,7 @@ from src.features.llm.model_listing import (
     sorted_models,
 )
 from src.features.llm.clients.transport import record_trace, stream_timeout
-from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ToolCallDelta, Usage
+from src.features.llm.clients.wire_events import Done, RecordTooLarge, TextDelta, ThinkingDelta, ToolCallDelta, Usage
 from src.features.llm.repository import LLMConfig
 
 NO_USAGE = {"type": "usage", "tokens_used": None, "prompt_tokens": None, "completion_tokens": None}
@@ -163,6 +163,8 @@ class OpenAIClient:
                 content = message.get("content") or ""
                 tool_calls = message.get("tool_calls") or None
                 finish_reason = choice.get("finish_reason")
+                thinking = message.get("reasoning_content") or message.get("reasoning")
+                thinking = thinking if isinstance(thinking, str) and thinking else None
 
                 record_trace(
                     "openai", config, _trace_start,
@@ -186,6 +188,7 @@ class OpenAIClient:
                     tool_calls=tool_calls,
                     finish_reason=finish_reason,
                     completion=completion_outcome.from_openai_compat(finish_reason),
+                    thinking=thinking,
                 )
         except Exception as e:
             raise ValueError(f"Error generating OpenAI response: {str(e)}")
@@ -250,6 +253,8 @@ class OpenAIClient:
                         elif isinstance(event, TextDelta):
                             full_content_parts.append(event.text)
                             yield {"type": "token", "content": event.text}
+                        elif isinstance(event, ThinkingDelta):
+                            yield {"type": "thinking", "content": event.text}
                         elif isinstance(event, ToolCallDelta):
                             assembler.add(event)
                         # RecordTooLarge falls through here on purpose: the

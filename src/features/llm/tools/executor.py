@@ -28,6 +28,8 @@ from src.features.llm.tools.errors import unavailable_tool_error, unexpected
 from src.features.llm.tools.use_tools import USE_TOOLS_NAME, deferred_group_of, load_tool_group, use_tools_schema
 from src.features.llm.tools.workflow import (
     AssistantDelta,
+    AssistantThinking,
+    AssistantThinkingEnded,
     Completed,
     IterationLimitReached,
     PendingDecision,
@@ -248,6 +250,9 @@ class _BufferedTurnSource:
         if not request.final:
             kwargs["image_data"] = request.image_data
         response = await self._executor.llm_service.generate_with_tools(**kwargs)
+        thinking = getattr(response, "thinking", None)
+        if isinstance(thinking, str) and thinking:
+            yield AssistantThinking(thinking)
         yield ProviderTurn(
             content=response.content or "",
             tool_calls=response.tool_calls,
@@ -314,6 +319,7 @@ class _LiveTurnSource:
             # A pending approval fired inline; keep consuming the generator,
             # forward nothing more.
             draining = False
+            thought = False
             stream_filter = _StreamToolCallFilter(
                 self._executor._registered_allowed(workflow.allowed_tools, workflow.deferred_tools)
             )
@@ -350,6 +356,10 @@ class _LiveTurnSource:
                                 if pending:
                                     draining = True
                                     break
+                    elif event_type == "thinking":
+                        if not draining:
+                            thought = True
+                            yield AssistantThinking(event["content"])
                     elif event_type == "tool_calls":
                         tool_calls = event["tool_calls"]
                     elif event_type == "usage":
@@ -359,6 +369,8 @@ class _LiveTurnSource:
                 trailing = stream_filter.flush()
                 if trailing:
                     yield AssistantDelta(trailing)
+                if thought:
+                    yield AssistantThinkingEnded()
 
             if content_parts or tool_calls or workflow.dispatched_inline:
                 break
@@ -388,6 +400,8 @@ class _LiveTurnSource:
                 if event_type == "token":
                     content_parts.append(event["content"])
                     yield AssistantDelta(event["content"])
+                elif event_type == "thinking":
+                    yield AssistantThinking(event["content"])
                 elif event_type == "usage":
                     usage = event
         yield ProviderTurn(content="".join(content_parts), usage=usage)
@@ -874,6 +888,10 @@ class ToolExecutor:
             async for event in agen:
                 if isinstance(event, AssistantDelta):
                     yield {"type": "token", "data": {"content": event.content}}
+                elif isinstance(event, AssistantThinking):
+                    yield {"type": "thinking", "data": {"content": event.content}}
+                elif isinstance(event, AssistantThinkingEnded):
+                    yield {"type": "thinking_end", "data": {}}
                 elif isinstance(event, ToolStarted):
                     yield {"type": "tool_start", "data": event.data}
                 elif isinstance(event, ToolFinished):

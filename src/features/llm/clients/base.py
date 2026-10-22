@@ -36,6 +36,7 @@ class LLMResponse(BaseModel):
     # string or None>}. `finish_reason` above stays the raw provider string;
     # this is the shared shape every caller renders/persists against.
     completion: Optional[Dict[str, Any]] = None
+    thinking: Optional[str] = None
 
 
 class LLMClient(Protocol):

@@ -151,6 +151,13 @@ export interface TraceStep {
 	seq?: number;
 }
 
+export interface ThinkingSegment {
+	text: string;
+	started_at?: number;
+	duration_ms?: number;
+	open?: boolean;
+}
+
 /** Per-component size accounting inside `BehaviorTraceManifest.context_ledger`. */
 export interface ContextLedgerEntry {
 	chars: number;
@@ -207,6 +214,7 @@ export interface BehaviorTraceManifest {
 	 * model completion. `reason: 'length'` drives the output-limit note in
 	 * ChatMessage.svelte. */
 	completion?: CompletionOutcome | null;
+	thinking_visible?: boolean;
 }
 
 /** `{"reason", "raw"}` shape every LLM client normalizes its stop reason
@@ -355,6 +363,7 @@ export interface UnifiedChatMessageData {
 	completion_tokens?: number | null;
 	tool_executions?: ToolExecution[];
 	trace_steps?: TraceStep[];
+	thinking?: ThinkingSegment[];
 	sources?: MessageSource[];
 	isStreaming?: boolean;
 	/** Content was replaced with a bounded `replay_snapshot` (the reconnect

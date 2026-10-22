@@ -9,6 +9,7 @@
 		supports_vision: boolean;
 		disable_system_prompt: boolean;
 		memory_reflection: boolean;
+		show_thinking: boolean;
 		system_message: string;
 		temperature: number;
 		max_tokens: number;
@@ -437,9 +438,16 @@
 			<Switch label="Memory Reflection" bind:checked={draft.memory_reflection} />
 			<span class="text-sm font-medium text-fg-muted">Memory Reflection</span>
 		</label>
+		<label class="flex items-center gap-2">
+			<Switch label="Show thinking to users" bind:checked={draft.show_thinking} />
+			<span class="text-sm font-medium text-fg-muted">Show thinking to users</span>
+		</label>
 	</div>
 	<p class="text-xs text-fg-subtle mt-1">
 		Memory reflection extracts durable facts from the conversation into memory notes — costs one extra LLM call per conversation.
+	</p>
+	<p class="text-sm text-fg-subtle mt-1">
+		Show thinking puts the model's reasoning in a foldable block above each chat reply and keeps it with the message. It only displays what the model produces: choose a thinking level (Enabled, Low, Medium or High) in this provider's options for the model to produce reasoning.
 	</p>
 {/snippet}
 

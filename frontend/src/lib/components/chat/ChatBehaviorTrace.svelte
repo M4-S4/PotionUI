@@ -72,7 +72,7 @@
 				return toolsStepLabel(detail);
 			}
 			case 'thinking':
-				return 'Thinking…';
+				return detail.thinking_visible ? 'Waiting for the model…' : 'Thinking…';
 			case 'answering':
 				return 'Writing answer';
 			default:

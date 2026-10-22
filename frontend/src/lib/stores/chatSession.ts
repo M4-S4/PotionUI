@@ -11,6 +11,7 @@ import { writable, derived, get } from 'svelte/store';
 import type { UnifiedChatMessageData } from '$lib/types/chat';
 import {
 	applyToken,
+	applyThinking,
 	applyToolStart,
 	applyToolEnd,
 	applyDone,
@@ -171,6 +172,15 @@ function createChatSessionStore() {
 				switch (event.type) {
 					case 'token':
 						return { ...s, messages: applyToken(s.messages, opts.accumulated ?? '') };
+					case 'thinking':
+						return {
+							...s,
+							messages: applyThinking(
+								s.messages,
+								typeof event.data?.segment === 'number' ? event.data.segment : 0,
+								opts.accumulated ?? ''
+							)
+						};
 					case 'tool_start':
 						return { ...s, messages: applyToolStart(s.messages, event.data || {}) };
 					case 'tool_end':

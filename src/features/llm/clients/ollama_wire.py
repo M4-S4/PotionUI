@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterator, List, Optional
 
 from src.features.llm import context_budget
 from src.features.llm.clients.tool_call_shape import arguments_to_object, normalize_tool_calls
-from src.features.llm.clients.wire_events import Done, TextDelta, ToolCalls, Usage
+from src.features.llm.clients.wire_events import Done, TextDelta, ThinkingDelta, ToolCalls, Usage
 from src.features.llm.repository import LLMConfig
 from src.features.llm.ttl_cache import TTLCache
 
@@ -405,6 +405,9 @@ class OllamaNDJSONDecoder:
             return
 
         message = data.get("message", {})
+        thinking = message.get("thinking")
+        if thinking and isinstance(thinking, str):
+            yield ThinkingDelta(thinking)
         content = message.get("content", "")
         if content:
             yield TextDelta(content)

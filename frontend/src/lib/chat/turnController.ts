@@ -231,6 +231,13 @@ export function createStreamEventHandler(
 	const tokenCoalescer = createStreamCoalescer((accumulated) => {
 		if (owned.applyStreamEvent({ type: 'token', data: {} }, { accumulated })) d.scrollToBottomIfPinned();
 	});
+	let thinkingSegment = 0;
+	let thinkingText = '';
+	const thinkingCoalescer = createStreamCoalescer((accumulated) => {
+		if (owned.applyStreamEvent({ type: 'thinking', data: { segment: thinkingSegment } }, { accumulated })) {
+			d.scrollToBottomIfPinned();
+		}
+	});
 	// The identity of the turn we're recovering FOR — the user message it
 	// answers. Seeded when already known (reattaching to a turn whose user
 	// message was already visible in the loaded session); otherwise learned
@@ -256,6 +263,7 @@ export function createStreamEventHandler(
 		// "whatever content is already showing" doesn't discard a token that
 		// really did arrive just because it hadn't been batch-applied yet.
 		tokenCoalescer.flush();
+		thinkingCoalescer.flush();
 		if (!owned.isCurrent()) return; // don't even bother with a doomed fetch
 
 		let matched: ChatSessionWithMessagesResponse['messages'][number] | null = null;
@@ -309,6 +317,7 @@ export function createStreamEventHandler(
 		// applied for a turn control no longer owns.
 		if (!owned.isCurrent()) {
 			tokenCoalescer.cancel();
+			thinkingCoalescer.cancel();
 			return;
 		}
 
@@ -316,12 +325,22 @@ export function createStreamEventHandler(
 		// first, so a tool_start/status/replay_snapshot/done/error reducer
 		// never runs ahead of text that arrived before it on the wire.
 		if (event.type !== 'token') tokenCoalescer.flush();
+		if (event.type !== 'thinking') thinkingCoalescer.flush();
 
 		if (event.type === 'message_created') {
 			userMessageId = event.data?.user_message_id || userMessageId;
 		} else if (event.type === 'token') {
 			streamedContent += event.data.content;
 			tokenCoalescer.push(streamedContent);
+		} else if (event.type === 'thinking') {
+			const segment = typeof event.data?.segment === 'number' ? event.data.segment : thinkingSegment;
+			if (segment !== thinkingSegment) {
+				thinkingCoalescer.flush();
+				thinkingSegment = segment;
+				thinkingText = '';
+			}
+			thinkingText += event.data?.content ?? '';
+			thinkingCoalescer.push(thinkingText);
 		} else if (event.type === 'tool_start') {
 			if (owned.applyStreamEvent(event)) d.scrollToBottomIfPinned();
 		} else if (event.type === 'tool_end') {

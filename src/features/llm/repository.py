@@ -32,6 +32,7 @@ class LLMConfig(BaseModel):
     supports_vision: bool = False
     disable_system_prompt: bool = False
     memory_reflection: bool = True
+    show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
     api_key_unreadable: bool = False
 
@@ -107,13 +108,14 @@ class LLMConfigurationRepository:
                     INSERT INTO llm_configurations
                     (id, name, type, enabled, base_url, api_key, model, system_message,
                      temperature, max_tokens, timeout, supports_vision, disable_system_prompt,
-                     memory_reflection, provider_options, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     memory_reflection, show_thinking, provider_options, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     config.id, config.name, config.type, config.enabled, config.base_url,
                     self._encrypt(config.api_key), config.model, config.system_message, config.temperature,
                     config.max_tokens, config.timeout, config.supports_vision,
-                    config.disable_system_prompt, config.memory_reflection, provider_options_json,
+                    config.disable_system_prompt, config.memory_reflection, config.show_thinking,
+                    provider_options_json,
                     now.isoformat(), now.isoformat()
                 ))
             return True
@@ -132,13 +134,14 @@ class LLMConfigurationRepository:
                     SET name = ?, type = ?, enabled = ?, base_url = ?, api_key = ?,
                         model = ?, system_message = ?, temperature = ?, max_tokens = ?,
                         timeout = ?, supports_vision = ?, disable_system_prompt = ?,
-                        memory_reflection = ?, provider_options = ?, updated_at = ?
+                        memory_reflection = ?, show_thinking = ?, provider_options = ?, updated_at = ?
                     WHERE id = ?
                 """, (
                     config.name, config.type, config.enabled, config.base_url,
                     self._encrypt(config.api_key), config.model, config.system_message, config.temperature,
                     config.max_tokens, config.timeout, config.supports_vision,
-                    config.disable_system_prompt, config.memory_reflection, provider_options_json,
+                    config.disable_system_prompt, config.memory_reflection, config.show_thinking,
+                    provider_options_json,
                     now.isoformat(), config_id
                 ))
                 return cursor.rowcount > 0
@@ -201,6 +204,7 @@ class LLMRepository:
             supports_vision=db_config.supports_vision,
             disable_system_prompt=db_config.disable_system_prompt,
             memory_reflection=db_config.memory_reflection,
+            show_thinking=db_config.show_thinking,
             provider_options=db_config.provider_options,
             api_key_unreadable=db_config.api_key_unreadable
         )
@@ -222,6 +226,7 @@ class LLMRepository:
             supports_vision=pydantic_config.supports_vision,
             disable_system_prompt=pydantic_config.disable_system_prompt,
             memory_reflection=pydantic_config.memory_reflection,
+            show_thinking=pydantic_config.show_thinking,
             provider_options=pydantic_config.provider_options
         )
 

@@ -125,7 +125,7 @@ _ESSENTIAL_PREVIEW_KEYS = (
 # title events, and anything not recognized here) is essential and is never
 # compacted, on the assumption that an unrecognized event type is more likely
 # to matter than not.
-_COMPACTABLE_EVENT_TYPES = frozenset({"token", "status"})
+_COMPACTABLE_EVENT_TYPES = frozenset({"token", "status", "thinking"})
 
 StreamFactory = Callable[[], AsyncGenerator[dict, None]]
 
@@ -353,7 +353,7 @@ class ChatTurn:
         if event_type == "token":
             content = ev.get("data", {}).get("content", "")
             text = (text + content)[-_MAX_SNAPSHOT_TEXT_CHARS:]
-        elif event_type != "status":
+        elif event_type not in ("status", "thinking"):
             # Not a compactable type at all — this is the essential-fallback
             # path folding away an essential event as a last resort.
             dropped_essential += 1

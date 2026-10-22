@@ -576,3 +576,60 @@ async def test_a_non_200_status_raises_with_the_body_text(monkeypatch, client):
 async def test_a_non_200_status_raises_on_the_tools_stream_too(monkeypatch, client):
     with pytest.raises(ValueError, match="OpenAI returned status 401: bad key"):
         await _stream(monkeypatch, client, [b"bad key"], tools=tool_schemas(), status=401)
+
+
+def _reasoning(text: str, key: str = "reasoning_content") -> bytes:
+    return _frame({"choices": [{"delta": {key: text}}]})
+
+
+def _thinking(events) -> list[str]:
+    return [e["content"] for e in events if e["type"] == "thinking"]
+
+
+@pytest.mark.parametrize("key", ["reasoning_content", "reasoning"])
+async def test_reasoning_deltas_stream_as_thinking_events(monkeypatch, client, key):
+    raw = _reasoning("let me ", key) + _reasoning("think", key) + _delta("answer") + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert [e["type"] for e in events[:3]] == ["thinking", "thinking", "token"]
+    assert _thinking(events) == ["let me ", "think"]
+    assert _tokens(events) == ["answer"]
+
+
+async def test_reasoning_never_leaks_into_the_answer_tokens(monkeypatch, client):
+    raw = _reasoning("secret") + _delta("shown") + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _tokens(events) == ["shown"]
+
+
+async def test_a_reasoning_frame_split_across_chunks_is_reassembled(monkeypatch, client):
+    raw = _reasoning("hello there") + _delta("x") + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, _split(raw, 12, 40))
+
+    assert _thinking(events) == ["hello there"]
+
+
+async def test_null_and_empty_reasoning_emit_nothing(monkeypatch, client):
+    raw = (
+        _frame({"choices": [{"delta": {"reasoning_content": None, "content": "a"}}]})
+        + _reasoning("")
+        + _frame("[DONE]")
+    )
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _thinking(events) == []
+    assert _tokens(events) == ["a"]
+
+
+async def test_structured_reasoning_details_are_ignored(monkeypatch, client):
+    raw = _frame({"choices": [{"delta": {"reasoning": [{"text": "x"}], "content": "a"}}]}) + _frame("[DONE]")
+
+    events = await _stream(monkeypatch, client, [raw])
+
+    assert _thinking(events) == []
+    assert _tokens(events) == ["a"]

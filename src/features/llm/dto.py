@@ -39,6 +39,7 @@ class LLMConfigRequest(BaseModel):
     supports_vision: bool = False
     disable_system_prompt: bool = False
     memory_reflection: bool = True
+    show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
 
     @model_validator(mode="after")
@@ -232,6 +233,7 @@ class LLMConfigResponse(BaseModel):
     supports_vision: bool = False
     disable_system_prompt: bool = False
     memory_reflection: bool = True
+    show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
     is_default: bool = False
 

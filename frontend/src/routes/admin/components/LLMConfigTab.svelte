@@ -72,6 +72,7 @@ Always be creative and helpful while staying focused on the image generation con
 			supports_vision: config?.supports_vision || false,
 			disable_system_prompt: config?.disable_system_prompt || false,
 			memory_reflection: config?.memory_reflection ?? true,
+			show_thinking: config?.show_thinking ?? false,
 			system_message: config?.system_message ?? defaultSystemMessage,
 			temperature: config?.temperature ?? 0.7,
 			max_tokens: config?.max_tokens || 1000,

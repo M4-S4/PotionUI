@@ -22,6 +22,7 @@ class LLMConfiguration:
     # One extra LLM call per conversation, extracting durable user facts from
     # the transcript into memory notes. Default ON.
     memory_reflection: bool = True
+    show_thinking: bool = False
     provider_options: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -51,6 +52,7 @@ class LLMConfiguration:
             supports_vision=bool(row['supports_vision']) if 'supports_vision' in row.keys() else False,
             disable_system_prompt=bool(row['disable_system_prompt']) if 'disable_system_prompt' in row.keys() else False,
             memory_reflection=bool(row['memory_reflection']) if 'memory_reflection' in row.keys() else True,
+            show_thinking=bool(row['show_thinking']) if 'show_thinking' in row.keys() else False,
             provider_options=provider_options,
             created_at=dt_column(row['created_at']),
             updated_at=dt_column(row['updated_at'])
@@ -73,6 +75,7 @@ class LLMConfiguration:
             'supports_vision': self.supports_vision,
             'disable_system_prompt': self.disable_system_prompt,
             'memory_reflection': self.memory_reflection,
+            'show_thinking': self.show_thinking,
             'provider_options': self.provider_options,
             'created_at': dt_iso(self.created_at),
             'updated_at': dt_iso(self.updated_at)

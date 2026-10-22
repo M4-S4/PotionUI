@@ -660,6 +660,59 @@ class TestSubscriberPreloadAndEssentialBounding:
         assert [e["event"] for e in replayed[1:]] == ["done"]
 
 
+class TestThinkingEventsAreCompactable:
+    @pytest.mark.asyncio
+    async def test_a_flood_of_thinking_deltas_is_dropped_in_bulk_not_counted_as_essential(self):
+        registry = ChatTurnRegistry(max_events_per_turn=6, max_replay_bytes_per_turn=10_000_000)
+        events = [{"event": "thinking", "data": {"content": f"t{i}", "segment": 0}} for i in range(40)]
+        events.append({"event": "token", "data": {"content": "answer"}})
+        events.append({"event": "done", "data": {}})
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+
+        marker = turn.events[0]
+        assert marker["event"] == "replay_snapshot"
+        assert "dropped_essential_count" not in marker["data"]
+        assert [e["event"] for e in turn.events][-2:] == ["token", "done"]
+        assert len(turn.events) <= 7
+
+    @pytest.mark.asyncio
+    async def test_essential_events_survive_a_thinking_flood(self):
+        registry = ChatTurnRegistry(max_events_per_turn=6, max_replay_bytes_per_turn=10_000_000)
+        events = [{"event": "tool_start", "data": {"tool_name": "search"}}]
+        events += [{"event": "thinking", "data": {"content": f"t{i}", "segment": 1}} for i in range(40)]
+        events.append({"event": "done", "data": {}})
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+
+        kinds = [e["event"] for e in turn.events]
+        assert "tool_start" in kinds
+        assert kinds[-1] == "done"
+
+    @pytest.mark.asyncio
+    async def test_an_oversized_thinking_event_is_bounded_like_any_other(self):
+        registry = ChatTurnRegistry(max_essential_event_bytes=100)
+        huge = "thought " * 500
+
+        async def factory_gen():
+            yield {"event": "thinking", "data": {"content": huge, "segment": 0}}
+            await asyncio.sleep(0)
+            yield {"event": "done", "data": {}}
+
+        turn = registry.start("s1", "u1", factory_gen)
+        stream = turn.stream()
+        first = await stream.__anext__()
+        [_ async for _ in stream]
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+
+        assert first["event"] == "thinking"
+        assert first["data"]["truncated"] is True
+        assert huge not in first["data"]["preview"]
+        assert first["data"]["content_bytes"] > 100
+
+
 # ---------------------------------------------------------------------------
 # Persistence survives disconnect (real ChatRuntime, mocked repo/LLM)
 # ---------------------------------------------------------------------------

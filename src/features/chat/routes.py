@@ -391,7 +391,7 @@ class ChatController(BaseController):
         routes: ``get_session`` raises if the user can't access the session.
         """
         try:
-            self.chat_runtime.get_session(session_id, user.id)
+            session = self.chat_runtime.get_session(session_id, user.id)
         except SessionNotFoundException:
             async def not_found():
                 yield {"event": "error", "data": {"error": "session_not_found", "message": "Session not found"}}
@@ -407,7 +407,9 @@ class ChatController(BaseController):
                 yield {"event": "no_active_turn", "data": {}}
             return self._sse_response(none_active())
 
-        return self._sse_response(turn.stream(after_seq=after_seq))
+        return self._sse_response(
+            self.chat_runtime.visible_turn_events(session, turn.stream(after_seq=after_seq))
+        )
 
     async def cancel_turn(self, session_id: str, user: User) -> APIResponse:
         """Explicitly stop the session's in-flight turn (the stop button)."""
