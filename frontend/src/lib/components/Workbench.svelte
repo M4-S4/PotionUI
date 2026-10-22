@@ -34,6 +34,7 @@
 	import AmbientGlow from '$lib/components/AmbientGlow.svelte';
 	import { nsfwRevealStore } from '$lib/stores/nsfwReveal';
 	import ContentPolicyTile from '$lib/components/ContentPolicyTile.svelte';
+	import { WORKBENCH_EMPTY_LAYOUTS, WORKBENCH_PANE_PADDING, workbenchEmptyState, type WorkbenchEmptyLayout } from '$lib/components/workbench/workbenchEmpty';
 	import { resolveWorkbenchFileRenderer } from '$lib/registries/workbenchFileRendererRegistry';
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
 	import VideoPreview from '$lib/components/workbench/renderers/VideoPreview.svelte';
@@ -83,6 +84,8 @@
 	export let batchMeshes: any[] = [];
 	export let workbenchMaxHeight: string = '600';
 	export let className: string = '';
+	export let emptyLayout: WorkbenchEmptyLayout;
+	export let stageTop = 0;
 
 	const dispatch = createEventDispatcher<{
 		previous: void;
@@ -211,6 +214,9 @@
 
 	$: previewSuppressed = !!currentGeneration?.preview_suppressed;
 	$: contentBlocked = currentGeneration?.content_blocked ?? null;
+	$: emptyState = workbenchEmptyState({ hasDisplayMedia, status: currentGeneration?.status, previewSuppressed, contentBlocked });
+	$: isEmpty = emptyState !== null;
+	$: empty = WORKBENCH_EMPTY_LAYOUTS[emptyLayout];
 	$: currentImageLabel = isGalleryMode && displayFileType === 'image' ? ((currentGalleryItem as { label?: string | null } | null)?.label ?? null) : null;
 	$: promptCaption = isGalleryMode ? batchCaption([...batchImages, ...batchVideos], currentGalleryItem as { promptIndex?: number } | null) : null;
 	$: displayFlagged = isGalleryMode ? !!(currentGalleryItem as { content_flagged?: boolean } | null)?.content_flagged : !!currentGeneration?.content_flagged;
@@ -726,7 +732,8 @@
 <svelte:window on:keydown={handleModalKeyDown} />
 
 <div
-	class="relative flex-1 flex flex-col {className} {showAmbient ? 'overflow-visible' : 'rounded-lg overflow-hidden bg-canvas border border-line-strong shadow-floating'}"
+	class="{isEmpty ? empty.root : 'relative'} flex-1 flex flex-col {className} {isEmpty ? '' : showAmbient ? 'overflow-visible' : 'rounded-lg overflow-hidden bg-canvas border border-line-strong shadow-floating'}"
+	style={isEmpty && empty.reserve ? `--workbench-stage: ${maxHeight}px; --workbench-stage-top: ${stageTop}px; --workbench-region: ${maxHeight + (stageTop > 0 ? 0 : WORKBENCH_PANE_PADDING)}px` : undefined}
 	id="workbench-container"
 	use:trackPanelWidth
 >
@@ -1201,110 +1208,104 @@
 				on:select={handleGallerySelect}
 			/>
 		{/if}
-	{:else if previewSuppressed && currentGeneration?.status !== 'failed'}
-		<div class="relative flex items-center justify-center dot-grid" style="height: {maxHeight}px">
-			<ContentPolicyTile kind="preview" class="bg-transparent" />
-		</div>
-	{:else if contentBlocked && currentGeneration?.status !== 'failed'}
-		<div class="relative flex items-center justify-center dot-grid" style="height: {maxHeight}px">
-			<ContentPolicyTile
-				kind="blocked"
-				blockedCount={contentBlocked.blocked_count}
-				total={contentBlocked.total}
-				class="bg-transparent"
-			/>
-		</div>
-	{:else if currentGeneration?.status === 'failed'}
-		<!-- Failed state: the generation errored and no media survived (or none
-			was produced before the failure) - the generic "creations appear here"
-			empty state would otherwise silently swallow a real error. -->
-		<div class="relative flex items-center justify-center dot-grid group" style="height: {maxHeight}px">
-			<div class="flex flex-col items-center justify-center h-full text-center px-8 select-none">
-				{#if isContentPolicyCode(currentGeneration?.errorCode)}
-					<div class="w-full max-w-[360px]">
-						<FailureNotice
-							centered
-							message={currentGeneration?.message || 'Blocked by content policy.'}
-							hint={currentGeneration?.hint ? firstHintLine(currentGeneration.hint, '') : ''}
-							errorId={policyShowsErrorId(currentGeneration?.errorCode) ? currentGeneration?.errorId : null}
-							contactAdmin={!isAdmin}
-						/>
+	{:else}
+		<div class="{empty.stage} group" data-testid="workbench-empty" data-state={emptyState} data-layout={emptyLayout} style={empty.sized ? `height: ${maxHeight}px` : undefined}>
+			<div class={empty.dots} aria-hidden="true"></div>
+			<div class="{empty.copy} select-none">
+				{#if emptyState === 'suppressed'}
+					<ContentPolicyTile kind="preview" class="bg-transparent" />
+				{:else if emptyState === 'blocked'}
+					<ContentPolicyTile
+						kind="blocked"
+						blockedCount={contentBlocked.blocked_count}
+						total={contentBlocked.total}
+						class="bg-transparent"
+					/>
+				{:else if emptyState === 'failed'}
+					<div class="flex flex-col items-center">
+						{#if isContentPolicyCode(currentGeneration?.errorCode)}
+							<div class="w-full max-w-[360px]">
+								<FailureNotice
+									centered
+									message={currentGeneration?.message || 'Blocked by content policy.'}
+									hint={currentGeneration?.hint ? firstHintLine(currentGeneration.hint, '') : ''}
+									errorId={policyShowsErrorId(currentGeneration?.errorCode) ? currentGeneration?.errorId : null}
+									contactAdmin={!isAdmin}
+								/>
+							</div>
+						{:else}
+							<div class="w-20 h-20 rounded-2xl bg-danger/10 flex items-center justify-center mb-5">
+								<svg class="w-10 h-10 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+								</svg>
+							</div>
+							<p class="text-fg text-sm font-medium mb-1">Generation failed</p>
+							<p class="text-fg-subtle text-sm max-w-[320px]">
+								{currentGeneration?.message || 'Something went wrong while generating. Try again, or check the details below.'}
+							</p>
+
+							{#if currentGeneration?.hint}
+								<p class="text-fg-subtle text-sm max-w-[320px] mt-1.5 whitespace-pre-line">{currentGeneration.hint}</p>
+							{/if}
+
+							{#if currentGeneration?.errorId}
+								<div class="mt-3 flex flex-col items-center gap-1">
+									<div class="flex items-center gap-1.5 rounded bg-surface-3 px-2 py-1">
+										<span class="text-sm text-fg-muted">Error ID</span>
+										<span class="font-mono text-sm tabular-nums text-fg">{currentGeneration.errorId}</span>
+										<CopyButton text={currentGeneration.errorId} ariaLabel="Copy error ID" size="sm" />
+									</div>
+									{#if !isAdmin}
+										<p class="text-sm text-fg-subtle">Give this to your admin</p>
+									{/if}
+								</div>
+							{/if}
+
+						{/if}
+
+						<FailureTechnicalDetails detail={currentGeneration?.errorDetail} />
+
+						{#if isAdmin && hasProfile}
+							<div class="mt-4">
+								<Button variant="secondary" size="sm" icon="gauge" onclick={() => (showProfileModal = true)}>
+									View resource profile
+								</Button>
+							</div>
+						{/if}
 					</div>
 				{:else}
-					<div class="w-20 h-20 rounded-2xl bg-danger/10 flex items-center justify-center mb-5">
-						<svg class="w-10 h-10 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+					<div class="w-20 h-20 rounded-2xl bg-surface-2/50 flex items-center justify-center mb-5">
+						<svg class="w-10 h-10 text-fg-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a1.5 1.5 0 001.5-1.5V5.25a1.5 1.5 0 00-1.5-1.5H3.75a1.5 1.5 0 00-1.5 1.5v14.25a1.5 1.5 0 001.5 1.5zm14.25-14.25h.008v.008h-.008V6.75z" />
 						</svg>
 					</div>
-					<p class="text-fg text-sm font-medium mb-1">Generation failed</p>
-					<p class="text-fg-subtle text-xs max-w-[320px]">
-						{currentGeneration?.message || 'Something went wrong while generating. Try again, or check the details below.'}
-					</p>
-
-					{#if currentGeneration?.hint}
-						<p class="text-fg-subtle text-sm max-w-[320px] mt-1.5 whitespace-pre-line">{currentGeneration.hint}</p>
-					{/if}
-
-					{#if currentGeneration?.errorId}
-						<div class="mt-3 flex flex-col items-center gap-1">
-							<div class="flex items-center gap-1.5 rounded bg-surface-3 px-2 py-1">
-								<span class="text-sm text-fg-muted">Error ID</span>
-								<span class="font-mono text-sm tabular-nums text-fg">{currentGeneration.errorId}</span>
-								<CopyButton text={currentGeneration.errorId} ariaLabel="Copy error ID" size="sm" />
-							</div>
-							{#if !isAdmin}
-								<p class="text-sm text-fg-subtle">Give this to your admin</p>
-							{/if}
-						</div>
-					{/if}
-
+					<p class="text-fg-muted text-sm font-medium mb-1">Your creations appear here</p>
+					<p class="text-fg-subtle text-sm max-w-[240px]">Configure your settings and hit Generate to create something</p>
 				{/if}
+			</div>
 
-				<FailureTechnicalDetails detail={currentGeneration?.errorDetail} />
-
-				{#if isAdmin && hasProfile}
-					<div class="mt-4">
-						<Button variant="secondary" size="sm" icon="gauge" onclick={() => (showProfileModal = true)}>
-							View resource profile
-						</Button>
+			{#if empty.slider && emptyState === 'empty'}
+				<div class="absolute bottom-4 right-4 z-20 transition-opacity duration-200 {isAdjustingHeight ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}">
+					<div class="flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg">
+						<svg class="w-4 h-4 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+						</svg>
+						<input
+							type="range"
+							min="550"
+							max="1000"
+							step="50"
+							value={maxHeight}
+							on:input={handleHeightChange}
+							on:mousedown={() => isAdjustingHeight = true}
+							on:mouseup={() => isAdjustingHeight = false}
+							on:mouseleave={() => isAdjustingHeight = false}
+							class="w-24 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
+						/>
+						<span class="text-sm text-white/70 font-mono tabular-nums w-12">{maxHeight}px</span>
 					</div>
-				{/if}
-			</div>
-		</div>
-	{:else}
-		<!-- Empty state -->
-		<div class="relative flex items-center justify-center dot-grid group" style="height: {maxHeight}px">
-			<div class="flex flex-col items-center justify-center h-full text-center px-8 select-none">
-				<div class="w-20 h-20 rounded-2xl bg-surface-2/50 flex items-center justify-center mb-5">
-					<svg class="w-10 h-10 text-fg-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a1.5 1.5 0 001.5-1.5V5.25a1.5 1.5 0 00-1.5-1.5H3.75a1.5 1.5 0 00-1.5 1.5v14.25a1.5 1.5 0 001.5 1.5zm14.25-14.25h.008v.008h-.008V6.75z" />
-					</svg>
 				</div>
-				<p class="text-fg-muted text-sm font-medium mb-1">Your creations appear here</p>
-				<p class="text-fg-subtle text-xs max-w-[240px]">Configure your settings and hit Generate to create something</p>
-			</div>
-
-			<!-- Height slider - bottom right, appears on hover or while adjusting -->
-			<div class="absolute bottom-4 right-4 z-20 transition-opacity duration-200 {isAdjustingHeight ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}">
-				<div class="flex items-center gap-2 bg-black/50 backdrop-blur-sm rounded-lg px-3 py-2 shadow-lg">
-					<svg class="w-4 h-4 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-					</svg>
-					<input
-						type="range"
-						min="550"
-						max="1000"
-						step="50"
-						value={maxHeight}
-						on:input={handleHeightChange}
-						on:mousedown={() => isAdjustingHeight = true}
-						on:mouseup={() => isAdjustingHeight = false}
-						on:mouseleave={() => isAdjustingHeight = false}
-						class="w-24 h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
-					/>
-					<span class="text-xs text-white/70 font-mono tabular-nums w-12">{maxHeight}px</span>
-				</div>
-			</div>
+			{/if}
 		</div>
 	{/if}
 </div>

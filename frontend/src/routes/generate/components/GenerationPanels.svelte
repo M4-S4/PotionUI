@@ -13,6 +13,8 @@
 		widenPromptPanelForDirector,
 		restorePromptPanelFromDirector,
 		resolveThreePaneLayout,
+		PANE_HANDLE_WIDTH,
+		WORKBENCH_FLOOR_WIDTH,
 		formFoldStates,
 		setFormAutoFoldable,
 		toggleFormPane
@@ -22,6 +24,7 @@
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { closeFloatingForm } from '$lib/generation/floatingForm';
 	import { closeFloatingWorkbench } from '$lib/generation/floatingWorkbench';
+	import { PANE_HANDLE_STRIP, PANE_HANDLE_GRIP } from '$lib/generation/paneHandle';
 	import type { Tab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
@@ -74,8 +77,6 @@
 	let promptPaneEl: HTMLDivElement;
 	let panelsWidth = 0;
 	let isResizingPrompt = false;
-	const WORKBENCH_MIN_WIDTH = 320;
-	const RESIZE_HANDLE_WIDTH = 4;
 	$: formUnfoldedByUser = $formFoldStates[tab.id]?.unfolded ?? false;
 	$: paneLayout = resolveThreePaneLayout({
 		panelsWidth,
@@ -113,7 +114,7 @@
 	// workbench column on its right. Collapsed, that column is the same
 	// 0.75rem rail as the form's collapsed state, so the bound shrinks to
 	// match and the freed width goes to prompts.
-	$: workbenchBoundWidth = tab.workbenchCollapsed ? '0.75rem' : '328px';
+	$: workbenchBoundWidth = tab.workbenchCollapsed ? '0.75rem' : `${WORKBENCH_FLOOR_WIDTH + PANE_HANDLE_WIDTH}px`;
 
 	function toggleWorkbenchCollapsed() {
 		tabsStore.updateTab(tab.id, { workbenchCollapsed: !tab.workbenchCollapsed });
@@ -137,7 +138,7 @@
 		const panelRight = panelsEl.getBoundingClientRect().right;
 		const availableMaximum = Math.max(
 			0,
-			panelRight - promptLeft - WORKBENCH_MIN_WIDTH - RESIZE_HANDLE_WIDTH
+			panelRight - promptLeft - WORKBENCH_FLOOR_WIDTH - PANE_HANDLE_WIDTH
 		);
 		const minimum = Math.min(paneLayout.promptMinWidth, availableMaximum);
 		return Math.min(availableMaximum, Math.max(minimum, clientX - promptLeft));
@@ -201,12 +202,14 @@
 	// workbench instead of resizing, so the same strip does both jobs.
 	const RESIZE_CLICK_SLOP_PX = 4;
 	let promptResizeStartX = 0;
+	let promptResizeGrab = 0;
 	let promptResizeMoved = false;
 
 	function startPromptResize(event: PointerEvent) {
 		event.preventDefault();
 		isResizingPrompt = true;
 		promptResizeStartX = event.clientX;
+		promptResizeGrab = event.clientX - (event.currentTarget as HTMLElement).getBoundingClientRect().left;
 		promptResizeMoved = false;
 		document.addEventListener('pointermove', handlePromptResize);
 		document.addEventListener('pointerup', finishPromptResize);
@@ -219,7 +222,7 @@
 		if (!isResizingPrompt || !promptPaneEl) return;
 		if (Math.abs(event.clientX - promptResizeStartX) > RESIZE_CLICK_SLOP_PX) promptResizeMoved = true;
 		if (!promptResizeMoved) return;
-		setPromptWidth(event.clientX - promptPaneEl.getBoundingClientRect().left);
+		setPromptWidth(event.clientX - promptResizeGrab - promptPaneEl.getBoundingClientRect().left);
 	}
 
 	function handlePromptResizeKeydown(event: KeyboardEvent) {
@@ -278,7 +281,7 @@
 			<Tooltip text="Collapse generation settings" kbd={$shortcutLabels['toggle_left_panel']} position="right" delay={150} wrapperClass="flex h-full flex-shrink-0">
 				<button
 					type="button"
-					class="group relative w-3 h-full flex-shrink-0 border-r border-line bg-surface-3 transition-colors hover:bg-line-hover"
+					class={PANE_HANDLE_STRIP}
 					aria-label="Collapse generation settings"
 					aria-expanded="true"
 					on:click={toggleForm}
@@ -331,13 +334,14 @@
 			<Tooltip text="Drag to resize · click to collapse" kbd={$shortcutLabels['toggle_workbench_panel']} position="left" delay={150} wrapperClass="flex h-full flex-shrink-0">
 				<button
 					type="button"
-					class="resize-handle h-full flex-shrink-0 w-1 bg-line hover:bg-line-hover cursor-col-resize transition-colors relative group"
+					class="resize-handle {PANE_HANDLE_STRIP} cursor-col-resize"
+					data-dragging={isResizingPrompt}
 					on:pointerdown={startPromptResize}
 					on:keydown={handlePromptResizeKeydown}
 					aria-label="Resize prompt panel"
 					data-testid="prompts-workbench-handle"
 				>
-					<div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-line-hover/20"></div>
+					<span class={PANE_HANDLE_GRIP} aria-hidden="true"></span>
 				</button>
 			</Tooltip>
 		{/if}
@@ -377,6 +381,7 @@
 					{:else}
 						<GenerationWorkbenchPane
 							{tab}
+							emptyLayout="pane"
 							{onWorkbenchPrevious}
 							{onWorkbenchNext}
 							{onWorkbenchHeightChange}
@@ -458,6 +463,7 @@
 						{:else}
 							<GenerationWorkbenchPane
 								{tab}
+								emptyLayout="fade"
 								{onWorkbenchPrevious}
 								{onWorkbenchNext}
 								{onWorkbenchHeightChange}
@@ -521,11 +527,6 @@
 <style>
 	.resize-handle {
 		touch-action: none;
-	}
-
-	.resize-handle:hover,
-	.resize-handle:active {
-		background-color: rgb(var(--line-hover));
 	}
 
 	.workbench-rail-label {

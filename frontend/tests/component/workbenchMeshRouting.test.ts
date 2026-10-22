@@ -75,6 +75,7 @@ function mountWithMesh(fileType: string) {
 		component: Workbench as never,
 		target,
 		props: {
+			emptyLayout: 'pane',
 			currentGeneration: { status: 'completed' },
 			isGenerating: false,
 			workbenchIndex: 0,

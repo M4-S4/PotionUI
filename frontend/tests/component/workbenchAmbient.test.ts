@@ -56,6 +56,7 @@ function mountResult(flags: Record<string, boolean> = {}) {
 		component: Workbench as never,
 		target,
 		props: {
+			emptyLayout: 'pane',
 			currentGeneration: { id: 'gen-1', status: 'completed' },
 			isGenerating: false,
 			workbenchIndex: 0,
@@ -70,6 +71,7 @@ function mountPreview(flags: Record<string, boolean> = {}) {
 		component: Workbench as never,
 		target,
 		props: {
+			emptyLayout: 'pane',
 			currentGeneration: { id: 'gen-1', status: 'running', current_image: '/api/media/previews/gen-1.png', ...flags },
 			isGenerating: true,
 			workbenchIndex: 0,

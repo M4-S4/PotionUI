@@ -149,6 +149,10 @@
 		background-image: radial-gradient(rgb(var(--fg) / 0.06) 1px, transparent 1px);
 		background-size: 16px 16px;
 	}
+
+	.dot-grid-fade {
+		mask-image: linear-gradient(to bottom, rgb(var(--fg)) 45%, transparent 100%);
+	}
 }
 
 /* Loading spinner */

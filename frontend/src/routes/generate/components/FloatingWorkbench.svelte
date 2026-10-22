@@ -224,6 +224,7 @@
 		<div bind:this={bodyEl} bind:clientHeight={bodyNaturalHeight} class="min-w-0 p-4">
 			<GenerationWorkbenchPane
 				{tab}
+				emptyLayout="window"
 				{onWorkbenchPrevious}
 				{onWorkbenchNext}
 				{onWorkbenchHeightChange}

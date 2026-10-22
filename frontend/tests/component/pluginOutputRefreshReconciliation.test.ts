@@ -137,6 +137,7 @@ function mountPane(tabId: string) {
 		target,
 		props: {
 			tab,
+			emptyLayout: 'pane',
 			onWorkbenchPrevious: () => {},
 			onWorkbenchNext: () => {},
 			onWorkbenchHeightChange: () => {},
