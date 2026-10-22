@@ -6,7 +6,7 @@ lint error, so it fails here.
 The default of 300 s is too short for a video model on a 12 GB card, so a
 recipe whose smoke generates video declares `smoke.timeout_seconds`, or is
 named with its reason in `VIDEO_SMOKES_ON_THE_DEFAULT`. The recipes whose smoke
-is known to run past five minutes are pinned in `LONG_SMOKES`."""
+needs more than the default are pinned in `LONG_SMOKES`."""
 
 from pathlib import Path
 
@@ -26,7 +26,7 @@ PLUGINS = REPO_ROOT / "content" / "plugins" / "marketplace"
 LONG_SMOKES = {
     "ltx25-starter": 600,
     "vp-wan22-14b-i2v": 600,
-    "vp-wan22-14b-lightning-12gb": 900,
+    "vp-wan22-14b-lightning-12gb": 600,
 }
 
 VIDEO_SMOKES_ON_THE_DEFAULT = {
