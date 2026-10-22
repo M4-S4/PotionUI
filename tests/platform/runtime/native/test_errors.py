@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import torch
+
 from src.platform.runtime.native.errors import (
     PoisonedConditioningError,
     SamplingNumericsError,
+    is_cuda_oom,
 )
 
 
@@ -46,3 +49,20 @@ def test_poisoned_conditioning_error_message():
     err = PoisonedConditioningError("cond", "context")
     assert "cond" in str(err)
     assert "context" in str(err)
+
+
+def test_is_cuda_oom_recognises_the_torch_out_of_memory_error():
+    assert is_cuda_oom(torch.cuda.OutOfMemoryError("CUDA out of memory. Tried to allocate 2.00 GiB"))
+
+
+def test_is_cuda_oom_recognises_an_accelerator_error_that_says_out_of_memory():
+    assert is_cuda_oom(torch.AcceleratorError("CUDA error: out of memory"))
+
+
+def test_is_cuda_oom_rejects_an_accelerator_error_that_does_not_say_out_of_memory():
+    assert not is_cuda_oom(torch.AcceleratorError("CUDA error: an illegal memory access was encountered"))
+    assert not is_cuda_oom(torch.AcceleratorError("CUDA error: CUBLAS_STATUS_EXECUTION_FAILED when calling `cublasGemmEx`"))
+
+
+def test_is_cuda_oom_rejects_a_plain_runtime_error_even_when_it_says_out_of_memory():
+    assert not is_cuda_oom(RuntimeError("CUDA error: out of memory"))
