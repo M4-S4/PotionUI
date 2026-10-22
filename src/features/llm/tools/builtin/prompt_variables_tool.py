@@ -96,6 +96,13 @@ def active_draft_variables(context: ToolContext) -> Dict[str, Dict[str, Any]]:
     return variables
 
 
+def tab_variables(
+    context: ToolContext, kwargs: Dict[str, Any]
+) -> Tuple[Optional[Dict[str, Dict[str, Any]]], Optional[str]]:
+    _tab, variables, error = _load_variables(context, kwargs)
+    return (None, error) if error else (variables, None)
+
+
 def _load_variables(context: ToolContext, kwargs: Dict[str, Any]) -> Tuple[Optional[str], Dict[str, Dict[str, Any]], Optional[str]]:
     if context.tab_drafts is None:
         return None, {}, NO_DRAFT_STORE_ERROR

@@ -12,6 +12,7 @@ export const MAX_STRING_CHARS = 2000;
 export const MAX_NAME_CHARS = 60;
 export const MAX_VALUE_NUMBER_CHARS = 40;
 export const MAX_SCRUB_PASSES = 8;
+export const MAX_HEAD_SCAN_CHARS = 4 * MAX_SCAN_CHARS;
 
 export type ConditionJoiner = 'and' | 'or';
 export type NumberOp = '=' | '!=' | '<' | '<=' | '>' | '>=';
@@ -631,7 +632,7 @@ function matchJunk(text: string, i: number): number {
 	return -1;
 }
 
-function readTag(text: string, i: number): Tok | null {
+function readTag(text: string, i: number, allowance: { left: number }): Tok | null {
 	if (text.startsWith('<<end>>', i)) {
 		return { kind: 'end', start: i, end: i + 7, head: '', headStart: i + 7 };
 	}
@@ -640,9 +641,11 @@ function readTag(text: string, i: number): Tok | null {
 	}
 	const open = matchOpen(text, i);
 	if (open) {
+		if (allowance.left <= 0) return { kind: 'junk', start: i, end: open.end, head: '', headStart: open.end };
 		const limit = advanceCodePoints(text, open.end, MAX_HEAD_CHARS + 2);
 		const headEnd = readHeadEnd(text, open.end, limit);
-		if (text.startsWith('>>', headEnd) && countCodePoints(text, open.end, headEnd) <= MAX_HEAD_CHARS) {
+		const points = countCodePoints(text, open.end, headEnd);
+		if (text.startsWith('>>', headEnd) && points <= MAX_HEAD_CHARS) {
 			const raw = text.slice(open.end, headEnd);
 			const [lo, hi] = pyStripBounds(raw);
 			return {
@@ -653,6 +656,7 @@ function readTag(text: string, i: number): Tok | null {
 				headStart: open.end + lo
 			};
 		}
+		allowance.left -= points + countCodePoints(text, headEnd, limit);
 		return { kind: 'junk', start: i, end: open.end, head: '', headStart: open.end };
 	}
 	const junkEnd = matchJunk(text, i);
@@ -662,6 +666,7 @@ function readTag(text: string, i: number): Tok | null {
 
 function tokenize(text: string): [Tok[], number] {
 	const toks: Tok[] = [];
+	const allowance = { left: MAX_HEAD_SCAN_CHARS };
 	let pos = 0;
 	let unitAt = 0;
 	let cpAt = 0;
@@ -671,7 +676,7 @@ function tokenize(text: string): [Tok[], number] {
 		cpAt += countCodePoints(text, unitAt, i);
 		unitAt = i;
 		if (cpAt >= MAX_SCAN_CHARS) return [toks, pos];
-		const tag = readTag(text, i);
+		const tag = readTag(text, i, allowance);
 		if (tag === null) {
 			pos = i + 1;
 		} else {

@@ -49,7 +49,7 @@ EXPECTED_TOOLS = {
     "search_models", "list_library_items",
     "write_memory", "read_memory", "update_memory", "delete_memory",
     "manage_collections", "organize_gallery", "start_generation",
-    "get_prompt_variables", "manage_prompt_variables", "list_tab_drafts",
+    "get_prompt_variables", "manage_prompt_variables", "list_tab_drafts", "write_condition",
 }
 
 
@@ -288,6 +288,7 @@ READ_CALLS = [
     ("manage_collections", {"operation": "list", "scope": "history"}),
     ("organize_gallery", {"operation": "list_recent"}),
     ("organize_gallery", {"operation": "list_tags"}),
+    ("write_condition", {"branches": [{"tests": [{"var": "age", "op": ">", "value": 65}], "text": "grey hair"}]}),
 ]
 
 

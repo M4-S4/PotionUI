@@ -71,6 +71,14 @@ VARIABLES_SCHEMA = {
 }
 
 
+def _condition_texts(request: PromptRequest) -> Dict[str, Optional[str]]:
+    return {
+        f"segment {index} {field}": getattr(segment, field, None)
+        for index, segment in enumerate(request.segments, start=1)
+        for field in ("content", "prefix", "suffix")
+    }
+
+
 def _visible_prompt(context: ToolContext, prompt_id: Optional[str]):
     if not context.prompt_database or not prompt_id:
         return None
@@ -244,7 +252,7 @@ class AddPromptTool(_PromptWriteTool):
 
     def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         request = _prompt_request(**kwargs)
-        ensure_condition_tags(segment.content for segment in request.segments)
+        ensure_condition_tags(_condition_texts(request))
         text = flatten_segments(request.segments)
         fields = []
         if request.name:
@@ -312,7 +320,7 @@ class EditPromptTool(_PromptWriteTool):
         if not any(key in kwargs for key in ("name", "usage_hint", "segments", "variables")):
             raise ValueError("No Prompt fields were supplied")
         request = _prompt_request(existing, **kwargs)
-        ensure_condition_tags(segment.content for segment in request.segments)
+        ensure_condition_tags(_condition_texts(request))
 
         old_text = flatten_segments(existing.segments)
         new_text = flatten_segments(request.segments)

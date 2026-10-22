@@ -28,6 +28,34 @@ _TOOLS = (
     "fence or JSON in your reply does not run.\n"
 )
 
+_CONDITIONS = (
+    "\n## Prompt conditions\n\n"
+    "A condition is text inside a segment that picks words by variable values:\n"
+    "<<if TEST>>text<<else if TEST>>text<<else>>text<<end>>\n"
+    "- The first true branch wins. <<else if>> and <<else>> are optional, <<end>> always closes, "
+    "and a condition never sits inside another one.\n"
+    "- A TEST is $name OP value with one space on each side of OP. Inside a tag write $name; "
+    "${name} in plain text prints the value.\n"
+    "- Number variable: = != < <= > >= with a bare number, or in / not in with a range like 18..30.\n"
+    '- Choice or text variable: = or != "value"; in / not in "a", "b"; contains / not contains "word"; '
+    "is empty; is not empty. Copy each value exactly as the option is written (same case) between "
+    'straight double quotes, with \\" for a quote and \\\\ for a backslash.\n'
+    f"- Join up to {MAX_TESTS} tests with and, or with or, never both; no parentheses.\n"
+    "- Never {% if %}, ==, &&, elif or endif.\n"
+    "Examples:\n"
+    '<<if $mood = "noir">>rain-soaked neon<<else if $mood in "sunlit", "golden hour">>warm backlight'
+    "<<else>>overcast sky<<end>>\n"
+    "<<if $age > 65>>grey hair<<else if $age in 18..30>>youthful skin<<end>>\n"
+    '<<if $record = "12\\" vinyl" and $era is not empty>>spinning turntable<<end>>\n'
+    "{{#if get_current_segments}}PROMPT STATE lists the tab's variables with their exact values.\n{{/if}}"
+    "{{#if write_condition}}"
+    "Build a new condition, or check one you edited, with write_condition and paste its text verbatim.\n"
+    "{{/if}}"
+    "{{#if manage_prompt_variables}}"
+    "An option's `when` in manage_prompt_variables is different: it only limits which options a Choice can pick.\n"
+    "{{/if}}"
+)
+
 # Base system prompt for the built-in generation assistant. Every tool-naming
 # line is wrapped in a {{#if NAME}} / {{#ifany ...}} block (see
 # tool_conditionals.render_tool_conditionals), resolved at assembly against the
@@ -69,12 +97,7 @@ DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE = (
     "{{#if get_prompt_variables}}The form state shows each variable as a summary; "
     "call get_prompt_variables for its exact options before choosing or pinning one.\n"
     "{{/if}}"
-    "A condition picks text by variable values: "
-    '<<if $age > 65>>grey hair<<else if $age < 25>>youthful<<else>>auburn hair<<end>>. '
-    "It reads $name; ${name} prints it. Number tests: = != < <= > >=, in 18..30, not in. "
-    'Choice/text tests: = != in "a", "b", not in, contains, not contains, is empty, is not empty. '
-    f"Spaces around operators are required. A head takes up to {MAX_TESTS} tests joined by and or by or, "
-    "never both; no nesting; <<else>> is optional.\n"
+    + _CONDITIONS +
     "{{#ifany get_current_segments get_video_director}}"
     "\n## Proposing prompt text\n\n"
     "{{#if get_current_segments}}"
@@ -181,6 +204,7 @@ PROMPTS_SYSTEM_PROMPT_TEMPLATE = (
     "- When the user gives you text to save, save it exactly as written, in one "
     "segment, under the name they chose. Compose or improve a prompt only when asked.\n"
     "{{/ifany}}"
+    "{{#ifany get_prompt add_prompt edit_prompt}}" + _CONDITIONS + "{{/ifany}}"
 )
 
 

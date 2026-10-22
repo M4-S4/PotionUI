@@ -19,23 +19,58 @@ GOOD = "woman, <<if $age > 65>>grey hair<<else>>auburn hair<<end>>"
 @pytest.mark.parametrize(
     "text,kind",
     [
-        ("woman, <<if $age > 65>>grey hair", "never reaches <<end>>"),
+        ("woman, <<if $age > 65>>grey hair", "never closed; end the condition with <<end>>"),
         ("woman <<else>> grey<<end>>", "no open <<if"),
         ("<<if $a > 1>>x<<if $b > 1>>y<<end>><<end>>", "inside another condition"),
-        ("<<if $age>65>>x<<end>>", "cannot read"),
-        ("<<if $age > 1 and $b = \"x\" or $c < 2>>x<<end>>", "cannot read"),
+        ("<<if $age>65>>x<<end>>", "one space on each side of the operator"),
+        ("<<if $age > 1 and $b = \"x\" or $c < 2>>x<<end>>", "never both"),
     ],
 )
 def test_malformed_tags_get_a_teaching_error(text, kind):
-    error = condition_tag_error([text])
+    error = condition_tag_error({"content": text})
     assert kind in error
     assert "<<if $age > 65>>" in error
     assert "Nothing was proposed" in error
 
 
+def test_the_error_shows_three_problems_the_first_corrected_text_and_the_example():
+    error = condition_tag_error({
+        "segment 1": "a <<if $a>1>>x<<end>>",
+        "segment 2": '<<if $b == "x">>y<<end>>',
+        "segment 3": "<<if ${c} > 2>>z<<end>>",
+        "segment 4": "<<if $d &gt; 3>>w<<end>>",
+    })
+    assert error.startswith("The text has malformed condition tags: segment 1: `<<if $a>1>>`: put one space")
+    assert '; segment 2: `<<if $b == "x">>`: use = for equals, not ==; segment 3: `<<if ${c} > 2>>`: inside a tag' in error
+    assert "&gt;" not in error.split("Nothing was proposed")[0]
+    assert " (and 1 more). Nothing was proposed. Corrected segment 1: a <<if $a > 1>>x<<end>> Write each condition like " in error
+    assert error.endswith("<<if $age > 65>>grey hair<<else if $age < 25>>youthful<<else>>auburn hair<<end>> and call the tool again.")
+
+
+def test_a_long_corrected_text_is_named_but_never_shown_cut_short():
+    text = "portrait, " + "detailed skin, " * 60 + "<<if $a>1>>x<<end>> TAILMARK"
+    error = condition_tag_error({"segment 2": text})
+    assert "Corrected" not in error and "TAILMARK" not in error
+    assert "The corrected segment 2 is longer than 600 characters, so it is not shown; fix the tags listed above." in error
+
+
+def test_fields_too_long_to_parse_twice_get_the_problems_without_a_corrected_text():
+    error = condition_tag_error({"segment 1": "x " * 3000 + "<<if $a>1>>y<<end>>", "segment 2": "z " * 4500 + "<<if $b > 1>>w<<end>>"})
+    assert "segment 1: `<<if $a>1>>`: put one space" in error
+    assert "Corrected" not in error and "corrected" not in error
+
+
+def test_too_much_condition_text_in_one_call_is_refused_before_any_parse(monkeypatch):
+    monkeypatch.setattr(conditions, "parse_template", lambda text: pytest.fail("parsed"))
+    junk = "<<if " * (conditions.MAX_SCAN_CHARS // 5)
+    error = condition_tag_error({"segment 1": junk, "segment 2": junk, "segment 3": "plain text"})
+    assert error.startswith("The condition text is too long to check in one call: 2 fields with condition tags hold 40,000")
+    assert "Nothing was proposed." in error
+
+
 def test_a_block_over_the_caps_names_them():
     over = "<<if $x = 1>>a" + "".join(f"<<else if $x = {n}>>b" for n in range(conditions.MAX_BRANCHES)) + "<<end>>"
-    error = condition_tag_error([over])
+    error = condition_tag_error({"content": over})
     assert f"{conditions.MAX_TESTS} tests per head" in error
     assert f"{conditions.MAX_BRANCHES} branches" in error
     assert f"{conditions.MAX_BLOCKS} blocks" in error
@@ -43,13 +78,13 @@ def test_a_block_over_the_caps_names_them():
 
 @pytest.mark.parametrize("text", [GOOD, "plain text", "", "<lora:x:1> <<hello>> <Picture 1>", None])
 def test_valid_or_tagless_text_passes(text):
-    assert condition_tag_error([text]) == ""
-    ensure_condition_tags([text])
+    assert condition_tag_error({"content": text}) == ""
+    ensure_condition_tags({"content": text})
 
 
 def test_ensure_raises_value_error_for_the_approval_tool_to_surface():
     with pytest.raises(ValueError, match="malformed condition tags"):
-        ensure_condition_tags(["<<if $a > 1>>x"])
+        ensure_condition_tags({"content": "<<if $a > 1>>x"})
 
 
 class _Sentinel:
@@ -81,6 +116,8 @@ CALL_SITES = {
     "template_create": (CreateSegmentTemplateTool, _template_ctx, dict(name="n", segments=[{"content": "ok"}, {"content": BAD}])),
     "template_create_prefix": (CreateSegmentTemplateTool, _template_ctx, dict(name="n", segments=[{"content": "ok", "prefix": BAD}])),
     "add_prompt": (AddPromptTool, _prompt_ctx, dict(segments=[{"content": BAD}])),
+    "add_prompt_prefix": (AddPromptTool, _prompt_ctx, dict(segments=[{"content": "ok", "prefix": BAD}])),
+    "add_prompt_suffix": (AddPromptTool, _prompt_ctx, dict(segments=[{"content": "ok"}, {"content": "ok", "suffix": BAD}])),
 }
 
 
@@ -138,6 +175,7 @@ async def test_edit_prompt_refuses_before_writing(monkeypatch):
         tags=[], metadata={},
     )
     monkeypatch.setattr(module, "_require_prompt", lambda context, prompt_id: existing)
-    result = await EditPromptTool().execute(_prompt_ctx(), prompt_id="p", segments=[{"content": BAD}])
-    assert not result.success
-    assert "malformed condition tags" in result.error
+    for segment in ({"content": BAD}, {"content": "ok", "prefix": BAD}, {"content": "ok", "suffix": BAD}):
+        result = await EditPromptTool().execute(_prompt_ctx(), prompt_id="p", segments=[segment])
+        assert not result.success
+        assert "malformed condition tags" in result.error

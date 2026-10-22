@@ -14,7 +14,7 @@ import inspect
 import logging
 import re
 import traceback
-from typing import Any, Collection, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Tuple
 
 from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
@@ -60,6 +60,10 @@ _CONDITION_END = "<<end>>"
 _CONDITION_ELIDED = "<<if …>>"
 _CONDITION_EXTEND_FACTOR = 4
 _PROMPT_STATE_MAX_BLOCK_CHARS = 4000
+_PROMPT_STATE_MAX_CONDITION_PROBLEMS = 2
+_PROMPT_STATE_CONDITION_PROBLEM_CHARS = 300
+_PROMPT_STATE_SKIPPED_LONG = "     condition check skipped (segment too long to check)"
+_PROMPT_STATE_SKIPPED_BUDGET = "     condition check skipped (enough condition text was checked this turn)"
 _PROMPT_STATE_MAX_PROMPTS = 20
 _PROMPT_STATE_PREVIEW_CHARS = 60
 _PROMPT_STATE_NAME_CHARS = 40
@@ -469,6 +473,9 @@ class ChatContextBuilder:
             form_state=form_state,
             prompt_variables=self._draft_variable_reader(user_id, form_state),
         )
+
+    def prompt_state_variable_reader(self, user_id: str, context_metadata: Optional[Dict[str, Any]]):
+        return self._draft_variable_reader(user_id, (context_metadata or {}).get("form_state"))
 
     def _draft_variable_reader(self, user_id: str, form_state: Optional[Dict[str, Any]]):
         drafts = self._m.tool_services.tab_drafts
@@ -1121,6 +1128,7 @@ class ChatContextBuilder:
         conversation_history: List[Dict[str, Any]],
         context_metadata: Optional[Dict[str, Any]],
         offered_tools: Optional[Collection[str]] = None,
+        variable_reader: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
     ) -> None:
         """Fold a compact structural snapshot of the current prompt editor into the current user turn.
 
@@ -1137,6 +1145,13 @@ class ChatContextBuilder:
         there "segment #N" means a shot, and get_video_director is the
         structural snapshot for that, not this block.
         """
+        from src.features.llm.tools.builtin.condition_text import (
+            CONDITION_MARKERS,
+            MAX_CHECKED_CHARS,
+            Budget,
+            condition_problems,
+            condition_variable_lines,
+        )
         from src.features.llm.tools.builtin.utils import video_director_active
 
         if video_director_active((context_metadata or {}).get("form_state")):
@@ -1175,7 +1190,9 @@ class ChatContextBuilder:
         elif template_names:
             lines.append("Templates: " + ", ".join(f'"{n}"' for n in template_names))
 
+        variables = variable_reader() if variable_reader is not None else None
         emitted = 0
+        budget = Budget()
         overflow = 0
         for title, group in (("Positive:", positives), ("Negative:", negatives)):
             if not group:
@@ -1186,6 +1203,18 @@ class ChatContextBuilder:
                     overflow += 1
                     continue
                 section.append(_render_prompt_state_line(seq, seg))
+                content = seg.get("content") or ""
+                if any(marker in content for marker in CONDITION_MARKERS):
+                    if len(content) > MAX_CHECKED_CHARS:
+                        section.append(_PROMPT_STATE_SKIPPED_LONG)
+                    elif not budget.take(content):
+                        section.append(_PROMPT_STATE_SKIPPED_BUDGET)
+                    else:
+                        problems = condition_problems(content, variables or None)[:_PROMPT_STATE_MAX_CONDITION_PROBLEMS]
+                        section.extend(
+                            f"     condition problem: {_cap_text(problem, _PROMPT_STATE_CONDITION_PROBLEM_CHARS)}"
+                            for problem in problems
+                        )
                 emitted += 1
             if section:
                 lines.append(title)
@@ -1197,9 +1226,11 @@ class ChatContextBuilder:
                 else f"…and {overflow} more segments."
             )
 
+        variable_lines = condition_variable_lines(variables)
+        block_limit = _PROMPT_STATE_MAX_BLOCK_CHARS - sum(len(line) + 1 for line in variable_lines)
         block = "\n".join(lines)
-        if len(block) > _PROMPT_STATE_MAX_BLOCK_CHARS:
-            head = block[:_PROMPT_STATE_MAX_BLOCK_CHARS]
+        if len(block) > block_limit:
+            head = block[:block_limit]
             if "\n" in head:
                 head = head.rsplit("\n", 1)[0]
             block = head.rstrip() + (
@@ -1207,6 +1238,8 @@ class ChatContextBuilder:
                 if segments_offered
                 else "\n…(truncated)"
             )
+        if variable_lines:
+            block = "\n".join([block, *variable_lines])
         context_budget.attach_context_block(conversation_history, block)
 
     async def suggest_resources(

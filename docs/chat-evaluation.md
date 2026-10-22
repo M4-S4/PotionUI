@@ -326,6 +326,33 @@ live conversation) rather than a bare score:
 Evidence: <path to report/transcript A>, <path to report/transcript B>
 ```
 
+## Prompt conditions pack
+
+`tests/e2e/harness/chat_conditions_eval.py` drives five prompt-condition requests (if / else if /
+otherwise on a Choice variable, a Number comparison, editing an existing condition, explaining one, and
+option values holding `"` and `>`) through the real streaming endpoint and prints PASS/FAIL per case. A
+writing case passes when one `update_segment`/`add_segment` proposal parses cleanly against the case's
+variables and renders the expected words for every value it is tried with; the explaining case passes
+when the reply proposes nothing and names the values and branch texts.
+
+It never talks to a running instance. It pins `POTIONUI_DB_PATH`, `POTIONUI_STORAGE_PATH`,
+`POTIONUI_MODELS_DIR`, `POTIONUI_RECIPES_DIR` and `POTIONUI_LOG_DIR` inside a fresh temp directory,
+refuses to continue if any of them points elsewhere, boots a throwaway backend on a free port, creates
+an LLM configuration there with `memory_reflection: false`, and removes the directory afterwards
+(`--keep` leaves it with the backend log).
+
+```bash
+source ./venv/bin/activate
+python tests/e2e/harness/chat_conditions_eval.py --self-check
+python tests/e2e/harness/chat_conditions_eval.py --dry-run --model qwen3:14b
+python tests/e2e/harness/chat_conditions_eval.py --type ollama --base-url http://127.0.0.1:11434 --model qwen3:14b
+python tests/e2e/harness/chat_conditions_eval.py --type openai --base-url https://api.example.com/v1 \
+  --model some-model --api-key-env SOME_API_KEY --case value_with_special_characters --out conditions.json
+```
+
+`--self-check` scores each case's canned good and bad reply offline; `tests/scripts/test_chat_conditions_eval.py`
+runs it on every test run.
+
 ## Ground rule
 
 A default app prompt (a chat mode's system prompt, a tool's `description`/

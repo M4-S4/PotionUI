@@ -77,9 +77,48 @@ class TestConditionGrammarGuidance:
 
     def test_grammar_is_taught_without_any_tool(self):
         prompt = self._resolve([])
-        assert "<<if $age > 65>>grey hair<<else if $age < 25>>youthful<<else>>auburn hair<<end>>" in prompt
-        assert "in 18..30" in prompt
+        assert "<<if TEST>>text<<else if TEST>>text<<else>>text<<end>>" in prompt
+        assert "<<if $age > 65>>grey hair<<else if $age in 18..30>>youthful skin<<end>>" in prompt
+        assert '<<if $mood = "noir">>rain-soaked neon<<else if $mood in "sunlit", "golden hour">>' in prompt
+        assert '<<if $record = "12\\" vinyl" and $era is not empty>>' in prompt
         assert "never both" in prompt
-        assert "no nesting" in prompt
-        assert f"up to {MAX_TESTS} tests" in prompt
+        assert "never sits inside another one" in prompt
+        assert f"Join up to {MAX_TESTS} tests" in prompt
+        assert "Never {% if %}, ==, &&, elif or endif." in prompt
         assert "{{#if" not in prompt
+        assert "write_condition" not in prompt
+        assert "manage_prompt_variables" not in prompt
+
+    def test_every_example_parses_and_teaches_only_valid_grammar(self):
+        from src.features.prompt import conditions
+
+        prompt = self._resolve([])
+        section = prompt.split("## Prompt conditions", 1)[1].split("## ", 1)[0]
+        examples = [line for line in section.splitlines() if line.startswith("<<if $")]
+        assert len(examples) == 3
+        for example in examples:
+            parsed = conditions.parse_template(example)
+            assert parsed is not None and not parsed.errors and len(parsed.blocks) == 1
+
+    def test_tool_lines_appear_only_when_offered(self):
+        prompt = self._resolve(["write_condition", "manage_prompt_variables", "get_current_segments"])
+        assert "with write_condition and paste its text verbatim" in prompt
+        assert "An option's `when` in manage_prompt_variables is different" in prompt
+        assert "PROMPT STATE lists the tab's variables with their exact values." in prompt
+        assert "PROMPT STATE lists" not in self._resolve([])
+
+    @staticmethod
+    def _section(prompt):
+        return "## Prompt conditions" + prompt.split("## Prompt conditions", 1)[1].split("\n## ", 1)[0]
+
+    def test_the_prompts_mode_teaches_the_same_guide_while_a_prompt_tool_is_offered(self):
+        from src.features.chat.modes import build_prompts_mode
+
+        registry = ChatModeRegistry()
+        for tool in ("get_prompt", "add_prompt", "edit_prompt"):
+            prompt = registry.resolve_system_prompt(build_prompts_mode(), "", [tool])
+            assert self._section(prompt) == self._section(self._resolve([]))
+            assert "{{#" not in prompt
+        assert "## Prompt conditions" not in registry.resolve_system_prompt(
+            build_prompts_mode(), "", ["list_prompts", "search_model_prompts", "delete_prompt"]
+        )

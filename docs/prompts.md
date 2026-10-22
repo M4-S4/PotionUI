@@ -113,6 +113,24 @@ stray `<<else>>`/`<<end>>`, nesting, more than 128 blocks or 32 branches per cha
 20,000 characters) is removed and the text around it is kept. A malformed head inside a good block
 counts as false. Either case raises one "Check your prompt" warning per generation.
 
+Reading a head costs up to 4,098 characters when it never reaches `>>`, so one scan of a text reads at
+most 80,000 characters (`MAX_HEAD_SCAN_CHARS`, four times the 20,000-character window) of heads that
+never close. Once that is spent, every further `<<if`/`<<else if` in the same scan is a malformed tag. A
+prompt needs about twenty unclosed tags before this happens, and both parsers count code points
+identically, so a 20 KB flood of junk tags parses in a few milliseconds on either side.
+
+**PotionAI.** The generation mode's system prompt teaches the grammar with three examples
+(`src/features/chat/modes/builtin.py`). Each turn's PROMPT STATE lists the tab's variables with the
+exact values a condition compares against, choice options quoted the way a condition writes them
+(`"12\" vinyl"`), and flags a broken condition under its segment. `write_condition`
+(`src/features/llm/tools/builtin/condition_tool.py`, generation mode, no approval) builds a block from
+structured branches with `conditions.format_block`, or checks hand-written text against the tab's
+variables, and returns the text to paste. Tools that save segment text refuse malformed tags with the
+exact problem and, when the slip is mechanical, the corrected text
+(`src/features/llm/tools/builtin/condition_text.py`). A `<tool_action>` segment proposal written with
+`{% if %}`, `elif`/`endif`, `==`, `&&`, single quotes or `${name}` inside a tag is rewritten into the
+grammar before the reply is saved; anything ambiguous is left as written for the card to flag.
+
 **Evaluation order, per image** (seed = base seed + image index):
 
 1. the `prompt.transform` `pre` hook runs on the template, tags included (handlers must leave

@@ -37,6 +37,7 @@ from src.features.llm.tools.builtin.prompt_variables_tool import (
     ListTabDraftsTool,
     ManagePromptVariablesTool,
 )
+from src.features.llm.tools.builtin.condition_tool import WriteConditionTool
 from src.features.llm.tools.builtin.search_prompts_tool import SearchModelPromptsTool
 from src.features.llm.tools.builtin.search_gallery_tool import SearchGalleryTool
 from src.features.llm.tools.builtin.manage_prompts_tool import (
@@ -95,6 +96,7 @@ def register_builtin_tools(registry) -> None:
         GetPromptVariablesTool(),
         ManagePromptVariablesTool(),
         ListTabDraftsTool(),
+        WriteConditionTool(),
         SearchModelPromptsTool(),
         SearchGalleryTool(),
         GetPromptTool(),

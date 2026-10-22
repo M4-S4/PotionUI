@@ -17,6 +17,12 @@ MAX_STRING_CHARS = 2000
 MAX_NAME_CHARS = 60
 MAX_VALUE_NUMBER_CHARS = 40
 MAX_SCRUB_PASSES = 8
+MAX_HEAD_SCAN_CHARS = 4 * MAX_SCAN_CHARS
+
+NUMBER_PATTERN = r"-?[0-9]+(?:\.[0-9]+)?"
+OPERATORS = (
+    "=", "!=", "<", "<=", ">", ">=", "in", "not in", "contains", "not contains", "is empty", "is not empty",
+)
 
 _WS = r"[ \t\r\n]"
 _OPEN = re.compile(rf"<<(if|else{_WS}+if){_WS}+")
@@ -24,7 +30,7 @@ _JUNK = re.compile(rf"<<(?:if|else|end)(?={_WS}|>)(?:[^>\r\n]{{0,60}}>>)?")
 _HEAD = re.compile(r'(?:[^">\\]|\\.|"(?:[^"\\]|\\.)*"|>(?!>))*', re.DOTALL)
 _WS_RUN = re.compile(rf"{_WS}+")
 _VAR = re.compile(rf"\$([A-Za-z_][A-Za-z0-9_]{{0,{MAX_NAME_CHARS - 1}}})(?![A-Za-z0-9_])")
-_NUM = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+_NUM = re.compile(NUMBER_PATTERN)
 _STR = re.compile(r'"((?:[^"\\]|\\["\\])*)"')
 _IS_EMPTY = re.compile(rf"is{_WS}+(not{_WS}+)?empty(?![A-Za-z0-9_])")
 _OP = re.compile(
@@ -33,7 +39,7 @@ _OP = re.compile(
 _TAIL_TAG = re.compile(rf"<<(?:end>>|else>>|(?:if|else|end)(?={_WS}|>))")
 _JOINER = re.compile(r"(and|or)(?![A-Za-z0-9_])")
 _UNESCAPE = re.compile(r"\\(.)", re.DOTALL)
-_NUMERIC_VALUE = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+_NUMERIC_VALUE = re.compile(NUMBER_PATTERN)
 _SENTINEL = re.compile(SENTINEL_OPEN + r"([0-9]+)" + SENTINEL_CLOSE)
 _SENTINEL_CHARS = str.maketrans("", "", SENTINEL_OPEN + SENTINEL_CLOSE)
 
@@ -282,18 +288,21 @@ def choose_branch(block: Block, values: Mapping[str, str]) -> Tuple[Optional[int
     return None, ""
 
 
-def _read_tag(text: str, i: int) -> Optional[_Tok]:
+def _read_tag(text: str, i: int, allowance: List[int]) -> Optional[_Tok]:
     if text.startswith("<<end>>", i):
         return _Tok("end", i, i + 7)
     if text.startswith("<<else>>", i):
         return _Tok("else", i, i + 8)
     m = _OPEN.match(text, i)
     if m:
+        if allowance[0] <= 0:
+            return _Tok("junk", i, m.end())
         limit = min(len(text), m.end() + MAX_HEAD_CHARS + 2)
         hm = _HEAD.match(text, m.end(), limit)
         if text.startswith(">>", hm.end()) and hm.end() - m.end() <= MAX_HEAD_CHARS:
             kind = "if" if m.group(1) == "if" else "elseif"
             return _Tok(kind, i, hm.end() + 2, text[m.end():hm.end()].strip())
+        allowance[0] -= limit - m.end()
         return _Tok("junk", i, m.end())
     j = _JUNK.match(text, i)
     if j:
@@ -303,12 +312,13 @@ def _read_tag(text: str, i: int) -> Optional[_Tok]:
 
 def _tokenize(text: str) -> Tuple[List[_Tok], int]:
     toks: List[_Tok] = []
+    allowance = [MAX_HEAD_SCAN_CHARS]
     pos = 0
     while True:
         i = text.find("<<", pos)
         if i < 0 or i >= MAX_SCAN_CHARS:
             return toks, pos
-        tag = _read_tag(text, i)
+        tag = _read_tag(text, i, allowance)
         if tag is None:
             pos = i + 1
         else:
@@ -494,3 +504,42 @@ def render_conditions(text: str, values: Mapping[str, str]) -> Tuple[str, List[C
     if parsed is None:
         return text, []
     return render_parsed(parsed, values), list(parsed.errors)
+
+
+def tag_head(text: str, offset: int) -> Optional[str]:
+    tok = _read_tag(text, offset, [MAX_HEAD_SCAN_CHARS])
+    return tok.head if tok is not None and tok.kind in ("if", "elseif") else None
+
+
+def format_string(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def format_number(value: Decimal) -> str:
+    return format(value, "f")
+
+
+def format_test(test: Predicate) -> str:
+    head = f"${test.var} {test.op}"
+    if test.kind == "none":
+        return head
+    if test.kind == "number":
+        return f"{head} {format_number(test.number)}"
+    if test.kind == "range":
+        return f"{head} {format_number(test.low)}..{format_number(test.high)}"
+    return f"{head} {', '.join(format_string(value) for value in test.strings)}"
+
+
+def format_condition(cond: Cond) -> str:
+    return f" {cond.joiner} ".join(format_test(test) for test in cond.tests)
+
+
+def format_block(branches: Sequence[Branch]) -> str:
+    parts: List[str] = []
+    for branch in branches:
+        if branch.kind == "else":
+            parts.append(f"<<else>>{branch.body}")
+        else:
+            tag = "if" if branch.kind == "if" else "else if"
+            parts.append(f"<<{tag} {format_condition(branch.cond)}>>{branch.body}")
+    return "".join(parts) + "<<end>>"

@@ -213,8 +213,12 @@ def _category_payload(category) -> Dict[str, Any]:
     }
 
 
-def _template_texts(request) -> list:
-    return [text for segment in request.segments for text in (segment.content, segment.prefix, segment.suffix)]
+def _template_texts(request) -> dict:
+    return {
+        f"segment {index} {field}": getattr(segment, field)
+        for index, segment in enumerate(request.segments, start=1)
+        for field in ("content", "prefix", "suffix")
+    }
 
 
 def _preview_fields(request, existing, labels) -> list:
@@ -281,7 +285,7 @@ class CreateSavedSegmentTool(_SavedSegmentTool):
 
     def _preview(self, context, kwargs):
         request = SavedSegmentRequest(**_supplied(_SEGMENT_FIELDS, kwargs))
-        ensure_condition_tags((request.content, request.prefix, request.suffix))
+        ensure_condition_tags({"content": request.content, "prefix": request.prefix, "suffix": request.suffix})
         category = operations.get_category(context.segment_category_repository, request.category_id, context.user_id)
         if context.saved_segment_repository.get_by_name(request.name, context.user_id):
             raise ValueError("Saved Segment with this name already exists")
@@ -333,7 +337,7 @@ class UpdateSavedSegmentTool(_SavedSegmentTool):
         if not _supplied(_SEGMENT_FIELDS, kwargs):
             raise ValueError("No saved Segment fields were supplied")
         request = self._request(existing, kwargs)
-        ensure_condition_tags((request.content, request.prefix, request.suffix))
+        ensure_condition_tags({"content": request.content, "prefix": request.prefix, "suffix": request.suffix})
         block = {"label": "Content", "text": request.content}
         if request.content != existing.content:
             block["old_text"] = existing.content

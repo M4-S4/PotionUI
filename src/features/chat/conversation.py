@@ -231,6 +231,7 @@ class ConversationRunner:
         )
         self._m._context.inject_prompt_state_block(
             conversation_history, context_metadata, offered_tools=offered_tool_names,
+            variable_reader=self._m._context.prompt_state_variable_reader(user_id, context_metadata),
         )
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
@@ -599,6 +600,7 @@ class ConversationRunner:
         )
         self._m._context.inject_prompt_state_block(
             conversation_history, context_metadata, offered_tools=offered_tool_names,
+            variable_reader=self._m._context.prompt_state_variable_reader(user_id, context_metadata),
         )
         self._m._context.inject_reply_contract_reminder_block(conversation_history, mode, tool_tier)
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)

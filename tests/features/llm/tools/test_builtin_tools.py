@@ -123,6 +123,7 @@ class TestRegisterBuiltinTools:
             "get_prompt_variables",
             "manage_prompt_variables",
             "list_tab_drafts",
+            "write_condition",
             "search_model_prompts",
             "search_gallery",
             "get_prompt",

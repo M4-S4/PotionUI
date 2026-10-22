@@ -25,9 +25,9 @@ _STANDARD = context_budget.TOOL_TIER_STANDARD
 _LARGE = context_budget.TOOL_TIER_LARGE
 
 _FIXED_OVERHEAD_CHARS = {
-    ("generation", _LARGE): 46221,
-    ("generation", _STANDARD): 33371,
-    ("generation", _COMPACT): 23377,
+    ("generation", _LARGE): 49386,
+    ("generation", _STANDARD): 36536,
+    ("generation", _COMPACT): 26542,
     ("history", _LARGE): 13261,
     ("history", _STANDARD): 13261,
     ("history", _COMPACT): 10460,
@@ -37,9 +37,9 @@ _FIXED_OVERHEAD_CHARS = {
     ("phrasebook", _LARGE): 13992,
     ("phrasebook", _STANDARD): 13992,
     ("phrasebook", _COMPACT): 11191,
-    ("prompts", _LARGE): 13544,
-    ("prompts", _STANDARD): 13544,
-    ("prompts", _COMPACT): 10743,
+    ("prompts", _LARGE): 14712,
+    ("prompts", _STANDARD): 14712,
+    ("prompts", _COMPACT): 11911,
 }
 
 
