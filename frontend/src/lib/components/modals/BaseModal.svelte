@@ -122,7 +122,7 @@
 		>
 			<!-- Header (rendered only when title or close button is needed) -->
 			{#if title || subtitle || $$slots.header || (!hideCloseButton && closeable)}
-				<div class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-line flex-shrink-0">
+				<div class="flex items-center justify-between gap-3 min-h-[52px] py-[7px] pl-4 pr-2 md:min-h-14 md:py-[9px] md:pl-5 md:pr-2.5 border-b border-line flex-shrink-0">
 					<div class="flex flex-wrap items-center gap-3 flex-1 min-w-0">
 						{#if $$slots.headerIcon}
 							<slot name="headerIcon" />
@@ -133,14 +133,14 @@
 									<h2 class="text-lg font-semibold text-fg truncate">{title}</h2>
 								{/if}
 								{#if subtitle}
-									<p class="text-xs text-fg-muted mt-0.5 truncate">{subtitle}</p>
+									<p class="text-sm text-fg-muted mt-0.5 truncate">{subtitle}</p>
 								{/if}
 							</div>
 						{/if}
 						<slot name="header" />
 					</div>
 					{#if !hideCloseButton && closeable}
-						<IconButton icon="close" label="Close modal" onclick={handleClose} />
+						<IconButton icon="close" label="Close modal" size="sm" onclick={handleClose} />
 					{/if}
 				</div>
 			{/if}

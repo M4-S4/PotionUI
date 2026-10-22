@@ -216,7 +216,7 @@
 			data-testid="floating-workbench-header"
 			class="flex flex-shrink-0 items-center justify-between border-b border-line px-4 py-3"
 		>
-			<span class="font-mono text-2xs uppercase tracking-wide text-fg-subtle">Workbench</span>
+			<span class="font-mono text-sm uppercase tracking-wide text-fg-subtle">Workbench</span>
 			<Tooltip text="Close" kbd={closeShortcut} position="left" delay={150}>
 				<IconButton icon="close" label="Close floating workbench" onclick={onClose} />
 			</Tooltip>

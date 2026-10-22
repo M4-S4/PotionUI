@@ -251,7 +251,8 @@ describe('SessionControl select', () => {
 		render({ hasUnsavedChanges: true });
 		expect(trigger().contains(saveSegment())).toBe(false);
 		expect(saveSegment().classList.contains('bg-surface-3')).toBe(true);
-		expect(saveSegment().classList.contains('h-7')).toBe(true);
+		expect(saveSegment().classList.contains('h-8')).toBe(true);
+		expect(saveSegment().classList.contains('h-7')).toBe(false);
 		expect(target.querySelector('[data-testid="session-reload"]')!.classList.contains('ctx-select')).toBe(false);
 	});
 });
@@ -334,15 +335,24 @@ describe('SessionControl reload button', () => {
 
 	it('widens the segment by the button so the session chip keeps its minimum and maximum width', () => {
 		render();
-		expect(segment().classList.contains('min-w-[258px]')).toBe(true);
-		expect(segment().classList.contains('max-w-[438px]')).toBe(true);
+		expect(segment().classList.contains('min-w-[262px]')).toBe(true);
+		expect(segment().classList.contains('max-w-[442px]')).toBe(true);
 		rerender({ currentSession: null, selectedSessionId: '' });
 		expect(segment().classList.contains('min-w-[224px]')).toBe(true);
 		expect(segment().classList.contains('max-w-[404px]')).toBe(true);
 	});
 
+	it('makes the button as tall and wide as the 32px context tools', () => {
+		render();
+		const classes = reloadButton()!.classList;
+		expect(classes.contains('min-h-8')).toBe(true);
+		expect(classes.contains('min-w-8')).toBe(true);
+		expect(classes.contains('!min-h-7')).toBe(false);
+		expect(classes.contains('!min-w-7')).toBe(false);
+	});
+
 	it('keeps the segment and the button the same size whether the session is clean or dirty', () => {
-		const size = ['!min-h-7', '!min-w-7', '!p-0'];
+		const size = ['min-h-8', 'min-w-8', '!p-0'];
 		render();
 		const clean = { segment: segment().className, size: size.filter((token) => reloadButton()!.classList.contains(token)) };
 		expect(clean.size).toEqual(size);

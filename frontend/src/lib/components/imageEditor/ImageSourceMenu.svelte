@@ -4,6 +4,7 @@
 	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
 	import UploadLibraryModal from '$lib/components/modals/UploadLibraryModal.svelte';
 	import { Spinner } from '$lib/components/ui';
+	import { primaryModifier } from '$lib/utils/platform';
 	import { PAINT_ICONS } from './icons';
 	import { canvasFromBlob, canvasFromUrl, displayName, generationImageUrl } from './loadPicked';
 	import { imageSources } from './registries';
@@ -83,7 +84,7 @@
 	function fromClipboard() {
 		finish(
 			readClipboard().catch(() => {
-				failure = 'The clipboard is not available here. Press Ctrl+V instead.';
+				failure = `The clipboard is not available here. Press ${primaryModifier()}+V instead.`;
 				return null;
 			})
 		);

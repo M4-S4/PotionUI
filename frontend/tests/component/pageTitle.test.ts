@@ -33,8 +33,8 @@ describe('PageTitle', () => {
 		expect(heading.className.split(/\s+/)).toEqual(expect.arrayContaining(['text-sm', 'font-semibold', 'truncate']));
 		const label = eyebrow() as HTMLElement;
 		expect(label.textContent?.replace(/\s+/g, ' ').trim()).toBe('214 generations');
-		expect(label.className.split(/\s+/)).toEqual(expect.arrayContaining(['text-xs', 'tabular-nums', 'uppercase']));
-		expect(label.className).not.toContain('text-2xs');
+		expect(label.className.split(/\s+/)).toEqual(expect.arrayContaining(['text-sm', 'tabular-nums', 'uppercase']));
+		expect(label.className).not.toMatch(/\btext-(2xs|xs)\b/);
 	});
 
 	it('renders a bare count when no label is given and a string count verbatim', () => {
@@ -54,7 +54,8 @@ describe('PageTitle', () => {
 		expect(line.textContent).toBe('Manage your account and application settings');
 		expect(line.previousElementSibling?.tagName).toBe('H1');
 		const classes = line.className.split(/\s+/);
-		expect(classes).toEqual(expect.arrayContaining(['text-xs', 'text-fg-muted', 'truncate', 'hidden', 'sm:block']));
+		expect(classes).toEqual(expect.arrayContaining(['text-sm', 'text-fg-muted', 'truncate', 'hidden', 'sm:block']));
+		expect(classes).not.toEqual(expect.arrayContaining(['text-xs']));
 		expect(classes).not.toEqual(expect.arrayContaining(['font-mono']));
 		expect(classes).not.toEqual(expect.arrayContaining(['uppercase']));
 	});

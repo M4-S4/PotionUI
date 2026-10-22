@@ -10,6 +10,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, Kbd } from '$lib/components/ui';
 	import { topDismissLayer } from '$lib/actions/layerStack';
+	import { primaryModifier } from '$lib/utils/platform';
 	import { createConfirmSettlementGate } from './confirmKeyboard';
 
 	let {
@@ -214,7 +215,7 @@
 					>
 						<span class="inline-flex items-center gap-2">
 							{cancelLabel}
-							<span class="max-md:hidden"><Kbd keys="Esc" size="lg" /></span>
+							<span class="max-md:hidden"><Kbd keys="Esc" /></span>
 						</span>
 					</Button>
 				{/if}
@@ -229,7 +230,7 @@
 				>
 					<span class="inline-flex items-center gap-2" data-segment-modal-primary>
 						{primaryLabel}
-						<span class="max-md:hidden"><Kbd keys={submit === 'ctrl' ? ['Ctrl', 'Enter'] : 'Enter'} size="lg" /></span>
+						<span class="max-md:hidden"><Kbd keys={submit === 'ctrl' ? [primaryModifier(), 'Enter'] : 'Enter'} /></span>
 					</span>
 				</Button>
 			</div>

@@ -520,21 +520,9 @@ button { cursor: pointer; }
 
 .modal-body { padding: 14px; }
 
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-
-.form-grid .full { grid-column: 1 / -1; }
-
-.field-label { display: block; margin-bottom: 5px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; text-transform: uppercase; letter-spacing: .08em; }
-
 .field { width: 100%; height: 34px; padding: 0 9px; color: rgb(var(--fg)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 5px; font-size: 9px; }
 
 textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
-
-.swatches { display: flex; gap: 6px; }
-
-.swatch { width: 25px; height: 25px; padding: 0; border-radius: 5px; background: var(--swatch); border: 2px solid transparent; }
-
-.swatch.active { border-color: rgb(var(--fg)); box-shadow: 0 0 0 2px rgb(var(--surface-1)), 0 0 0 3px var(--swatch); }
 
 .modal-foot { height: 52px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 14px; border-top: 1px solid rgb(var(--line)); }
 
@@ -657,31 +645,6 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .picker-breadcrumb .crumb:focus-visible {
 	color: rgb(var(--fg));
 	text-decoration: underline;
-}
-
-/* The details modal keeps its existing custom-colour swatch (a real picker
-   the mock doesn't show alongside its five presets) and its "Clear" action,
-   both styled in the mock's own field/swatch idiom rather than left in the
-   old Tailwind-utility skin. */
-.swatch-current {
-	display: inline-flex;
-	width: 25px;
-	height: 25px;
-	flex-shrink: 0;
-	cursor: pointer;
-	border-radius: 5px;
-	box-shadow: inset 0 0 0 1px rgb(var(--line-strong));
-}
-.clear-color {
-	flex-shrink: 0;
-	color: rgb(var(--fg-subtle));
-	font: 400 6px "IBM Plex Mono";
-	text-transform: uppercase;
-	letter-spacing: .08em;
-	transition: color .15s ease;
-}
-.clear-color:hover {
-	color: rgb(var(--fg));
 }
 
 /* The resolved preview distinguishes more token kinds than the mock's single

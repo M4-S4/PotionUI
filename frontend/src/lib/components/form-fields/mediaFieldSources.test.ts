@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { sourceEntries, type MediaSource } from './mediaFieldSources';
 
 function sources(kind: 'image' | 'video' | 'audio' | null, offersDraw = false): MediaSource[] {
@@ -24,5 +24,25 @@ describe('sourceEntries', () => {
 
 	it('offers every door when the kind is not narrowed', () => {
 		expect(sources(null, true)).toEqual(['browse', 'paste', 'history', 'library', 'draw']);
+	});
+});
+
+describe('the paste shortcut hint', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	function pasteShortcut(): string | undefined {
+		return sourceEntries({ kind: 'image', offersDraw: false }).find((entry) => entry.source === 'paste')?.shortcut;
+	}
+
+	it('names Ctrl on Windows and Linux', () => {
+		vi.stubGlobal('navigator', { platform: 'Win32' });
+		expect(pasteShortcut()).toBe('Ctrl V');
+	});
+
+	it('names the command key on macOS', () => {
+		vi.stubGlobal('navigator', { platform: 'MacIntel' });
+		expect(pasteShortcut()).toBe('⌘ V');
 	});
 });

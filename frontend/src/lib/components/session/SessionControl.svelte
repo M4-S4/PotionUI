@@ -53,7 +53,7 @@
 	let saveDisabled = $derived(saveState === 'unavailable' || saveState === 'saved');
 	let segmentWidth = $derived(
 		current
-			? `${compact ? 'min-w-[210px]' : 'min-w-[258px]'} max-w-[438px]`
+			? `${compact ? 'min-w-[214px]' : 'min-w-[262px]'} max-w-[442px]`
 			: `${compact ? 'min-w-[176px]' : 'min-w-[224px]'} max-w-[404px]`
 	);
 	let reloadDisabled = $derived(!dirty || saving);
@@ -164,7 +164,7 @@
 				<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
 			</button>
 		</Tooltip>
-		{@render saveButton(`h-7 rounded text-sm ${saveDisabled ? 'bg-surface-3/50' : 'bg-surface-3 hover:bg-line-hover'}`)}
+		{@render saveButton(`h-8 rounded text-sm ${saveDisabled ? 'bg-surface-3/50' : 'bg-surface-3 hover:bg-line-hover'}`)}
 		{#if current}
 			<Tooltip text={reloadTip} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
 				<IconButton
@@ -172,7 +172,7 @@
 					label="Reload from last snapshot"
 					variant="secondary"
 					size="sm"
-					class="!min-h-7 !min-w-7 !p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
+					class="!p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
 					aria-disabled={reloadDisabled ? 'true' : undefined}
 					data-testid="session-reload"
 					onclick={reload}

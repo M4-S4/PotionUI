@@ -357,7 +357,7 @@
 					data-testid="workbench-pane"
 					on:click={toggleWorkbenchCollapsed}
 				>
-					<span class="workbench-rail-label font-mono text-2xs uppercase tracking-wider text-fg-subtle">Workbench</span>
+					<span class="workbench-rail-label font-mono text-sm uppercase tracking-wider text-fg-subtle">Workbench</span>
 					<Icon
 						name="chevron-left"
 						className="h-3 w-3 text-fg-subtle transition-colors group-hover:text-fg"
@@ -404,10 +404,10 @@
 					data-testid="workbench-pane"
 					on:click={toggleWorkbenchCollapsed}
 				>
-					<span class="font-mono text-2xs uppercase tracking-wider text-fg-subtle">Workbench</span>
+					<span class="font-mono text-sm uppercase tracking-wider text-fg-subtle">Workbench</span>
 					<span class="flex items-center gap-1.5 text-fg-subtle transition-colors group-hover:text-fg">
 						<Icon name="chevron-down" className="h-3 w-3" />
-						<span class="text-xs">Expand</span>
+						<span class="text-sm">Expand</span>
 						{#if $shortcutLabels['toggle_workbench_panel']}
 							<Kbd keys={$shortcutLabels['toggle_workbench_panel']} />
 						{/if}

@@ -25,6 +25,8 @@ export default {
 				},
 				line: { DEFAULT: t('line'), strong: t('line-strong'), hover: t('line-hover') },
 				field: { bg: t('field-bg'), border: t('field-border') },
+				'control-fill': t('control-fill'),
+				'control-fill-hover': t('control-fill-hover'),
 				accent: {
 					DEFAULT: t('accent'),
 					hover: t('accent-hover'),

@@ -384,7 +384,7 @@
 										Plugin
 									</span>
 								{:else if availability.enabled && tool.shortcut && !sheet}
-									<Kbd keys={shortcutKeys(tool.shortcut)} size="md" />
+									<Kbd keys={shortcutKeys(tool.shortcut)} />
 								{/if}
 							</button>
 						</Tooltip>

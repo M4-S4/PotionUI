@@ -10,7 +10,6 @@
 	export let position: 'top' | 'bottom' | 'left' | 'right' = 'top';
 	export let delay: number = 200;
 	export let kbd: string | undefined = undefined;
-	export let kbdSize: 'sm' | 'md' = 'sm';
 	export let wrapperClass: string = 'inline-flex items-center';
 	export let truncateOnly: boolean = false;
 
@@ -74,5 +73,5 @@
 </div>
 
 {#if showTooltip && text}
-	<TooltipBubble {text} {id} {position} {kbd} {kbdSize} anchor={triggerElement} />
+	<TooltipBubble {text} {id} {position} {kbd} anchor={triggerElement} />
 {/if}

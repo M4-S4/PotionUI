@@ -5,6 +5,7 @@
 	import { api } from '$lib/services/api/index';
 	import type { EditedMediaItem, UploadFileInfo } from '$lib/services/api/media';
 	import { formatBytes } from '$lib/utils/format';
+	import { primaryModifier } from '$lib/utils/platform';
 	import MediaPreviewModal from '$lib/components/modals/MediaPreviewModal.svelte';
 	import type { MediaEditorKind, MediaEditorRequest, MediaEditorResult } from '$lib/media/editors';
 	import Icon from '$lib/components/Icon.svelte';
@@ -60,6 +61,8 @@
 	import type { Readable } from 'svelte/store';
 
 	type Item = Record<string, unknown>;
+
+	const modifier = primaryModifier();
 
 	export let name: string | null;
 	export let config: any = {};
@@ -809,7 +812,7 @@
 			{/if}
 			<div class="flex-1"></div>
 			{#if isPasteActive && face === 'strip'}
-				<span class="font-mono text-xs text-signal">Paste armed · Ctrl V</span>
+				<span class="font-mono text-xs text-signal">Paste armed · {modifier} V</span>
 			{/if}
 			{#if countText}
 				<span

@@ -21,7 +21,7 @@
 		: 'border-transparent text-fg-muted hover:bg-surface-3/50 hover:text-fg';
 </script>
 
-<Tooltip text={label} {kbd} kbdSize="md" {position} wrapperClass="inline-flex shrink-0">
+<Tooltip text={label} {kbd} {position} wrapperClass="inline-flex shrink-0">
 	<button
 		type="button"
 		aria-label={label}

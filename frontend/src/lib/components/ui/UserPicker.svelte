@@ -121,7 +121,7 @@
 		aria-label="Users"
 	>
 		{#if filtered.length === 0}
-			<p class="px-3 py-6 text-center text-xs text-fg-subtle">No users match</p>
+			<p class="px-3 py-6 text-center text-sm text-fg-subtle">No users match</p>
 		{:else}
 			{#each filtered as u, i (u.id)}
 				<label
@@ -140,7 +140,7 @@
 					<span class="min-w-0 flex-1 truncate text-fg">{u.username}</span>
 					{#if u.email}
 						<Tooltip text={u.email} wrapperClass="min-w-0 max-w-[9rem]">
-							<span class="block truncate text-xs text-fg-muted">{u.email}</span>
+							<span class="block truncate text-sm text-fg-muted">{u.email}</span>
 						</Tooltip>
 					{/if}
 				</label>
@@ -149,11 +149,11 @@
 	</div>
 
 	<div class="flex items-center justify-between">
-		<span class="font-mono text-2xs tabular-nums text-fg-subtle">{count} selected</span>
+		<span class="font-mono text-sm tabular-nums text-fg-subtle">{count} selected</span>
 		{#if count > 0}
 			<button
 				type="button"
-				class="text-xs text-fg-muted hover:text-fg hover:underline underline-offset-2 disabled:opacity-50"
+				class="text-sm text-fg-muted hover:text-fg hover:underline underline-offset-2 disabled:opacity-50"
 				onclick={clear}
 				{disabled}
 			>

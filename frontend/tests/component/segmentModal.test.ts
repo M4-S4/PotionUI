@@ -35,6 +35,7 @@ async function press(key: string, init: KeyboardEventInit = {}, target: EventTar
 }
 
 afterEach(() => {
+	vi.unstubAllGlobals();
 	if (instance) unmount(instance);
 	instance = null;
 	document.body.innerHTML = '';
@@ -84,6 +85,15 @@ describe('SegmentModal header and footer', () => {
 		open({ submit: 'ctrl', primaryLabel: 'Done' });
 		const primary = buttonStarting(dialog(), 'Done');
 		expect(primary.textContent?.replace(/\s+/g, '')).toBe('DoneCtrl+Enter');
+	});
+
+	it('shows the command key instead of Ctrl on macOS, where the same chord confirms', async () => {
+		vi.stubGlobal('navigator', { platform: 'MacIntel' });
+		const { onConfirm } = open({ submit: 'ctrl', primaryLabel: 'Done' });
+		const primary = buttonStarting(dialog(), 'Done');
+		expect(primary.textContent?.replace(/\s+/g, '')).toBe('Done⌘+Enter');
+		await press('Enter', { metaKey: true });
+		expect(onConfirm).toHaveBeenCalledTimes(1);
 	});
 });
 

@@ -278,9 +278,9 @@
 		</div>
 		<div class="flex flex-shrink-0 items-center gap-3 border-t border-line bg-surface-2/50 px-3 py-2 text-sm text-fg-subtle">
 			<div class="hidden items-center gap-3 md:flex">
-				<span class="flex items-center gap-1"><Kbd keys="↑↓" size="lg" /> move</span>
-				<span class="flex items-center gap-1"><Kbd keys="↵" size="lg" /> {multiple ? 'toggle' : 'pick'}</span>
-				<span class="flex items-center gap-1"><Kbd keys="Esc" size="lg" /> close</span>
+				<span class="flex items-center gap-1"><Kbd keys="↑↓" /> move</span>
+				<span class="flex items-center gap-1"><Kbd keys="↵" /> {multiple ? 'toggle' : 'pick'}</span>
+				<span class="flex items-center gap-1"><Kbd keys="Esc" /> close</span>
 			</div>
 			{#if footerText}
 				<span class="ml-auto font-mono tabular-nums" data-testid="option-summary">{footerText}</span>

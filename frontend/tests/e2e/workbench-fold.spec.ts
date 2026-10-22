@@ -78,6 +78,10 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 	const collapsedBox = await workbenchPane.boundingBox();
 	expect(collapsedBox).not.toBeNull();
 	expect(collapsedBox!.width).toBeLessThanOrEqual(RAIL_MAX_WIDTH_PX);
+	const railLabelSize = await page
+		.locator('.workbench-rail-label')
+		.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+	expect(railLabelSize).toBeGreaterThanOrEqual(12);
 
 	const promptsBoxAfter = await promptsPane.boundingBox();
 	expect(promptsBoxAfter).not.toBeNull();

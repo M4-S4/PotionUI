@@ -246,9 +246,9 @@
 
 	<div class="flex items-center justify-between gap-3 border-t border-line bg-surface-2/50 px-3 py-1.5 text-xs text-fg-subtle">
 		<div class="hidden items-center gap-3 md:flex">
-			<span class="flex items-center gap-1"><Kbd keys="↑↓" size="md" /> navigate</span>
-			<span class="flex items-center gap-1"><Kbd keys="↵" size="md" /> select</span>
-			<span class="flex items-center gap-1"><Kbd keys="esc" size="md" /> close</span>
+			<span class="flex items-center gap-1"><Kbd keys="↑↓" /> navigate</span>
+			<span class="flex items-center gap-1"><Kbd keys="↵" /> select</span>
+			<span class="flex items-center gap-1"><Kbd keys="esc" /> close</span>
 		</div>
 		<span class="ml-auto font-mono tabular-nums text-fg-muted">{rows.length}/{total}</span>
 	</div>

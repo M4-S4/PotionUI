@@ -5,6 +5,7 @@
 	import { Button, Kbd } from '$lib/components/ui';
 	import { resumeKeyboard, suppressKeyboard } from '$lib/services/keyboard';
 	import { isTypingInField } from '$lib/utils/editableTarget';
+	import { primaryModifier } from '$lib/utils/platform';
 	import type { EditorCommitFn, MediaEditorSource } from '$lib/media/editors/types';
 	import CanvasPanel from './CanvasPanel.svelte';
 	import type { DrawConfig } from './drawConfig';
@@ -33,6 +34,7 @@
 	type Sheet = 'tool' | 'layers' | 'canvas' | null;
 
 	const session = new PaintSession();
+	const modifier = primaryModifier();
 
 	let stageHost: HTMLDivElement;
 	let stageCanvas: HTMLCanvasElement;
@@ -379,7 +381,7 @@
 				<ToolButton
 					icon={PAINT_ICONS.undo}
 					label={state.undoLabel ? `Undo ${state.undoLabel}` : 'Undo'}
-					kbd="Ctrl+Z"
+					kbd="{modifier}+Z"
 					compact
 					disabled={!state.canUndo}
 					onClick={() => session.undo()}
@@ -387,7 +389,7 @@
 				<ToolButton
 					icon={PAINT_ICONS.redo}
 					label={state.redoLabel ? `Redo ${state.redoLabel}` : 'Redo'}
-					kbd="Ctrl+Y"
+					kbd="{modifier}+Y"
 					compact
 					disabled={!state.canRedo}
 					onClick={() => session.redo()}
@@ -555,7 +557,7 @@
 				<Button variant="ghost" size="sm" onclick={requestClose} disabled={busy}>Cancel</Button>
 				<Button variant="primary" size="sm" icon="check" onclick={openSave} disabled={busy || !state.ready}>
 					Save as new
-					<span class="ml-1 max-md:hidden"><Kbd keys="Ctrl+S" size="md" /></span>
+					<span class="ml-1 max-md:hidden"><Kbd keys="{modifier}+S" /></span>
 				</Button>
 			</div>
 

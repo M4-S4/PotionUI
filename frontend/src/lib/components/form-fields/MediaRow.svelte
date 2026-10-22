@@ -5,6 +5,7 @@
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 	import { Button, IconButton, Input } from '$lib/components/ui';
 	import type { MediaTool, MediaToolGroup } from '$lib/tools/tools';
+	import { primaryModifier } from '$lib/utils/platform';
 	import { mediaItemKey } from '$lib/utils/promptResources';
 	import MediaSourceMenu from './MediaSourceMenu.svelte';
 	import type { MediaSource } from './mediaFieldSources';
@@ -22,6 +23,8 @@
 	import { isDropAllowed, NO_DRAG, type DragState } from './mediaLoaderReorder';
 
 	type Item = Record<string, unknown>;
+
+	const modifier = primaryModifier();
 
 	let {
 		multiple,
@@ -262,7 +265,7 @@
 				{/snippet}
 			</MediaSourceMenu>
 			<span class="min-w-0 truncate font-mono text-xs text-fg-subtle">
-				{pasteArmed ? 'Paste armed · Ctrl V' : dragging ? 'Release to add' : 'or drop here'}
+				{pasteArmed ? `Paste armed · ${modifier} V` : dragging ? 'Release to add' : 'or drop here'}
 			</span>
 		</div>
 	{/if}

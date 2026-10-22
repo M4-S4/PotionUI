@@ -461,7 +461,7 @@
 					<div class="picker-valuecol" class:full={!showTree}>
 						{#if hasPreviewValues}
 							<div class="picker-values-head">
-								<span class="picker-kbd-hint"><Kbd keys="Space" size="lg" /> / <Kbd keys="→" size="lg" /> preview</span>
+								<span class="picker-kbd-hint"><Kbd keys="Space" /> / <Kbd keys="→" /> preview</span>
 							</div>
 						{/if}
 						<div class="picker-values">

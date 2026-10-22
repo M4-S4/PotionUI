@@ -38,7 +38,7 @@
 				<Icon name={entry.icon} className="w-4 h-4 shrink-0" />
 				<span class="flex-1 min-w-0 truncate">{entry.label}</span>
 				{#if entry.shortcut}
-					<Kbd keys={entry.shortcut.split(' ')} size="md" />
+					<Kbd keys={entry.shortcut.split(' ')} />
 				{/if}
 			</button>
 		{/each}

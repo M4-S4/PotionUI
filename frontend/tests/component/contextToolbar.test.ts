@@ -620,9 +620,9 @@ describe('ContextToolbar control styles', () => {
 		expect(Array.from(session.classList).filter((token) => token.startsWith('bg-'))).toEqual([]);
 		expect(session.className).not.toMatch(/segment-open|shadow-|border-signal/);
 		const save = saveButton();
-		expect(['h-7', 'rounded', 'bg-surface-3', 'text-accent', 'font-semibold'].every((token) => save.classList.contains(token))).toBe(true);
+		expect(['h-8', 'rounded', 'bg-surface-3', 'text-accent', 'font-semibold'].every((token) => save.classList.contains(token))).toBe(true);
 		for (const tool of Array.from(target.querySelectorAll<HTMLElement>('[data-context-tool], [data-testid="formulas-button"], [data-testid="context-tools-more"]'))) {
-			expect(['h-8', 'border', 'border-line', 'bg-surface-2'].every((token) => tool.classList.contains(token)), tool.textContent ?? '').toBe(true);
+			expect(['h-8', 'border', 'border-line', 'bg-control-fill', 'hover:bg-control-fill-hover'].every((token) => tool.classList.contains(token)), tool.textContent ?? '').toBe(true);
 		}
 	});
 

@@ -131,7 +131,7 @@
 
 	/* Mono micro-label — the camera-HUD label style (SEED 4211984, 1024×1024 …) */
 	.label {
-		@apply inline-block font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle mb-1;
+		@apply inline-block font-mono text-sm font-medium uppercase tracking-[0.07em] text-fg-subtle mb-1;
 	}
 
 	/* Fields flow directly on the panel — the catalog's boxes are column
@@ -139,10 +139,6 @@
 	   whitespace, and section rules. */
 	.field-card {
 		@apply py-1.5;
-	}
-
-	.keybinding-hint {
-		@apply ml-2 px-1.5 py-0.5 text-2xs font-mono rounded-sm bg-surface-3 text-fg-muted border border-line-hover;
 	}
 
 	/* Dot-grid backing — empty states and transparent-media backdrops */

@@ -191,7 +191,7 @@
 
 	function toolClass(pressed: boolean | undefined): string {
 		return `flex h-8 flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded border px-2.5 text-sm transition-colors ${
-			pressed ? 'border-signal/50 bg-signal/10 text-signal' : 'border-line bg-surface-2 text-fg hover:border-line-hover hover:bg-surface-3'
+			pressed ? 'border-signal/50 bg-signal/10 text-signal' : 'border-line bg-control-fill text-fg hover:border-line-hover hover:bg-control-fill-hover'
 		}`;
 	}
 
@@ -450,8 +450,8 @@
 						<button
 							type="button"
 							class="relative flex h-8 flex-shrink-0 items-center gap-1.5 rounded border px-2.5 transition-colors {menu.open
-								? 'border-line-hover bg-surface-3 text-fg'
-								: 'border-line bg-surface-2 text-fg hover:border-line-hover hover:bg-surface-3'}"
+								? 'border-line-hover bg-control-fill-hover text-fg'
+								: 'border-line bg-control-fill text-fg hover:border-line-hover hover:bg-control-fill-hover'}"
 							aria-label="More tools"
 							aria-haspopup="menu"
 							aria-expanded={menu.open}

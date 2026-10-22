@@ -79,7 +79,7 @@
 	<button
 		type="button"
 		class="flex flex-shrink-0 items-center justify-center gap-1.5 rounded text-sm transition-colors {layout === 'rail'
-			? `h-8 border px-2.5 ${open ? 'border-line-hover bg-surface-3 text-fg' : 'border-line bg-surface-2 text-fg hover:border-line-hover hover:bg-surface-3'}`
+			? `h-8 border px-2.5 ${open ? 'border-line-hover bg-control-fill-hover text-fg' : 'border-line bg-control-fill text-fg hover:border-line-hover hover:bg-control-fill-hover'}`
 			: `h-[42px] flex-1 border px-3 ${open ? 'border-line-hover bg-surface-3 text-fg' : 'border-line bg-surface-2 text-fg hover:border-line-hover hover:bg-surface-3'}`}"
 		aria-label="Formulas"
 		aria-haspopup="dialog"
