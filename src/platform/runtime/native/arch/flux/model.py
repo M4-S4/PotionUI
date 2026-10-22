@@ -81,6 +81,7 @@ from vendor.gpl.comfyui.flux.math_ops import set_attention_backend
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...cache_identity import identity_usable, tensor_identity
+from ...cancellation import raise_if_cancelled
 from .config import FluxParams
 
 if TYPE_CHECKING:
@@ -418,6 +419,7 @@ class Flux(NativeArchModule):
         # remaining double + single blocks and the final projection entirely.
         probe: Tensor | None = None
         for i, block in enumerate(self.double_blocks):
+            raise_if_cancelled(i)
             img, txt = block(img=img, txt=txt, vec=vec, pe=pe, attn_mask=attn_mask)
             if control is not None:
                 control_i = control.get("input")
@@ -436,6 +438,7 @@ class Flux(NativeArchModule):
             vec, _ = self.single_stream_modulation(vec_orig)
 
         for i, block in enumerate(self.single_blocks):
+            raise_if_cancelled(len(self.double_blocks) + i)
             img = block(img, vec=vec, pe=pe, attn_mask=attn_mask)
             if control is not None:
                 control_o = control.get("output")
