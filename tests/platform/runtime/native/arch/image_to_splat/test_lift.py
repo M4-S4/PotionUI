@@ -17,6 +17,7 @@ from src.platform.runtime.native.arch.image_to_splat import (
 from src.platform.runtime.native.arch.image_to_splat import config
 from src.platform.runtime.native.arch.image_to_splat.lift import (
     background_thresholds,
+    blurred_steps,
     depth_jumps,
     foreground_mask,
     hidden_bands,
@@ -92,6 +93,81 @@ def test_a_steep_but_smooth_slope_is_not_cut():
     depth = np.broadcast_to(3.0 * np.exp(0.05 * cols), (H, W)).astype(np.float32)
     cuts = depth_jumps(depth, np.ones((H, W), dtype=bool), 0.35, 5)
     assert not cuts.cuts.any()
+
+
+def test_a_blurred_step_too_wide_for_the_cut_window_snaps_to_its_two_plateaus():
+    depth = _ramp_step(width=10, near=4.0, far=5.6)
+    present = np.ones((H, W), dtype=bool)
+    cuts = depth_jumps(depth, present, 0.35, 5)
+    assert not cuts.cuts.any()
+    steps, snapped = blurred_steps(depth, present, cuts)
+    row = snapped[10].astype(np.float64)
+    assert set(np.round(row, 4).tolist()) == {4.0, 5.6}
+    assert (row[:35] == pytest.approx(4.0)) and (row[35:] == pytest.approx(5.6))
+    assert steps[10].nonzero()[0].tolist() == [33, 34, 35, 36]
+    assert (steps == steps[10]).all()
+
+
+def test_a_long_steady_slope_is_not_a_blurred_step():
+    cols = np.arange(W, dtype=np.float32)[None, :]
+    depth = np.broadcast_to(3.0 * np.exp(0.05 * cols), (H, W)).astype(np.float32)
+    present = np.ones((H, W), dtype=bool)
+    steps, snapped = blurred_steps(depth, present, depth_jumps(depth, present))
+    assert not steps.any()
+    assert (snapped == depth).all()
+
+
+def test_a_gentle_rise_is_not_a_blurred_step():
+    depth = _ramp_step(width=10, near=4.0, far=4.4)
+    present = np.ones((H, W), dtype=bool)
+    steps, snapped = blurred_steps(depth, present, depth_jumps(depth, present))
+    assert not steps.any()
+    assert (snapped == depth).all()
+
+
+def test_a_blurred_step_never_runs_across_pixels_without_depth():
+    depth = _ramp_step(width=10, near=4.0, far=5.6)
+    usable = np.ones((H, W), dtype=bool)
+    usable[:, 34:36] = False
+    steps, snapped = blurred_steps(depth, usable, depth_jumps(depth, np.ones((H, W), dtype=bool)))
+    assert not steps.any()
+    assert (snapped == depth).all()
+
+
+def test_a_step_already_cut_is_left_to_the_cut():
+    depth = _ramp_step(width=3)
+    present = np.ones((H, W), dtype=bool)
+    cuts = depth_jumps(depth, present, 0.35, 5)
+    steps, snapped = blurred_steps(depth, present, cuts)
+    assert not steps.any()
+    assert (snapped == cuts.snapped).all()
+
+
+def test_a_blurred_step_lifts_to_two_surfaces_with_an_edge_between_them():
+    depth = _ramp_step(width=10, near=4.0, far=5.6)
+    rgb = np.full((H, W, 3), 128, dtype=np.uint8)
+    valid = np.ones((H, W), dtype=bool)
+    layers = build_layers(rgb, depth, valid, FOCAL, FOCAL)
+    row = layers.depth[10].astype(np.float64)
+    assert set(np.round(row / row.min(), 3).tolist()) == {1.0, 1.4}
+    assert layers.cuts[10, 33:37].all() and not layers.cuts[10, :32].any() and not layers.cuts[10, 38:].any()
+
+    lifted = lift_to_splat(rgb, depth, valid, FOCAL, FOCAL)
+    index = 10 * W + 34
+    footprint = lifted.splats.means[index, 2] / FOCAL
+    assert np.exp(lifted.splats.log_scales[index, :2]).max() < footprint
+
+
+def test_background_gaussians_are_never_finer_than_their_minimum_footprint():
+    rgb, depth, valid = _square_scene()
+    lifted = lift_to_splat(rgb, depth, valid, FOCAL, FOCAL)
+    back = slice(lifted.front_count, None)
+    footprint = lifted.splats.means[back, 2] / FOCAL
+    in_plane = np.exp(lifted.splats.log_scales[back, :2])
+    assert lifted.back_count > 0
+    assert (in_plane >= config.BACKGROUND_MIN_FOOTPRINT * footprint[:, None] * (1 - 1e-5)).all()
+    thickness = np.exp(lifted.splats.log_scales[back, 2])
+    assert thickness == pytest.approx(config.NORMAL_THICKNESS * footprint, rel=1e-4)
 
 
 def test_the_occluding_square_is_a_foreground_segment():
