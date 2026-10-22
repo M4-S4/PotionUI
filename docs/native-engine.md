@@ -33,8 +33,10 @@ video families were also run there — MiniMax-H3, Wan 2.2 14B (Lightning LoRAs,
 LTX-2.5 22B (text to video, Layout-To-Render IC-LoRA). Their figures are in the rows of "Supported
 families" below and on the model pages, and the hardware tiers are in
 [Hardware Requirements](user/hardware-requirements.md). The golden comparison against ComfyUI is still
-not built (see "Verification approach"). Two behaviours are known and open: a run that fails leaves no
-`generation_stats` row, and cancellation does not interrupt the sampling step in progress.
+not built (see "Verification approach"). A run that fails leaves no `generation_stats` row (known and
+open). Cancelling a run stops the DiT before its next transformer block, in the video DiTs (Wan, LTX,
+MiniMax-H3) and the image DiTs (Flux.1, Flux.2 Klein, Flux3, Krea-2, Qwen-Image, Qwen-Image 2.1,
+Anima, Z-Image); text encoding and VAE encoding or decoding still run to their end.
 
 ## Design tenets
 
