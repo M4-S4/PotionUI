@@ -21,6 +21,7 @@ from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 _CKPT_DIR = Path("models/checkpoints")
 _DIT_PREFIX = "model.diffusion_model."
@@ -48,10 +49,6 @@ TINY_25 = dict(
     ff_bias=False, audio_ff_bias=True, use_prompt_adaln_single=False,
     use_keyframes_abs_pos_embedding=True, model_version=(2, 5),
 )
-
-
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
 
 
 def _real_dit_tensors(path: Path) -> dict[str, tuple]:
@@ -83,7 +80,7 @@ def _detect_from_header(path: Path) -> dict:
 
 def test_tiny_construction_and_contract():
     with torch.device("meta"):
-        m = LTXAVModel.from_config(TINY, _fp32_ops())
+        m = LTXAVModel.from_config(TINY, fp32_ops())
     assert isinstance(m, NativeArchModule)
     assert m.post_load() is None
     assert list(m.named_buffers()) == []          # no computed buffers
@@ -99,7 +96,7 @@ def test_config_rejects_unknown_model():
 
 def test_tiny_25_construction_drops_ff_bias_keeps_static_prompt_table():
     with torch.device("meta"):
-        m = LTXAVModel.from_config(TINY_25, _fp32_ops())
+        m = LTXAVModel.from_config(TINY_25, fp32_ops())
     keys = set(m.state_dict().keys())
     # ff_bias=False: the video FFN's two Linears lose their bias entirely.
     assert "transformer_blocks.0.ff.net.0.proj.bias" not in keys
@@ -124,7 +121,7 @@ def test_tiny_25_construction_drops_ff_bias_keeps_static_prompt_table():
 def test_use_prompt_adaln_single_true_keeps_the_mlp():
     cfg = dict(TINY_25, use_prompt_adaln_single=True)
     with torch.device("meta"):
-        m = LTXAVModel.from_config(cfg, _fp32_ops())
+        m = LTXAVModel.from_config(cfg, fp32_ops())
     keys = set(m.state_dict().keys())
     assert "prompt_adaln_single.linear.weight" in keys
     assert "audio_prompt_adaln_single.linear.weight" in keys
@@ -133,12 +130,12 @@ def test_use_prompt_adaln_single_true_keeps_the_mlp():
 def test_use_keyframes_abs_pos_embedding_false_omits_key():
     cfg = dict(TINY_25, use_keyframes_abs_pos_embedding=False)
     with torch.device("meta"):
-        m = LTXAVModel.from_config(cfg, _fp32_ops())
+        m = LTXAVModel.from_config(cfg, fp32_ops())
     assert "keyframes_abs_pos_embedding" not in set(m.state_dict().keys())
 
 
 def _tiny_25_sd(**overrides: torch.Tensor) -> dict[str, torch.Tensor]:
-    src = LTXAVModel.from_config(TINY_25, _fp32_ops())
+    src = LTXAVModel.from_config(TINY_25, fp32_ops())
     sd = {k: torch.zeros(v.shape, dtype=v.dtype) for k, v in src.state_dict().items()}
     sd.update(overrides)
     return sd
@@ -152,7 +149,7 @@ def test_25_checkpoint_without_keyframes_weight_loads_and_zero_materialises():
     sd = _tiny_25_sd()
     del sd["keyframes_abs_pos_embedding"]
     with torch.device("meta"):
-        m = LTXAVModel.from_config(TINY_25, _fp32_ops())
+        m = LTXAVModel.from_config(TINY_25, fp32_ops())
     load_into_module(m, sd, match_model_spec({"image_model": "ltxav"}))
     p = m.keyframes_abs_pos_embedding
     assert not p.is_meta
@@ -163,7 +160,7 @@ def test_25_checkpoint_with_trained_keyframes_weight_keeps_it():
     trained = torch.full((1, TINY_25["num_attention_heads"] * TINY_25["attention_head_dim"]), 0.5)
     sd = _tiny_25_sd(keyframes_abs_pos_embedding=trained)
     with torch.device("meta"):
-        m = LTXAVModel.from_config(TINY_25, _fp32_ops())
+        m = LTXAVModel.from_config(TINY_25, fp32_ops())
     load_into_module(m, sd, match_model_spec({"image_model": "ltxav"}))
     assert torch.all(m.keyframes_abs_pos_embedding == 0.5)
 
@@ -177,7 +174,7 @@ def test_get_ada_values_none_timestep_uses_static_table():
 
     block = BasicAVTransformerBlock(
         v_dim=8, a_dim=4, v_heads=2, a_heads=2, vd_head=4, ad_head=2,
-        v_context_dim=8, a_context_dim=4, operations=_fp32_ops(), has_prompt_adaln=True,
+        v_context_dim=8, a_context_dim=4, operations=fp32_ops(), has_prompt_adaln=True,
     )
     with torch.no_grad():
         for p in block.parameters():

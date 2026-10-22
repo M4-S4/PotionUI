@@ -34,9 +34,9 @@ from src.platform.runtime.native.lora.adaln_translate import (
 )
 from src.platform.runtime.native.lora.apply import apply_loras_with_report
 from src.platform.runtime.native.lora.key_mapping import map_lora_keys
-from vendor.gpl.comfyui.ops import pick_operations
 
 from tests.platform.runtime.native.arch.test_minimax_h3_model import TINY_COMMON
+from .._native_ops import fp32_ops
 
 DENSE_DIM = 12          # stands in for the real checkpoint's time_embed_dim 2688
 PRUNED_DIM = 6          # stands in for the released repack's table width 8
@@ -48,16 +48,12 @@ OUT_FEATURES = EXPAND * HIDDEN * MODALITIES
 RANK = 2
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _adaln_proj(t_dim: int) -> MiniMaxH3AdalnProj:
     """A block's AdaLN projection with ``apply_silu=False``, i.e. fed the
     post-activation curve directly — which is what both sides of the
     translation are defined on (the dense side's SiLU is the thing the fit
     samples; the pruned side never has one)."""
-    proj = MiniMaxH3AdalnProj(t_dim, HIDDEN, EXPAND, MODALITIES, False, _fp32_ops(), dtype=torch.float32)
+    proj = MiniMaxH3AdalnProj(t_dim, HIDDEN, EXPAND, MODALITIES, False, fp32_ops(), dtype=torch.float32)
     with torch.no_grad():
         proj.linear.weight.copy_(torch.randn_like(proj.linear.weight) * 0.05)
         proj.linear.bias.copy_(torch.randn_like(proj.linear.bias) * 0.05)
@@ -79,7 +75,7 @@ def _pruned_twin_of(dense: MiniMaxH3AdalnProj, fit: AffineFit) -> MiniMaxH3Adaln
     ``b + W c``. Exact when the fit is exact — which is what makes the EXACT
     test below a real equality rather than an approximation."""
     pruned = MiniMaxH3AdalnProj(fit.V.shape[1], HIDDEN, EXPAND, MODALITIES, False,
-                                _fp32_ops(), dtype=torch.float32)
+                                fp32_ops(), dtype=torch.float32)
     with torch.no_grad():
         pruned.linear.weight.copy_(dense.linear.weight @ fit.V)
         pruned.linear.bias.copy_(dense.linear.bias + dense.linear.weight @ fit.c)
@@ -111,7 +107,7 @@ def test_grid_timesteps_are_the_t_values_the_lookup_returns_rows_verbatim_at():
     config = MiniMaxH3Config.from_detect_config(
         dict(TINY_COMMON, pruned=True, time_embed_dim=PRUNED_DIM, adaln_curve_grid=GRID)
     )
-    model = MiniMaxH3Model(config, _fp32_ops(), dtype=torch.float32)
+    model = MiniMaxH3Model(config, fp32_ops(), dtype=torch.float32)
     with torch.no_grad():
         model.adaln_t_table.copy_(torch.randn(GRID, PRUNED_DIM))
 
@@ -160,7 +156,7 @@ def test_real_time_embedder_fit_is_approximate_and_translation_reduces_error():
     config = MiniMaxH3Config.from_detect_config(
         dict(TINY_COMMON, pruned=False, time_embed_dim=DENSE_DIM, freq_dim=8, time_embed_hidden_dim=16)
     )
-    full = MiniMaxH3Model(config, _fp32_ops(), dtype=torch.float32)
+    full = MiniMaxH3Model(config, fp32_ops(), dtype=torch.float32)
     with torch.no_grad():
         for p in full.parameters():
             p.copy_(torch.randn_like(p) * 0.3)
@@ -196,7 +192,7 @@ def _pruned_model(blocks: int = 2) -> MiniMaxH3Model:
     config = MiniMaxH3Config.from_detect_config(
         dict(TINY_COMMON, num_layers=blocks, pruned=True, time_embed_dim=PRUNED_DIM, adaln_curve_grid=GRID)
     )
-    model = MiniMaxH3Model(config, _fp32_ops(), dtype=torch.float32)
+    model = MiniMaxH3Model(config, fp32_ops(), dtype=torch.float32)
     with torch.no_grad():
         for p in model.parameters():
             p.copy_(torch.randn_like(p) * 0.05)
@@ -233,7 +229,7 @@ def test_translated_state_dict_applies_through_apply_loras_with_report():
     dense_config = MiniMaxH3Config.from_detect_config(
         dict(TINY_COMMON, pruned=False, time_embed_dim=DENSE_DIM, freq_dim=8, time_embed_hidden_dim=16)
     )
-    dense_model = MiniMaxH3Model(dense_config, _fp32_ops(), dtype=torch.float32)
+    dense_model = MiniMaxH3Model(dense_config, fp32_ops(), dtype=torch.float32)
     with torch.no_grad():
         for p in dense_model.parameters():
             p.copy_(torch.randn_like(p) * 0.2)

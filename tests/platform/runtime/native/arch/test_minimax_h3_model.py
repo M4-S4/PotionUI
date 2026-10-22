@@ -33,6 +33,7 @@ from src.platform.runtime.native.sol_attn import SolAttnContext
 from vendor.gpl.comfyui.ops import pick_operations
 
 from .._header_listings import load_header
+from .._native_ops import fp32_ops
 
 # Exact config detect_unet_config derives from the real headers.
 REAL_CONFIG_FULL = {
@@ -56,10 +57,6 @@ TINY_COMMON = {
 }
 TINY_FULL = dict(TINY_COMMON, pruned=False, time_embed_dim=12, freq_dim=8, time_embed_hidden_dim=16)
 TINY_PRUNED = dict(TINY_COMMON, pruned=True, time_embed_dim=6, adaln_curve_grid=5)
-
-
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
 
 
 def _build_ready(config: dict, dtype: torch.dtype = torch.float32) -> MiniMaxH3Model:
@@ -172,19 +169,19 @@ def test_detect_matches_real_pruned_config_exactly():
 
 def test_detect_spec_from_config_roundtrip():
     with torch.device("meta"):
-        seed = MiniMaxH3Model.from_config(TINY_FULL, _fp32_ops())
+        seed = MiniMaxH3Model.from_config(TINY_FULL, fp32_ops())
     sd = {k: torch.empty(tuple(v.shape), device="meta") for k, v in seed.state_dict().items()}
     config = detect_unet_config(sd)
     spec = match_model_spec(config)
     assert spec.family == "minimax_h3"
     with torch.device("meta"):
-        rebuilt = MiniMaxH3Model.from_config(config, _fp32_ops())
+        rebuilt = MiniMaxH3Model.from_config(config, fp32_ops())
     assert set(rebuilt.state_dict().keys()) == set(seed.state_dict().keys())
 
 
 def test_is_native_arch_module():
     with torch.device("meta"):
-        m = MiniMaxH3Model.from_config(TINY_FULL, _fp32_ops())
+        m = MiniMaxH3Model.from_config(TINY_FULL, fp32_ops())
     assert isinstance(m, NativeArchModule)
 
 
@@ -260,7 +257,7 @@ def test_pe_cache_invalidated_by_apply():
 
 def test_qkv_fused_split_matches_separate_projections_in_q_k_v_order():
     torch.manual_seed(3)
-    ops = _fp32_ops()
+    ops = fp32_ops()
     hidden, heads, head_dim = 8, 2, 5  # inner(10) != hidden(8), like the real model
     attn = MiniMaxH3Attention(hidden, heads, head_dim, 1e-5, ops, dtype=torch.float32)
     with torch.no_grad():
@@ -313,7 +310,7 @@ def test_swiglu_gate_is_first_half_of_fc1_output():
     the implementation instead of an independent reference, and could not
     catch the swap that shipped."""
     torch.manual_seed(0)
-    ops = _fp32_ops()
+    ops = fp32_ops()
     hidden, ffn = 6, 4
     mlp = MiniMaxH3MLP(hidden, ffn, ops, dtype=torch.float32)
     with torch.no_grad():
@@ -339,7 +336,7 @@ def test_pruned_curve_reproduces_full_modulation_at_grid_points():
     pruned path skips SiLU (so it doesn't double-activate an already-activated
     table row) -- flip either one and this test fails."""
     torch.manual_seed(7)
-    ops = _fp32_ops()
+    ops = fp32_ops()
     grid = 9
     full_config_dict = dict(TINY_FULL, time_embed_dim=12)
     full_config = MiniMaxH3Config.from_detect_config(full_config_dict)
@@ -986,7 +983,7 @@ def test_attention_oom_retries_query_chunked_sdpa_and_matches_the_dense_output(m
     import src.platform.runtime.native.arch.minimax_h3.model as model_module
 
     torch.manual_seed(5)
-    ops = _fp32_ops()
+    ops = fp32_ops()
     hidden, heads, head_dim, s = 8, 2, 4, 10
     attn = MiniMaxH3Attention(hidden, heads, head_dim, 1e-5, ops, dtype=torch.float32)
     _init_attn_weights(attn)
@@ -1029,7 +1026,7 @@ def test_attention_oom_retries_query_chunked_sdpa_and_matches_the_dense_output(m
 def test_attention_oom_fallback_reraises_when_the_rescue_also_ooms(monkeypatch):
     import src.platform.runtime.native.arch.minimax_h3.model as model_module
 
-    ops = _fp32_ops()
+    ops = fp32_ops()
     attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
     x = torch.randn(1, 6, 8)
     oom = _AlwaysOomDispatch()
@@ -1054,7 +1051,7 @@ def test_oom_rescue_runs_with_the_exception_already_cleared(monkeypatch):
     import sys
     import src.platform.runtime.native.arch.minimax_h3.model as model_module
 
-    ops = _fp32_ops()
+    ops = fp32_ops()
     attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
     x = torch.randn(1, 6, 8)
     exc_states = []
@@ -1075,7 +1072,7 @@ def test_oom_is_sticky_for_equal_or_longer_sequences_only(monkeypatch):
     import src.platform.runtime.native.arch.minimax_h3.model as model_module
 
     torch.manual_seed(7)
-    ops = _fp32_ops()
+    ops = fp32_ops()
     attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
     oom = _AlwaysOomDispatch()
     monkeypatch.setattr(model_module, "_dispatch_attention", oom)
@@ -1097,7 +1094,7 @@ def test_sticky_rescue_output_still_matches_the_dense_reference(monkeypatch):
     import src.platform.runtime.native.arch.minimax_h3.model as model_module
 
     torch.manual_seed(9)
-    ops = _fp32_ops()
+    ops = fp32_ops()
     attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
     _init_attn_weights(attn)
     x = torch.randn(1, 10, 8)

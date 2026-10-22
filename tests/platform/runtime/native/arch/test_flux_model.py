@@ -21,6 +21,7 @@ from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.errors import NativeEngineLoadIntegrityError
 from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -48,10 +49,6 @@ TINY_FLUX1 = {
 }
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
     """Fill an empty-weight module's params with small randoms (norms -> 1)."""
     sd: dict[str, torch.Tensor] = {}
@@ -67,7 +64,7 @@ def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
 
 
 def _build_ready(config, ops=None) -> Flux:
-    ops = ops or _fp32_ops()
+    ops = ops or fp32_ops()
     m = Flux.from_config(config, ops)
     load_into_module(m, _randomised_state_dict(m), match_model_spec(config))
     m.eval()
@@ -212,7 +209,7 @@ def test_post_load_is_noop_and_leaves_no_meta():
 
 def test_flux1_branching_differs_from_flux2():
     with torch.device("meta"):
-        f1 = Flux.from_config(TINY_FLUX1, _fp32_ops())
+        f1 = Flux.from_config(TINY_FLUX1, fp32_ops())
     p = f1.params
     assert p.global_modulation is False
     assert p.ops_bias is True
@@ -244,7 +241,7 @@ def test_fp8_scale_keys_popped_not_flagged_unexpected():
 # --- integrity gate still fires for real mismatches -----------------------
 
 def test_bogus_key_still_raises():
-    m = Flux.from_config(TINY_FLUX2, _fp32_ops())
+    m = Flux.from_config(TINY_FLUX2, fp32_ops())
     sd = _randomised_state_dict(m)
     sd["totally.bogus.key"] = torch.zeros(1)
     with pytest.raises(NativeEngineLoadIntegrityError):
@@ -272,5 +269,5 @@ def test_fluxparams_rejects_unknown_model():
 
 def test_flux_is_native_arch_module():
     with torch.device("meta"):
-        m = Flux.from_config(TINY_FLUX2, _fp32_ops())
+        m = Flux.from_config(TINY_FLUX2, fp32_ops())
     assert isinstance(m, NativeArchModule)

@@ -29,6 +29,7 @@ from src.platform.runtime.native.lora.key_mapping import (
     map_lora_keys,
 )
 from vendor.gpl.comfyui.ops import apply_lora_deltas, pick_operations
+from .._native_ops import fp32_ops
 
 # Same shape traps as test_minimax_h3_model.py's TINY_FULL: inner(80) != hidden(64).
 TINY = {
@@ -47,12 +48,8 @@ ADALN_OUT = 6 * HIDDEN * 3          # expand 6 x hidden x MINIMAX_H3_MODALITY_NU
 NORM_OUT = 2 * HIDDEN * 1           # final layer: expand 2, one modality
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build(config: dict = TINY, ops=None) -> MiniMaxH3Model:
-    ops = ops or _fp32_ops()
+    ops = ops or fp32_ops()
     m = MiniMaxH3Model.from_config(config, ops)
     sd = {}
     for k, v in m.state_dict().items():
@@ -209,7 +206,7 @@ def test_flux_and_krea2_modules_unaffected_by_the_new_branch():
              "context_in_dim": 32, "axes_dim": [8, 8, 8, 8], "mlp_ratio": 3.0,
              "theta": 2000, "patch_size": 1, "qkv_bias": False, "guidance_embed": False}
     with torch.device("meta"):
-        fm = Flux.from_config(ftiny, _fp32_ops())
+        fm = Flux.from_config(ftiny, fp32_ops())
     km = _select_key_map(fm)
     assert "double_blocks.0.img_attn.qkv" in km  # still Flux's own map
 
@@ -218,7 +215,7 @@ def test_flux_and_krea2_modules_unaffected_by_the_new_branch():
              "layers": 1, "multiplier": 1, "tdim": 16, "txtdim": 16, "txtheads": 2,
              "txtkvheads": 2, "txtlayers": 3, "patch": 2, "theta": 1000.0}
     with torch.device("meta"):
-        km2 = _select_key_map(Krea2.from_config(ktiny, _fp32_ops()))
+        km2 = _select_key_map(Krea2.from_config(ktiny, fp32_ops()))
     assert all(sl is None for _, sl in km2.values())  # still Krea2's split (no slices)
 
 
@@ -417,7 +414,7 @@ def test_swiglu_lora_half_swap_matches_unfused_diffusers_reference():
         value, gate = h.chunk(2, dim=-1)          # diffusers' own SwiGLU.forward split
         return F.linear(value * F.silu(gate), w2)
 
-    ops = _fp32_ops()
+    ops = fp32_ops()
     mlp = MiniMaxH3MLP(hidden, ffn, ops, dtype=torch.float32)
     with torch.no_grad():
         mlp.fc1.weight.copy_(w1_native)

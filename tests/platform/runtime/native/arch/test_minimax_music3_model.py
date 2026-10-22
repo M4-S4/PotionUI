@@ -23,9 +23,9 @@ from src.platform.runtime.native.arch.minimax_music3.model import (
     MiniMaxMusic3Model,
     latent_length,
 )
-from vendor.gpl.comfyui.ops import pick_operations
 
 from .._header_listings import load_header
+from .._native_ops import fp32_ops
 
 
 # Exact config a detector would derive from the real header (every field here is
@@ -50,12 +50,8 @@ TINY_CONFIG = dict(
 )
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build_ready(config: dict) -> MiniMaxMusic3Model:
-    m = MiniMaxMusic3Model.from_config(config, _fp32_ops())
+    m = MiniMaxMusic3Model.from_config(config, fp32_ops())
     sd = {}
     for k, v in m.state_dict().items():
         sd[k] = v.clone() if not v.is_floating_point() else torch.randn_like(v) * 0.02
@@ -87,14 +83,14 @@ def test_state_dict_key_set_matches_real_header():
     check, so this runs at the checkpoint's real scale cheaply."""
     header = load_header("minimax_music3/minimax_music3_dit_fp16")
     with torch.device("meta"):
-        m = MiniMaxMusic3Model.from_config(REAL_CONFIG, _fp32_ops())
+        m = MiniMaxMusic3Model.from_config(REAL_CONFIG, fp32_ops())
     assert set(m.state_dict().keys()) == set(header.keys())
 
 
 def test_state_dict_shape_ranks_match_real_header():
     header = load_header("minimax_music3/minimax_music3_dit_fp16")
     with torch.device("meta"):
-        m = MiniMaxMusic3Model.from_config(REAL_CONFIG, _fp32_ops())
+        m = MiniMaxMusic3Model.from_config(REAL_CONFIG, fp32_ops())
     sd = m.state_dict()
     for key, tensor in sd.items():
         assert tensor.ndim == len(header[key]["shape"]), key
@@ -131,7 +127,7 @@ def test_condition_encoder_shape_five_frames():
     config = dict(
         REAL_CONFIG, num_layers=1, num_attention_heads=2, attention_head_dim=4, ffn_inner_dim=8, rotary_dim=2,
     )
-    m = MiniMaxMusic3Model.from_config(config, _fp32_ops())
+    m = MiniMaxMusic3Model.from_config(config, fp32_ops())
     for p in m.parameters():
         torch.nn.init.normal_(p, std=0.02)
     m.post_load()
@@ -150,7 +146,7 @@ def test_latent_length_formula():
 # --- GLU value-first/gate-second -----------------------------------------------
 
 def test_glu_value_first_gate_second():
-    glu = MiniMaxMusic3GLU(4, 3, _fp32_ops())
+    glu = MiniMaxMusic3GLU(4, 3, fp32_ops())
     with torch.no_grad():
         glu.proj.weight.zero_()
         glu.proj.bias.zero_()
@@ -207,7 +203,7 @@ def test_partial_rope_leaves_tail_dims_unrotated():
 # --- post_load rotary buffer -----------------------------------------------------
 
 def test_post_load_recomputes_inv_freq_not_trusting_checkpoint_copy():
-    m = MiniMaxMusic3Model.from_config(TINY_CONFIG, _fp32_ops())
+    m = MiniMaxMusic3Model.from_config(TINY_CONFIG, fp32_ops())
     garbage = torch.full_like(m.diffusion_transformer.transformer.rotary_pos_emb.inv_freq, 999.0)
     sd = {k: (v.clone() if not v.is_floating_point() else torch.randn_like(v) * 0.02) for k, v in m.state_dict().items()}
     sd["diffusion_transformer.transformer.rotary_pos_emb.inv_freq"] = garbage

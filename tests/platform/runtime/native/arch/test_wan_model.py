@@ -19,7 +19,7 @@ from src.platform.runtime.native.arch.wan.model import (
     _rope_temporal_riflex,
 )
 from src.platform.runtime.native.base import NativeArchModule
-from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 
 TINY_T2V = dict(
@@ -33,13 +33,9 @@ TINY_I2V = dict(
 )
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build(config) -> WanModel:
     """from_config + fill empty params (norm scales -> 1, rest small random)."""
-    m = WanModel.from_config(config, _fp32_ops())
+    m = WanModel.from_config(config, fp32_ops())
     m.post_load()
     with torch.no_grad():
         for name, p in m.named_parameters():
@@ -101,7 +97,7 @@ def test_from_config_maps_fields():
 
 
 def test_post_load_is_noop_and_returns_none():
-    m = WanModel.from_config(TINY_T2V, _fp32_ops())
+    m = WanModel.from_config(TINY_T2V, fp32_ops())
     assert m.post_load() is None
 
 
