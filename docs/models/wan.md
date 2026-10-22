@@ -112,9 +112,9 @@ The 14B dual-expert pair keeps one **14B expert resident at a time** (`src/platf
 | Image to video — recipe `vp-wan22-14b-i2v` | 6 | 321 s, including 65 s of loading | 6,938 MiB |
 
 - **System RAM.** The Lightning run held 34.7 GiB of process RAM, so 64 GB of system RAM is the measured tier, as for the 12 GB presets of MiniMax-H3.
-- **Smoke timeout.** The Lightning recipe declares a 900 s smoke timeout and the image-to-video recipe 600 s.
+- **Smoke timeout.** The Lightning recipe and the image-to-video recipe both declare a 600 s smoke timeout.
 - **Engine fixes these runs need.** They were shipped in dev on 20 October 2026: the allocator pool is returned to the driver when a streamed expert is torn down, UMT5 is evicted before the VAE encodes, and a driver out-of-memory error (`torch.AcceleratorError`, "CUDA error: out of memory") is classified as an out-of-memory error.
-- **Known open defect.** On a 1 s clip the router keeps about 7 GB of resident expert, and Lightning is slower than at 5 s: 7 min against 3 min 20 s for the recipe smoke.
+- **Short clips.** Lightning makes a 1 s clip in 56 s and a 5 s clip in 186 s with the models already in memory; the recipe smoke takes 242 s from a cold start.
 - **Known behaviour.** A run that fails leaves no `generation_stats` row, and cancelling a run does not interrupt the sampling step in progress.
 
 For a card with less than 12 GB, use the **5B ti2v variant** (single dense model, no expert boundary, coarser spatial granularity) or the 1.3B preset. On a 12 GB card capped to 8 GB the 5B ran at 832×480 with a 5,588 MiB engine peak and the 1.3B with a 5,314 MiB engine peak. The times, the RAM limits they ran under and the other 14B runs are in [Hardware Requirements](../user/hardware-requirements.md). Video generation is also RAM-heavier than a still image: a dual-expert pair means two multi-GB checkpoints pass through the host-RAM load path even though only one sits in VRAM at once, so the RAM-cache floor (see the same page) matters more here than for an image family.
