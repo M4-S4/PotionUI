@@ -21,6 +21,7 @@ from .denoise_loop import _CachingGuidance, make_guidance
 from .registry import sampler_registry
 from .flow_schedule import build_sigmas
 from .hooks import with_numerics_watchdog
+from ..cancellation import cancellation_scope
 from .step_cache import StepCacheSet
 
 logger = logging.getLogger(__name__)
@@ -208,17 +209,18 @@ def denoise_prenoised(
         return v_model.float()
 
     watched_hooks = with_numerics_watchdog(hooks, sampler_name, sampler_options)
-    latent = sampler(
-        model_forward_fp32,
-        x_init,
-        sigmas,
-        guidance,
-        cond,
-        uncond,
-        hooks=watched_hooks,
-        is_cancelled=is_cancelled,
-        sampler_options=sampler_options,
-    )
+    with cancellation_scope(is_cancelled) as scope:
+        latent = sampler(
+            model_forward_fp32,
+            x_init,
+            sigmas,
+            guidance,
+            cond,
+            uncond,
+            hooks=watched_hooks if scope is None else (*watched_hooks, scope),
+            is_cancelled=is_cancelled,
+            sampler_options=sampler_options,
+        )
 
     if cache_set is not None:
         totals = cache_set.totals()
