@@ -15,6 +15,7 @@ two-level (``<pipe>/<variant>``), so the registered name is
 from __future__ import annotations
 
 import tempfile
+import time
 import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List
@@ -167,7 +168,24 @@ class _ExpertRouter:
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
         headroom = sampling_headroom_gb((shape[-2], shape[-1]), latent_frames=frames)
-        return max(0.0, free - headroom)
+        budget = max(0.0, free - headroom)
+        logger.info("[WAN PLACEMENT] %s expert %.2fGB: latent %dx%dx%d, activation reserve %.2fGB, "
+                    "weight budget %.2fGB of %.2fGB free", self._expert_label(dit), need,
+                    frames, shape[-2], shape[-1], headroom, budget, free)
+        return budget
+
+    def _expert_label(self, dit) -> str:
+        return "low" if dit is self.low and dit is not self.high else "high"
+
+    def _log_placement(self, dit, seconds: float) -> None:
+        streamer = getattr(dit, "_streamer", None)
+        plan = getattr(dit, "last_stream_plan", None)
+        if streamer is not None and getattr(streamer, "active", False) and plan is not None:
+            logger.info("[WAN PLACEMENT] %s expert placed in %.1fs: %.2fGB resident, %.2fGB streamed",
+                        self._expert_label(dit), seconds, plan.resident_gb, plan.streamed_gb)
+        else:
+            logger.info("[WAN PLACEMENT] %s expert placed in %.1fs: fully resident",
+                        self._expert_label(dit), seconds)
 
     def _place_expert(self, dit) -> None:
         """Bring ``dit`` on-device for its sampling phase, offloading the
@@ -214,7 +232,10 @@ class _ExpertRouter:
     def __call__(self, x: torch.Tensor, sigma: torch.Tensor, conditioning: dict) -> torch.Tensor:
         dit = self._select(float(sigma.reshape(-1)[0]))
         if dit is not self.active:
+            started = time.perf_counter()
             self._place_expert(dit)
+            if self.latents_shape is not None:
+                self._log_placement(dit, time.perf_counter() - started)
         # NAG (see src/platform/runtime/native/nag.py): the negative context + params ride in
         # the cond dict under reserved keys (EmbeddedGuidance's "guidance" idiom).
         # Both experts share this cond dict, so NAG applies to whichever one runs.

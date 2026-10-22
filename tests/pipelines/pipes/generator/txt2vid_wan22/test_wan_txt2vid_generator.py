@@ -1234,3 +1234,51 @@ def test_a_failed_sampling_frees_its_tensors_before_the_expert_is_offloaded():
 
     assert expert.offloaded == 1
     assert seen["activation_alive"] is False
+
+
+class _RecordingLogger:
+    def __init__(self):
+        self.infos = []
+
+    def info(self, message, *args):
+        self.infos.append(message % args)
+
+    def warning(self, message, *args):
+        pass
+
+
+def test_router_logs_the_budget_and_the_split_of_each_expert_placement(monkeypatch):
+    _patch_placement(monkeypatch, free_gb=10.0)
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(_wan_mod, "logger", recorder)
+    high = _PlaceDiT("high", est_gb=14.29)
+    low = _PlaceDiT("low", est_gb=14.29)
+    for dit in (high, low):
+        dit._streamer = SimpleNamespace(active=True)
+        dit.last_stream_plan = SimpleNamespace(resident_gb=6.9, streamed_gb=7.39)
+    shape = (1, 16, 5, 60, 104)
+    router = _ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
+
+    router(torch.zeros(shape), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
+    router(torch.zeros(shape), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
+
+    budget_lines = [line for line in recorder.infos if "weight budget" in line]
+    assert budget_lines == [
+        f"[WAN PLACEMENT] {tag} expert 14.29GB: latent 5x60x104, activation reserve 3.05GB, "
+        "weight budget 6.95GB of 10.00GB free"
+        for tag in ("high", "low")
+    ]
+    placed = [line for line in recorder.infos if "placed in" in line]
+    assert [line.split(" expert")[0] for line in placed] == ["[WAN PLACEMENT] high", "[WAN PLACEMENT] low"]
+    assert all(line.endswith("6.90GB resident, 7.39GB streamed") for line in placed)
+
+
+def test_router_without_a_latent_shape_logs_no_placement(monkeypatch):
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(_wan_mod, "logger", recorder)
+    high = _PlaceDiT("high", est_gb=14.0)
+    router = _ExpertRouter(high, None, boundary=0.875, device="cuda:0")
+
+    router(torch.zeros(1, 16, 1, 8, 8), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
+
+    assert recorder.infos == []
