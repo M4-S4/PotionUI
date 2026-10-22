@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deckEyebrow, deckTitle, deriveDeckState, shouldAnnounceQuarter } from './deckStatus';
+import { deckEyebrow, deckTitle, deckTone, deriveDeckState, shouldAnnounceQuarter, type DeckState } from './deckStatus';
 
 const base = { isGenerating: false, hasProgressFraction: false, otherTabName: null, disabled: false, resultStatus: null };
 
@@ -42,13 +42,28 @@ describe('deckTitle', () => {
 });
 
 describe('deckEyebrow', () => {
-	it('names the thumbnail', () => {
-		expect(deckEyebrow('running', true, '18.4s')).toBe('Now generating');
-		expect(deckEyebrow('loading', false, 'none')).toBe('Now generating');
-		expect(deckEyebrow('done', true, '18.4s')).toBe('New result · 18.4s');
-		expect(deckEyebrow('ready', true, '18.4s')).toBe('Last result · 18.4s');
-		expect(deckEyebrow('ready', true, 'none')).toBe('Last result');
-		expect(deckEyebrow('blocked', false, 'none')).toBe('No results yet');
+	it('names the thumbnail and never carries a duration', () => {
+		expect(deckEyebrow('running', true)).toBe('Now generating');
+		expect(deckEyebrow('loading', false)).toBe('Now generating');
+		expect(deckEyebrow('done', true)).toBe('New result');
+		expect(deckEyebrow('ready', true)).toBe('Last result');
+		expect(deckEyebrow('failed', true)).toBe('Last result');
+		expect(deckEyebrow('blocked', false)).toBe('No results yet');
+	});
+});
+
+describe('deckTone', () => {
+	it('is success only for done, signal while running, danger for failed and muted for ready', () => {
+		const tones: Record<DeckState, string> = {
+			done: 'success',
+			running: 'signal',
+			loading: 'signal',
+			failed: 'danger',
+			blocked: 'warning',
+			other: 'warning',
+			ready: 'muted'
+		};
+		for (const [state, tone] of Object.entries(tones)) expect(deckTone(state as DeckState)).toBe(tone);
 	});
 });
 

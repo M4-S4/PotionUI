@@ -12,7 +12,7 @@
 	import DeckThumb from './generation-panel/DeckThumb.svelte';
 	import AmbientGlow from './AmbientGlow.svelte';
 	import { deriveMarkState, deriveModeChromeGlyph, formatDurationMs, formatDurationSeconds } from './generation-panel/barState';
-	import { deckEyebrow, deckTitle, deriveDeckState, shouldAnnounceQuarter, type DeckState } from './generation-panel/deckStatus';
+	import { deckEyebrow, deckTitle, deckTone, deriveDeckState, shouldAnnounceQuarter, type DeckState } from './generation-panel/deckStatus';
 	import { deckAmbientSource, deriveDeckThumb, hasDeckResult, type DeckThumbPreset } from './generation-panel/deckThumb';
 	import { createStatusLineRotator, phaseFor } from './generation-panel/statusLines';
 	import { playfulStatusLines } from '$lib/stores/playfulStatusLines';
@@ -334,14 +334,10 @@
 		hasResult,
 		playful: $playfulStatusLines
 	});
-	$: eyebrow = deckEyebrow(deckState, hasResult, lastText);
+	$: eyebrow = deckEyebrow(deckState, hasResult);
+	$: dotTone = deckTone(deckState);
 	$: failureText = String(currentGeneration?.message ?? currentGeneration?.hint ?? '');
-	$: restingDetail =
-		deckState === 'done'
-			? [preset?.name, lastText === 'none' ? null : lastText].filter(Boolean).join(' · ')
-			: preset?.name
-				? [preset.name, modeLabel].filter(Boolean).join(' · ')
-				: 'Configure the prompt and settings';
+	$: restingDetail = preset?.name ? [preset.name, modeLabel].filter(Boolean).join(' · ') : 'Configure the prompt and settings';
 	$: runningDetail = [
 		hasProgressFraction ? `${progressPercent}%` : null,
 		compareGridActive ? `${compareResolved}/${compareState.cells.length} cells` : null,
@@ -500,7 +496,7 @@
 			<div class="deck-copy">
 				<span class="deck-eyebrow">{eyebrow}</span>
 				<div class="deck-title-line">
-					<span class="deck-dot" aria-hidden="true"></span>
+					<span class="deck-dot is-{dotTone}" aria-hidden="true"></span>
 					<span class="deck-title {phraseFading ? 'is-fading' : ''}" aria-hidden="true" data-deck-title>{visibleTitle}</span>
 					<span class="sr-only" data-deck-literal>{title.literal}</span>
 				</div>

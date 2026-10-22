@@ -1,5 +1,21 @@
 export type DeckState = 'running' | 'loading' | 'other' | 'blocked' | 'failed' | 'done' | 'ready';
 
+export type DeckTone = 'success' | 'signal' | 'warning' | 'danger' | 'muted';
+
+const TONES: Record<DeckState, DeckTone> = {
+	running: 'signal',
+	loading: 'signal',
+	other: 'warning',
+	blocked: 'warning',
+	failed: 'danger',
+	done: 'success',
+	ready: 'muted'
+};
+
+export function deckTone(state: DeckState): DeckTone {
+	return TONES[state];
+}
+
 export interface DeckStateInput {
 	isGenerating: boolean;
 	hasProgressFraction: boolean;
@@ -56,12 +72,10 @@ function literalTitle(input: DeckTitleInput): string {
 	}
 }
 
-export function deckEyebrow(state: DeckState, hasResult: boolean, lastText: string): string {
-	const known = lastText !== 'none';
+export function deckEyebrow(state: DeckState, hasResult: boolean): string {
 	if (state === 'running' || state === 'loading') return 'Now generating';
-	if (state === 'done') return known ? `New result · ${lastText}` : 'New result';
-	if (!hasResult) return 'No results yet';
-	return known ? `Last result · ${lastText}` : 'Last result';
+	if (state === 'done') return 'New result';
+	return hasResult ? 'Last result' : 'No results yet';
 }
 
 export function shouldAnnounceQuarter(percent: number, announced: number): number | null {

@@ -143,8 +143,8 @@ describe('generation deck status', () => {
 			generation: generation({ currentGeneration: { id: 'run-1', status: 'completed' }, batchImages: [{ url: '/a.png' }], lastDurationMs: 18400 })
 		});
 		expect(title()).toBe('Done');
-		expect(q('.deck-eyebrow')!.textContent).toBe('New result · 18.4s');
-		expect(detail()).toBe('FLUX.2 · 18.4s');
+		expect(q('.deck-eyebrow')!.textContent).toBe('New result');
+		expect(detail()).toBe('FLUX.2 · Text to image');
 	});
 
 	it('shows Failed with the error and a Details action', () => {
@@ -183,6 +183,67 @@ describe('generation deck status', () => {
 		expect(detail()).toBe('64% · Sampling');
 		mounted.set({ generation: running(0.64, { currentProgress: { step: 'Sampling', progress: 0.64, current_step: 'Sampling <<PROGRESS:18/28>>' } }) });
 		expect(detail()).toBe('64% · Sampling · Step 18 / 28');
+	});
+});
+
+describe('generation deck copy and dot', () => {
+	const result = { batchImages: [{ url: '/a.png' }], lastDurationMs: 18400 };
+	const finished = () => generation({ currentGeneration: { id: 'run-1', status: 'completed' }, ...result });
+	const failed = () => generation({ currentGeneration: { id: 'run-1', status: 'failed', message: 'Out of GPU memory' }, ...result });
+	const cancelled = () =>
+		generation({ currentGeneration: { id: 'run-1', status: 'cancelled' }, cancelNotice: 'Generation cancelled', ...result });
+	const idle = () => generation(result);
+	const dot = () => q('.deck-dot')!;
+	const tone = () => [...dot().classList].filter((name) => name.startsWith('is-'));
+	const readout = () => q('.deck-timing .cell-value')!.textContent!.trim();
+
+	it.each([
+		['done', finished(), 'New result'],
+		['ready with a last result', idle(), 'Last result'],
+		['failed', failed(), 'Last result'],
+		['cancelled', cancelled(), 'Last result']
+	])('keeps the duration out of the eyebrow and the meta when %s, and in the readout', (_name, gen, eyebrow) => {
+		mounted = mount({ generation: gen });
+		expect(q('.deck-eyebrow')!.textContent).toBe(eyebrow);
+		expect(q('.deck-copy')!.textContent).not.toContain('18.4s');
+		expect(readout()).toBe('18.4s');
+	});
+
+	it.each([
+		['done', finished()],
+		['ready with a last result', idle()]
+	])('shows the model and the mode as the meta when %s', (_name, gen) => {
+		mounted = mount({ generation: gen });
+		expect(detail()).toBe('FLUX.2 · Text to image');
+	});
+
+	it('shows the progress meta while running', () => {
+		mounted = mount({ generation: running(0.64, { lastDurationMs: 18400 }), isGenerating: true });
+		expect(detail()).toBe('64% · Sampling');
+		expect(q('.deck-eyebrow')!.textContent).toBe('Now generating');
+	});
+
+	it('hangs the dot inside the title line, ahead of the title, so the three copy lines start together', () => {
+		mounted = mount();
+		expect([...q('.deck-copy')!.children].map((child) => child.classList[0])).toEqual(['deck-eyebrow', 'deck-title-line', 'deck-detail']);
+		expect(q('.deck-title-line')!.firstElementChild).toBe(dot());
+		expect(dot().nextElementSibling).toBe(q('[data-deck-title]'));
+		expect(dot().getAttribute('aria-hidden')).toBe('true');
+	});
+
+	it.each([
+		['done', {}, finished(), 'is-success'],
+		['ready on a fresh tab', {}, generation(), 'is-muted'],
+		['ready with a last result', {}, idle(), 'is-muted'],
+		['cancelled', {}, cancelled(), 'is-muted'],
+		['running', { isGenerating: true }, running(0.5), 'is-signal'],
+		['loading the model', { isGenerating: true }, running(null), 'is-signal'],
+		['failed', {}, failed(), 'is-danger'],
+		['blocked', { canGenerate: false, disabledReason: 'Select a preset to generate' }, generation(), 'is-warning'],
+		['owned by another tab', { generatingTabName: 'Short film', isActiveTabGenerating: false }, generation(), 'is-warning']
+	])('paints the dot for %s', (_name, extra, gen, expected) => {
+		mounted = mount({ generation: gen, ...extra });
+		expect(tone()).toEqual([expected]);
 	});
 });
 
