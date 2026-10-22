@@ -1034,8 +1034,9 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 }
 
 .condition-chip .chip-mark { color: rgb(var(--ai-3)); line-height: 1; padding-bottom: 2px; }
-.condition-chip { max-width: min(100%, 560px); }
-.condition-chip .chip-context { color: rgb(var(--fg)); font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 500; }
+.condition-chip, .segment-content .inline-chip-editor .condition-chip { max-width: min(100%, 560px); }
+.condition-chip .chip-context { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: rgb(var(--fg)); font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 500; }
+.condition-chip .chip-state { flex: none; }
 .condition-chip .chip-context + .chip-label { margin-left: 6px; }
 .condition-chip.broken { color: rgb(var(--warning)); background: color-mix(in srgb, rgb(var(--warning)) 10%, rgb(var(--surface-2))); border-color: color-mix(in srgb, rgb(var(--warning)) 40%, rgb(var(--line))); }
 .condition-chip.broken .chip-mark, .condition-chip.broken .chip-context { color: rgb(var(--warning)); }
