@@ -170,6 +170,7 @@ The DiT alone is a 20B-parameter pruned checkpoint or a 33B full checkpoint (per
 | Mode | Settings | Result |
 |---|---|---|
 | Ref2VA (`refs`), one reference video | 832×480, 3 s, 20 steps | 15 min 26 s, about 31 s per step (20 October 2026, with the placement fix below); 40 min before that fix |
+| Ref2VA (`refs`), the same reference video and one 832×480 reference image | 832×480, 3 s, 20 steps | 16 min 17 s, about 36 s per step, engine peak 5,036 MB (22 October 2026, image capped at 1888×1088, 2,404 more sequence rows than without it); before the cap the same image ran 5.5 to 11 min per step |
 | flf (`video`) with the 360-orbit LoRA `minimax_h3_flf2v_lora_v1.safetensors` | 512×512, 73 frames, 28 steps | 14.9 s per step, 10 min 46 s in all |
 | flf (`video`) with the same LoRA | 768×768, 73 frames, 28 steps | 16.0 s per step, 9 min 46 s in all |
 
