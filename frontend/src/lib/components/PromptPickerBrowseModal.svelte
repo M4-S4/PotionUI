@@ -9,7 +9,7 @@
 </script>
 
 <script lang="ts">
-	import ConfirmDialog from './modals/ConfirmDialog.svelte';
+	import SegmentModal, { type SegmentModalTone } from './modals/SegmentModal.svelte';
 	import Icon from './Icon.svelte';
 	import MediaThumb from './media/MediaThumb.svelte';
 	import Button from './ui/Button.svelte';
@@ -20,6 +20,13 @@
 	import HighlightedText from './HighlightedText.svelte';
 	import { compileTextMatcher, textMatches, type TextMatchMode } from '$lib/utils/textMatch';
 	import type { AutocompleteValue } from './AutocompleteDropdown.svelte';
+
+	const TRIGGER_TONE: Record<string, SegmentModalTone> = {
+		'#': 'phrase',
+		$: 'variable',
+		'@': 'resource',
+		'/': 'syntax'
+	};
 
 	const TRIGGER_COLOR: Record<string, string> = {
 		'#': 'rgb(var(--signal))',
@@ -82,7 +89,6 @@
 	let previewIndex = $state(0);
 	let previewPaneRef = $state<HTMLDivElement | null>(null);
 	let lastFocusedBeforePreview: HTMLElement | null = null;
-	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	let compiledSearch = $derived(compileTextMatcher(query, matchMode));
 	let searchMatcher = $derived(compiledSearch.matcher);
@@ -95,6 +101,17 @@
 	let filteredValues = $derived(
 		values.filter((v) => textMatches(searchMatcher, v.label, v.value, v.description))
 	);
+
+	let tier = $derived<'M' | 'L'>(triggerChar === '$' || triggerChar === '/' ? 'M' : 'L');
+	let showTree = $derived(tier === 'L' && categories.length > 0);
+	let selectedValue = $derived(values.find((v) => v.id === selectedId) ?? null);
+	let primaryLabel = $derived(triggerChar === '$' && selectedValue ? `Insert $${selectedValue.label}` : insertHint);
+	let contextText = $derived.by(() => {
+		const active = categories.find((c) => c.id === activeCategoryId) ?? (categories.length === 1 ? categories[0] : null);
+		const count = `${filteredValues.length} ${filteredValues.length === 1 ? 'value' : 'values'}`;
+		if (triggerChar === '#') return `${contextMarker} · ${count}`;
+		return active ? `${active.name} · ${count}` : count;
+	});
 
 	function toggleMatchMode() {
 		matchMode = matchMode === 'regex' ? 'contains' : 'regex';
@@ -172,14 +189,7 @@
 			return;
 		}
 
-		if (e.key === 'Escape') return;
-		if (e.key === 'Enter') {
-			if (!e.repeat && (e.target as HTMLElement | null)?.tagName === 'INPUT') {
-				e.preventDefault();
-				dialog.confirm();
-			}
-			return;
-		}
+		if (e.key === 'Escape' || e.key === 'Enter') return;
 
 		if (triggerChar !== '#' || layout === 'grid') return;
 		const activeTag = (e.target as HTMLElement | null)?.tagName;
@@ -225,7 +235,7 @@
 
 	function pickValue(value: AutocompleteValue) {
 		selectedId = value.id;
-		dialog.settle(commitSelection);
+		commitSelection();
 	}
 
 	function handleExcludeClick() {
@@ -241,280 +251,281 @@
 
 <svelte:window on:keydown|capture={handleWindowKeydown} />
 
-<ConfirmDialog
-	bind:this={dialog}
-	isOpen={true}
-	closeable={!previewOpen}
+{#snippet footerTools()}
+	{#if footerLeft === 'phrasebook'}
+		<div class="picker-footer-left flex min-w-0 items-center gap-2 max-md:flex-wrap">
+			<Tooltip text="Remove the chip from the prompt">
+				<Button variant="ghost" size="sm" icon="trash" class="!text-danger hover:bg-danger/10" ariaLabel="Remove chip" onclick={handleRemoveClick}>
+					Remove chip
+				</Button>
+			</Tooltip>
+			<span class="fsep max-md:hidden"></span>
+			<SegmentedControl
+				variant="toggle"
+				ariaLabel="Value behavior"
+				items={[
+					{ id: 'fixed', label: 'Fixed value' },
+					{ id: 'shuffle', label: 'Auto-shuffle', disabled: !canShuffle }
+				]}
+				selected={pendingShuffle ? 'shuffle' : 'fixed'}
+				onSelect={(id) => {
+					if (id === 'shuffle' && !canShuffle) return;
+					pendingShuffle = id === 'shuffle';
+				}}
+			/>
+			<Tooltip text="Pick a different value now">
+				<Button variant="ghost" size="sm" icon="shuffle" disabled={!canShuffle} onclick={shuffleNow}>Shuffle now</Button>
+			</Tooltip>
+			{#if canShuffle}
+				<Tooltip text="This value won't be picked by Auto-shuffle again">
+					<Button variant="ghost" size="sm" icon="eye-off" onclick={handleExcludeClick}>Exclude from shuffles</Button>
+				</Tooltip>
+			{/if}
+		</div>
+	{:else if footerLeft === 'resource'}
+		<Tooltip text="Remove this reference from the prompt">
+			<Button variant="ghost" size="sm" class="!text-danger hover:bg-danger/10" icon="trash" onclick={handleRemoveClick}>
+				Remove reference
+			</Button>
+		</Tooltip>
+	{/if}
+{/snippet}
+
+<SegmentModal
+	{tier}
+	{title}
+	mark={triggerChar}
+	tone={TRIGGER_TONE[triggerChar]}
+	context={contextText}
 	keyboard={!previewOpen}
-	sizeClass="w-full md:w-[64rem] md:max-w-[calc(100vw-2rem)]"
-	confirmLabel={insertHint}
-	confirmDisabled={!selectedId}
-	onConfirm={commitSelection}
+	primaryLabel={primaryLabel}
+	primaryDisabled={!selectedId}
+	footerStart={footerLeft === 'none' ? undefined : footerTools}
+	onConfirm={() => (commitSelection() ? undefined : false)}
 	onCancel={onClose}
 >
-	{#snippet headerIconContent()}
-		<span class="picker-chip" style="--trig: {TRIGGER_COLOR[triggerChar]}">{triggerChar}</span>
-	{/snippet}
-	{#snippet headerContent()}
-		<strong class="picker-modal-title">{title}</strong>
-		<div class="picker-modal-search field-frame" class:invalid={!!compiledSearch.error}>
-			<Icon name="search" className="icon" />
-			<input
-				bind:value={query}
-				aria-label="Search {title}"
-				aria-invalid={compiledSearch.error ? 'true' : undefined}
-				placeholder={matchMode === 'regex' ? 'Regular expression…' : undefined}
-			/>
-			<Tooltip text="Regular expression" position="bottom">
-				<IconButton
-					icon="regex"
-					label="Regular expression"
-					size="xs"
-					active={matchMode === 'regex'}
-					ariaPressed={matchMode === 'regex'}
-					onclick={toggleMatchMode}
+	<div class="flex h-full min-h-0 flex-col">
+		<div class="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3 max-md:px-4">
+			<div class="picker-modal-search field-frame min-w-[12rem] flex-1 max-md:basis-full" class:invalid={!!compiledSearch.error}>
+				<Icon name="search" className="icon" />
+				<input
+					bind:value={query}
+					aria-label="Search {title}"
+					aria-invalid={compiledSearch.error ? 'true' : undefined}
+					placeholder={matchMode === 'regex' ? 'Regular expression…' : 'Search'}
+					data-autofocus
 				/>
-			</Tooltip>
-		</div>
-	{/snippet}
-
-	{#if compiledSearch.error}
-		<div class="picker-search-error" role="alert">{compiledSearch.error}</div>
-	{/if}
-
-	<div class="picker-context">
-		{#if contextBefore}…{contextBefore}&nbsp;{/if}<span class="k" style="--trig: {TRIGGER_COLOR[triggerChar]}">{contextMarker}<span class="care"></span></span>&nbsp;{contextAfter}{#if contextAfter}…{/if}
-	</div>
-
-	<div class="picker-modal-body">
-		{#if previewOpen}
-			{@const current = previewableValues[previewIndex]}
-			<div class="picker-preview-pane" role="dialog" aria-label="Preview {current?.label ?? ''}" tabindex="-1" bind:this={previewPaneRef}>
-				<div class="picker-preview-head">
-					<Tooltip text="Back to the list">
-						<Button variant="ghost" size="sm" icon="arrow-left" onclick={closePreview}>Back</Button>
-					</Tooltip>
-					<span class="picker-preview-pos">{previewIndex + 1} / {previewableValues.length}</span>
-				</div>
-				<div class="picker-preview-body">
-					<Tooltip text="Previous (←)">
-						<button
-							type="button"
-							class="picker-preview-nav"
-							disabled={previewIndex === 0}
-							onclick={previewPrev}
-							aria-label="Previous value"
-						>
-							<Icon name="arrow-left" className="icon" />
-						</button>
-					</Tooltip>
-					<div class="picker-preview-image">
-						{#if current?.preview_file_id && getImageUrl}
-							<img src={getImageUrl(current.preview_file_id)} alt={current.label} />
-						{:else}
-							<span class="picker-preview-glyph">{triggerChar}</span>
-						{/if}
-					</div>
-					<Tooltip text="Next (→)">
-						<button
-							type="button"
-							class="picker-preview-nav"
-							disabled={previewIndex === previewableValues.length - 1}
-							onclick={previewNext}
-							aria-label="Next value"
-						>
-							<Icon name="arrow-right" className="icon" />
-						</button>
-					</Tooltip>
-				</div>
-				<div class="picker-preview-foot">
-					<div class="picker-preview-copy">
-						<strong class="picker-preview-value"><HighlightedText text={current?.value ?? ''} matcher={searchMatcher} /></strong>
-						{#if current?.label && current.label !== current.value}<p class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={current.label} matcher={searchMatcher} /></p>{/if}
-					</div>
-					<Button variant="primary" onclick={useThisValue}>Use this value</Button>
-				</div>
+				<span class="picker-count">{query.trim() ? `${filteredValues.length} of ${values.length}` : values.length}</span>
+				<Tooltip text="Regular expression" position="bottom">
+					<IconButton
+						icon="regex"
+						label="Regular expression"
+						size="xs"
+						active={matchMode === 'regex'}
+						ariaPressed={matchMode === 'regex'}
+						onclick={toggleMatchMode}
+					/>
+				</Tooltip>
 			</div>
-		{:else}
-			{#if categories.length > 0}
-				<div class="picker-tree">
+			{#if showTree}
+				<select
+					class="input h-11 flex-1 text-base md:hidden"
+					aria-label="Category"
+					value={activeCategoryId ?? ''}
+					onchange={(e) => {
+						const picked = categories.find((c) => c.id === e.currentTarget.value);
+						if (picked) onSelectCategory?.(picked);
+					}}
+				>
+					{#if !activeCategoryId}<option value="">All</option>{/if}
 					{#each filteredCategories as category (category.id)}
-						{@const isActive = category.id === activeCategoryId}
-						<button
-							type="button"
-							class="picker-tree-row"
-							class:on={isActive}
-							use:scrollCurrentIntoView={isActive}
-							onclick={() => onSelectCategory?.(category)}
-						>
-							<Icon name={category.icon ?? 'folder'} className="icon" />
-							<HighlightedText text={category.name} matcher={searchMatcher} />
-							{#if category.count !== undefined}<span class="n">{category.count}</span>{/if}
-						</button>
+						<option value={category.id}>{category.name}{category.count !== undefined ? ` · ${category.count}` : ''}</option>
 					{/each}
-				</div>
+				</select>
 			{/if}
+		</div>
 
-			{#if layout === 'grid'}
-				<div class="picker-gridwrap" class:full={categories.length === 0}>
-					<div class="picker-grid">
-						{#each filteredValues as value (value.id)}
-							{@const isCurrent = value.id === initialSelectedId}
-							{@const isSelected = value.id === selectedId}
+		{#if compiledSearch.error}
+			<div class="picker-search-error" role="alert">{compiledSearch.error}</div>
+		{/if}
+
+		<div class="picker-context">
+			{#if contextBefore}…{contextBefore}&nbsp;{/if}<span class="k" style="--trig: {TRIGGER_COLOR[triggerChar]}">{contextMarker}<span class="care"></span></span>&nbsp;{contextAfter}{#if contextAfter}…{/if}
+		</div>
+
+		<div class="picker-modal-body">
+			{#if previewOpen}
+				{@const current = previewableValues[previewIndex]}
+				<div class="picker-preview-pane" role="dialog" aria-label="Preview {current?.label ?? ''}" tabindex="-1" bind:this={previewPaneRef}>
+					<div class="picker-preview-head">
+						<Tooltip text="Back to the list">
+							<Button variant="ghost" size="sm" icon="arrow-left" onclick={closePreview}>Back</Button>
+						</Tooltip>
+						<span class="picker-preview-pos">{previewIndex + 1} / {previewableValues.length}</span>
+					</div>
+					<div class="picker-preview-body">
+						<Tooltip text="Previous (←)">
 							<button
 								type="button"
-								class="picker-gitem"
-								class:sel={isSelected}
-								use:scrollCurrentIntoView={isCurrent}
-								onclick={() => (selectedId = value.id)}
-								ondblclick={() => pickValue(value)}
+								class="picker-preview-nav"
+								disabled={previewIndex === 0}
+								onclick={previewPrev}
+								aria-label="Previous value"
 							>
-								<span class="picker-gthumb">
-									<MediaThumb
-										url={value.preview_file_id && getImageUrl ? getImageUrl(value.preview_file_id) : undefined}
-										kind={value.kind}
-										name={value.label}
-										className="w-full h-full"
-										rounded={false}
-										iconClassName="icon"
-									/>
-								</span>
-								<span class="picker-gcheck"><Icon name="check" className="icon" /></span>
-								<span class="picker-gcopy">
-									<strong><HighlightedText text={rowLabel(value)} matcher={searchMatcher} /></strong>
-									{#if value.value !== value.label}<span><HighlightedText text={value.value} matcher={searchMatcher} /></span>{/if}
-								</span>
+								<Icon name="arrow-left" className="icon" />
 							</button>
-						{/each}
+						</Tooltip>
+						<div class="picker-preview-image">
+							{#if current?.preview_file_id && getImageUrl}
+								<img src={getImageUrl(current.preview_file_id)} alt={current.label} />
+							{:else}
+								<span class="picker-preview-glyph">{triggerChar}</span>
+							{/if}
+						</div>
+						<Tooltip text="Next (→)">
+							<button
+								type="button"
+								class="picker-preview-nav"
+								disabled={previewIndex === previewableValues.length - 1}
+								onclick={previewNext}
+								aria-label="Next value"
+							>
+								<Icon name="arrow-right" className="icon" />
+							</button>
+						</Tooltip>
+					</div>
+					<div class="picker-preview-foot">
+						<div class="picker-preview-copy">
+							<strong class="picker-preview-value"><HighlightedText text={current?.value ?? ''} matcher={searchMatcher} /></strong>
+							{#if current?.label && current.label !== current.value}<p class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={current.label} matcher={searchMatcher} /></p>{/if}
+						</div>
+						<Button variant="primary" size="sm" onclick={useThisValue}>Use this value</Button>
 					</div>
 				</div>
 			{:else}
-				<div class="picker-valuecol" class:full={categories.length === 0}>
-					{#if hasPreviewValues}
-						<div class="picker-values-head">
-							<span class="picker-kbd-hint"><Kbd keys="Space" /> / <Kbd keys="→" /> preview</span>
-						</div>
-					{/if}
-					<div class="picker-values">
-						{#each filteredValues as value (value.id)}
-							{@const isCurrent = value.id === initialSelectedId}
-							{@const isSelected = value.id === selectedId}
-							{@const hasPreview = !!(value.preview_file_id && getImageUrl)}
+				{#if showTree}
+					<div class="picker-tree max-md:hidden">
+						{#each filteredCategories as category (category.id)}
+							{@const isActive = category.id === activeCategoryId}
 							<button
 								type="button"
-								class="picker-vrow"
-								class:sel={isSelected}
-								use:scrollCurrentIntoView={isCurrent}
-								onclick={(e) => {
-									if (hasPreview && (e.target as HTMLElement).closest('.picker-vthumb')) {
-										openPreviewAt(previewIndexOf(value));
-										return;
-									}
-									selectedId = value.id;
-								}}
-								ondblclick={() => pickValue(value)}
+								class="picker-tree-row"
+								class:on={isActive}
+								use:scrollCurrentIntoView={isActive}
+								onclick={() => onSelectCategory?.(category)}
 							>
-								<span class="picker-vthumb" class:clickable={hasPreview}>
-									{#if hasPreview}
-										<img src={getImageUrl(value.preview_file_id!)} alt={value.label} loading="lazy" />
-									{:else}
-										{triggerChar}
-									{/if}
-								</span>
-								<span class="picker-vcopy">
-									{#if triggerChar === '#'}
-										<strong class="picker-value-primary"><HighlightedText text={value.value} matcher={searchMatcher} /></strong>
-										{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={value.label} matcher={searchMatcher} /></span>{/if}
-									{:else}
-										<strong class="picker-label-primary"><HighlightedText text={rowLabel(value)} matcher={searchMatcher} /></strong>
-										{#if value.description || value.value !== value.label}<span class="picker-label-secondary"><HighlightedText text={value.description ?? value.value} matcher={searchMatcher} /></span>{/if}
-									{/if}
-								</span>
-								{#if isCurrent}
-									<span class="picker-vbadge" class:signal={isSelected} class:neutral={!isSelected}>Current</span>
-								{:else}
-									<span class="picker-vcheck"><Icon name="check" className="icon" /></span>
-								{/if}
+								<Icon name={category.icon ?? 'folder'} className="icon" />
+								<HighlightedText text={category.name} matcher={searchMatcher} />
+								{#if category.count !== undefined}<span class="n">{category.count}</span>{/if}
 							</button>
 						{/each}
 					</div>
-				</div>
-			{/if}
-		{/if}
-	</div>
-
-	{#snippet leftActions()}
-				{#if footerLeft === 'phrasebook'}
-					<div class="picker-footer-left">
-						<SegmentedControl
-							variant="toggle"
-							ariaLabel="Value behavior"
-							items={[
-								{ id: 'fixed', label: 'Fixed value' },
-								{ id: 'shuffle', label: 'Auto-shuffle', disabled: !canShuffle }
-							]}
-							selected={pendingShuffle ? 'shuffle' : 'fixed'}
-							onSelect={(id) => {
-								if (id === 'shuffle' && !canShuffle) return;
-								pendingShuffle = id === 'shuffle';
-							}}
-						/>
-						<span class="fsep"></span>
-						<Tooltip text="Pick a different value now">
-							<Button variant="ghost" size="sm" icon="shuffle" disabled={!canShuffle} onclick={shuffleNow}>
-								Shuffle now
-							</Button>
-						</Tooltip>
-						{#if canShuffle}
-							<Tooltip text="This value won't be picked by Auto-shuffle again">
-								<Button variant="ghost" size="sm" icon="eye-off" onclick={handleExcludeClick}>
-									Exclude from shuffles
-								</Button>
-							</Tooltip>
-						{/if}
-						<span class="fsep"></span>
-						<Tooltip text="Remove chip">
-							<IconButton icon="trash" label="Remove chip" size="sm" class="text-danger hover:bg-danger/10" onclick={handleRemoveClick} />
-						</Tooltip>
-					</div>
-				{:else if footerLeft === 'resource'}
-					<Tooltip text="Remove this reference from the prompt">
-						<Button variant="ghost" size="sm" class="text-danger hover:bg-danger/10" icon="trash" onclick={handleRemoveClick}>
-							Remove reference
-						</Button>
-					</Tooltip>
 				{/if}
-	{/snippet}
-</ConfirmDialog>
+
+				{#if layout === 'grid'}
+					<div class="picker-gridwrap" class:full={!showTree}>
+						<div class="picker-grid">
+							{#each filteredValues as value (value.id)}
+								{@const isCurrent = value.id === initialSelectedId}
+								{@const isSelected = value.id === selectedId}
+								<button
+									type="button"
+									class="picker-gitem"
+									class:sel={isSelected}
+									use:scrollCurrentIntoView={isCurrent}
+									onclick={() => (selectedId = value.id)}
+									ondblclick={() => pickValue(value)}
+								>
+									<span class="picker-gthumb">
+										<MediaThumb
+											url={value.preview_file_id && getImageUrl ? getImageUrl(value.preview_file_id) : undefined}
+											kind={value.kind}
+											name={value.label}
+											className="w-full h-full"
+											rounded={false}
+											iconClassName="icon"
+										/>
+									</span>
+									<span class="picker-gcheck"><Icon name="check" className="icon" /></span>
+									<span class="picker-gcopy">
+										<strong><HighlightedText text={rowLabel(value)} matcher={searchMatcher} /></strong>
+										{#if value.value !== value.label}<span><HighlightedText text={value.value} matcher={searchMatcher} /></span>{/if}
+									</span>
+								</button>
+							{:else}
+								<p class="picker-empty">Nothing matches &ldquo;{query.trim()}&rdquo;</p>
+							{/each}
+						</div>
+					</div>
+				{:else}
+					<div class="picker-valuecol" class:full={!showTree}>
+						{#if hasPreviewValues}
+							<div class="picker-values-head">
+								<span class="picker-kbd-hint"><Kbd keys="Space" size="lg" /> / <Kbd keys="→" size="lg" /> preview</span>
+							</div>
+						{/if}
+						<div class="picker-values">
+							{#each filteredValues as value (value.id)}
+								{@const isCurrent = value.id === initialSelectedId}
+								{@const isSelected = value.id === selectedId}
+								{@const hasPreview = !!(value.preview_file_id && getImageUrl)}
+								<button
+									type="button"
+									class="picker-vrow"
+									class:sel={isSelected}
+									use:scrollCurrentIntoView={isCurrent}
+									onclick={(e) => {
+										if (hasPreview && (e.target as HTMLElement).closest('.picker-vthumb')) {
+											openPreviewAt(previewIndexOf(value));
+											return;
+										}
+										selectedId = value.id;
+									}}
+									ondblclick={() => pickValue(value)}
+								>
+									<span class="picker-vthumb" class:clickable={hasPreview}>
+										{#if hasPreview}
+											<img src={getImageUrl(value.preview_file_id!)} alt={value.label} loading="lazy" />
+										{:else}
+											{triggerChar}
+										{/if}
+									</span>
+									<span class="picker-vcopy">
+										{#if triggerChar === '#'}
+											<strong class="picker-value-primary"><HighlightedText text={value.value} matcher={searchMatcher} /></strong>
+											{#if value.label && value.label !== value.value}<span class="picker-value-secondary"><span class="picker-value-secondary-prefix">Title:</span> <HighlightedText text={value.label} matcher={searchMatcher} /></span>{/if}
+										{:else}
+											<strong class="picker-label-primary"><HighlightedText text={rowLabel(value)} matcher={searchMatcher} /></strong>
+											{#if value.description || value.value !== value.label}<span class="picker-label-secondary"><HighlightedText text={value.description ?? value.value} matcher={searchMatcher} /></span>{/if}
+										{/if}
+									</span>
+									{#if isCurrent}
+										<span class="picker-vbadge" class:signal={isSelected} class:neutral={!isSelected}>Current</span>
+									{:else}
+										<span class="picker-vcheck"><Icon name="check" className="icon" /></span>
+									{/if}
+								</button>
+							{:else}
+								<p class="picker-empty">Nothing matches &ldquo;{query.trim()}&rdquo;</p>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			{/if}
+		</div>
+	</div>
+</SegmentModal>
 
 <style>
-	.picker-chip {
-		width: 26px;
-		height: 26px;
-		display: grid;
-		place-items: center;
-		flex: 0 0 auto;
-		color: var(--trig);
-		background: rgb(var(--surface-2));
-		border: 1px solid rgb(var(--line));
-		border-radius: 5px;
-		font: 600 13px 'IBM Plex Mono', monospace;
-	}
 
-	.picker-modal-title {
-		font-size: 14px;
-		font-weight: 600;
-		white-space: nowrap;
-	}
 
 	.picker-modal-search {
 		display: flex;
 		align-items: center;
 		gap: 7px;
-		height: 32px;
-		margin-left: auto;
-		padding: 0 10px;
-		width: 13rem;
+		height: 36px;
+		min-width: 0;
+		padding: 0 4px 0 10px;
 		color: rgb(var(--fg));
 		background: rgb(var(--surface-2));
 		border: 1px solid rgb(var(--line-strong));
@@ -538,6 +549,21 @@
 		height: 13px;
 		color: rgb(var(--fg-subtle));
 		flex: none;
+	}
+
+	.picker-count {
+		flex: none;
+		font-family: 'IBM Plex Mono', monospace;
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+		color: rgb(var(--fg-subtle));
+	}
+
+	.picker-empty {
+		padding: 28px 12px;
+		text-align: center;
+		font-size: 13px;
+		color: rgb(var(--fg-subtle));
 	}
 
 	.picker-modal-search input {
@@ -626,7 +652,7 @@
 	.picker-tree-row .n {
 		margin-left: auto;
 		font-family: 'IBM Plex Mono', monospace;
-		font-size: 11px;
+		font-size: 12px;
 		color: rgb(var(--fg-subtle));
 	}
 

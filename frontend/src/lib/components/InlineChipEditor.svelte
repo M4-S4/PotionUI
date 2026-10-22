@@ -2753,7 +2753,7 @@
 			categories={[{ id: 'shared', name: 'Shared by every segment', description: `${variableSuggestions.length} available` }]}
 			activeCategoryId="shared"
 			values={variableSuggestions}
-			insertHint="Insert ${name}"
+			insertHint="Insert"
 			onInsertValue={(value) => handleSelectVariable(value)}
 			onClose={closeBrowseModal}
 		/>

@@ -195,7 +195,7 @@ describe('PromptPickerBrowseModal — categories column for every trigger, brows
 		expect(rows[0]?.textContent).toContain('a.png');
 	});
 
-	it('/ syntax: shows a single "Tokens" group alongside the flat list', async () => {
+	it('/ syntax: lists the tokens in a one-pane dialog, naming the group in the header', async () => {
 		const editor = mountEditor({
 			promptSyntax: [{ token: 'BREAK', kind: 'marker', help: 'Splits into CLIP chunks' }]
 		}) as unknown as { insertSyntaxTrigger: () => void };
@@ -206,8 +206,23 @@ describe('PromptPickerBrowseModal — categories column for every trigger, brows
 		editorEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
 		flushSync();
 
-		const groups = Array.from(document.querySelectorAll<HTMLElement>('.picker-tree-row'));
-		expect(groups.some((g) => g.textContent?.includes('Tokens'))).toBe(true);
+		expect(document.querySelectorAll('.picker-tree-row')).toHaveLength(0);
+		expect(document.querySelector<HTMLElement>('[role="dialog"]')!.className).toContain('md:w-[600px]');
+		expect(document.querySelector('[data-segment-modal-context]')!.textContent).toContain('Tokens');
 		expect(document.querySelector('.picker-values')?.textContent).toContain('BREAK');
+	});
+
+	it('$ variables: the primary names the variable it inserts', async () => {
+		const editor = mountEditor({
+			variables: { mood: { type: 'text', value: 'calm' }, lens: { type: 'text', value: '85mm' } }
+		}) as unknown as { insertVariableTrigger: () => void };
+		editor.insertVariableTrigger();
+		flushSync();
+		const editorEl = document.querySelector('.inline-chip-editor')!;
+		editorEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+		flushSync();
+		const primary = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-segment-modal-end] button')).at(-1)!;
+		expect(primary.textContent?.replace(/\s+/g, ' ').trim()).toMatch(/^Insert \$(mood|lens) Enter$/);
+		expect(document.querySelectorAll('.picker-tree-row')).toHaveLength(0);
 	});
 });

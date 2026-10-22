@@ -171,7 +171,7 @@ describe('AutocompleteDropdown restyle (segment-composer)', () => {
 
 		expect(tabEvent.defaultPrevented).toBe(true);
 		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-		expect(document.querySelector('.picker-chip')!.textContent).toBe('#');
+		expect(document.querySelector('[data-segment-modal-mark]')!.textContent?.trim()).toBe('#');
 		expect(document.querySelector('.phrasebook-picker')).toBeNull();
 	});
 });
