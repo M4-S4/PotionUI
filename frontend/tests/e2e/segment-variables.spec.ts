@@ -1,25 +1,9 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
+import { makeModelFieldsOptional } from './generationMocks';
 
 const JOURNEY = 'segment-variables';
-
-async function makeModelFieldsOptional(page: Page) {
-	const relax = (node: unknown): void => {
-		if (Array.isArray(node)) return node.forEach(relax);
-		if (node && typeof node === 'object') {
-			const record = node as Record<string, unknown>;
-			if (record.type === 'model' && 'required' in record) record.required = false;
-			Object.values(record).forEach(relax);
-		}
-	};
-	await page.route(/\/api\/presets\/[^/]+\/form(\?.*)?$/, async (route) => {
-		const response = await route.fetch();
-		const body = await response.json();
-		relax(body);
-		await route.fulfill({ response, json: body });
-	});
-}
 
 async function openGeneratePage(page: Page): Promise<boolean> {
 	await loginAsOwner(page);

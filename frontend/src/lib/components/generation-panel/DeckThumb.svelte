@@ -166,4 +166,22 @@
 		top: 2px;
 		bottom: auto;
 	}
+
+	@media (max-width: 767px) {
+		.deck-thumb {
+			width: 44px;
+			height: 44px;
+		}
+
+		.deck-thumb :global(.deck-thumb-icon) {
+			width: 20px;
+			height: 20px;
+		}
+
+		.deck-thumb-wave {
+			width: 28px;
+			height: 16px;
+			margin-bottom: 14px;
+		}
+	}
 </style>

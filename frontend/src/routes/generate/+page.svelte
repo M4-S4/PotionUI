@@ -1884,7 +1884,7 @@
 <!-- Main Layout Wrapper. Below md the shell's main reserves the fixed bottom
 	tab bar (4rem + safe-area), so this page must size itself to what's left of
 	the *visible* viewport — 100vh would overflow behind the bar. -->
-<div class="h-[calc(100dvh_-_4rem_-_env(safe-area-inset-bottom))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
+<div class="h-[calc(100dvh_-_var(--tab-bar-height))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
 
 	<TabBar />
 
@@ -1893,7 +1893,7 @@
 		{@const tabHandlers = createTabHandlers(tab.id)}
 		{@const tabModes = modesPerTab[tab.id] || []}
 		{@const isActive = tab.id === activeTabId}
-		<div class="flex-1 flex flex-col min-h-0" style="display: {isActive ? 'flex' : 'none'}">
+		<div class="flex-1 flex flex-col min-h-0 pb-[var(--deck-height)] md:pb-0" style="display: {isActive ? 'flex' : 'none'}">
 			{#if isActive}
 
 			{#snippet noSelectionState()}
@@ -1960,11 +1960,6 @@
 						{isLoading}
 						isReloadingPreset={isReloadingPreset && tab.id === activeTabId}
 						{tabModes}
-						{startGeneration}
-						{cancelGeneration}
-						{canGenerate}
-						{generateDisabledReason}
-						{costNote}
 						{promptRelayActive}
 						{videoDirectorActive}
 						{videoDirectorCaps}
@@ -2033,7 +2028,7 @@
 
 			<!-- Connection Status Warning -->
 			{#if !isConnected}
-				<div class="flex-shrink-0 px-4 py-2 bg-warning/10 border-t border-warning/25 mb-[var(--dock-height)]">
+				<div class="flex-shrink-0 px-4 py-2 bg-warning/10 border-t border-warning/25 md:mb-[var(--deck-height)]">
 					<div class="flex items-center gap-3">
 						<svg class="w-5 h-5 text-warning flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
 							<path
@@ -2054,13 +2049,7 @@
 
 	<LimitNotice />
 
-	<!-- Generation Panel - Desktop only. `.generation-panel` (maintainer ruling)
-		keeps the pre-port docked-bar container: fixed, full-width, flush to the
-		bottom edge — only its inside is restyled onto generation-panel-concept.html.
-		It occupies no flow row, so it needs no wrapper here; the panes above
-		reserve their own clearance via `--dock-height`. -->
-	{#if !$isMobile}
-		{#key currentTab.id}
+	{#key currentTab.id}
 		<GenerationPanel
 			bind:this={generationPanelRef}
 			generation={generation}
@@ -2078,7 +2067,7 @@
 			preset={panelPreset}
 			modeLabel={panelModeLabel}
 			tabId={currentTab.id}
-			workbenchFloating={!!currentTab.workbenchFloating}
+			workbenchFloating={!$isMobile && !!currentTab.workbenchFloating}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>
 			<GenerationSettingsPanel
@@ -2100,7 +2089,6 @@
 			/>
 		</GenerationPanel>
 		{/key}
-	{/if}
 
 </div>
 

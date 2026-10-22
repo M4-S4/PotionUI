@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { clearTabDrafts, loginAsOwner, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
+import { makeModelFieldsOptional } from './generationMocks';
 
 const JOURNEY = 'chip-dropdowns';
 const CHIP_POPOVER_WIDTH = 420;
@@ -37,23 +38,6 @@ const PHRASE_VALUES = [
 	updated_at: '2026-01-01T00:00:00Z',
 	category_path: 'style.lighting'
 }));
-
-async function makeModelFieldsOptional(page: Page) {
-	const relax = (node: unknown): void => {
-		if (Array.isArray(node)) return node.forEach(relax);
-		if (node && typeof node === 'object') {
-			const record = node as Record<string, unknown>;
-			if (record.type === 'model' && 'required' in record) record.required = false;
-			Object.values(record).forEach(relax);
-		}
-	};
-	await page.route(/\/api\/presets\/[^/]+\/form(\?.*)?$/, async (route) => {
-		const response = await route.fetch();
-		const body = await response.json();
-		relax(body);
-		await route.fulfill({ response, json: body });
-	});
-}
 
 async function mockPhrasebook(page: Page) {
 	await page.route('**/api/phrasebook/search**', (route) =>

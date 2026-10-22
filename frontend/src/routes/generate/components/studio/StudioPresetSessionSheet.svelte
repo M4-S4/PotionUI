@@ -37,7 +37,7 @@
 	<svelte:fragment slot="header">
 		<div class="flex items-baseline gap-2">
 			<span class="text-sm font-semibold text-fg">Preset &amp; session</span>
-			<span class="font-mono text-2xs uppercase tracking-wide text-fg-subtle">{tab.name}</span>
+			<span class="font-mono text-sm uppercase tracking-wide text-fg-subtle">{tab.name}</span>
 		</div>
 	</svelte:fragment>
 
@@ -87,12 +87,12 @@
 		</div>
 
 		<div>
-			<p class="mb-1.5 font-mono text-2xs uppercase tracking-wide text-fg-subtle">Tabs</p>
+			<p class="mb-1.5 font-mono text-sm uppercase tracking-wide text-fg-subtle">Tabs</p>
 			<div class="flex flex-wrap gap-1.5">
 				{#each tabs as t (t.id)}
 					<button
 						type="button"
-						class="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-2xs font-medium {t.id === activeTabId
+						class="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium {t.id === activeTabId
 							? 'bg-accent text-accent-contrast'
 							: 'bg-surface-2 text-fg-muted'}"
 						on:click={() => tabsStore.setActiveTab(t.id)}

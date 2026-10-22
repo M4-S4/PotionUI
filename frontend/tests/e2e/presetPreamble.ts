@@ -6,20 +6,7 @@ export interface DiscoveredPreset {
 	name: string;
 }
 
-/**
- * Finds an installable native image preset (prefers SDXL by id, same
- * fixture other specs already key off — see fe75-flow-view.spec.ts), installs
- * + assigns it to the owner if needed, and selects it through the real preset
- * picker on /generate. A segment editor (InlineChipEditor) only mounts once a
- * preset with prompt fields is active — see trigger-word-highlight.spec.ts's
- * header for why a fresh throwaway instance has none by default.
- *
- * Discovers the preset dynamically rather than hardcoding an id/slug: a fixed
- * reference silently rots when presets are renamed or removed (this replaced
- * an earlier version pinned to a 'carousel_demo' preset that no longer exists
- * anywhere in presets/ — confirmed via a real run, not a search-error).
- */
-export async function installAndSelectImagePreset(page: Page): Promise<DiscoveredPreset | null> {
+export async function discoverAndAssignImagePreset(page: Page): Promise<DiscoveredPreset | null> {
 	const token = await ownerToken(page);
 	const headers = { Authorization: `Bearer ${token}` };
 
@@ -46,8 +33,6 @@ export async function installAndSelectImagePreset(page: Page): Promise<Discovere
 		).toBeTruthy();
 	}
 
-	// Installing does not assign; the generate page only lists presets assigned
-	// to the current user.
 	const me = await page.request.get('/api/auth/me', { headers });
 	const userId = (await me.json())?.data?.id as string;
 	expect(userId, 'owner user id').toBeTruthy();
@@ -61,6 +46,13 @@ export async function installAndSelectImagePreset(page: Page): Promise<Discovere
 		`preset assign must succeed: ${assign.status()} ${JSON.stringify(assignJson)}`
 	).toBeTruthy();
 
+	return { id: preset.id, name: preset.name };
+}
+
+export async function installAndSelectImagePreset(page: Page): Promise<DiscoveredPreset | null> {
+	const preset = await discoverAndAssignImagePreset(page);
+	if (!preset) return null;
+
 	await page.goto('/generate');
 	await page.waitForLoadState('networkidle');
 
@@ -73,7 +65,7 @@ export async function installAndSelectImagePreset(page: Page): Promise<Discovere
 	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await expectPresetPersisted(page, preset.id);
 
-	return { id: preset.id, name: preset.name };
+	return preset;
 }
 
 export function presetOption(page: Page, name: string): Locator {

@@ -18,7 +18,7 @@
 >
 	<button
 		type="button"
-		class="pointer-events-auto flex flex-shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-surface-1/85 px-2.5 py-1.5 text-2xs font-medium text-fg backdrop-blur-sm"
+		class="pointer-events-auto flex flex-shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-surface-1/85 px-2.5 py-1.5 text-sm font-medium text-fg backdrop-blur-sm"
 		aria-label={unsaved ? 'Open tabs, unsaved changes' : 'Open tabs'}
 		on:click={onOpenPresetSheet}
 	>

@@ -33,11 +33,6 @@
 	export let isLoading: boolean;
 	export let isReloadingPreset: boolean;
 	export let tabModes: any[];
-	export let startGeneration: () => void;
-	export let cancelGeneration: () => void;
-	export let canGenerate: boolean;
-	export let generateDisabledReason: string | undefined;
-	export let costNote: string | null = null;
 	export let promptRelayActive: boolean;
 	export let videoDirectorActive: boolean;
 	export let videoDirectorCaps: DirectorCapabilities | null;
@@ -105,11 +100,6 @@
 		{tab}
 		promptPreviewText={dockPromptPreview}
 		{promptlessActive}
-		{canGenerate}
-		{generateDisabledReason}
-		{costNote}
-		onGenerate={startGeneration}
-		onCancel={cancelGeneration}
 		onOpenPrompt={() => (openSheet = 'prompt')}
 		onOpenSettings={() => (openSheet = 'settings')}
 		{onMoveToWorkbench}

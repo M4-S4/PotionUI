@@ -23,7 +23,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    height: var(--dock-height);
+    height: var(--deck-height);
     border-top: 1px solid rgb(var(--line));
     background: rgb(var(--canvas));
     color: rgb(var(--fg));
@@ -186,6 +186,32 @@
   .close-button .icon { width: 16px; height: 16px; }
 
   .drawer-body { height: calc(100% - 56px); overflow: auto; padding: 14px; }
+
+  @media (max-width: 767px) {
+    & { bottom: var(--tab-bar-height); }
+
+    .deck { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: 48px 64px; grid-template-areas: "status utilities" "transport transport"; align-content: center; gap: 8px 12px; padding: 10px 16px 9px; }
+
+    .deck-status { grid-area: status; }
+
+    .run-cluster { grid-area: transport; }
+
+    .utility-cluster { grid-area: utilities; }
+
+    .deck-ambient { display: none; }
+
+    .deck-eyebrow { display: none; }
+
+    .deck-title { font-size: 13px; }
+
+    .deck-timing { display: none; }
+
+    .icon-button { width: 44px; height: 44px; }
+
+    .generate-button { width: 60px; height: 60px; }
+
+    .generate-mark { width: 54px; height: 54px; }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     & .mark-orbit,

@@ -372,6 +372,38 @@ describe('generation deck with a floating workbench', () => {
 	});
 });
 
+describe('generation deck More menu', () => {
+	const openMore = () => {
+		q<HTMLButtonElement>('[data-deck-more]')!.click();
+		flushSync();
+	};
+	const elapsedRow = () => document.querySelector<HTMLElement>('[data-deck-more-elapsed]');
+	const runDetailsRow = () =>
+		[...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes('Run details'));
+
+	it('carries the elapsed time for phones while a run is in flight', () => {
+		mounted = mount({ generation: running(0.4, { startedAt: Date.now() - 83_000 }), isGenerating: true });
+		openMore();
+		expect(elapsedRow()!.textContent!.replace(/\s+/g, ' ').trim()).toBe('Elapsed 1m 23s');
+		expect(elapsedRow()!.classList.contains('md:hidden')).toBe(true);
+	});
+
+	it('has no elapsed row at rest, where Run details shows the last duration', () => {
+		mounted = mount({ generation: generation({ lastDurationMs: 18_400, currentGeneration: { id: 'run-1', status: 'completed' } }) });
+		openMore();
+		expect(elapsedRow()).toBeNull();
+		expect(runDetailsRow()!.textContent).toContain('18.4s');
+	});
+
+	it('drops the elapsed row when the run ends', () => {
+		mounted = mount({ generation: running(0.4), isGenerating: true });
+		openMore();
+		expect(elapsedRow()).not.toBeNull();
+		mounted.set({ generation: generation({ currentGeneration: { id: 'run-1', status: 'completed' } }), isGenerating: false });
+		expect(elapsedRow()).toBeNull();
+	});
+});
+
 describe('generation deck halo', () => {
 	const halo = () => [...mounted!.target.querySelectorAll('.deck-ambient img')].map((img) => img.getAttribute('src'));
 

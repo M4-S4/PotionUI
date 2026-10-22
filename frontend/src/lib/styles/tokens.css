@@ -68,6 +68,7 @@
 
 	/* Layout */
 	--header-h: 69px;
+	--tab-bar-height: calc(4rem + env(safe-area-inset-bottom));
 
 	--z-overlay: 1000;
 	--z-toast: 10000;

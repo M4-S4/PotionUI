@@ -37,7 +37,7 @@
 
 <nav
 	class="fixed bottom-0 left-0 right-0 bg-canvas border-t border-line z-50 flex items-stretch md:hidden"
-	style="height: calc(4rem + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);"
+	style="height: var(--tab-bar-height); padding-bottom: env(safe-area-inset-bottom);"
 >
 	{#each tabs as tab}
 		<a

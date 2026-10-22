@@ -656,6 +656,13 @@
 					</button>
 				{/snippet}
 				{#snippet children(menu)}
+					{#if isGenerating}
+						<div class="flex h-9 items-center gap-2.5 px-2.5 text-sm text-fg-muted md:hidden" data-deck-more-elapsed>
+							<Icon name="panel-hourglass" className="h-4 w-4 flex-shrink-0" />
+							<span class="min-w-0 flex-1 truncate">Elapsed</span>
+							<span class="font-mono text-sm tabular-nums text-fg">{elapsedText}</span>
+						</div>
+					{/if}
 					<button
 						type="button"
 						role="menuitem"
@@ -815,18 +822,19 @@
 
 <style>
 	:global(:root) {
-		--dock-height: 82px;
+		--deck-height: 92px;
+		--dock-height: var(--deck-height);
 	}
 
-	@media (min-width: 768px) {
+	@media (max-width: 767px) {
 		:global(:root) {
-			--dock-height: 92px;
+			--deck-height: 140px;
+			--dock-height: calc(var(--deck-height) + var(--tab-bar-height));
 		}
 	}
 
-	@media (max-width: 720px) {
-		:global(:root) {
-			--dock-height: 123px;
-		}
+	:global(:root:has(.generation-panel)) {
+		--tab-bar-lift: var(--deck-height);
+		--install-banner-z: 20;
 	}
 </style>

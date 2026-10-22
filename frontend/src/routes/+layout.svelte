@@ -271,7 +271,7 @@
 			<div class="hidden md:block">
 				{#if SidebarComponent}<svelte:component this={SidebarComponent} />{/if}
 			</div>
-		<main class="md:ml-14 min-h-dvh overflow-y-auto overflow-x-hidden pb-[calc(4rem_+_env(safe-area-inset-bottom))] md:pb-0">
+		<main class="md:ml-14 min-h-dvh overflow-y-auto overflow-x-hidden pb-[var(--tab-bar-height)] md:pb-0">
 			{#if authenticatedRuntimeReady}
 				<slot />
 			{:else}
@@ -282,9 +282,10 @@
 		</main>
 		{#if MobileTabBarComponent}<svelte:component this={MobileTabBarComponent} />{/if}
 		{#if $canInstall && !installDismissed}
-			<!-- z-30: must sit BELOW the generate page's transport bar (z-40) so it
-				can never cover the Generate button. -->
-			<div class="fixed bottom-[calc(4rem_+_env(safe-area-inset-bottom))] left-0 right-0 z-30 px-3 pb-2 md:hidden">
+			<div
+				class="fixed bottom-[calc(var(--tab-bar-height)_+_var(--tab-bar-lift,0px))] left-0 right-0 z-[var(--install-banner-z,30)] px-3 pb-2 md:hidden"
+				data-install-banner
+			>
 				<div class="bg-surface-2 border border-line-strong rounded-xl p-3 flex items-center gap-3 shadow-floating">
 					<div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
 						<svg class="w-5 h-5 text-fg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
