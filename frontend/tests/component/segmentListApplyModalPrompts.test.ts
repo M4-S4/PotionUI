@@ -62,7 +62,9 @@ async function waitDebounce() {
 }
 
 function dialog(): HTMLElement {
-	const el = document.body.querySelector('[role="dialog"][aria-label="Apply Prompt"]');
+	const el = Array.from(document.body.querySelectorAll('[role="dialog"][aria-labelledby]')).find(
+		(node) => document.getElementById(node.getAttribute('aria-labelledby') ?? '')?.textContent === 'Apply Prompt'
+	);
 	if (!el) throw new Error('Apply Prompt dialog not mounted');
 	return el as HTMLElement;
 }
