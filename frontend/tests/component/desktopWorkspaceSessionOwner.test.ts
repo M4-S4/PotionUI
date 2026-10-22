@@ -31,6 +31,7 @@ const { tabsStore } = await import('$lib/stores/tabs');
 const { tabSessionDirty } = await import('$lib/stores/tabSessionDirty');
 const { queryTabDirty } = await import('$lib/stores/workspaceDirtyQuery');
 const { keybindingsStore } = await import('$lib/stores/keybindings');
+const { toasts } = await import('$lib/stores/toast');
 const { collectTabSessionData } = await import('$lib/utils/sessionTabState');
 const { default: DesktopWorkspaceFixture } = await import('./fixtures/DesktopWorkspaceFixture.svelte');
 const { default: SessionScopeTabsFixture } = await import('./fixtures/SessionScopeTabsFixture.svelte');
@@ -133,6 +134,210 @@ describe('Desktop workspace session owner', () => {
 		mounted.target.remove();
 		mounted = undefined;
 		expect(tabId in get(tabSessionDirty)).toBe(false);
+	});
+});
+
+describe('Reload from last snapshot', () => {
+	function reloadButton(target: HTMLElement) {
+		return target.querySelector<HTMLButtonElement>('[data-testid="context-bar"] [data-testid="session-reload"]');
+	}
+
+	function confirmButton(label: RegExp) {
+		return Array.from(document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')).find((el) => label.test(el.textContent?.trim() ?? ''));
+	}
+
+	async function mountDirty() {
+		mounted = mountWorkspace();
+		await settle(10);
+		flushSync();
+		expect(get(tabSessionDirty)[tabId]).toBe(true);
+		return mounted.target;
+	}
+
+	it('offers the reload in the context bar while the session has unsaved changes', async () => {
+		const target = await mountDirty();
+		expect(reloadButton(target)?.getAttribute('aria-label')).toBe('Reload from last snapshot');
+		expect(reloadButton(target)?.getAttribute('aria-disabled')).toBeNull();
+		expect(tab().promptSegments).toEqual(EDITED_SEGMENTS);
+	});
+
+	it('offers no reload when the tab has no saved session', async () => {
+		tabsStore.updateTab(tabId, { selectedSessionId: null, savedSessionSignature: undefined });
+		vi.mocked(api.getSessionsForPreset).mockResolvedValue({ success: true, data: [] } as never);
+		mounted = mountWorkspace();
+		await settle(10);
+		flushSync();
+		expect(reloadButton(mounted.target)).toBeNull();
+	});
+
+	it('asks first and keeps the edits when the prompt is cancelled', async () => {
+		const target = await mountDirty();
+		reloadButton(target)!.click();
+		flushSync();
+		await settle(4);
+		const dialog = document.querySelector('[role="alertdialog"]')!;
+		expect(dialog.textContent).toContain('Discard your changes and reload the last snapshot of "Owner session"?');
+		confirmButton(/^Cancel/)!.click();
+		flushSync();
+		await settle(10);
+		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+		expect(tab().promptSegments).toEqual(EDITED_SEGMENTS);
+		expect(get(tabSessionDirty)[tabId]).toBe(true);
+		expect(reloadButton(target)).not.toBeNull();
+	});
+
+	it('restores the saved snapshot through the load path, clears the unsaved state and leaves the button disabled', async () => {
+		const target = await mountDirty();
+		vi.mocked(api.getSessionById).mockClear();
+		reloadButton(target)!.click();
+		flushSync();
+		await settle(4);
+		confirmButton(/^Reload/)!.click();
+		flushSync();
+		await settle(12);
+		flushSync();
+		expect(api.getSessionById).toHaveBeenCalledWith(SESSION_ID);
+		expect(tab().promptSegments).toEqual(ORIGINAL_SEGMENTS);
+		expect(tab().selectedSessionId).toBe(SESSION_ID);
+		expect(get(tabSessionDirty)[tabId]).toBe(false);
+		expect(reloadButton(target)?.getAttribute('aria-disabled')).toBe('true');
+		expect(target.querySelector('[data-testid="context-bar"] button[aria-label="Session saved"]')).not.toBeNull();
+		reloadButton(target)!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		await Promise.resolve();
+		expect(document.body.querySelector('[role="tooltip"]')?.textContent?.trim()).toBe('No unsaved changes to discard');
+		reloadButton(target)!.click();
+		flushSync();
+		await settle(4);
+		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+	});
+
+	it('does the same from the row in the session dropdown', async () => {
+		const target = await mountDirty();
+		vi.mocked(api.getSessionById).mockClear();
+		sessionSegment(target)!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		flushSync();
+		await settle(4);
+		const row = document.body.querySelector<HTMLElement>('[data-testid="session-reload-row"]')!;
+		expect(row).not.toBeNull();
+		row.querySelector('button')!.click();
+		flushSync();
+		await settle(4);
+		expect(document.body.querySelector('[role="dialog"][aria-label="Sessions"]')).toBeNull();
+		confirmButton(/^Reload/)!.click();
+		flushSync();
+		await settle(12);
+		flushSync();
+		expect(tab().promptSegments).toEqual(ORIGINAL_SEGMENTS);
+		expect(get(tabSessionDirty)[tabId]).toBe(false);
+	});
+});
+
+describe('Reload from last snapshot, while it runs and when it fails', () => {
+	function reloadButton(target: HTMLElement) {
+		return target.querySelector<HTMLButtonElement>('[data-testid="context-bar"] [data-testid="session-reload"]');
+	}
+
+	function confirmButton(label: RegExp) {
+		return Array.from(document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')).find((el) => label.test(el.textContent?.trim() ?? ''));
+	}
+
+	async function openConfirm(target: HTMLElement) {
+		reloadButton(target)!.focus();
+		reloadButton(target)!.click();
+		flushSync();
+		await settle(4);
+	}
+
+	async function mountDirty() {
+		mounted = mountWorkspace();
+		await settle(10);
+		flushSync();
+		return mounted.target;
+	}
+
+	afterEach(() => {
+		for (const toast of get(toasts)) toasts.remove(toast.id);
+	});
+
+	it('keeps the confirm open and its buttons disabled while the snapshot loads, then closes it', async () => {
+		const target = await mountDirty();
+		let finish!: (value: unknown) => void;
+		vi.mocked(api.getSessionById).mockReturnValueOnce(new Promise((resolve) => (finish = resolve)) as never);
+		await openConfirm(target);
+		confirmButton(/^Reload/)!.click();
+		flushSync();
+		await settle(6);
+
+		const dialog = document.querySelector('[role="alertdialog"]')!;
+		expect(dialog).not.toBeNull();
+		expect(Array.from(dialog.querySelectorAll('button')).every((button) => button.disabled)).toBe(true);
+		expect(tab().promptSegments).toEqual(EDITED_SEGMENTS);
+
+		finish({ success: true, data: session });
+		await settle(14);
+		flushSync();
+		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+		expect(tab().promptSegments).toEqual(ORIGINAL_SEGMENTS);
+	});
+
+	it('closes the confirm, keeps the edits and reports it when the snapshot cannot be loaded', async () => {
+		const target = await mountDirty();
+		vi.mocked(api.getSessionById).mockRejectedValueOnce(new Error('offline'));
+		await openConfirm(target);
+		confirmButton(/^Reload/)!.click();
+		flushSync();
+		await settle(14);
+		flushSync();
+
+		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+		expect(tab().promptSegments).toEqual(EDITED_SEGMENTS);
+		expect(get(tabSessionDirty)[tabId]).toBe(true);
+		expect(get(toasts).map((toast) => toast.message)).toContain('Could not reload the last snapshot.');
+		expect(reloadButton(target)?.getAttribute('aria-disabled')).toBeNull();
+	});
+
+	it('returns focus to the Reload button after Confirm and after Cancel', async () => {
+		const target = await mountDirty();
+		await openConfirm(target);
+		confirmButton(/^Cancel/)!.click();
+		flushSync();
+		await settle(14);
+		expect(document.activeElement).toBe(reloadButton(target));
+
+		await openConfirm(target);
+		confirmButton(/^Reload/)!.click();
+		flushSync();
+		await settle(14);
+		flushSync();
+		expect(document.activeElement).toBe(reloadButton(target));
+	});
+
+	it('returns focus to the session trigger after Confirm and after Cancel when started from the dropdown row', async () => {
+		const target = await mountDirty();
+		const trigger = () => target.querySelector<HTMLButtonElement>('[data-testid="context-bar"] button[aria-label="Session"]')!;
+
+		async function startFromRow() {
+			trigger().focus();
+			trigger().click();
+			flushSync();
+			await settle(4);
+			document.body.querySelector<HTMLElement>('[data-testid="session-reload-row"] button')!.click();
+			flushSync();
+			await settle(6);
+		}
+
+		await startFromRow();
+		confirmButton(/^Cancel/)!.click();
+		flushSync();
+		await settle(14);
+		expect(document.activeElement).toBe(trigger());
+
+		await startFromRow();
+		confirmButton(/^Reload/)!.click();
+		flushSync();
+		await settle(14);
+		flushSync();
+		expect(document.activeElement).toBe(trigger());
 	});
 });
 

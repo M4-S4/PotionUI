@@ -48,7 +48,8 @@ function actions() {
 		setAutosaveInterval: vi.fn(),
 		openHistory: vi.fn(),
 		closeHistory: vi.fn(),
-		restoreVersion: vi.fn()
+		restoreVersion: vi.fn(),
+		reload: vi.fn()
 	};
 }
 
@@ -190,5 +191,101 @@ describe('SessionControl trigger', () => {
 		pointerDown(outside);
 		await settle();
 		expect(dialog()).toBeNull();
+	});
+});
+
+describe('SessionControl reload button', () => {
+	function reloadButton(): HTMLButtonElement | null {
+		return target.querySelector<HTMLButtonElement>('[data-testid="session-reload"]');
+	}
+
+	function segment(): HTMLElement {
+		return target.querySelector<HTMLElement>('[data-testid="context-session"]')!;
+	}
+
+	async function tooltipText(button: HTMLElement): Promise<string | undefined> {
+		button.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+		await Promise.resolve();
+		const text = document.body.querySelector('[role="tooltip"]')?.textContent?.trim();
+		button.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+		return text;
+	}
+
+	function rerender(sessionOverrides: Record<string, unknown> = {}) {
+		unmount(instance!);
+		instance = undefined;
+		target.remove();
+		return render(sessionOverrides);
+	}
+
+	it('sits right after Save and names itself whether or not the session has unsaved changes', () => {
+		render({ hasUnsavedChanges: true });
+		const dirty = reloadButton()!;
+		const saveWrapper = Array.from(segment().children).find((child) => child.contains(saveSegment()))!;
+		expect(saveWrapper.nextElementSibling!.contains(dirty)).toBe(true);
+		expect(dirty.getAttribute('aria-label')).toBe('Reload from last snapshot');
+		rerender();
+		expect(reloadButton()!.getAttribute('aria-label')).toBe('Reload from last snapshot');
+	});
+
+	it('is shown disabled while the session is clean, the way Save is', () => {
+		const spies = render();
+		const button = reloadButton()!;
+		expect(button).not.toBeNull();
+		expect(button.getAttribute('aria-disabled')).toBe('true');
+		expect(button.classList.contains('!cursor-not-allowed')).toBe(true);
+		expect(button.classList.contains('!text-fg-disabled')).toBe(true);
+		button.click();
+		expect(spies.reload).not.toHaveBeenCalled();
+	});
+
+	it('is enabled while the session has unsaved changes', () => {
+		const spies = render({ hasUnsavedChanges: true });
+		const button = reloadButton()!;
+		expect(button.getAttribute('aria-disabled')).toBeNull();
+		expect(button.classList.contains('!cursor-not-allowed')).toBe(false);
+		button.click();
+		expect(spies.reload).toHaveBeenCalledTimes(1);
+		expect(spies.select).not.toHaveBeenCalled();
+		expect(spies.save).not.toHaveBeenCalled();
+	});
+
+	it('explains itself in the tooltip: the action while dirty, why it is idle while clean', async () => {
+		render({ hasUnsavedChanges: true });
+		expect(await tooltipText(reloadButton()!)).toBe('Reload from last snapshot');
+		rerender();
+		expect(await tooltipText(reloadButton()!)).toBe('No unsaved changes to discard');
+	});
+
+	it('is absent, with no room kept for it, when there is no saved session', () => {
+		render({ currentSession: null, selectedSessionId: '', hasUnsavedChanges: true });
+		expect(reloadButton()).toBeNull();
+		expect(segment().classList.contains('min-w-[224px]')).toBe(true);
+	});
+
+	it('is disabled while a save is running', () => {
+		const spies = render({ hasUnsavedChanges: true, isQuickSaving: true });
+		expect(reloadButton()!.getAttribute('aria-disabled')).toBe('true');
+		reloadButton()!.click();
+		expect(spies.reload).not.toHaveBeenCalled();
+	});
+
+	it('widens the segment by the button so the session chip keeps its minimum and maximum width', () => {
+		render();
+		expect(segment().classList.contains('min-w-[258px]')).toBe(true);
+		expect(segment().classList.contains('max-w-[438px]')).toBe(true);
+		rerender({ currentSession: null, selectedSessionId: '' });
+		expect(segment().classList.contains('min-w-[224px]')).toBe(true);
+		expect(segment().classList.contains('max-w-[404px]')).toBe(true);
+	});
+
+	it('keeps the segment and the button the same size whether the session is clean or dirty', () => {
+		const size = ['!min-h-7', '!min-w-7', '!p-0'];
+		render();
+		const clean = { segment: segment().className, size: size.filter((token) => reloadButton()!.classList.contains(token)) };
+		expect(clean.size).toEqual(size);
+		rerender({ hasUnsavedChanges: true });
+		expect(segment().className).toBe(clean.segment);
+		expect(size.filter((token) => reloadButton()!.classList.contains(token))).toEqual(size);
 	});
 });

@@ -372,6 +372,69 @@ describe('Late echoes of the published data', () => {
 	});
 });
 
+describe('Reloading a saved snapshot', () => {
+	it('puts the snapshot values back although the form published them before the edit', async () => {
+		mounted = mountForm({ initialData: { aspect_ratio: '1:1', guidance: 2 } });
+		await settle(10);
+		const snapshot = { ...mounted.published() };
+		expect(snapshot.aspect_ratio).toBe('1:1');
+		expect(snapshot.guidance).toBe(2);
+
+		mounted.form.$set({ initialData: { ...snapshot, aspect_ratio: '16:9', guidance: 7 } });
+		await settle(10);
+		expect(mounted.published().aspect_ratio).toBe('16:9');
+		expect(mounted.field('aspect_ratio')!.textContent).toContain('Wide');
+
+		mounted.form.$set({ initialData: snapshot, reloadGeneration: 1 });
+		await settle(10);
+
+		expect(mounted.published().aspect_ratio).toBe('1:1');
+		expect(mounted.published().guidance).toBe(2);
+		expect(mounted.field('aspect_ratio')!.textContent).toContain('Square');
+	});
+
+	it('brings back the model of the snapshot where a late echo of the same data would be ignored', async () => {
+		mounted = mountForm();
+		await settle(10);
+		const snapshot = mounted.log[0];
+
+		await mounted.chooseModel('model:b');
+		mounted.form.$set({ initialData: snapshot, reloadGeneration: 1 });
+		await settle(10);
+
+		expect(mounted.published().model).toBe('model:a');
+		expect(mounted.field('aspect_ratio')).toBeTruthy();
+	});
+
+	it('keeps ignoring late echoes after the generation moved, so a reload does not switch the guard off for good', async () => {
+		mounted = mountForm();
+		await settle(10);
+		await mounted.chooseModel('model:b');
+		mounted.form.$set({ initialData: mounted.log[0], reloadGeneration: 1 });
+		await settle(10);
+		await mounted.chooseModel('model:b');
+		const stale = mounted.log.at(-1)!;
+		await mounted.chooseModel('model:a');
+
+		mounted.form.$set({ initialData: stale, reloadGeneration: 1 });
+		await settle(10);
+
+		expect(mounted.published().model).toBe('model:a');
+	});
+
+	it('keeps ignoring a late echo when the generation did not change', async () => {
+		mounted = mountForm({ reloadGeneration: 3 });
+		await settle(10);
+		const stale = mounted.log[0];
+
+		await mounted.chooseModel('model:b');
+		mounted.form.$set({ initialData: stale, reloadGeneration: 3 });
+		await settle(10);
+
+		expect(mounted.published().model).toBe('model:b');
+	});
+});
+
 describe('Cache lifetime', () => {
 	it('asks for the capabilities again once they are old, so catalog changes show up', async () => {
 		mounted = mountForm();

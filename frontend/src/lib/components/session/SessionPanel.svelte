@@ -112,6 +112,12 @@
 		guarded({ kind: 'restore', versionNumber }, () => actions.restoreVersion(sessionId, versionNumber));
 	}
 
+	async function reload() {
+		onClose();
+		await tick();
+		actions.reload();
+	}
+
 	function startNew() {
 		guarded({ kind: 'new' }, () => {
 			actions.startNew();
@@ -281,6 +287,14 @@
 				</Tooltip>
 			{/if}
 		</div>
+
+		{#if dirty && currentSession}
+			<div class="flex h-11 flex-shrink-0 items-center gap-2 border-b border-line pl-3.5 pr-2" data-testid="session-reload-row">
+				<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-warning-solid" aria-hidden="true"></span>
+				<span class="min-w-0 flex-1 truncate text-sm text-fg-muted">Unsaved changes</span>
+				<Button variant="secondary" size="sm" icon="undo" onclick={reload}>Reload last snapshot</Button>
+			</div>
+		{/if}
 
 		<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1" data-testid="session-list-scroll">
 			{#if loading}

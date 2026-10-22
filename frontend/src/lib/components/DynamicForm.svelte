@@ -84,6 +84,7 @@
 	// 404s server-side).
 	export let variant: string | undefined = undefined;
 	export let initialData: Record<string, any> = {};
+	export let reloadGeneration = 0;
 	// Whether the Video Director editor owns the active preset mode - hides
 	// any field marked `hidden_when_video_director: true` (see
 	// `$lib/utils/audienceFilter.ts`). Callers with no Director concept
@@ -534,9 +535,15 @@
 
 	// Reactive: Update formData when initialData changes (for session loading)
 	// IMPORTANT: Only react to actual changes in initialData reference/content, NOT user edits to formData
-	$: if (initialLoadComplete && initialData && formSchema) hydrateFromInitialData(initialData, formSchema);
+	$: if (initialLoadComplete && initialData && formSchema) hydrateFromInitialData(initialData, formSchema, reloadGeneration);
 
-	function hydrateFromInitialData(incoming: Record<string, any>, schema: any) {
+	let appliedReloadGeneration = reloadGeneration;
+
+	function hydrateFromInitialData(incoming: Record<string, any>, schema: any, generation: number) {
+		if (generation !== appliedReloadGeneration) {
+			appliedReloadGeneration = generation;
+			publishedSnapshots = [];
+		}
 		// Create a stable key from initialData to detect when it actually changes
 		const currentInitialDataKey = JSON.stringify(incoming);
 

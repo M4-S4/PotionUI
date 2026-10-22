@@ -52,3 +52,14 @@
 	on:confirm={dialogs.confirmDelete}
 	on:cancel={dialogs.close}
 />
+
+<ConfirmModal
+	isOpen={$dialogState.reloadOpen}
+	title="Reload last snapshot"
+	message={`Discard your changes and reload the last snapshot of "${$session.currentSession?.name}"?`}
+	confirmLabel="Reload"
+	variant="warning"
+	busy={$session.isSessionLoading || $session.isQuickSaving || $session.isSaving}
+	on:confirm={dialogs.confirmReload}
+	on:cancel={dialogs.close}
+/>

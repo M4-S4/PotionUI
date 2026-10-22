@@ -90,6 +90,7 @@
 	formName="generation_form"
 	{variant}
 	initialData={formData}
+	reloadGeneration={tab.formReloadGeneration ?? 0}
 	{videoDirectorActive}
 	{onFormDataChange}
 	{fieldErrors}

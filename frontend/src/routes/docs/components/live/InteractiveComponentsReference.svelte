@@ -101,6 +101,7 @@
 		startNew: () => undefined,
 		rename: () => undefined,
 		remove: () => undefined,
+		reload: () => (demoSessionDirty = false),
 		togglePin: async () => undefined,
 		toggleAutosave: () => (demoAutoSave = !demoAutoSave),
 		setAutosaveInterval: (interval) => (demoAutoSaveInterval = interval),

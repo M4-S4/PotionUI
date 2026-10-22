@@ -2,7 +2,7 @@
 	import type { FieldLabels } from '$lib/session/sessionDrawerModel';
 	import type { SessionPanelActions, SessionPanelState } from '$lib/session/sessionDialogs';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Spinner } from '$lib/components/ui';
+	import { IconButton, Spinner } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import SessionPanel from '$lib/components/session/SessionPanel.svelte';
 	import { sideDrawer } from '$lib/stores/sideDrawer';
@@ -47,6 +47,13 @@
 		}[saveState]
 	);
 	let saveDisabled = $derived(saveState === 'unavailable' || saveState === 'saved');
+	let segmentWidth = $derived(
+		current
+			? `${compact ? 'min-w-[210px]' : 'min-w-[258px]'} max-w-[438px]`
+			: `${compact ? 'min-w-[176px]' : 'min-w-[224px]'} max-w-[404px]`
+	);
+	let reloadDisabled = $derived(!dirty || saving);
+	let reloadTip = $derived(dirty ? 'Reload from last snapshot' : 'No unsaved changes to discard');
 	let saveTip = $derived(saveState === 'saved' ? 'Saved' : saveState === 'unavailable' ? 'Nothing to save' : saveLabel);
 
 	$effect(() => {
@@ -63,6 +70,10 @@
 	function close() {
 		open = false;
 		sideDrawer.close('sessions');
+	}
+
+	function reload() {
+		if (!reloadDisabled) actions.reload();
 	}
 
 	function save() {
@@ -127,7 +138,7 @@
 {:else}
 	<div
 		bind:this={anchorEl}
-		class="flex h-8 {compact ? 'min-w-[176px]' : 'min-w-[224px]'} max-w-[404px] shrink items-center gap-1.5"
+		class="flex h-8 {segmentWidth} shrink items-center gap-1.5"
 		data-testid="context-session"
 	>
 		<Tooltip text={current?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex h-full min-w-0 flex-1">
@@ -148,6 +159,20 @@
 			</button>
 		</Tooltip>
 		{@render saveButton(`h-7 rounded text-sm ${saveDisabled ? 'bg-surface-3/50' : 'bg-surface-3 hover:bg-line-hover'}`)}
+		{#if current}
+			<Tooltip text={reloadTip} position="bottom" delay={150} wrapperClass="flex flex-shrink-0">
+				<IconButton
+					icon="undo"
+					label="Reload from last snapshot"
+					variant="secondary"
+					size="sm"
+					class="!min-h-7 !min-w-7 !p-0 {reloadDisabled ? '!cursor-not-allowed !bg-surface-3/50 !text-fg-disabled' : ''}"
+					aria-disabled={reloadDisabled ? 'true' : undefined}
+					data-testid="session-reload"
+					onclick={reload}
+				/>
+			</Tooltip>
+		{/if}
 	</div>
 {/if}
 

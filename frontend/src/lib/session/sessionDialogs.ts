@@ -39,12 +39,14 @@ export type SessionPanelActions = Pick<
 	saveAs: () => void;
 	rename: () => void;
 	remove: () => void;
+	reload: () => void;
 };
 
 export interface SessionDialogsState {
 	saveOpen: boolean;
 	saveAsOpen: boolean;
 	deleteOpen: boolean;
+	reloadOpen: boolean;
 	name: string;
 }
 
@@ -55,12 +57,14 @@ export interface SessionDialogs {
 	openSave(): void;
 	openSaveAs(): void;
 	openDelete(): void;
+	openReload(): void;
 	confirmSave(isSaveAs: boolean): Promise<void>;
 	confirmDelete(): Promise<void>;
+	confirmReload(): Promise<void>;
 	close(): void;
 }
 
-const CLOSED: SessionDialogsState = { saveOpen: false, saveAsOpen: false, deleteOpen: false, name: '' };
+const CLOSED: SessionDialogsState = { saveOpen: false, saveAsOpen: false, deleteOpen: false, reloadOpen: false, name: '' };
 
 export function createSessionDialogs(controller: SessionController): SessionDialogs {
 	const state = writable<SessionDialogsState>({ ...CLOSED });
@@ -69,6 +73,7 @@ export function createSessionDialogs(controller: SessionController): SessionDial
 		state.set({ ...CLOSED });
 		controller.closeDialog('save');
 		controller.closeDialog('delete');
+		controller.closeDialog('reload');
 		controller.clearFeedback();
 	}
 
@@ -94,6 +99,13 @@ export function createSessionDialogs(controller: SessionController): SessionDial
 		controller.openDialog('delete');
 	}
 
+	function openReload() {
+		const { currentSession, hasUnsavedChanges } = get(controller.state);
+		if (!currentSession || !hasUnsavedChanges) return;
+		state.update((s) => ({ ...s, reloadOpen: true }));
+		controller.openDialog('reload');
+	}
+
 	async function confirmSave(isSaveAs: boolean) {
 		if (await controller.saveAs(get(state).name, isSaveAs ? 'save-as' : 'rename')) close();
 	}
@@ -103,6 +115,12 @@ export function createSessionDialogs(controller: SessionController): SessionDial
 			state.update((s) => ({ ...s, deleteOpen: false }));
 			controller.closeDialog('delete');
 		}
+	}
+
+	async function confirmReload() {
+		await controller.reload();
+		state.update((s) => ({ ...s, reloadOpen: false }));
+		controller.closeDialog('reload');
 	}
 
 	function quickSave() {
@@ -123,14 +141,17 @@ export function createSessionDialogs(controller: SessionController): SessionDial
 			save: quickSave,
 			saveAs: openSaveAs,
 			rename: openSave,
-			remove: openDelete
+			remove: openDelete,
+			reload: openReload
 		},
 		quickSave,
 		openSave,
 		openSaveAs,
 		openDelete,
+		openReload,
 		confirmSave,
 		confirmDelete,
+		confirmReload,
 		close
 	};
 }

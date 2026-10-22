@@ -53,6 +53,7 @@ function baseProps(overrides: Record<string, unknown> = {}) {
 		onOpenHistory: vi.fn(),
 		onCloseHistory: vi.fn(),
 		onRestoreVersion: vi.fn(),
+		onReload: vi.fn(),
 		onClose: vi.fn(),
 		...overrides
 	};
@@ -93,7 +94,8 @@ function panelProps(p: ReturnType<typeof baseProps>, anchor: HTMLElement) {
 			setAutosaveInterval: p.onIntervalChange,
 			openHistory: p.onOpenHistory,
 			closeHistory: p.onCloseHistory,
-			restoreVersion: p.onRestoreVersion
+			restoreVersion: p.onRestoreVersion,
+			reload: p.onReload
 		}
 	};
 }
@@ -295,6 +297,46 @@ describe('SessionPanel loading', () => {
 		expect(props.onSelect).not.toHaveBeenCalled();
 		expect(props.onClose).not.toHaveBeenCalled();
 		expect(panel()).not.toBeNull();
+	});
+});
+
+describe('SessionPanel reload row', () => {
+	function reloadRow(): HTMLElement | null {
+		return document.body.querySelector<HTMLElement>('[data-testid="session-reload-row"]');
+	}
+
+	it('offers Reload last snapshot above the list while the current session has unsaved changes', async () => {
+		open({ dirty: true });
+		await settle();
+		expect(reloadRow()).not.toBeNull();
+		expect(reloadRow()!.textContent).toContain('Unsaved changes');
+		expect(reloadRow()!.querySelector('button')!.textContent!.trim()).toBe('Reload last snapshot');
+		const list = document.body.querySelector('[data-testid="session-list-scroll"]')!;
+		expect(reloadRow()!.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	});
+
+	it('hands the reload to the host and closes the panel without loading anything itself', async () => {
+		const props = open({ dirty: true });
+		await settle();
+		reloadRow()!.querySelector('button')!.click();
+		await settle();
+		expect(props.onReload).toHaveBeenCalledTimes(1);
+		expect(props.onClose).toHaveBeenCalledTimes(1);
+		expect(props.onClose.mock.invocationCallOrder[0]).toBeLessThan(props.onReload.mock.invocationCallOrder[0]);
+		expect(props.onSelect).not.toHaveBeenCalled();
+		expect(confirmDialog()).toBeNull();
+	});
+
+	it('is absent while the session is clean', async () => {
+		open();
+		await settle();
+		expect(reloadRow()).toBeNull();
+	});
+
+	it('is absent for an unsaved draft that has no saved session', async () => {
+		open({ dirty: true, currentSession: null, selectedSessionId: '' });
+		await settle();
+		expect(reloadRow()).toBeNull();
 	});
 });
 

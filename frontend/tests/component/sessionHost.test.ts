@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
 import { keybindingsStore } from '$lib/stores/keybindings';
 import SessionHost from '$lib/components/session/SessionHost.svelte';
 import { createSessionDialogs } from '$lib/session/sessionDialogs';
@@ -13,6 +13,7 @@ function fakeController() {
 	return {
 		state: writable({
 			currentSession: { id: 's1', name: 'Alpha' },
+			hasUnsavedChanges: true,
 			nameError: '',
 			error: null,
 			isSaving: false,
@@ -24,7 +25,8 @@ function fakeController() {
 		clearFeedback: vi.fn(),
 		quickSave: vi.fn().mockResolvedValue(true),
 		saveAs: vi.fn().mockResolvedValue(true),
-		deleteSession: vi.fn().mockResolvedValue(true)
+		deleteSession: vi.fn().mockResolvedValue(true),
+		reload: vi.fn().mockResolvedValue(true)
 	} as unknown as SessionController;
 }
 
@@ -84,5 +86,56 @@ describe('SessionHost', () => {
 		await vi.advanceTimersByTimeAsync(300);
 		expect(document.querySelector('[role="alertdialog"]')).toBeNull();
 		expect(controller.closeDialog).toHaveBeenCalledWith('delete');
+	});
+
+	describe('reload confirm', () => {
+		function confirmButton(): HTMLButtonElement {
+			return Array.from(document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')).find((el) => /^Reload/.test(el.textContent?.trim() ?? ''))!;
+		}
+
+		it('asks to discard the changes and reload the last snapshot of the session by name', () => {
+			const { dialogs } = mountHost();
+			dialogs.openReload();
+			flushSync();
+			const dialog = document.querySelector('[role="alertdialog"]')!;
+			expect(dialog.textContent).toContain('Discard your changes and reload the last snapshot of "Alpha"?');
+			expect(confirmButton()).toBeTruthy();
+		});
+
+		it('reloads the snapshot once confirmed', async () => {
+			const { controller, dialogs } = mountHost();
+			dialogs.openReload();
+			flushSync();
+			confirmButton().click();
+			flushSync();
+			await vi.advanceTimersByTimeAsync(300);
+			expect(controller.reload).toHaveBeenCalledTimes(1);
+			expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+		});
+
+		for (const flag of ['isQuickSaving', 'isSaving']) {
+			it(`keeps the confirm busy while ${flag} is set, so the reload cannot outrun a save`, async () => {
+				const { controller, dialogs } = mountHost();
+				dialogs.openReload();
+				flushSync();
+				const dialog = document.querySelector('[role="alertdialog"]')!;
+				expect(Array.from(dialog.querySelectorAll('button')).some((button) => button.disabled)).toBe(false);
+
+				(controller.state as unknown as Writable<Record<string, unknown>>).update((state) => ({ ...state, [flag]: true }));
+				flushSync();
+				expect(Array.from(dialog.querySelectorAll('button')).every((button) => button.disabled)).toBe(true);
+			});
+		}
+
+		it('keeps the edits when cancelled', async () => {
+			const { controller, dialogs } = mountHost();
+			dialogs.openReload();
+			flushSync();
+			document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+			flushSync();
+			await vi.advanceTimersByTimeAsync(300);
+			expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+			expect(controller.reload).not.toHaveBeenCalled();
+		});
 	});
 });

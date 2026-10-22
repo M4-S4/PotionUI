@@ -4,7 +4,7 @@ import { createSessionDialogs } from './sessionDialogs';
 import type { SessionController } from './sessionController';
 
 function fakeController(currentName: string | null, overrides: Partial<Record<string, unknown>> = {}) {
-	const state = writable({ currentSession: currentName ? { id: 's1', name: currentName } : null });
+	const state = writable({ currentSession: currentName ? { id: 's1', name: currentName } : null, hasUnsavedChanges: false });
 	const controller = {
 		state,
 		openDialog: vi.fn(),
@@ -15,6 +15,7 @@ function fakeController(currentName: string | null, overrides: Partial<Record<st
 		saveAs: vi.fn().mockResolvedValue(true),
 		deleteSession: vi.fn().mockResolvedValue(true),
 		select: vi.fn(),
+		reload: vi.fn().mockResolvedValue(true),
 		startNew: vi.fn(),
 		togglePin: vi.fn(),
 		toggleAutosave: vi.fn(),
@@ -62,7 +63,7 @@ describe('createSessionDialogs', () => {
 		const dialogs = createSessionDialogs(controller);
 		dialogs.openSave();
 		dialogs.close();
-		expect(get(dialogs.state)).toEqual({ saveOpen: false, saveAsOpen: false, deleteOpen: false, name: '' });
+		expect(get(dialogs.state)).toEqual({ saveOpen: false, saveAsOpen: false, deleteOpen: false, reloadOpen: false, name: '' });
 		expect(controller.closeDialog).toHaveBeenCalledWith('save');
 		expect(controller.closeDialog).toHaveBeenCalledWith('delete');
 		expect(controller.clearFeedback).toHaveBeenCalled();
@@ -116,5 +117,96 @@ describe('createSessionDialogs', () => {
 		expect(dialogs.actions.rename).toBe(dialogs.openSave);
 		expect(dialogs.actions.remove).toBe(dialogs.openDelete);
 		expect(dialogs.actions.save).toBe(dialogs.quickSave);
+		expect(dialogs.actions.reload).toBe(dialogs.openReload);
+	});
+
+	describe('reload from the last snapshot', () => {
+		function dirtyDialogs(currentName: string | null = 'Alpha') {
+			const controller = fakeController(currentName);
+			controller.state.update((s) => ({ ...s, hasUnsavedChanges: true }));
+			return { controller, dialogs: createSessionDialogs(controller) };
+		}
+
+		it('opens the confirm only while the current session has unsaved changes', () => {
+			const { dialogs } = dirtyDialogs();
+			dialogs.openReload();
+			expect(get(dialogs.state).reloadOpen).toBe(true);
+		});
+
+		it('stays closed for a clean session and for a draft with no saved session', () => {
+			const clean = createSessionDialogs(fakeController('Alpha'));
+			clean.openReload();
+			expect(get(clean.state).reloadOpen).toBe(false);
+			const { dialogs: draft } = dirtyDialogs(null);
+			draft.openReload();
+			expect(get(draft.state).reloadOpen).toBe(false);
+		});
+
+		it('reloads the snapshot through the controller and closes the confirm', async () => {
+			const { controller, dialogs } = dirtyDialogs();
+			dialogs.openReload();
+			await dialogs.confirmReload();
+			expect(controller.reload).toHaveBeenCalledTimes(1);
+			expect(controller.select).not.toHaveBeenCalled();
+			expect(get(dialogs.state).reloadOpen).toBe(false);
+		});
+
+		it('keeps the confirm open while the reload is running and closes it once it is done', async () => {
+			const { controller, dialogs } = dirtyDialogs();
+			let finish!: (value: boolean) => void;
+			controller.reload.mockReturnValueOnce(new Promise<boolean>((resolve) => (finish = resolve)));
+			dialogs.openReload();
+			const confirming = dialogs.confirmReload();
+			expect(get(dialogs.state).reloadOpen).toBe(true);
+			finish(true);
+			await confirming;
+			expect(get(dialogs.state).reloadOpen).toBe(false);
+		});
+
+		it('closes the confirm when the reload fails, leaving the report to the controller', async () => {
+			const { controller, dialogs } = dirtyDialogs();
+			controller.reload.mockResolvedValueOnce(false);
+			dialogs.openReload();
+			await dialogs.confirmReload();
+			expect(get(dialogs.state).reloadOpen).toBe(false);
+		});
+
+		it('tells the controller while the confirm is open, so auto-save waits for the answer', () => {
+			const { controller, dialogs } = dirtyDialogs();
+			dialogs.openReload();
+			expect(controller.openDialog).toHaveBeenCalledWith('reload');
+			dialogs.close();
+			expect(controller.closeDialog).toHaveBeenCalledWith('reload');
+		});
+
+		it('does not declare the confirm when it does not open', () => {
+			const clean = fakeController('Alpha');
+			createSessionDialogs(clean).openReload();
+			const draft = fakeController(null);
+			draft.state.update((s) => ({ ...s, hasUnsavedChanges: true }));
+			createSessionDialogs(draft).openReload();
+			expect(clean.openDialog).not.toHaveBeenCalledWith('reload');
+			expect(draft.openDialog).not.toHaveBeenCalledWith('reload');
+		});
+
+		it('keeps the confirm declared while the reload runs and releases it afterwards', async () => {
+			const { controller, dialogs } = dirtyDialogs();
+			let finish!: (value: boolean) => void;
+			controller.reload.mockReturnValueOnce(new Promise<boolean>((resolve) => (finish = resolve)));
+			dialogs.openReload();
+			const confirming = dialogs.confirmReload();
+			expect(controller.closeDialog).not.toHaveBeenCalledWith('reload');
+			finish(true);
+			await confirming;
+			expect(controller.closeDialog).toHaveBeenCalledWith('reload');
+		});
+
+		it('keeps the edits when the confirm is cancelled', () => {
+			const { controller, dialogs } = dirtyDialogs();
+			dialogs.openReload();
+			dialogs.close();
+			expect(get(dialogs.state).reloadOpen).toBe(false);
+			expect(controller.reload).not.toHaveBeenCalled();
+		});
 	});
 });

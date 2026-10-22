@@ -383,6 +383,7 @@ export interface Tab {
 	sessionBaselineAwaitingFormNormalization?: boolean;
 	formPublished?: boolean;
 	formBaselineSignature?: string;
+	formReloadGeneration?: number;
 	prompt: string;
 	negativePrompt: string;
 	promptSegments?: Segment[];
