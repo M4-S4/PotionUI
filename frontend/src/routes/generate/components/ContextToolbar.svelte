@@ -94,6 +94,7 @@
 	let showMode = $derived(hasPreset && modeOptions.length > 1);
 	let showVariant = $derived(hasPreset && variantOptions.length > 1);
 	let showSession = $derived(hasPreset && !!tab.selectedMode);
+	let stepsKey = $derived([showMode, showVariant, showSession].join('|'));
 
 	let advanced = $derived($formAudienceStore === 'advanced');
 	let threePanes = $derived(tab.layoutMode === 'three');
@@ -176,9 +177,7 @@
 			selectedVariant,
 			session.currentSession?.name,
 			session.sessionControlsEnabled,
-			showMode,
-			showVariant,
-			showSession,
+			stepsKey,
 			presetInfo?.name,
 			...tools.map((tool) => tool.text)
 		].join('|')
@@ -232,7 +231,7 @@
 	});
 
 	$effect(() => {
-		void [showMode, showVariant, showSession];
+		void stepsKey;
 		if (!barEl || typeof ResizeObserver === 'undefined') return;
 		const observer = new ResizeObserver(() => void refit());
 		observer.observe(barEl);
@@ -240,7 +239,7 @@
 		const growth = new ResizeObserver(() => {
 			if (overflowing()) void refit();
 		});
-		if (contextEl) for (const step of contextEl.children) growth.observe(step);
+		if (contextEl) for (const step of contextEl.querySelectorAll(':scope > [data-context-step]')) growth.observe(step);
 		return () => {
 			observer.disconnect();
 			growth.disconnect();
@@ -270,12 +269,12 @@
 >
 	<div
 		bind:this={contextEl}
-		class="flex min-w-0 flex-shrink items-center bg-canvas"
+		class="flex min-w-0 flex-shrink items-center border-r border-line bg-canvas"
 		role="group"
 		aria-label="Generation context"
 		data-testid="context-zone"
 	>
-		<div class="flex flex-shrink-0 items-center gap-2 {stepPad}">
+		<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-context-step>
 			<span id="{uid}-preset" class={labelClass} data-context-label>Preset</span>
 			<div class="flex min-w-0" data-testid="preset-header-picker">
 				<PresetPicker
@@ -323,7 +322,7 @@
 
 		{#if showMode}
 			{@render cut()}
-			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-header-mode">
+			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-header-mode" data-context-step>
 				<span id="{uid}-mode" class={labelClass} data-context-label>Mode</span>
 				<CustomSelect
 					value={tab.selectedMode ?? ''}
@@ -362,7 +361,7 @@
 
 		{#if showVariant}
 			{@render cut()}
-			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-variant-switch">
+			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-variant-switch" data-context-step>
 				<span id="{uid}-variant" class={labelClass} data-context-label>Variant</span>
 				<CustomSelect
 					value={selectedVariant}
@@ -394,7 +393,7 @@
 
 		{#if showSession}
 			{@render cut()}
-			<div class="flex min-w-0 shrink items-center gap-2 {stepPad}">
+			<div class="flex min-w-0 shrink items-center gap-2 {stepPad}" data-context-step>
 				<span class={labelClass} data-context-label>Session</span>
 				<SessionControl {session} {actions} {fieldLabels} compact={fit.compact} />
 			</div>

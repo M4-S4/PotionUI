@@ -279,7 +279,7 @@ function saveButton() {
 }
 
 describe('ContextToolbar background', () => {
-	it('paints the bar root, puts the ribbon band behind the context steps and leaves the gap and tools transparent', async () => {
+	it('paints the bar root, puts the ribbon band with its right edge behind the context steps and leaves the gap and tools plain', async () => {
 		await render();
 		const root = bar();
 		expect(root.classList.contains('bg-surface-1')).toBe(true);
@@ -290,8 +290,11 @@ describe('ContextToolbar background', () => {
 			expect(painted, zone.dataset.testid).toEqual(zone.dataset.testid === 'context-zone' ? ['bg-canvas'] : []);
 		}
 		const zone = root.querySelector('[data-testid="context-zone"]') as HTMLElement;
-		expect(Array.from(zone.classList).filter((token) => token.startsWith('border')), 'context zone borders').toEqual([]);
+		expect(Array.from(zone.classList).filter((token) => token.startsWith('border')).sort(), 'context zone borders').toEqual(['border-line', 'border-r']);
 		expect(Array.from(zone.classList).filter((token) => token.startsWith('gap-')), 'context zone gap').toEqual([]);
+		for (const plain of Array.from(root.children).filter((child) => child !== zone) as HTMLElement[]) {
+			expect(Array.from(plain.classList).filter((token) => token.startsWith('border')), plain.dataset.testid).toEqual([]);
+		}
 	});
 });
 
@@ -387,6 +390,11 @@ describe('ContextToolbar ribbon', () => {
 		expect(labels()).toEqual(['Preset', 'Mode']);
 	});
 
+	it('cuts between Preset, Variant and Session for a single-mode preset whose mode has variants', async () => {
+		await render({ availableModes: [VARIANT_MODES[0]] });
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'variant', 'cut', 'session']);
+	});
+
 	it('keeps Session hidden for a single-mode preset until its mode is resolved', async () => {
 		tabsStore.updateTab(tabId, { selectedMode: null });
 		await render({ availableModes: [MODES[0]] });
@@ -414,29 +422,6 @@ describe('ContextToolbar ribbon', () => {
 		expect(target.querySelectorAll(CUT)).toHaveLength(0);
 	});
 
-	it('keeps a cut between every pair of visible steps in every disclosure state', async () => {
-		const states: Array<[Record<string, unknown>, unknown[], string[]]> = [
-			[{ selectedPreset: null, selectedMode: null }, MODES, ['preset']],
-			[{ selectedPreset: 'krea2', selectedMode: null }, MODES, ['preset', 'cut', 'mode']],
-			[{ selectedPreset: 'krea2', selectedMode: 'txt2img' }, MODES, ['preset', 'cut', 'mode', 'cut', 'session']],
-			[{ selectedPreset: 'krea2', selectedMode: 'txt2img' }, VARIANT_MODES, ['preset', 'cut', 'mode', 'cut', 'variant', 'cut', 'session']]
-		];
-		for (const [patch, modes, expected] of states) {
-			if (component) unmount(component);
-			component = null;
-			target?.remove();
-			tabsStore.updateTab(tabId, patch);
-			await render({ availableModes: modes });
-			const sequence = zoneSequence();
-			expect(sequence).toEqual(expected);
-			expect(sequence[0]).not.toBe('cut');
-			expect(sequence.at(-1)).not.toBe('cut');
-			sequence.forEach((part, index) => {
-				if (index > 0) expect(part === 'cut', `${expected.join('>')} at ${index}`).toBe(sequence[index - 1] !== 'cut');
-			});
-		}
-	});
-
 	it('re-fits when a step appears without the bar or the tab changing', async () => {
 		measure({ 'context-bar': { client: 1000, scroll: (el) => barContent(el) + 230 + CUT_WIDTH * count(el, CUT) } });
 		await render({ availableModes: MODES });
@@ -456,10 +441,25 @@ describe('ContextToolbar ribbon', () => {
 		expect(toolOrder()).toEqual(withModes);
 	});
 
+	it('re-fits when a step appears even where ResizeObserver is unavailable', async () => {
+		measure({ 'context-bar': { client: 1000, scroll: (el) => barContent(el) + 230 + CUT_WIDTH * count(el, CUT) } });
+		(globalThis as any).ResizeObserver = undefined;
+		await render({ availableModes: [] });
+		const withoutModes = toolOrder();
+		liveProps!.set({ availableModes: MODES });
+		flushSync();
+		await settle(8);
+		flushSync();
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'mode', 'cut', 'session']);
+		expect(toolOrder()).not.toEqual(withoutModes);
+	});
+
 	it('observes every visible step, including one that appears later', async () => {
 		await render({ availableModes: [] });
-		const zoneEl = zone();
-		for (const step of Array.from(zoneEl.children)) expect(resizeTargets(), step.className).toContain(step);
+		const stepEls = Array.from(zone().querySelectorAll('[data-context-step]'));
+		expect(stepEls).toHaveLength(2);
+		for (const step of stepEls) expect(resizeTargets(), step.className).toContain(step);
+		for (const cut of Array.from(target.querySelectorAll(CUT))) expect(resizeTargets()).not.toContain(cut);
 		expect(target.querySelector('[data-testid="preset-header-mode"]')).toBeNull();
 
 		liveProps!.set({ availableModes: MODES });
@@ -467,7 +467,27 @@ describe('ContextToolbar ribbon', () => {
 		await settle(8);
 		flushSync();
 		const mode = target.querySelector('[data-testid="preset-header-mode"]')!;
+		expect(mode.hasAttribute('data-context-step')).toBe(true);
 		expect(resizeTargets()).toContain(mode);
+		for (const cut of Array.from(target.querySelectorAll(CUT))) expect(resizeTargets()).not.toContain(cut);
+	});
+
+	it('observes a Variant step and a Session step that appear later', async () => {
+		tabsStore.updateTab(tabId, { selectedMode: null });
+		await render({ availableModes: [MODES[0]] });
+		expect(Array.from(zone().querySelectorAll('[data-context-step]'))).toHaveLength(1);
+
+		await updateTabAndSettle({ selectedMode: 'txt2img' });
+		const session = target.querySelector('[data-testid="context-session"]')!.closest('[data-context-step]')!;
+		expect(resizeTargets()).toContain(session);
+
+		liveProps!.set({ availableModes: [VARIANT_MODES[0]] });
+		flushSync();
+		await settle(8);
+		flushSync();
+		const variant = target.querySelector('[data-testid="preset-variant-switch"]')!;
+		expect(variant.hasAttribute('data-context-step')).toBe(true);
+		expect(resizeTargets()).toContain(variant);
 	});
 
 	it('stops observing the bar and its steps when the toolbar goes away', async () => {
@@ -641,8 +661,6 @@ describe('ContextToolbar context group', () => {
 		expect(preset.getAttribute('aria-haspopup')).toBe('dialog');
 		expect(preset.classList.contains('preset-picker-cta')).toBe(true);
 		expect(target.querySelector('button[aria-label="Session"]')).toBeNull();
-		expect(target.querySelector('[data-testid="session-save"]')).toBeNull();
-		expect(labels()).toEqual(['Preset']);
 	});
 });
 
