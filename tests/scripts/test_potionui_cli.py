@@ -357,17 +357,128 @@ def test_check_node_missing():
     assert result.blocking is True
 
 
-def test_check_node_too_old():
-    probe = FakeProbe(which={"node": "/usr/bin/node"}, run={"/usr/bin/node": cp(stdout="v16.20.0\n")})
-    result = cli.check_node(probe)
+def _check_node_for(version, line_ending="\n"):
+    probe = FakeProbe(which={"node": "/usr/bin/node"}, run={"/usr/bin/node": cp(stdout=f"v{version}{line_ending}")})
+    return cli.check_node(probe)
+
+
+@pytest.mark.parametrize("version", ["16.20.0", "18.20.8", "20.20.0", "21.7.3"])
+def test_check_node_refuses_anything_below_the_22_floor(version):
+    result = _check_node_for(version)
     assert result.severity == cli.Severity.ERROR
-    assert "16" in result.message
+    assert result.blocking is True
+    assert version.split(".")[0] in result.message
+    assert "Node.js 22+" in result.message
+    assert "nvm install 24" in result.repair
 
 
-def test_check_node_ok():
-    probe = FakeProbe(which={"node": "/usr/bin/node"}, run={"/usr/bin/node": cp(stdout="v20.20.0\n")})
-    result = cli.check_node(probe)
+def test_check_node_refuses_unparseable_output():
+    result = _check_node_for("garbage")
+    assert result.severity == cli.Severity.ERROR
+    assert result.blocking is True
+
+
+@pytest.mark.parametrize(
+    ("version", "patched"),
+    [
+        ("22.0.0", "22.23.4"),
+        ("22.23.3", "22.23.4"),
+        ("22.22.9", "22.23.4"),
+        ("24.0.0", "24.22.1"),
+        ("24.21.0", "24.22.1"),
+        ("24.22.0", "24.22.1"),
+        ("26.12.0", "26.12.1"),
+        ("26.0.0", "26.12.1"),
+    ],
+)
+def test_check_node_warns_below_the_patched_minimum_and_names_the_version_to_install(version, patched):
+    result = _check_node_for(version)
+    assert result.severity == cli.Severity.WARNING
+    assert result.blocking is False
+    assert f"v{version}" in result.message
+    assert patched in result.message
+    assert patched in result.repair
+    assert f"nvm install {version.split('.')[0]}" in result.repair
+
+
+@pytest.mark.parametrize(
+    "version",
+    ["22.23.4", "22.23.5", "22.24.0", "22.99.0", "24.22.1", "24.22.2", "24.23.0", "26.12.1", "26.13.0", "28.0.0", "27.0.0", "30.1.2"],
+)
+def test_check_node_accepts_patched_releases_and_unknown_newer_majors(version):
+    result = _check_node_for(version)
     assert result.severity == cli.Severity.OK
+    assert result.blocking is True
+    assert f"v{version}" in result.message
+
+
+@pytest.mark.parametrize("version", ["23.11.1", "25.0.0", "25.9.9"])
+def test_check_node_warns_that_the_odd_lines_between_lts_releases_are_unsupported(version):
+    result = _check_node_for(version)
+    assert result.severity == cli.Severity.WARNING
+    assert result.blocking is False
+    assert "unsupported" in result.message
+    assert f"{version.split('.')[0]}.x" in result.message
+    assert "nvm install 24" in result.repair
+    assert "24 LTS" in result.repair
+
+
+def test_check_node_parses_windows_line_endings_and_prerelease_suffixes():
+    warns = _check_node_for("22.23.3", line_ending="\r\n")
+    assert warns.severity == cli.Severity.WARNING
+    assert "\r" not in warns.message and "\n" not in warns.message
+    assert warns.message.startswith("node v22.23.3 is below 22.23.4,")
+    ok = _check_node_for("22.23.4", line_ending="\r\n")
+    assert ok.severity == cli.Severity.OK
+    assert ok.message == "node v22.23.4 found at /usr/bin/node."
+    assert _check_node_for("24.22.1-nightly20261022abc").severity == cli.Severity.OK
+    assert _check_node_for("24.21.9-nightly20261022abc").severity == cli.Severity.WARNING
+
+
+def test_check_node_patched_minimums_are_keyed_by_the_even_lts_majors():
+    assert set(cli.NODE_PATCHED_MINIMUMS) == {22, 24, 26}
+    assert all(major == minimum[0] for major, minimum in cli.NODE_PATCHED_MINIMUMS.items())
+    assert min(cli.NODE_PATCHED_MINIMUMS) == cli.MIN_NODE_MAJOR
+
+
+def test_cmd_start_prints_the_node_security_warning_and_still_starts(monkeypatch, tmp_path, capsys):
+    _stub_cmd_start_prereqs(monkeypatch, tmp_path)
+    node_warning = _check_node_for("22.23.3")
+    monkeypatch.setattr(cli, "run_doctor", lambda *a, **k: [node_warning])
+    _touch_with_mtime(tmp_path / "frontend" / "src" / "routes" / "+page.svelte", 100.0)
+    _touch_with_mtime(tmp_path / "frontend" / "build" / "index.html", 200.0)
+    spawned = []
+    monkeypatch.setattr(
+        cli, "start_supervised",
+        lambda name, cmd, cwd, env, port, spawn=None: spawned.append(name) or {
+            "pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"
+        },
+    )
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 0
+
+    out = capsys.readouterr().out
+    assert "[WARN] NODE" in out
+    assert "node v22.23.3 is below 22.23.4" in out
+    assert "Upgrade Node.js to 22.23.4 or newer" in out
+    assert spawned == ["backend"]
+
+
+def test_cmd_start_prints_no_node_line_when_node_is_patched(monkeypatch, tmp_path, capsys):
+    _stub_cmd_start_prereqs(monkeypatch, tmp_path)
+    monkeypatch.setattr(cli, "run_doctor", lambda *a, **k: [_check_node_for("24.22.1")])
+    _touch_with_mtime(tmp_path / "frontend" / "src" / "routes" / "+page.svelte", 100.0)
+    _touch_with_mtime(tmp_path / "frontend" / "build" / "index.html", 200.0)
+    monkeypatch.setattr(
+        cli, "start_supervised",
+        lambda name, cmd, cwd, env, port, spawn=None: {
+            "pid": 1, "port": port, "log": str(tmp_path / f"{name}.log"), "started_at": "now"
+        },
+    )
+
+    assert cli.cmd_start(cli.build_parser().parse_args(["start"])) == 0
+
+    assert "NODE" not in capsys.readouterr().out
 
 
 def test_check_npm_missing():

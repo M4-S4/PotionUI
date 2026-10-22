@@ -261,7 +261,7 @@ On native Windows every command reads `.\potionui.cmd …` instead of
 
 You need:
 
-- **Python 3.12** (3.13 works only by compiling numpy from source; the shim prefers 3.12 when both exist), and **Node.js 18+** for every preset except Worker.
+- **Python 3.12** (3.13 works only by compiling numpy from source; the shim prefers 3.12 when both exist), and **Node.js 22+** (24 LTS recommended) for every preset except Worker.
 - Floor: **8 GB VRAM + 16 GB RAM** (runs the SDXL family) on any preset that
   installs the CUDA stack. Larger families need more, some considerably more
   — see [Hardware Requirements](docs/user/hardware-requirements.md).
@@ -299,7 +299,7 @@ the install and test matrix below.
 - Python 3.12 from [python.org](https://www.python.org/downloads/windows/)
   (the `py` launcher works too; 3.13 is not yet usable because the pinned
   numpy has no 3.13 wheels).
-- Node.js 20.
+- Node.js 22+ (24 LTS recommended).
 - Git.
 - For GPU generation: an NVIDIA driver version 580 or newer (the floor the
   CUDA 13 torch build in `constraints.txt` needs — see

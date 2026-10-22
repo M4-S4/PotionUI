@@ -42,7 +42,8 @@ VCRUNTIME             error     yes       Windows only: Visual C++ runtime DLLs 
 PY312                 error     yes       a Python 3.12+ interpreter is on PATH
 VENV                  warning   no        ./venv exists (created by `start` if not)
 BACKEND_DEPS          warning   no        fastapi/torch importable from ./venv
-NODE                  error     yes       node on PATH, major version >= 18
+NODE                  error     yes       node on PATH, major >= 22 (warning when
+                                           below the patched minimums or on 23.x/25.x)
 NPM                   error     yes       npm on PATH
 FRONTEND_DEPS         warning   no        frontend/node_modules/.bin/vite present
 FFMPEG                warning   no        ffmpeg on PATH
@@ -175,7 +176,9 @@ INSTALL_PROFILES = ("local", "hybrid", "remote")
 # to 127.0.0.1 then fails forever. Backend and frontend both bind here and
 # both readiness probes target it, so bind and probe can never diverge.
 FRONTEND_BIND_HOST = "127.0.0.1"
-MIN_NODE_MAJOR = 18
+MIN_NODE_MAJOR = 22
+RECOMMENDED_NODE_MAJOR = 24
+NODE_PATCHED_MINIMUMS = {22: (22, 23, 4), 24: (24, 22, 1), 26: (26, 12, 1)}
 PYTHON_CANDIDATES = ("python3.12", "python3.13", "python3")
 # Each entry is either a bare executable name (POSIX, and Windows's plain
 # `python`) or a (name, *extra_args) tuple for the Windows `py` launcher,
@@ -466,6 +469,16 @@ def check_backend_deps(probe, repo_root: Path, no_gpu: bool = False) -> CheckRes
     )
 
 
+def parse_node_version(version_str: str) -> tuple[int, int, int]:
+    parts = version_str.split(".")[:3]
+    parts += [""] * (3 - len(parts))
+    numbers = []
+    for part in parts:
+        digits = re.match(r"\d+", part)
+        numbers.append(int(digits.group()) if digits else 0)
+    return numbers[0], numbers[1], numbers[2]
+
+
 def check_node(probe) -> CheckResult:
     path = probe.which("node")
     if not path:
@@ -473,25 +486,43 @@ def check_node(probe) -> CheckResult:
             "NODE",
             Severity.ERROR,
             "node not found on PATH.",
-            repair="Install Node.js 18+ (https://nodejs.org, or via nvm) and re-run `./potionui doctor`.",
+            repair=f"Install Node.js {RECOMMENDED_NODE_MAJOR} LTS (https://nodejs.org, or via nvm) and re-run `./potionui doctor`.",
             blocking=True,
         )
     try:
         result = probe.run([path, "--version"], timeout=10.0)
     except Exception as exc:
-        return CheckResult("NODE", Severity.ERROR, f"Failed to run `node --version` ({exc}).", repair="Reinstall Node.js 18+.", blocking=True)
+        return CheckResult("NODE", Severity.ERROR, f"Failed to run `node --version` ({exc}).", repair=f"Reinstall Node.js {RECOMMENDED_NODE_MAJOR} LTS.", blocking=True)
     version_str = result.stdout.strip().lstrip("v")
-    major_str = version_str.split(".")[0] if version_str else ""
-    major = int(major_str) if major_str.isdigit() else 0
-    if major >= MIN_NODE_MAJOR:
-        return CheckResult("NODE", Severity.OK, f"node v{version_str} found at {path}.", blocking=True)
-    return CheckResult(
-        "NODE",
-        Severity.ERROR,
-        f"node v{version_str or '?'} found, but PotionUI needs Node.js {MIN_NODE_MAJOR}+.",
-        repair=f"Upgrade Node.js to {MIN_NODE_MAJOR}+ (e.g. `nvm install {MIN_NODE_MAJOR}`).",
-        blocking=True,
-    )
+    version = parse_node_version(version_str)
+    major = version[0]
+    if major < MIN_NODE_MAJOR:
+        return CheckResult(
+            "NODE",
+            Severity.ERROR,
+            f"node v{version_str or '?'} found, but PotionUI needs Node.js {MIN_NODE_MAJOR}+.",
+            repair=f"Upgrade Node.js to {RECOMMENDED_NODE_MAJOR} LTS (e.g. `nvm install {RECOMMENDED_NODE_MAJOR}`).",
+            blocking=True,
+        )
+    patched = NODE_PATCHED_MINIMUMS.get(major)
+    if patched is not None and version < patched:
+        patched_str = ".".join(str(n) for n in patched)
+        return CheckResult(
+            "NODE",
+            Severity.WARNING,
+            f"node v{version_str} is below {patched_str}, the first {major}.x release with the October 2026 Node.js security fixes.",
+            repair=f"Upgrade Node.js to {patched_str} or newer (e.g. `nvm install {major}`).",
+            blocking=False,
+        )
+    if patched is None and major < max(NODE_PATCHED_MINIMUMS):
+        return CheckResult(
+            "NODE",
+            Severity.WARNING,
+            f"node v{version_str} is on the unsupported {major}.x line, which no longer gets security fixes.",
+            repair=f"Install Node.js {RECOMMENDED_NODE_MAJOR} LTS (e.g. `nvm install {RECOMMENDED_NODE_MAJOR}`).",
+            blocking=False,
+        )
+    return CheckResult("NODE", Severity.OK, f"node v{version_str} found at {path}.", blocking=True)
 
 
 def check_npm(probe) -> CheckResult:
@@ -501,7 +532,7 @@ def check_npm(probe) -> CheckResult:
             "NPM",
             Severity.ERROR,
             "npm not found on PATH.",
-            repair="Install Node.js 18+ (npm ships with it) and re-run `./potionui doctor`.",
+            repair=f"Install Node.js {RECOMMENDED_NODE_MAJOR} LTS (npm ships with it) and re-run `./potionui doctor`.",
             blocking=True,
         )
     try:
@@ -1421,6 +1452,10 @@ def cmd_start(args) -> int:
         print_doctor_report(results, as_json=False)
         return 1
 
+    for node_warning in (r for r in results if r.code == "NODE" and r.severity == Severity.WARNING):
+        print(f"[WARN] {node_warning.code}  {node_warning.message}")
+        print(f"         -> {node_warning.repair}")
+
     if explicit_profile and install_profile_active() != profile:
         mark_install_profile(profile)
 
@@ -1535,7 +1570,7 @@ def cmd_build(args) -> int:
     probe = RealProbe()
     npm_bin = probe.which("npm")
     if not npm_bin:
-        print("npm not found on PATH. Install Node.js 18+ and re-run `./potionui build`.")
+        print(f"npm not found on PATH. Install Node.js {RECOMMENDED_NODE_MAJOR} LTS and re-run `./potionui build`.")
         return 1
 
     frontend_dir = REPO_ROOT / "frontend"
