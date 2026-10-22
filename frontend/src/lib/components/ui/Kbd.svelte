@@ -1,8 +1,10 @@
 <script lang="ts">
-	let { keys, size = 'sm' }: { keys: string | string[]; size?: 'sm' | 'md' } = $props();
+	const TEXT_CLASSES = { sm: 'text-2xs', md: 'text-xs', lg: 'text-sm' } as const;
+
+	let { keys, size = 'sm' }: { keys: string | string[]; size?: keyof typeof TEXT_CLASSES } = $props();
 
 	let keyList = $derived(Array.isArray(keys) ? keys : [keys]);
-	let textClass = $derived(size === 'md' ? 'text-xs' : 'text-2xs');
+	let textClass = $derived(TEXT_CLASSES[size]);
 </script>
 
 <span class="inline-flex items-center gap-1 font-mono tabular-nums {textClass} text-fg-muted" aria-hidden="true">

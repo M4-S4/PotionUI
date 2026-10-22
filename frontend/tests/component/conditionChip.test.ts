@@ -107,6 +107,11 @@ async function typeInto(el: HTMLInputElement | HTMLTextAreaElement, value: strin
 const byText = (root: ParentNode, selector: string, text: string) =>
 	Array.from(root.querySelectorAll<HTMLElement>(selector)).find((el) => el.textContent?.trim() === text)!;
 
+const valueTrigger = (root: ParentNode) => root.querySelector<HTMLButtonElement>('[data-testid="option-select"]')!;
+const picked = (root: ParentNode) =>
+	Array.from(valueTrigger(root).querySelectorAll<HTMLElement>('[data-option-value]')).map((el) => el.dataset.optionValue);
+const optionPicker = () => document.querySelector<HTMLElement>('[data-testid="option-picker"]');
+
 describe('ConditionChip chip', () => {
 	it('summarizes the test, the text and the otherwise', () => {
 		setup();
@@ -178,6 +183,12 @@ describe('ConditionChip editor modal', () => {
 		await typeInto(pop.querySelector('textarea[aria-label="If text"]')!, 'white hair');
 		footerButton('Cancel').click();
 		await tick();
+		const confirm = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
+		expect(confirm.textContent).toContain('Discard changes?');
+		expect(modal()).not.toBeNull();
+		Array.from(confirm.querySelectorAll<HTMLButtonElement>('button')).find((el) => el.textContent?.trim().startsWith('Discard'))!.click();
+		await tick();
+		await tick();
 		expect(changes).toEqual([]);
 		expect(modal()).toBeNull();
 		const again = await openModal();
@@ -210,7 +221,7 @@ describe('ConditionChip editor modal', () => {
 		const { changes } = setup();
 		const pop = await openModal();
 		await choose('mood');
-		expect(pop.querySelectorAll('[aria-label="Values"] button').length).toBe(3);
+		expect(picked(pop)).toEqual(['calm']);
 		await save();
 		expect(changes.at(-1)).toBe('<<if $mood = "calm">>grey hair<<else>>auburn hair<<end>>');
 	});
@@ -255,8 +266,13 @@ describe('ConditionChip editor modal', () => {
 	it('toggles choice values for is one of', async () => {
 		const { changes } = setup('<<if $mood in "calm">>a<<end>>');
 		const pop = await openModal();
-		byText(pop, '[aria-label="Values"] button', 'serene').click();
+		valueTrigger(pop).click();
 		await tick();
+		await tick();
+		optionPicker()!.querySelector<HTMLElement>('[role="option"][data-option="serene"]')!.click();
+		await tick();
+		expect(optionPicker()).not.toBeNull();
+		expect(picked(pop)).toEqual(['calm', 'serene']);
 		await save();
 		expect(changes.at(-1)).toBe('<<if $mood in "calm", "serene">>a<<end>>');
 	});
@@ -274,7 +290,7 @@ describe('ConditionChip editor modal', () => {
 		const pop = await openModal();
 		byText(pop, 'button', 'Add test').click();
 		await tick();
-		byText(pop, '[role="radio"]', 'any').click();
+		byText(pop, '[role="radio"]', 'Any').click();
 		await tick();
 		expect(pop.querySelectorAll('[data-testid="condition-test"]').length).toBe(2);
 		pop.querySelectorAll<HTMLElement>('button[aria-label="Remove test"]')[1].click();
@@ -289,7 +305,7 @@ describe('ConditionChip editor modal', () => {
 		const pop = await openModal();
 		byText(pop, 'button', 'Add test').click();
 		await tick();
-		byText(pop, '[role="radio"]', 'any').click();
+		byText(pop, '[role="radio"]', 'Any').click();
 		await tick();
 		await save();
 		expect(changes.at(-1)).toBe('<<if $age > 65 or $age >= 18>>grey hair<<else>>auburn hair<<end>>');
@@ -335,7 +351,7 @@ describe('ConditionChip editor modal', () => {
 		expect(pop.querySelector('[data-testid="condition-last-run"]')!.textContent).toContain('Decided when you generate');
 	});
 
-	it('puts every value editor on its own line and wraps long values inside the body', async () => {
+	it('puts every value editor on its own line and keeps long values readable', async () => {
 		const long = {
 			look: {
 				type: 'choice',
@@ -356,13 +372,14 @@ describe('ConditionChip editor modal', () => {
 		const value = row.querySelector('[data-testid="condition-value"]') as HTMLElement;
 		expect(controls.contains(value)).toBe(false);
 		expect(controls.compareDocumentPosition(value) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-		const buttons = value.querySelectorAll('[aria-label="Values"] button');
-		expect(buttons.length).toBe(4);
-		buttons.forEach((b) => {
-			expect(b.className).toContain('max-w-full');
-			expect(b.className).toContain('whitespace-normal');
-		});
-		expect(value.querySelector('[aria-label="Values"]')!.className).toContain('flex-wrap');
+		expect(valueTrigger(value).className).toContain('w-full');
+		expect(picked(value)).toEqual(['plain linen shirt']);
+		valueTrigger(value).click();
+		await tick();
+		await tick();
+		const options = Array.from(optionPicker()!.querySelectorAll<HTMLElement>('[role="option"]'));
+		expect(options).toHaveLength(4);
+		options.forEach((o) => expect(o.querySelector('.line-clamp-3')!.className).toContain('break-words'));
 	});
 
 	it('returns focus to the editor after the chip when the modal closes', async () => {

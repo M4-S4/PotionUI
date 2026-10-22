@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
 	branchName,
+	branchProblemText,
+	catchingBranch,
 	checkDraft,
+	choiceOptions,
 	conditionIssue,
 	conditionReadersFor,
 	conditionTagWarnings,
@@ -12,10 +15,13 @@ import {
 	defaultTest,
 	draftFromRaw,
 	draftProblemText,
+	firstUncoveredOption,
 	fitsCondition,
 	lastRunFor,
 	nestedToElseIf,
+	nextBranchTest,
 	operatorsFor,
+	optionUsage,
 	plainConditionSummary,
 	rawFromDraft,
 	retargetTest,
@@ -403,5 +409,77 @@ describe('plain summary', () => {
 
 	it('falls back for a malformed block', () => {
 		expect(plainConditionSummary('<<if $age >>oops<<end>>')).toBe('Condition');
+	});
+});
+
+describe('options across branches', () => {
+	const vars: VariablesMap = {
+		...variables,
+		look: { type: 'choice', mode: 'shuffle', pinnedIndex: null, options: [' suit ', 'gown', 'suit', '', 'jeans', 'x'.repeat(MAX_STRING_CHARS + 1)] }
+	};
+	const SWITCH = '<<if $look = "suit">>a<<else if $look in "gown", "jeans">>b<<else if $look != "gown">>c<<else>>d<<end>>';
+
+	it('lists a choice variable’s options once, trimmed', () => {
+		expect(choiceOptions('look', vars)).toEqual(['suit', 'gown', 'jeans', 'x'.repeat(MAX_STRING_CHARS + 1)]);
+		expect(choiceOptions('age', vars)).toEqual([]);
+		expect(choiceOptions('missing', vars)).toEqual([]);
+	});
+
+	it('maps each option to the other branches that test it, with the operator', () => {
+		const draft = draftFromRaw(SWITCH)!;
+		const usage = optionUsage(draft, 0, 'look');
+		expect(usage.get('gown')).toEqual([
+			{ branch: 1, op: 'in' },
+			{ branch: 2, op: '!=' }
+		]);
+		expect(usage.get('jeans')).toEqual([{ branch: 1, op: 'in' }]);
+		expect(usage.has('suit')).toBe(false);
+		expect(optionUsage(draft, 1, 'look').get('suit')).toEqual([{ branch: 0, op: '=' }]);
+		expect(optionUsage(draft, 1, 'mood').size).toBe(0);
+	});
+
+	it('finds the earlier branch that already catches a value', () => {
+		const draft = draftFromRaw(SWITCH)!;
+		expect(catchingBranch(draft, 1, 'look', 'suit', vars)).toBe(0);
+		expect(catchingBranch(draft, 1, 'look', 'gown', vars)).toBeNull();
+		expect(catchingBranch(draft, 3, 'look', 'jeans', vars)).toBe(1);
+		expect(catchingBranch(draft, 3, 'look', 'boots', vars)).toBe(2);
+		expect(catchingBranch(draft, 0, 'look', 'suit', vars)).toBeNull();
+	});
+
+	it('ignores branches that read another variable or are unfinished', () => {
+		const draft = draftFromRaw('<<if $mood = "calm">>a<<else if $look = "suit">>b<<end>>')!;
+		expect(catchingBranch(draft, 2, 'look', 'suit', vars)).toBe(1);
+		expect(catchingBranch(draft, 2, 'mood', 'calm', vars)).toBe(0);
+		draft.branches[1].tests[0].strings = [''];
+		expect(catchingBranch(draft, 2, 'look', 'suit', vars)).toBeNull();
+	});
+
+	it('starts a new branch on the first option nothing catches', () => {
+		const draft = draftFromRaw('<<if $look = "suit">>a<<else>>b<<end>>')!;
+		expect(firstUncoveredOption(draft, 'look', vars)).toBe('gown');
+		expect(nextBranchTest(draft, 'look', vars).strings).toEqual(['gown']);
+		const covered = draftFromRaw('<<if $look in "suit", "gown", "jeans">>a<<end>>')!;
+		expect(firstUncoveredOption(covered, 'look', vars)).toBeNull();
+		expect(nextBranchTest(covered, 'look', vars).strings).toEqual(['suit']);
+		expect(nextBranchTest(covered, 'age', vars)).toEqual(defaultTest('age', vars));
+	});
+});
+
+describe('branch problem messages', () => {
+	it('drops the branch name where the message sits inside its branch', () => {
+		const draft: ConditionDraft = {
+			branches: [
+				{ kind: 'if', joiner: 'and', tests: [{ var: 'mood', op: '=', number: '0', low: '0', high: '0', strings: [''] }], body: 'a' },
+				{ kind: 'else', joiner: 'and', tests: [], body: '<<if $age > 1>>b<<end>>' }
+			]
+		};
+		const problems = checkDraft(draft, variables).problems;
+		expect(problems.map((p) => branchProblemText(p, draft, variables))).toEqual([
+			'Pick a value for $mood.',
+			"This text contains another condition. Conditions can't be nested, so add an Else if instead."
+		]);
+		expect(branchProblemText({ kind: 'tests', branch: 0 }, draft, variables)).toBe(`Needs 1 to ${MAX_TESTS} tests.`);
+		expect(branchProblemText({ kind: 'grammar' }, draft, variables)).toBe(draftProblemText({ kind: 'grammar' }, draft, variables));
 	});
 });

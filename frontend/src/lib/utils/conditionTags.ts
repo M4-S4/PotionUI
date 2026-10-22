@@ -5,9 +5,11 @@ import {
 	MAX_TESTS,
 	MAX_VALUES,
 	chooseBranch,
+	evaluateCondition,
 	formatCondition,
 	parseTemplate,
 	type BranchKind,
+	type Condition,
 	type ConditionBlock,
 	type ConditionJoiner,
 	type ConditionOp,
@@ -133,10 +135,15 @@ export function fitsCondition(text: string): boolean {
 	return stringProblem(text) === null;
 }
 
-function firstOption(name: string, variables: VariablesMap): string {
+export function choiceOptions(name: string, variables: VariablesMap): string[] {
+	if (!(name in variables)) return [];
 	const def = normalizeVariableDef(variables[name]);
-	if (def.type !== 'choice') return '';
-	const options = def.options.map((o) => optionText(o).trim()).filter((o) => o);
+	if (def.type !== 'choice') return [];
+	return [...new Set(def.options.map((o) => optionText(o).trim()).filter((o) => o))];
+}
+
+function firstOption(name: string, variables: VariablesMap): string {
+	const options = choiceOptions(name, variables);
 	return options.find(fitsCondition) ?? options[0] ?? '';
 }
 
@@ -322,6 +329,72 @@ export function nestedToElseIf(draft: ConditionDraft): ConditionDraft | null {
 	return branches.length <= MAX_BRANCHES ? { branches } : null;
 }
 
+export interface OptionUse {
+	branch: number;
+	op: ConditionOp;
+}
+
+const COMPARING_OPS: ReadonlySet<ConditionOp> = new Set(['=', '!=', 'in', 'not in']);
+
+export function optionUsage(draft: ConditionDraft, branch: number, name: string): Map<string, OptionUse[]> {
+	const usage = new Map<string, OptionUse[]>();
+	draft.branches.forEach((b, index) => {
+		if (index === branch || b.kind === 'else') return;
+		for (const test of b.tests) {
+			if (test.var !== name || !COMPARING_OPS.has(test.op)) continue;
+			for (const value of test.strings) {
+				if (!value) continue;
+				const uses = usage.get(value) ?? [];
+				if (!uses.some((use) => use.branch === index)) uses.push({ branch: index, op: test.op });
+				usage.set(value, uses);
+			}
+		}
+	});
+	return usage;
+}
+
+function branchCondition(branch: BranchDraft, variables: VariablesMap): Condition | null {
+	if (branch.kind === 'else' || branch.tests.length === 0) return null;
+	const tests: ConditionTest[] = [];
+	for (const draft of branch.tests) {
+		const test = testFromDraft(draft, variables);
+		if (!test) return null;
+		tests.push(test);
+	}
+	return { joiner: branch.joiner, tests, start: 0, end: 0 };
+}
+
+export function catchingBranch(
+	draft: ConditionDraft,
+	before: number,
+	name: string,
+	value: string,
+	variables: VariablesMap
+): number | null {
+	for (let index = 0; index < Math.min(before, draft.branches.length); index++) {
+		const branch = draft.branches[index];
+		if (!branch.tests.every((test) => test.var === name)) continue;
+		const cond = branchCondition(branch, variables);
+		if (cond && evaluateCondition(cond, { [name]: value })) return index;
+	}
+	return null;
+}
+
+export function firstUncoveredOption(draft: ConditionDraft, name: string, variables: VariablesMap): string | null {
+	return (
+		choiceOptions(name, variables)
+			.filter(fitsCondition)
+			.find((option) => catchingBranch(draft, draft.branches.length, name, option, variables) === null) ?? null
+	);
+}
+
+export function nextBranchTest(draft: ConditionDraft, name: string, variables: VariablesMap): TestDraft {
+	const test = defaultTest(name, variables);
+	if (conditionVarKind(name, variables) !== 'choice') return test;
+	const free = firstUncoveredOption(draft, name, variables);
+	return free ? { ...test, strings: [free] } : test;
+}
+
 export function branchName(draft: ConditionDraft, index: number): string {
 	const branch = draft.branches[index];
 	if (!branch || branch.kind === 'if') return 'If';
@@ -348,6 +421,23 @@ function valueProblemText(reason: ValueProblem, test: TestDraft, variables: Vari
 			return `the From number for ${target} is above To.`;
 		case 'too-many':
 			return `pick at most ${MAX_VALUES} values for ${target}.`;
+	}
+}
+
+export function branchProblemText(problem: DraftProblem, draft: ConditionDraft, variables: VariablesMap): string {
+	switch (problem.kind) {
+		case 'nested':
+			return "This text contains another condition. Conditions can't be nested, so add an Else if instead.";
+		case 'tests':
+			return `Needs 1 to ${MAX_TESTS} tests.`;
+		case 'head':
+			return 'Too long to save. Remove a test or pick shorter values.';
+		case 'value': {
+			const text = valueProblemText(problem.reason, draft.branches[problem.branch].tests[problem.test], variables);
+			return text.charAt(0).toUpperCase() + text.slice(1);
+		}
+		default:
+			return draftProblemText(problem, draft, variables);
 	}
 }
 

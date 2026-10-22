@@ -1,13 +1,10 @@
 <script lang="ts">
 	import { tick } from 'svelte';
+	import AnchoredPanel from './AnchoredPanel.svelte';
 	import Icon from './Icon.svelte';
 	import VariablePicker from './VariablePicker.svelte';
-	import portal from '$lib/actions/portal';
-	import overlayLayer from '$lib/actions/overlayLayer';
-	import dismiss from '$lib/actions/dismiss';
-	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
-	import { CHIP_POPOVER_VIEWPORT_GUTTER, CHIP_POPOVER_WIDTH, isChipPopoverSheet } from '$lib/utils/chipPopover';
-	import type { VariablesMap } from '$lib/utils/variableDefs';
+	import { Badge } from '$lib/components/ui';
+	import { normalizeVariableDef, type VariablesMap } from '$lib/utils/variableDefs';
 	import type { VariablePickerType } from '$lib/utils/variablePicker';
 
 	let {
@@ -34,46 +31,12 @@
 		oncreate?: (name: string) => void;
 	} = $props();
 
-	const HEIGHT_ESTIMATE = 360;
+	const TYPE_LABELS = { text: 'Text', choice: 'Choice', number: 'Number' } as const;
 
 	let open = $state(false);
-	let sheet = $state(false);
 	let triggerRef = $state<HTMLButtonElement>();
-	let panelRef = $state<HTMLDivElement>();
-	let pos = $state<FlippedMenuPosition>({ left: 0, top: 0, maxHeight: HEIGHT_ESTIMATE });
 
-	const panelWidth = CHIP_POPOVER_WIDTH;
-
-	const panelStyle = $derived(
-		sheet
-			? `position: fixed; left: ${CHIP_POPOVER_VIEWPORT_GUTTER}px; right: ${CHIP_POPOVER_VIEWPORT_GUTTER}px; bottom: ${CHIP_POPOVER_VIEWPORT_GUTTER}px; top: auto; max-height: min(70dvh, 28rem);`
-			: `position: fixed; left: ${pos.left}px; width: ${panelWidth}px; max-width: calc(100vw - ${CHIP_POPOVER_VIEWPORT_GUTTER * 2}px); max-height: ${pos.maxHeight}px; ${
-					pos.top !== undefined ? `top: ${pos.top}px; bottom: auto;` : `bottom: ${pos.bottom}px; top: auto;`
-				}`
-	);
-
-	function updatePosition() {
-		sheet = isChipPopoverSheet(window.innerWidth);
-		if (!triggerRef || sheet) return;
-		pos = computeFlippedMenuPosition(triggerRef, {
-			width: panelWidth,
-			heightEstimate: panelRef?.scrollHeight || HEIGHT_ESTIMATE,
-			gap: 4
-		});
-	}
-
-	$effect(() => {
-		if (!open) return;
-		updatePosition();
-		const raf = requestAnimationFrame(updatePosition);
-		window.addEventListener('resize', updatePosition);
-		window.addEventListener('scroll', updatePosition, true);
-		return () => {
-			cancelAnimationFrame(raf);
-			window.removeEventListener('resize', updatePosition);
-			window.removeEventListener('scroll', updatePosition, true);
-		};
-	});
+	const typeLabel = $derived(missing || !(value in variables) ? '' : TYPE_LABELS[normalizeVariableDef(variables[value]).type]);
 
 	function close(refocus: boolean) {
 		open = false;
@@ -98,7 +61,7 @@
 	bind:this={triggerRef}
 	type="button"
 	{disabled}
-	class="input flex h-8 min-w-0 items-center gap-1.5 py-1 text-left text-sm max-md:h-11 {className}"
+	class="input flex h-9 min-w-0 items-center gap-2 py-1 text-left text-base max-md:h-11 {className}"
 	aria-label={label}
 	aria-haspopup="listbox"
 	aria-expanded={open}
@@ -107,22 +70,12 @@
 	onkeydown={handleTriggerKeydown}
 >
 	<span class="min-w-0 flex-1 truncate font-mono {missing ? 'text-warning' : 'text-fg'}">${value}</span>
-	{#if missing}<span class="flex-shrink-0 text-xs text-warning">missing</span>{/if}
+	{#if missing}<span class="flex-shrink-0 text-sm text-warning">missing</span>{:else if typeLabel}<Badge size="lg" class="flex-shrink-0 max-md:hidden">{typeLabel}</Badge>{/if}
 	<Icon name="chevron-down" className="h-3 w-3 flex-shrink-0 text-fg-subtle" />
 </button>
 
 {#if open}
-	<div
-		bind:this={panelRef}
-		use:dismiss={{ onDismiss: () => (open = false), ignore: [triggerRef], escape: false }}
-		use:portal
-		use:overlayLayer
-		data-chip-layer
-		class="z-overlay flex flex-col overflow-hidden rounded-xl border border-line-strong bg-surface-1 shadow-floating"
-		style={panelStyle}
-		role="dialog"
-		aria-label={`Choose ${label.toLowerCase()}`}
-	>
+	<AnchoredPanel anchor={triggerRef} label={`Choose ${label.toLowerCase()}`} onDismiss={() => (open = false)}>
 		<VariablePicker
 			{variables}
 			selected={missing ? null : value}
@@ -141,5 +94,5 @@
 				: undefined}
 			onclose={(reason) => close(reason === 'escape')}
 		/>
-	</div>
+	</AnchoredPanel>
 {/if}

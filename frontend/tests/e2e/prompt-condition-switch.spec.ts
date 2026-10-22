@@ -130,6 +130,14 @@ async function chooseVariable(page: Page, row: Locator, name: string) {
 	await page.locator(`[role="option"][data-variable="${name}"]`).click();
 }
 
+async function chooseValue(page: Page, row: Locator, value: string) {
+	await row.getByTestId('option-select').click();
+	const picker = page.getByTestId('option-picker');
+	await picker.getByRole('combobox').fill(value.slice(0, 24));
+	await picker.locator('[role="option"]').filter({ hasText: value }).first().click();
+	await expect(picker).toBeHidden();
+}
+
 test.describe('prompt condition switch', () => {
 	test.beforeEach(async ({ page }) => {
 		test.setTimeout(180000);
@@ -146,12 +154,13 @@ test.describe('prompt condition switch', () => {
 
 		const dialog = await insertCondition(page);
 		await chooseVariable(page, branch(dialog, 0), 'look');
-		await branch(dialog, 0).getByRole('button', { name: 'linen shirt' }).click();
+		await chooseValue(page, branch(dialog, 0), 'linen shirt');
 		await dialog.getByLabel('If text').fill('z');
 		await dialog.getByRole('button', { name: 'Else if' }).click();
 		await expect(saveButton(dialog)).toBeEnabled();
-		await branch(dialog, 1).getByRole('button', { name: LONG }).click();
-		await expect(branch(dialog, 1).getByRole('button', { name: LONG })).toHaveAttribute('aria-pressed', 'true');
+		await expect(branch(dialog, 1).getByTestId('option-select')).toContainText(LONG);
+		await chooseValue(page, branch(dialog, 1), LONG);
+		await expect(branch(dialog, 1).getByTestId('option-select')).toContainText(LONG);
 		await dialog.getByLabel('Else if text').fill('o');
 		await expect(dialog.getByTestId('condition-invalid')).toHaveCount(0);
 		await expect(saveButton(dialog)).toBeEnabled();
@@ -198,7 +207,7 @@ test.describe('prompt condition switch', () => {
 		await branch(dialog, 0).getByLabel('Operator').selectOption('in');
 		await branch(dialog, 0).getByLabel('From', { exact: true }).fill('90');
 		await branch(dialog, 0).getByLabel('To', { exact: true }).fill('10');
-		await expect(dialog.getByTestId('condition-problem')).toHaveText(['If: the From number for $age is above To.']);
+		await expect(branch(dialog, 0).getByTestId('condition-problem')).toHaveText(['The From number for $age is above To.']);
 		await expect(branch(dialog, 0)).toHaveAttribute('data-invalid', 'true');
 		await expect(saveButton(dialog)).toBeDisabled();
 		await branch(dialog, 0).getByLabel('To', { exact: true }).fill('95');
@@ -207,7 +216,7 @@ test.describe('prompt condition switch', () => {
 		await dialog.getByRole('button', { name: 'Otherwise' }).click();
 		await dialog.getByLabel('Otherwise text').fill('<<if $age < 30>>young<<end>>');
 		await expect(dialog.getByTestId('condition-problem')).toContainText([
-			"Otherwise text contains another condition. Conditions can't be nested, so add an Else if instead."
+			"This text contains another condition. Conditions can't be nested, so add an Else if instead."
 		]);
 		await expect(saveButton(dialog)).toBeDisabled();
 		await settleAnimations(page);

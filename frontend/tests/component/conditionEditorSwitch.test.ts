@@ -85,6 +85,20 @@ async function ctrlEnter() {
 }
 
 const operator = (branch: HTMLElement) => branch.querySelector<HTMLSelectElement>('select[aria-label="Operator"]')!;
+const valueTrigger = (branch: HTMLElement) => branch.querySelector<HTMLButtonElement>('[data-testid="option-select"]')!;
+const picked = (branch: HTMLElement) =>
+	Array.from(valueTrigger(branch).querySelectorAll<HTMLElement>('[data-option-value]')).map((el) => el.dataset.optionValue);
+const optionRow = (text: string) =>
+	Array.from(document.querySelectorAll<HTMLElement>('[data-testid="option-picker"] [role="option"]')).find((el) => el.dataset.option === text);
+
+async function chooseValue(branch: HTMLElement, text: string) {
+	valueTrigger(branch).click();
+	await tick();
+	await tick();
+	optionRow(text)!.click();
+	await tick();
+	await tick();
+}
 const textValue = (branch: HTMLElement) => branch.querySelector<HTMLInputElement>('input[aria-label="Text"]')!;
 const body = (branch: HTMLElement) => branch.querySelector<HTMLTextAreaElement>('textarea')!;
 const saveDisabled = () => saveButton().disabled;
@@ -112,8 +126,8 @@ describe('condition editor switch on one variable', () => {
 		const pop = await openModal();
 		await click(byText(pop, 'button', 'Else if'));
 		expect(saveDisabled()).toBe(false);
-		expect(byText(branches()[1], '[aria-label="Values"] button', 'linen shirt')!.getAttribute('aria-pressed')).toBe('true');
-		await click(byText(branches()[1], '[aria-label="Values"] button', 'silk gown'));
+		expect(picked(branches()[1])).toEqual([AT_CAP]);
+		await chooseValue(branches()[1], 'silk gown');
 		await typeInto(body(branches()[1]), 'o');
 		await save();
 		expect(changes).toEqual(['<<if $look = "linen shirt">>z<<else if $look = "silk gown">>o<<end>>']);
@@ -123,9 +137,9 @@ describe('condition editor switch on one variable', () => {
 		const { changes } = setup('<<if $look = "linen shirt">>z<<end>>');
 		const pop = await openModal();
 		await click(byText(pop, 'button', 'Else if'));
-		await click(byText(branches()[1], '[aria-label="Values"] button', AT_CAP));
+		await chooseValue(branches()[1], AT_CAP);
 		await typeInto(body(branches()[1]), 'o');
-		expect(byText(branches()[1], '[aria-label="Values"] button', AT_CAP)!.getAttribute('aria-pressed')).toBe('true');
+		expect(picked(branches()[1])).toEqual([AT_CAP]);
 		expect(saveDisabled()).toBe(false);
 		await save();
 		expect(changes).toEqual([`<<if $look = "linen shirt">>z<<else if $look = "${AT_CAP}">>o<<end>>`]);
@@ -135,11 +149,12 @@ describe('condition editor switch on one variable', () => {
 		setup('<<if $look = "linen shirt">>z<<end>>');
 		const pop = await openModal();
 		await click(byText(pop, 'button', 'Else if'));
-		const long = byText(branches()[1], '[aria-label="Values"] button', LONG)!;
-		await click(long);
+		await chooseValue(branches()[1], LONG);
+		const long = optionRow(LONG)!;
 		expect(long.getAttribute('aria-disabled')).toBe('true');
-		expect(long.getAttribute('aria-pressed')).toBe('false');
-		expect(byText(branches()[1], '[aria-label="Values"] button', 'linen shirt')!.getAttribute('aria-pressed')).toBe('true');
+		expect(long.getAttribute('aria-selected')).toBe('false');
+		expect(long.textContent).toContain("can't be used in a condition");
+		expect(picked(branches()[1])).toEqual([AT_CAP]);
 		expect(saveDisabled()).toBe(false);
 	});
 
@@ -149,9 +164,10 @@ describe('condition editor switch on one variable', () => {
 		await pick(operator(branches()[1]), '=');
 		expect(saveDisabled()).toBe(true);
 		expect(problems()).toEqual([
-			`Else if: the option picked for $cloak is longer than ${MAX_STRING_CHARS} characters and can't be used in a condition.`
+			`The option picked for $cloak is longer than ${MAX_STRING_CHARS} characters and can't be used in a condition.`
 		]);
-		expect(branches()[1].querySelectorAll('[aria-label="Values"] button[aria-pressed="true"]')).toHaveLength(0);
+		expect(picked(branches()[1])).toEqual([]);
+		expect(valueTrigger(branches()[1]).getAttribute('aria-invalid')).toBe('true');
 		expect(branches()[1].dataset.invalid).toBe('true');
 		expect(branches()[1].querySelector<HTMLElement>('[data-testid="condition-test"]')!.dataset.invalid).toBe('true');
 		expect(branches()[0].dataset.invalid).toBeUndefined();
@@ -162,7 +178,7 @@ describe('condition editor switch on one variable', () => {
 		const pop = await openModal();
 		await pick(operator(branches()[0]), '=');
 		expect(saveDisabled()).toBe(false);
-		expect(byText(pop, '[aria-label="Values"] button', 'calm')!.getAttribute('aria-pressed')).toBe('true');
+		expect(picked(branches()[0])).toEqual(['calm']);
 		await save();
 		expect(changes).toEqual(['<<if $mood = "calm">>z<<end>>']);
 	});
@@ -171,8 +187,7 @@ describe('condition editor switch on one variable', () => {
 		const { changes } = setup('<<if $mood in "calm", "tense">>z<<end>>');
 		const pop = await openModal();
 		await pick(operator(branches()[0]), '=');
-		const pressed = Array.from(pop.querySelectorAll('[aria-label="Values"] button[aria-pressed="true"]'));
-		expect(pressed.map((b) => b.textContent?.trim())).toEqual(['calm']);
+		expect(picked(branches()[0])).toEqual(['calm']);
 		await save();
 		expect(changes).toEqual(['<<if $mood = "calm">>z<<end>>']);
 	});
@@ -193,7 +208,7 @@ describe('condition editor switch on one variable', () => {
 		await openModal();
 		await typeInto(modal().querySelector<HTMLInputElement>('input[aria-label="From"]')!, '40');
 		expect(saveDisabled()).toBe(true);
-		expect(problems()).toEqual(['If: the From number for $age is above To.']);
+		expect(problems()).toEqual(['The From number for $age is above To.']);
 		await typeInto(modal().querySelector<HTMLInputElement>('input[aria-label="To"]')!, '50');
 		expect(saveDisabled()).toBe(false);
 	});
@@ -206,7 +221,8 @@ describe('condition editor problems', () => {
 		await click(byText(pop, 'button', 'Else if'));
 		await click(byText(pop, 'button', 'Else if'));
 		await pick(operator(branches()[2]), '=');
-		expect(problems()).toEqual(['Else if 2: type the text to compare $name with.']);
+		expect(problems()).toEqual(['Type the text to compare $name with.']);
+		expect(branches()[2].querySelector('[data-testid="condition-problem"]')).not.toBeNull();
 		expect(textValue(branches()[2]).getAttribute('aria-invalid')).toBe('true');
 		expect(textValue(branches()[2]).className).toContain('border-warning');
 		expect(branches()[1].dataset.invalid).toBeUndefined();
@@ -215,13 +231,15 @@ describe('condition editor problems', () => {
 
 	it('lists every problem, one line each', async () => {
 		setup('<<if $name = "a">>x<<else>>y<<end>>');
-		await openModal();
+		const pop = await openModal();
 		await typeInto(textValue(branches()[0]), '');
 		await typeInto(body(branches()[1]), 'y <<if $age > 1>>b<<end>>');
 		expect(problems()).toEqual([
-			'If: type the text to compare $name with.',
-			"Otherwise text contains another condition. Conditions can't be nested, so add an Else if instead."
+			'Type the text to compare $name with.',
+			"This text contains another condition. Conditions can't be nested, so add an Else if instead."
 		]);
+		expect(branches()[1].querySelector('[data-testid="condition-problem"]')).not.toBeNull();
+		expect(pop.querySelector('[data-testid="condition-invalid"]')!.textContent).toBe('2 problems');
 		expect(body(branches()[1]).getAttribute('aria-invalid')).toBe('true');
 	});
 
@@ -258,8 +276,9 @@ describe('condition editor problems', () => {
 		await typeInto(body(branches()[1]), 'auburn');
 		await typeInto(body(branches()[0]), '<<if $age < 25>>young<<end>>');
 		expect(problems()).toEqual([
-			"If text contains another condition. Conditions can't be nested, so add an Else if instead."
+			"This text contains another condition. Conditions can't be nested, so add an Else if instead."
 		]);
+		expect(branches()[0].querySelector('[data-testid="condition-problem"]')).not.toBeNull();
 		expect(byText(pop, 'button', 'Use Else if')).toBeUndefined();
 	});
 });
