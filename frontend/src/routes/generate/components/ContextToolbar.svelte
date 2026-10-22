@@ -90,6 +90,10 @@
 	let variants = $derived(sortVariants(availableModes.find((mode) => mode.id === tab.selectedMode)?.variants));
 	let variantOptions = $derived(variants.map((variant) => ({ value: variant.name, label: variant.label, description: variant.description })));
 	let selectedVariant = $derived(resolveVariant(variants, tab.selectedVariant));
+	let hasPreset = $derived(!!tab.selectedPreset);
+	let showMode = $derived(hasPreset && modeOptions.length > 1);
+	let showVariant = $derived(hasPreset && variantOptions.length > 1);
+	let showSession = $derived(hasPreset && !!tab.selectedMode);
 
 	let advanced = $derived($formAudienceStore === 'advanced');
 	let threePanes = $derived(tab.layoutMode === 'three');
@@ -172,6 +176,9 @@
 			selectedVariant,
 			session.currentSession?.name,
 			session.sessionControlsEnabled,
+			showMode,
+			showVariant,
+			showSession,
 			presetInfo?.name,
 			...tools.map((tool) => tool.text)
 		].join('|')
@@ -225,11 +232,19 @@
 	});
 
 	$effect(() => {
+		void [showMode, showVariant, showSession];
 		if (!barEl || typeof ResizeObserver === 'undefined') return;
 		const observer = new ResizeObserver(() => void refit());
 		observer.observe(barEl);
 		if (pinnedEl) observer.observe(pinnedEl);
-		return () => observer.disconnect();
+		const growth = new ResizeObserver(() => {
+			if (overflowing()) void refit();
+		});
+		if (contextEl) for (const step of contextEl.children) growth.observe(step);
+		return () => {
+			observer.disconnect();
+			growth.disconnect();
+		};
 	});
 
 	function chooseVariant(value: string) {
@@ -306,7 +321,7 @@
 			</div>
 		</div>
 
-		{#if modeOptions.length > 1}
+		{#if showMode}
 			{@render cut()}
 			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-header-mode">
 				<span id="{uid}-mode" class={labelClass} data-context-label>Mode</span>
@@ -345,7 +360,7 @@
 			</div>
 		{/if}
 
-		{#if variantOptions.length > 1}
+		{#if showVariant}
 			{@render cut()}
 			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-variant-switch">
 				<span id="{uid}-variant" class={labelClass} data-context-label>Variant</span>
@@ -377,11 +392,13 @@
 			</div>
 		{/if}
 
-		{@render cut()}
-		<div class="flex min-w-0 shrink items-center gap-2 {stepPad}">
-			<span class={labelClass} data-context-label>Session</span>
-			<SessionControl {session} {actions} {fieldLabels} compact={fit.compact} />
-		</div>
+		{#if showSession}
+			{@render cut()}
+			<div class="flex min-w-0 shrink items-center gap-2 {stepPad}">
+				<span class={labelClass} data-context-label>Session</span>
+				<SessionControl {session} {actions} {fieldLabels} compact={fit.compact} />
+			</div>
+		{/if}
 	</div>
 
 	<div class="min-w-0 flex-1" data-testid="context-gap"></div>

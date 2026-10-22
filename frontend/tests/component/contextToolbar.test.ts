@@ -103,15 +103,35 @@ function sessionActions() {
 }
 
 class FakeResizeObserver {
+	static instances = new Set<FakeResizeObserver>();
 	cb: () => void;
+	observed = new Set<Element>();
 	constructor(cb: () => void) {
 		this.cb = cb;
+		FakeResizeObserver.instances.add(this);
 	}
-	observe() {
+	observe(element: Element) {
+		this.observed.add(element);
 		queueMicrotask(() => this.cb());
 	}
-	unobserve() {}
-	disconnect() {}
+	unobserve(element: Element) {
+		this.observed.delete(element);
+	}
+	disconnect() {
+		this.observed.clear();
+		FakeResizeObserver.instances.delete(this);
+	}
+}
+
+function resizeTargets(): Element[] {
+	return Array.from(FakeResizeObserver.instances).flatMap((observer) => Array.from(observer.observed));
+}
+
+async function notifyResize(element: Element) {
+	for (const observer of Array.from(FakeResizeObserver.instances)) if (observer.observed.has(element)) observer.cb();
+	flushSync();
+	await settle(8);
+	flushSync();
 }
 
 const originalRO = (globalThis as any).ResizeObserver;
@@ -125,6 +145,7 @@ let target: HTMLDivElement;
 let component: ReturnType<typeof mount> | null = null;
 let tabId = '';
 let stopTabSync: (() => void) | null = null;
+let liveProps: ReturnType<typeof reactiveProps> | null = null;
 
 function tab() {
 	return get(tabsStore).tabs.find((t) => t.id === tabId)!;
@@ -171,6 +192,7 @@ beforeEach(() => {
 	getPreset.mockResolvedValue({ success: true, data: { media: { gallery: [] } } });
 	formAudienceStore.set('simple');
 	(globalThis as any).ResizeObserver = FakeResizeObserver;
+	FakeResizeObserver.instances.clear();
 	boxes = {};
 	installMeasure();
 	tabId = tabsStore.addTabWithData('Toolbar tab', { selectedPreset: 'krea2', selectedMode: 'txt2img', layoutMode: 'two' });
@@ -209,6 +231,7 @@ async function render(overrides: Record<string, unknown> = {}) {
 		...handlers,
 		...overrides
 	} as Record<string, unknown>);
+	liveProps = live;
 	stopTabSync?.();
 	stopTabSync = tabsStore.subscribe(() => {
 		const current = tab();
@@ -340,6 +363,151 @@ describe('ContextToolbar ribbon', () => {
 		}
 	});
 
+	async function updateTabAndSettle(patch: Record<string, unknown>) {
+		tabsStore.updateTab(tabId, patch);
+		flushSync();
+		await settle(8);
+		flushSync();
+	}
+
+	it('shows only Preset, with no cut and no Save, before a preset is chosen', async () => {
+		tabsStore.updateTab(tabId, { selectedPreset: null, selectedMode: null });
+		await render({ availableModes: MODES });
+		expect(zoneSequence()).toEqual(['preset']);
+		expect(target.querySelectorAll(CUT)).toHaveLength(0);
+		expect(saveButton()).toBeNull();
+		expect(labels()).toEqual(['Preset']);
+	});
+
+	it('shows Preset and Mode, with no Session, while a preset with modes has no mode resolved yet', async () => {
+		tabsStore.updateTab(tabId, { selectedMode: null });
+		await render({ availableModes: MODES });
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'mode']);
+		expect(saveButton()).toBeNull();
+		expect(labels()).toEqual(['Preset', 'Mode']);
+	});
+
+	it('keeps Session hidden for a single-mode preset until its mode is resolved', async () => {
+		tabsStore.updateTab(tabId, { selectedMode: null });
+		await render({ availableModes: [MODES[0]] });
+		expect(zoneSequence()).toEqual(['preset']);
+		await updateTabAndSettle({ selectedMode: 'txt2img' });
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'session']);
+	});
+
+	it('shows nothing past Preset when modes linger from another preset and no preset is chosen', async () => {
+		tabsStore.updateTab(tabId, { selectedPreset: null, selectedMode: 'txt2img' });
+		await render({ availableModes: VARIANT_MODES });
+		expect(zoneSequence()).toEqual(['preset']);
+	});
+
+	it('adds Mode and then Session as the tab gains a preset and a mode, and takes them away again', async () => {
+		tabsStore.updateTab(tabId, { selectedPreset: null, selectedMode: null });
+		await render({ availableModes: MODES });
+		expect(zoneSequence()).toEqual(['preset']);
+		await updateTabAndSettle({ selectedPreset: 'krea2' });
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'mode']);
+		await updateTabAndSettle({ selectedMode: 'txt2img' });
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'mode', 'cut', 'session']);
+		await updateTabAndSettle({ selectedPreset: null, selectedMode: null });
+		expect(zoneSequence()).toEqual(['preset']);
+		expect(target.querySelectorAll(CUT)).toHaveLength(0);
+	});
+
+	it('keeps a cut between every pair of visible steps in every disclosure state', async () => {
+		const states: Array<[Record<string, unknown>, unknown[], string[]]> = [
+			[{ selectedPreset: null, selectedMode: null }, MODES, ['preset']],
+			[{ selectedPreset: 'krea2', selectedMode: null }, MODES, ['preset', 'cut', 'mode']],
+			[{ selectedPreset: 'krea2', selectedMode: 'txt2img' }, MODES, ['preset', 'cut', 'mode', 'cut', 'session']],
+			[{ selectedPreset: 'krea2', selectedMode: 'txt2img' }, VARIANT_MODES, ['preset', 'cut', 'mode', 'cut', 'variant', 'cut', 'session']]
+		];
+		for (const [patch, modes, expected] of states) {
+			if (component) unmount(component);
+			component = null;
+			target?.remove();
+			tabsStore.updateTab(tabId, patch);
+			await render({ availableModes: modes });
+			const sequence = zoneSequence();
+			expect(sequence).toEqual(expected);
+			expect(sequence[0]).not.toBe('cut');
+			expect(sequence.at(-1)).not.toBe('cut');
+			sequence.forEach((part, index) => {
+				if (index > 0) expect(part === 'cut', `${expected.join('>')} at ${index}`).toBe(sequence[index - 1] !== 'cut');
+			});
+		}
+	});
+
+	it('re-fits when a step appears without the bar or the tab changing', async () => {
+		measure({ 'context-bar': { client: 1000, scroll: (el) => barContent(el) + 230 + CUT_WIDTH * count(el, CUT) } });
+		await render({ availableModes: MODES });
+		const withModes = toolOrder();
+		unmount(component!);
+		component = null;
+		target.remove();
+
+		await render({ availableModes: [] });
+		const withoutModes = toolOrder();
+		expect(withoutModes).not.toEqual(withModes);
+		liveProps!.set({ availableModes: MODES });
+		flushSync();
+		await settle(8);
+		flushSync();
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'mode', 'cut', 'session']);
+		expect(toolOrder()).toEqual(withModes);
+	});
+
+	it('observes every visible step, including one that appears later', async () => {
+		await render({ availableModes: [] });
+		const zoneEl = zone();
+		for (const step of Array.from(zoneEl.children)) expect(resizeTargets(), step.className).toContain(step);
+		expect(target.querySelector('[data-testid="preset-header-mode"]')).toBeNull();
+
+		liveProps!.set({ availableModes: MODES });
+		flushSync();
+		await settle(8);
+		flushSync();
+		const mode = target.querySelector('[data-testid="preset-header-mode"]')!;
+		expect(resizeTargets()).toContain(mode);
+	});
+
+	it('stops observing the bar and its steps when the toolbar goes away', async () => {
+		await render();
+		expect(resizeTargets().length).toBeGreaterThan(2);
+		unmount(component!);
+		component = null;
+		expect(resizeTargets()).toEqual([]);
+	});
+
+	it('re-fits when a step grows after the first fit while the bar keeps its size', async () => {
+		let grown = false;
+		measure({ 'context-bar': { client: 1000, scroll: (el) => barContent(el) + 200 + (grown ? 100 : 0) } });
+		await render();
+		expect(toolOrder()).toEqual(['formulas', 'fields', 'layout', 'more']);
+
+		grown = true;
+		await notifyResize(zone().children[0]);
+
+		expect(toolOrder()).toEqual(['formulas', 'fields', 'more']);
+	});
+
+	it('leaves the fit alone when a step resizes and nothing overflows', async () => {
+		let reads = 0;
+		measure({
+			'context-bar': {
+				client: 1000,
+				scroll: (el) => {
+					reads += 1;
+					return barContent(el) + 200;
+				}
+			}
+		});
+		await render();
+		const before = reads;
+		await notifyResize(zone().children[0]);
+		expect(reads - before).toBe(1);
+		expect(toolOrder()).toEqual(['formulas', 'fields', 'layout', 'more']);
+	});
+
 	it('counts the cuts in the width the fit logic measures, folding a tool they push out', async () => {
 		measure({ 'context-bar': { client: 1000, scroll: (el) => barContent(el) + 260 + CUT_WIDTH * count(el, CUT) } });
 		await render();
@@ -462,7 +630,7 @@ describe('ContextToolbar context group', () => {
 		expect(onVariantChange).toHaveBeenCalledWith('video');
 	});
 
-	it('shows a preset call to action and an unavailable session before a preset is chosen', async () => {
+	it('shows only a preset call to action before a preset is chosen', async () => {
 		tabsStore.updateTab(tabId, { selectedPreset: null, selectedMode: null });
 		await render({
 			availableModes: [],
@@ -472,8 +640,9 @@ describe('ContextToolbar context group', () => {
 		expect(nameOf(preset)).toBe('Preset Choose a preset');
 		expect(preset.getAttribute('aria-haspopup')).toBe('dialog');
 		expect(preset.classList.contains('preset-picker-cta')).toBe(true);
-		expect(saveButton().getAttribute('aria-disabled')).toBe('true');
-		expect(saveButton().getAttribute('aria-label')).toBe('Session save unavailable');
+		expect(target.querySelector('button[aria-label="Session"]')).toBeNull();
+		expect(target.querySelector('[data-testid="session-save"]')).toBeNull();
+		expect(labels()).toEqual(['Preset']);
 	});
 });
 
