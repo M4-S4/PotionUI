@@ -472,7 +472,7 @@
 		background: rgb(var(--signal) / 0.16);
 	}
 
-	.row-main:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .row-main:focus-visible {
 		outline: none;
 		box-shadow: inset 0 0 0 1px rgb(var(--signal) / 0.6);
 	}

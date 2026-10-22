@@ -1,8 +1,12 @@
+import plugin from 'tailwindcss/plugin.js';
+
 /** @type {import('tailwindcss').Config} */
 
 // Semantic tokens live in src/lib/styles/tokens.css as RGB triplets;
 // this helper wires them up so alpha utilities work (bg-surface-1/50 etc).
 const t = (v) => `rgb(var(--${v}) / <alpha-value>)`;
+
+const KEYBOARD_ELEMENT = ":where(html:not([data-input='pointer']) *)";
 
 export default {
 	content: [
@@ -118,5 +122,11 @@ export default {
 			]
 		}
 	},
-	plugins: []
+	plugins: [
+		plugin(({ addVariant }) => {
+			addVariant('focus-visible', `&:focus-visible${KEYBOARD_ELEMENT}`, { before: 'active' });
+			addVariant('group-focus-visible', `:merge(.group):focus-visible${KEYBOARD_ELEMENT} &`, { before: 'group-active' });
+			addVariant('peer-focus-visible', `:merge(.peer):focus-visible${KEYBOARD_ELEMENT} ~ &`, { before: 'peer-active' });
+		})
+	]
 };

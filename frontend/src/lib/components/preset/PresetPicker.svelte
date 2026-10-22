@@ -57,7 +57,7 @@
 {:else}
 	<button
 		type="button"
-		class="w-full h-full min-w-0 flex items-center gap-2 px-3 py-2 text-left bg-surface-1 border border-line-strong rounded hover:bg-surface-2 hover:border-line-hover focus:ring-1 focus:ring-accent/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+		class="w-full h-full min-w-0 flex items-center gap-2 px-3 py-2 text-left bg-surface-1 border border-line-strong rounded hover:bg-surface-2 hover:border-line-hover focus-visible:ring-1 focus-visible:ring-signal/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
 		bind:this={fallbackAnchor}
 		on:click={openPicker}
 		aria-expanded={open}

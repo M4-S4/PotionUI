@@ -231,7 +231,7 @@
 			<button
 				type="button"
 				on:click={toggle}
-				class="{className} inline-flex items-center gap-2 px-3 py-2 bg-surface-2 border border-line-strong rounded-lg shadow-sm hover:bg-surface-3 transition-colors text-sm font-medium text-fg focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+				class="{className} inline-flex items-center gap-2 px-3 py-2 bg-surface-2 border border-line-strong rounded-lg shadow-sm hover:bg-surface-3 transition-colors text-sm font-medium text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-signal focus-visible:border-transparent"
 				aria-expanded={open}
 				aria-haspopup="listbox"
 			>

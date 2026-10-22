@@ -97,9 +97,13 @@
 
 	.input:focus,
 	.input:has(:is(input, textarea, select):focus),
-	.input:has(button:focus-visible),
-	.field-frame:has(:is(input, textarea, select):focus),
-	.field-frame:has(button:focus-visible) {
+	.field-frame:has(:is(input, textarea, select):focus) {
+		outline: none;
+		@apply ring-2 ring-signal border-transparent;
+	}
+
+	:where(html:not([data-input='pointer'])) .input:has(button:focus-visible),
+	:where(html:not([data-input='pointer'])) .field-frame:has(button:focus-visible) {
 		outline: none;
 		@apply ring-2 ring-signal border-transparent;
 	}
@@ -197,17 +201,24 @@
 	background: rgb(var(--line-hover));
 }
 
-/* Focus visible indicator for keyboard users */
 :focus-visible {
-	outline: 2px solid rgb(var(--accent));
+	outline: none;
+}
+
+:where(html:not([data-input='pointer'])) :focus-visible {
+	outline: 2px solid rgb(var(--signal));
 	outline-offset: 2px;
 }
 
 :where(
 		input:not(.input, .outline-none, [class*='focus:outline-none'], [type='checkbox'], [type='radio'], [type='range']),
-		textarea:not(.input, .outline-none, [class*='focus:outline-none']),
-		select:not(.input, .outline-none, [class*='focus:outline-none'])
+		textarea:not(.input, .outline-none, [class*='focus:outline-none'])
 	):focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px rgb(var(--signal));
+}
+
+:where(html:not([data-input='pointer'])) :where(select:not(.input, .outline-none, [class*='focus:outline-none'])):focus-visible {
 	outline: none;
 	box-shadow: 0 0 0 2px rgb(var(--signal));
 }

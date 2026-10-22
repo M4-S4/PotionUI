@@ -22,8 +22,11 @@
 	transition: color 0.15s;
 }
 
-.ctx-step:has(.ctx-select.is-open) .ctx-label,
-.ctx-step:has(.ctx-select:focus-visible) .ctx-label {
+.ctx-step:has(.ctx-select.is-open) .ctx-label {
+	color: rgb(var(--signal));
+}
+
+:where(html:not([data-input='pointer'])) .ctx-step:has(.ctx-select:focus-visible) .ctx-label {
 	color: rgb(var(--signal));
 }
 
@@ -91,8 +94,11 @@
 	background: rgb(var(--fg-subtle));
 }
 
-.ctx-select.is-open::after,
-.ctx-select:focus-visible::after {
+.ctx-select.is-open::after {
+	transform: scaleX(1);
+}
+
+:where(html:not([data-input='pointer'])) .ctx-select:focus-visible::after {
 	transform: scaleX(1);
 }
 

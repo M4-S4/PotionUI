@@ -249,7 +249,7 @@
 						<button
 							type="button"
 							id={tileId(style)}
-							class="group flex flex-col gap-1 rounded-lg text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+							class="group flex flex-col gap-1 rounded-lg text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-signal/40"
 							use:tooltip={size === 'small' ? style.description || style.name : undefined}
 							aria-pressed={selected}
 							onclick={() => selectTile(style)}

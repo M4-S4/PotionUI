@@ -436,9 +436,9 @@
         outline: none;
     }
 
-    .connection-trigger:focus-visible,
-    .resource-trigger:focus-visible {
-        box-shadow: 0 0 0 2px rgb(var(--accent, 99 102 241) / 0.45);
+    :global(:where(html:not([data-input='pointer']))) .connection-trigger:focus-visible,
+    :global(:where(html:not([data-input='pointer']))) .resource-trigger:focus-visible {
+        box-shadow: 0 0 0 2px rgb(var(--signal, 91 157 255) / 0.45);
     }
 
     .connection-dot {

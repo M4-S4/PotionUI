@@ -525,7 +525,7 @@
 									<div class="flex flex-col sm:flex-row gap-5">
 										<button
 											type="button"
-											class="self-start rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 {hasPresetMedia(activePreset) ? 'cursor-zoom-in' : 'cursor-default'}"
+											class="self-start rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-signal/40 {hasPresetMedia(activePreset) ? 'cursor-zoom-in' : 'cursor-default'}"
 											onclick={() => hasPresetMedia(activePreset) && (mediaModalOpen = true)}
 											aria-label={hasPresetMedia(activePreset) ? `View ${activePreset.name} media` : `${activePreset.name} has no media`}
 										>

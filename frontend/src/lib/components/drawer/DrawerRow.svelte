@@ -34,7 +34,7 @@
 </li>
 
 <style>
-	.rmain:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .rmain:focus-visible {
 		outline: none;
 		background: rgb(var(--surface-2));
 		box-shadow: inset 2px 0 0 rgb(var(--signal));

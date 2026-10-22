@@ -325,7 +325,7 @@
 						class="peer sr-only"
 					/>
 					<span
-						class="pointer-events-none absolute inset-0 rounded border border-line-hover peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-canvas"
+						class="pointer-events-none absolute inset-0 rounded border border-line-hover peer-focus-visible:ring-2 peer-focus-visible:ring-signal peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-canvas"
 					></span>
 					<svg
 						class="pointer-events-none absolute inset-0 h-full w-full text-fg opacity-0 transition-opacity peer-checked:opacity-100"

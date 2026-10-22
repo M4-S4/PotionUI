@@ -22,6 +22,7 @@ function declaration(selector: string, prop: string): string | undefined {
 }
 
 const FIELD = '.ctx-select:not(.preset-picker-cta)';
+const KEYBOARD = ":where(html:not([data-input='pointer']))";
 
 describe('context select styles', () => {
 	it('is part of the app stylesheet', () => {
@@ -43,7 +44,8 @@ describe('context select styles', () => {
 		expect(declaration(`${FIELD}::after`, 'background')).toBe('rgb(var(--signal))');
 		expect(declaration(`${FIELD}::after`, 'transform')).toBe('scaleX(0)');
 		expect(declaration('.ctx-select.is-open::after', 'transform')).toBe('scaleX(1)');
-		expect(declaration('.ctx-select:focus-visible::after', 'transform')).toBe('scaleX(1)');
+		expect(declaration(`${KEYBOARD} .ctx-select:focus-visible::after`, 'transform')).toBe('scaleX(1)');
+		expect(declaration('.ctx-select:focus-visible::after', 'transform')).toBeUndefined();
 	});
 
 	it('keeps hover neutral, not signal', () => {
@@ -61,7 +63,7 @@ describe('context select styles', () => {
 	it('puts the label above the value, 12px at least, turning signal with the select', () => {
 		expect(declaration('.ctx-step', 'flex-direction')).toBe('column');
 		expect(Number.parseFloat(declaration('.ctx-label', 'font-size') ?? '0')).toBeGreaterThanOrEqual(12);
-		const lit = rules('.ctx-step:has(.ctx-select.is-open) .ctx-label').concat(rules('.ctx-step:has(.ctx-select:focus-visible) .ctx-label'));
+		const lit = rules('.ctx-step:has(.ctx-select.is-open) .ctx-label').concat(rules(`${KEYBOARD} .ctx-step:has(.ctx-select:focus-visible) .ctx-label`));
 		expect(lit).toHaveLength(2);
 		for (const rule of lit) expect(rule.nodes.some((node) => node.type === 'decl' && node.prop === 'color' && node.value === 'rgb(var(--signal))')).toBe(true);
 	});

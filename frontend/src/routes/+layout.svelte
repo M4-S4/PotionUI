@@ -24,6 +24,7 @@
 	import { notificationsWebSocket } from '$lib/services/notificationsWebsocket';
 	import { themeStore } from '$lib/stores/theme';
 	import { printStartupBanner } from '$lib/utils/startupBanner';
+	import { installInputModality } from '$lib/utils/inputModality';
 	import { resolveAuthLayoutMode } from '$lib/utils/authLayout';
 	import { loginUrlWithReturn } from '$lib/utils/returnPath';
 	import { Spinner, IconButton } from '$lib/components/ui';
@@ -45,11 +46,15 @@
 	onMount(() => {
 		mounted = true;
 		const stopCrossTab = initCrossTab();
+		const stopInputModality = installInputModality();
 		printStartupBanner();
 		themeStore.init();
 		initPwaInstall();
 		installDismissed = localStorage.getItem('potionui-install-dismissed') === '1';
-		return stopCrossTab;
+		return () => {
+			stopCrossTab();
+			stopInputModality();
+		};
 	});
 
 	function dismissInstallPrompt() {

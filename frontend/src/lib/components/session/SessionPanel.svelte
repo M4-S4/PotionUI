@@ -456,8 +456,8 @@
 		background: rgb(var(--signal) / 0.14);
 	}
 
-	.row-main:focus-visible,
-	.version-row:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .row-main:focus-visible,
+	:global(:where(html:not([data-input='pointer']))) .version-row:focus-visible {
 		outline: none;
 		background: rgb(var(--surface-2));
 		box-shadow: inset 0 0 0 1px rgb(var(--signal) / 0.6);

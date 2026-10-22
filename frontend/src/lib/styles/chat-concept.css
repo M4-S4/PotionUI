@@ -31,7 +31,7 @@ button {
       color: inherit;
     }
 
-button:focus-visible, textarea:focus-visible, input:focus-visible {
+textarea:focus-visible, input:not([type='checkbox'], [type='radio'], [type='range']):focus-visible {
       outline: 2px solid rgb(var(--signal));
       outline-offset: 2px;
     }
@@ -1086,7 +1086,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       border-color: color-mix(in srgb, rgb(var(--signal)) 45%, rgb(var(--line-strong)));
     }
 
-.action-card:focus-visible {
+:where(html:not([data-input='pointer'])) & .action-card:focus-visible {
       box-shadow: 0 0 0 2px rgb(var(--signal) / 0.35);
     }
 

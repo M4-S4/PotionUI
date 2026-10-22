@@ -39,10 +39,8 @@ async function expectNoRing(el: Locator) {
 }
 
 async function keyboardFocus(page: Page, el: Locator) {
-	await page.keyboard.press('Shift');
+	await page.keyboard.press('Tab');
 	await el.focus();
-	await expect(el).toBeFocused();
-	await page.keyboard.press('Shift');
 	await expect(el).toBeFocused();
 	await expect.poll(() => el.evaluate((node) => node.matches(':focus-visible')), { timeout: 5000 }).toBe(true);
 }

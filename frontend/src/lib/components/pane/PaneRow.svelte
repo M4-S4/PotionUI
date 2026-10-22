@@ -263,7 +263,7 @@
 				onchange={handleCheckChange}
 			/>
 			<span
-				class="pointer-events-none absolute inset-0 rounded border border-line-hover bg-surface-2 transition-colors peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-canvas"
+				class="pointer-events-none absolute inset-0 rounded border border-line-hover bg-surface-2 transition-colors peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-signal peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-canvas"
 			></span>
 			<svg
 				class="pointer-events-none absolute inset-0 h-full w-full text-accent-contrast opacity-0 transition-opacity peer-checked:opacity-100"
@@ -401,7 +401,7 @@
 		outline: none;
 	}
 
-	.pane-row:focus-visible {
-		box-shadow: inset 0 0 0 2px rgb(var(--accent) / 0.2);
+	:global(:where(html:not([data-input='pointer']))) .pane-row:focus-visible {
+		box-shadow: inset 0 0 0 2px rgb(var(--signal) / 0.2);
 	}
 </style>

@@ -908,18 +908,20 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .menu-item:focus:not(:focus-visible) {
 	outline: none;
 }
-.chip-main:focus-visible,
-.chip-config:focus-visible,
-.close:focus-visible,
-.picker-row:focus-visible,
-.picker-footer button:focus-visible,
-.popover-body button:focus-visible,
-.popover-actions button:focus-visible,
-.small-button:focus-visible,
-.behavior-button:focus-visible,
-.menu-item:focus-visible {
-	outline: 2px solid color-mix(in srgb, rgb(var(--fg)) 72%, transparent);
-	outline-offset: 2px;
+:where(html:not([data-input='pointer'])) & {
+	.chip-main:focus-visible,
+	.chip-config:focus-visible,
+	.close:focus-visible,
+	.picker-row:focus-visible,
+	.picker-footer button:focus-visible,
+	.popover-body button:focus-visible,
+	.popover-actions button:focus-visible,
+	.small-button:focus-visible,
+	.behavior-button:focus-visible,
+	.menu-item:focus-visible {
+		outline: 2px solid rgb(var(--signal));
+		outline-offset: 2px;
+	}
 }
 }
 
