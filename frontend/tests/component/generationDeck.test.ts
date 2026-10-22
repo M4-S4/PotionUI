@@ -363,7 +363,7 @@ describe('generation deck thumbnail', () => {
 		mounted = mount({ generation: generation({ batchVideos: [{ url: '/v.mp4', duration: 5 }] }) });
 		expect(thumb().dataset.thumb).toBe('video');
 		expect(thumb().querySelector('video')!.getAttribute('src')).toBe('/v.mp4');
-		expect(thumb().querySelector('.deck-thumb-glyph')).not.toBeNull();
+		expect(thumb().querySelector('.deck-thumb-glyph svg path')).not.toBeNull();
 		expect(thumb().querySelector('.is-duration')!.textContent).toBe('0:05');
 		noUnsourcedImages();
 	});

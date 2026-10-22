@@ -67,7 +67,7 @@
 	{/if}
 	{#if badges}
 		{#if badges.kind === 'video' && !failed && badges.tile === 'media'}
-			<span class="deck-thumb-glyph"><Icon name="panel-play" className="deck-thumb-glyph-icon" /></span>
+			<span class="deck-thumb-glyph"><Icon name="composer-play" className="deck-thumb-glyph-icon" /></span>
 		{/if}
 		{#if badges.duration !== null && (badges.kind === 'video' || badges.kind === 'audio')}
 			<span class="deck-thumb-badge is-duration">{formatClock(badges.duration)}</span>
@@ -146,8 +146,8 @@
 	}
 
 	.deck-thumb-glyph :global(.deck-thumb-glyph-icon) {
-		width: 10px;
-		height: 10px;
+		width: 8px;
+		height: 8px;
 	}
 
 	.deck-thumb-badge {

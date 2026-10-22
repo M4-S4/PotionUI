@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, type MockInstance } from 'vitest';
 import { flushSync } from 'svelte';
 
 const { default: AmbientGlow } = await import('$lib/components/AmbientGlow.svelte');
@@ -26,8 +26,10 @@ async function settle() {
 
 const media = () => [...target!.querySelectorAll('.ambient-media')];
 const sources = () => media().map((el) => el.getAttribute('src'));
-const fadeDurations = (animate: ReturnType<typeof vi.spyOn>) =>
-	animate.mock.calls.map(([, options]) => (typeof options === 'object' && options ? options.duration : options)).filter((duration) => typeof duration === 'number' && duration > 0);
+const fadeDurations = (animate: MockInstance<Element['animate']>) =>
+	animate.mock.calls
+		.map(([, options]) => (typeof options === 'number' ? options : options?.duration))
+		.filter((duration): duration is number => typeof duration === 'number' && duration > 0);
 
 afterEach(() => {
 	component?.$destroy();
