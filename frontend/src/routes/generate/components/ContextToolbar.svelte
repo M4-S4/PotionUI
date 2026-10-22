@@ -264,12 +264,12 @@
 
 <div
 	bind:this={barEl}
-	class="flex h-12 flex-shrink-0 items-stretch overflow-hidden border-b border-line bg-surface-1"
+	class="flex h-12 flex-shrink-0 items-stretch overflow-hidden border-b border-line bg-canvas"
 	data-testid="context-bar"
 >
 	<div
 		bind:this={contextEl}
-		class="flex min-w-0 flex-shrink items-center border-r border-line bg-canvas"
+		class="flex min-w-0 flex-shrink items-center"
 		role="group"
 		aria-label="Generation context"
 		data-testid="context-zone"

@@ -279,22 +279,20 @@ function saveButton() {
 }
 
 describe('ContextToolbar background', () => {
-	it('paints the bar root, puts the ribbon band with its right edge behind the context steps and leaves the gap and tools plain', async () => {
+	it('paints one canvas surface on the bar root and leaves every zone plain, with no divider between them', async () => {
 		await render();
 		const root = bar();
-		expect(root.classList.contains('bg-surface-1')).toBe(true);
+		expect(root.classList.contains('bg-canvas')).toBe(true);
+		expect(root.classList.contains('bg-surface-1')).toBe(false);
+		expect(root.classList.contains('border-b')).toBe(true);
+		expect(root.classList.contains('border-line')).toBe(true);
 		const zones = Array.from(root.children) as HTMLElement[];
 		expect(zones.map((zone) => zone.dataset.testid)).toEqual(['context-zone', 'context-gap', 'context-tools']);
 		for (const zone of zones) {
-			const painted = Array.from(zone.classList).filter((token) => token.startsWith('bg-'));
-			expect(painted, zone.dataset.testid).toEqual(zone.dataset.testid === 'context-zone' ? ['bg-canvas'] : []);
+			expect(Array.from(zone.classList).filter((token) => token.startsWith('bg-')), `${zone.dataset.testid} paint`).toEqual([]);
+			expect(Array.from(zone.classList).filter((token) => token.startsWith('border')), `${zone.dataset.testid} borders`).toEqual([]);
 		}
-		const zone = root.querySelector('[data-testid="context-zone"]') as HTMLElement;
-		expect(Array.from(zone.classList).filter((token) => token.startsWith('border')).sort(), 'context zone borders').toEqual(['border-line', 'border-r']);
-		expect(Array.from(zone.classList).filter((token) => token.startsWith('gap-')), 'context zone gap').toEqual([]);
-		for (const plain of Array.from(root.children).filter((child) => child !== zone) as HTMLElement[]) {
-			expect(Array.from(plain.classList).filter((token) => token.startsWith('border')), plain.dataset.testid).toEqual([]);
-		}
+		expect(Array.from(zones[0].classList).filter((token) => token.startsWith('gap-')), 'context zone gap').toEqual([]);
 	});
 });
 
