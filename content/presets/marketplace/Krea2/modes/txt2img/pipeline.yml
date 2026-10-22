@@ -198,6 +198,8 @@ pipeline:
       nag_scale: "{{ form.nag_scale if form.nag_enabled else 1.0 }}"
       nag_tau: "{{ form.nag_tau }}"
       nag_alpha: "{{ form.nag_alpha }}"
+      text_enhancer_strength: "{{ form.text_enhancer_strength if form.text_enhancer_enabled else 0.0 }}"
+      text_scale: "{{ form.text_scale | default(1.0) }}"
       # Step cache (FBCache, Advanced tab): assembled here into the nested
       # `step_cache` dict FlowMatchGeneratorPipe.build_context reads directly
       # (self.config.get("step_cache")) -- mirrors the Flux preset's wiring.
@@ -250,6 +252,8 @@ pipeline:
       nag_scale: "{{ form.nag_scale if form.nag_enabled else 1.0 }}"
       nag_tau: "{{ form.nag_tau }}"
       nag_alpha: "{{ form.nag_alpha }}"
+      text_enhancer_strength: "{{ form.text_enhancer_strength if form.text_enhancer_enabled else 0.0 }}"
+      text_scale: "{{ form.text_scale | default(1.0) }}"
 
   #############
   ## Before/after compare (optional)

@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import ParamGenerationOutput
@@ -142,6 +142,17 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
             return None
         return [round(float(v), 6) for v in tail.tolist()]
 
+    def attach_conditioning(self, ctx: GeneratorContext, cond: dict,
+                            uncond: Optional[dict]) -> Tuple[dict, Optional[dict]]:
+        strength = float(self.config.get("text_enhancer_strength", 0.0))
+        scale = float(self.config.get("text_scale", 1.0))
+        if strength == 0.0 and scale == 1.0:
+            return cond, uncond
+        cond = {**cond, "text_fusion": {"strength": strength, "scale": scale}}
+        if uncond:
+            uncond = {**uncond, "text_fusion": {"strength": strength, "scale": scale}}
+        return cond, uncond
+
     def emit_results(self, generation_outputs, results, used_seeds) -> None:
         super().emit_results(generation_outputs, results, used_seeds)
         sigmas = getattr(self, "_refine_tail_sigmas", None)
@@ -182,6 +193,11 @@ class GeneratorKrea2Pipe(FlowMatchGeneratorPipe):
                            "speed) — set nag_scale to ~1.1-1.5 for real negative-prompt influence without a second "
                            "forward pass. Redundant with (and unvalidated alongside) real CFG (guidance > 1.0), which "
                            "already runs a full negative-conditioned pass -- leave at 1.0 on a CFG profile."),
+            PipeConfigSpec("text_enhancer_strength", float, 0.0, "Experimental text-fusion enhancer strength "
+                           "(0 = off): re-runs the text fusion with deep text-encoder layers amplified and blends the "
+                           "shift back in, capped per token.", required=False, min_value=0.0, max_value=2.0),
+            PipeConfigSpec("text_scale", float, 1.0, "Multiplier on the fused text signal before it enters the image "
+                           "blocks (1.0 = off).", required=False, min_value=0.25, max_value=4.0),
             PipeConfigSpec("refine_tail", str, "", "Whole-frame enhance (img2img only): walk only the tail of the "
                            "official fixed-mu 8-step Euler grid instead of a denoise-truncated schedule. '' = off, "
                            "'subtle'/'balanced'/'strong' = the last 2/3/4 grid steps.",

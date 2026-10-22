@@ -56,11 +56,13 @@ The Advanced tab's **Sampler** and **Schedule** pickers (`type: "sampler"` / `ty
 
 **NAG vs CFG**: `nag_scale`/`nag_tau`/`nag_alpha` (Normalized Attention Guidance) exist to give the negative prompt influence at `cfg=1.0`, when no negative-conditioned forward runs. Real CFG (`cfg>1.0`) already runs that forward pass; stacking NAG on top of it is unvalidated and likely redundant. The Turbo/Balanced-only NAG toggle resets to off when the form's speed profile switches to Quality or Base.
 
+**Text Enhancer and Text Scale (experimental).** The Enhance tab's Text Enhancer toggle makes Krea-2 follow the prompt more closely: it amplifies the deeper text-encoder layers and blends that change in, capped per token so no word's influence jumps too far. Strength 1.0 is the reference setting and 0 is off. Text Scale (Advanced, under Text conditioning) multiplies the whole text signal; 1.0 is neutral and 1.5 to 2 gives the prompt more influence. Both are off by default and leave the output unchanged when off. They apply to `txt2img` and its inline Enhance pass, work with CFG and NAG, and cost one extra text-processing pass per run, not per step.
+
 **LoRA dialect**: Krea-2 recognizes both the kohya-underscore spelling and a bare-dotted spelling of LoRA keys, so LoRAs published in either convention load without a manual rename.
 
 ## Limitations
 
-Base-profile (raw/non-distilled checkpoint) output is unvalidated — the 52-step / cfg=4.0 / dynamic-mu combination has not been run against real base weights on GPU. Quality profile's cfg>1.0-on-the-distilled-checkpoint combination is likewise an untested experiment, not a documented upstream recipe.
+Base-profile (raw/non-distilled checkpoint) output is unvalidated — the 52-step / cfg=4.0 / dynamic-mu combination has not been run against real base weights on GPU. Quality profile's cfg>1.0-on-the-distilled-checkpoint combination is likewise an untested experiment, not a documented upstream recipe. The Text Enhancer and Text Scale are likewise unvalidated against real weights on GPU.
 
 ## Hardware
 

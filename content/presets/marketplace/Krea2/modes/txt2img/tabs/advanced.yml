@@ -103,3 +103,18 @@ fields:
             ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory."
             configuration: {min: 0, max: 10, step: 1}
 
+
+  - type: "section"
+    label: "Text conditioning"
+    formula: "speed"
+    audience: "advanced"
+    children:
+      - name: "text_scale"
+        type: "slider"
+        label: "Text Scale"
+        default: 1.0
+        ai_hint: "Experimental: multiplies the fused text signal; 1.0 is neutral, 1.5-2 gives stronger prompt influence."
+        configuration:
+          min: 0.25
+          max: 4.0
+          step: 0.05

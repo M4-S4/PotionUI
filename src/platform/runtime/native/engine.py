@@ -196,6 +196,7 @@ _FORWARD_KWARGS = (
     "ref_boost_a",
     "ref_boost_mask",
     "flow_map_target",
+    "text_fusion",
 )
 
 
@@ -1751,6 +1752,7 @@ class NativeGenerator:
             return None, hooks
         if float(settings.get("apg_momentum", 0.0)) != 0.0:
             return None, hooks  # S6: stateful guidance breaks the resume identity
+        from .arch.krea2.text_fusion import fusion_key
         from .sampling.trajectory_cache import (
             CheckpointCaptureHook, conditioning_fingerprint, decide_resume,
             get_trajectory_cache, schedule_signature, warm_start_settings_signature,
@@ -1772,6 +1774,7 @@ class NativeGenerator:
             self.dit.weight_revision, int(seed),
             tuple(latents_shape), sampler, int(steps),
             settings.get("guidance"), sched_sig, settings_sig,
+            fusion_key(cond.get("text_fusion")),
         )
         fingerprint = conditioning_fingerprint(cond, uncond)  # S12: incl. negative
         cache = get_trajectory_cache()

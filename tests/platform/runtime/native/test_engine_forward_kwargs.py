@@ -26,6 +26,7 @@ def _forward(conditioning):
 
 _BASE = {"y": None, "guidance": None, "attention_mask": None}
 _T = torch.ones(1)
+_FUSION = {"strength": 1.0, "scale": 1.5}
 
 _CASES = [
     ({}, {}),
@@ -57,6 +58,8 @@ _CASES = [
         {"nag_context": _T, "nag": {"scale": 2}, "nag_attention_mask": _T},
     ),
     ({"nag": {"scale": 2}, "nag_attention_mask": _T}, {}),
+    ({"text_fusion": _FUSION}, {"text_fusion": _FUSION}),
+    ({"text_fusion": None}, {}),
 ]
 
 
