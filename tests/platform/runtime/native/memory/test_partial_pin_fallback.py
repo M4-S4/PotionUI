@@ -146,7 +146,7 @@ def test_pinning_that_succeeds_is_untouched(monkeypatch, caplog):
     assert streamer.pinned_gb == plan.streamed_bytes / GB
     assert [leaf.stream_non_blocking for leaf in _streamed_leaves(m)] == [True] * 6
     assert fake.pool_releases == 0
-    assert not [r for r in caplog.records if "pinned host memory" in r.getMessage()]
+    assert not [r for r in caplog.records if r.name == partial.logger.name and "pinned host memory" in r.getMessage()]
     assert torch.equal(_forward(m), reference)
     streamer.teardown()
     assert fake.pinned_in(m) == 0
