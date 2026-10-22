@@ -27,6 +27,7 @@ LONG_SMOKES = {
     "ltx25-starter": 600,
     "vp-wan22-14b-i2v": 600,
     "vp-wan22-14b-lightning-12gb": 600,
+    "wan22-starter": 600,
 }
 
 VIDEO_SMOKES_ON_THE_DEFAULT = {
@@ -35,7 +36,6 @@ VIDEO_SMOKES_ON_THE_DEFAULT = {
     "minimax-h3-starter": "smoke duration on 12 GB unmeasured; the plugin's 12 GB preset needs 9 min 48 s for a 5 s clip (docs/user/hardware-requirements.md)",
     "vp-wan21-t2v-1-3b-8gb": "smoke duration unmeasured; a 5 s clip takes 5 min 40 s to 5 min 55 s on the 8 GB tier (docs/user/hardware-requirements.md)",
     "vp-wan22-ti2v-5b-8gb": "smoke duration unmeasured; a 5 s clip takes 4 min 38 s to 4 min 51 s on the 8 GB tier (docs/user/hardware-requirements.md)",
-    "wan22-starter": "smoke duration on 12 GB unmeasured; same 14B preset as vp-wan22-14b-i2v, which declares 600 s",
 }
 
 
