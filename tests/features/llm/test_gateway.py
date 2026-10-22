@@ -130,19 +130,6 @@ class TestGatewayContextBudgetHook:
             assert spy.call_count == 4
 
     @pytest.mark.asyncio
-    async def test_every_send_method_budgets_with_the_same_force_prompt_tools_eligibility(self, gateway):
-        messages = [{"role": "user", "content": "hello"}]
-        with patch.object(gateway, "_budgeted", wraps=gateway._budgeted) as spy:
-            await gateway.generate_with_history(messages=messages, llm_id="cfg-1")
-            async for _ in gateway.stream_with_history(messages=messages, llm_id="cfg-1"):
-                pass
-            await gateway.generate_with_tools(messages=messages, llm_id="cfg-1")
-            async for _ in gateway.stream_with_tools(messages=messages, llm_id="cfg-1"):
-                pass
-
-        assert [call.kwargs["force_prompt_tools_eligible"] for call in spy.call_args_list] == [True] * 4
-
-    @pytest.mark.asyncio
     async def test_trims_before_the_client_ever_sees_the_messages(self, gateway):
         gateway.repository.get_configuration.return_value = make_config(
             provider_options={"context_window": 200}, max_tokens=50,
@@ -181,7 +168,7 @@ class TestGatewayContextBudgetHook:
             options_override={"max_tokens": 4096},
         )
         assert outcome.ledger["max_tokens"] == 4096
-        assert outcome.ledger["reserve_tokens"] == 2049
+        assert outcome.ledger["reserve_tokens"] == 1229
 
 
 class TestGatewayContextProfileFor:
@@ -303,29 +290,24 @@ class TestGatewayReserveClampRegression:
         assert on.reserve_tokens > off.reserve_tokens
         assert on.reserve_tokens == off.reserve_tokens + on.thinking_allowance_tokens
 
-    def test_force_prompt_tools_with_tools_offered_and_unset_think_reserves_the_allowance(self):
+    @pytest.mark.parametrize("think", [{}, {"think": None}])
+    def test_an_unset_think_reserves_no_thinking_allowance(self, think):
         gateway = LLMGateway(llm_repository=Mock())
         config = make_config(
-            type="ollama", provider_options={"context_window": 32768, "force_prompt_tools": True}, max_tokens=1000,
+            type="ollama", provider_options={"context_window": 32768, **think}, max_tokens=1000,
         )
-        tools = [{"type": "function", "function": {"name": "noop", "parameters": {}}}]
-
-        profile = gateway.context_profile_for(config, tool_schemas=tools, force_prompt_tools_eligible=True)
-
-        assert profile.thinking_enabled is True
-        assert profile.thinking_allowance_tokens > 0
-
-    def test_native_tools_with_unset_think_does_not_reserve_the_allowance(self):
-        gateway = LLMGateway(llm_repository=Mock())
-        config = make_config(
-            type="ollama", provider_options={"context_window": 32768}, max_tokens=1000,
-        )
-        tools = [{"type": "function", "function": {"name": "noop", "parameters": {}}}]
-
-        profile = gateway.context_profile_for(config, tool_schemas=tools, force_prompt_tools_eligible=True)
-
+        profile = gateway.context_profile_for(config)
         assert profile.thinking_enabled is False
         assert profile.thinking_allowance_tokens == 0
+
+    def test_an_explicit_level_reserves_the_allowance(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        config = make_config(
+            type="ollama", provider_options={"context_window": 32768, "think": "high"}, max_tokens=1000,
+        )
+        profile = gateway.context_profile_for(config)
+        assert profile.thinking_enabled is True
+        assert profile.thinking_allowance_tokens > 0
 
     @pytest.mark.asyncio
     async def test_preflight_ledger_and_real_send_agree_on_the_new_fields(self, gateway):

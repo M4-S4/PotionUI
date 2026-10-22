@@ -150,17 +150,6 @@ def _render_prompt_tools_text(tools: List[Dict]) -> str:
 def build_ollama_options(
     config: LLMConfig, options_override: Optional[Dict[str, Any]] = None
 ) -> tuple[Dict[str, Any], Any]:
-    """Return the nested ``options`` object and the requested ``think`` value.
-
-    The returned think value is the caller's explicit request, left
-    unresolved: ``None`` when neither the saved config nor a per-call
-    override named one. Resolving ``None`` to an automatic default is each
-    caller's job — ``build_ollama_chat_request``'s automatic default depends
-    on whether native tools end up on the wire, which this function has no
-    visibility into. A per-call override only wins when it is itself
-    explicit (non-``None``); an override dict that happens to carry
-    ``"think": None`` leaves the saved value in place rather than clearing it.
-    """
     provider_opts = config.provider_options or {}
     options_override = options_override or {}
 
@@ -192,7 +181,7 @@ def build_ollama_options(
     if options_override.get("think") is not None:
         think = options_override["think"]
 
-    return options, think
+    return options, think if think is not None else False
 
 
 def _attach_image(ollama_messages: List[Dict[str, Any]], image_data: str) -> None:
@@ -308,9 +297,6 @@ def build_ollama_chat_request(
         force_prompt_tools=force_prompt_tools,
     )
 
-    if think is None:
-        think = context_budget.resolve_ollama_think_default(native_tools=native_tools)
-
     payload: Dict[str, Any] = {
         "model": config.model,
         "messages": ollama_messages,
@@ -345,7 +331,6 @@ def build_ollama_generate_request(
     """
     provider_opts = config.provider_options or {}
     options, think = build_ollama_options(config)
-    think_enabled = think if think is not None else context_budget.resolve_ollama_think_default(native_tools=False)
     keep_alive = provider_opts.get("keep_alive", 0)
 
     if image_data:
@@ -356,7 +341,7 @@ def build_ollama_generate_request(
             "system": system_message,
             "stream": False,
             "keep_alive": keep_alive,
-            "think": think_enabled,
+            "think": think,
             "options": options,
         }
     else:
@@ -367,7 +352,7 @@ def build_ollama_generate_request(
             "prompt": prompt,
             "stream": False,
             "keep_alive": keep_alive,
-            "think": think_enabled,
+            "think": think,
             "options": options,
         }
 

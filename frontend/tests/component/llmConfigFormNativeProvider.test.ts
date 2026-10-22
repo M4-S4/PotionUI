@@ -316,15 +316,29 @@ describe('LLMConfigForm — Ollama thinking mode', () => {
 		sel.dispatchEvent(new Event('change', { bubbles: true }));
 	}
 
-	it('defaults to Automatic (unset), never storing a guessed Enabled', async () => {
+	it('offers Enabled, Disabled, Low, Medium and High and no Automatic', async () => {
+		mounted = mount(makeDraft({ type: 'ollama', model: 'llama3' }));
+		await settle();
+
+		const labels = Array.from(select(mounted.target).options).map((option) => option.textContent?.trim());
+		expect(labels).toEqual(['Enabled', 'Disabled', 'Low', 'Medium', 'High']);
+		expect(mounted.target.textContent).not.toContain('Automatic');
+	});
+
+	it('defaults to Disabled without storing anything for it', async () => {
 		const draft = makeDraft({ type: 'ollama', model: 'llama3' });
 		mounted = mount(draft);
 		await settle();
 
-		const sel = select(mounted.target);
-		expect(sel).toBeTruthy();
-		expect(sel.value).toBe(''); // "Automatic" option's value
+		expect(select(mounted.target).value).toBe('false');
 		expect('think' in draft.provider_options).toBe(false);
+	});
+
+	it('shows Disabled for a stored null', async () => {
+		mounted = mount(makeDraft({ type: 'ollama', model: 'llama3', provider_options: { think: null } }));
+		await settle();
+
+		expect(select(mounted.target).value).toBe('false');
 	});
 
 	it('stores an explicit Enabled as a real boolean, not a string', async () => {
@@ -338,15 +352,15 @@ describe('LLMConfigForm — Ollama thinking mode', () => {
 		expect(draft.provider_options.think).toBe(true);
 	});
 
-	it('stores an explicit Disabled as a real boolean', async () => {
-		const draft = makeDraft({ type: 'ollama', model: 'llama3' });
+	it('choosing Disabled again removes the override, since Disabled is the default', async () => {
+		const draft = makeDraft({ type: 'ollama', model: 'llama3', provider_options: { think: true } });
 		mounted = mount(draft);
 		await settle();
 
 		choose(select(mounted.target), 'false');
 		await settle();
 
-		expect(draft.provider_options.think).toBe(false);
+		expect('think' in draft.provider_options).toBe(false);
 	});
 
 	it('stores a named level as its string, distinct from a plain boolean', async () => {
@@ -360,7 +374,7 @@ describe('LLMConfigForm — Ollama thinking mode', () => {
 		expect(draft.provider_options.think).toBe('high');
 	});
 
-	it('clearing an explicit choice back to Automatic removes the override entirely', async () => {
+	it('setting an explicit level back to Disabled removes the override entirely', async () => {
 		const draft = makeDraft({ type: 'ollama', model: 'llama3', provider_options: { think: 'medium' } });
 		mounted = mount(draft);
 		await settle();
@@ -368,7 +382,7 @@ describe('LLMConfigForm — Ollama thinking mode', () => {
 		const sel = select(mounted.target);
 		expect(sel.value).toBe('medium');
 
-		choose(sel, '');
+		choose(sel, 'false');
 		await settle();
 
 		expect('think' in draft.provider_options).toBe(false);

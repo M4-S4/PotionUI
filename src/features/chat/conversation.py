@@ -240,7 +240,7 @@ class ConversationRunner:
         self._m._context.inject_tool_availability_block(conversation_history, allowed_tools, withheld_tools)
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
-        budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
+        budget_accounting = self._resolve_budget_inputs(session, mode)
         try:
             context_ledger = self._build_context_ledger(
                 system_prompt, tool_schemas, memory_result, conversation_history,
@@ -611,7 +611,7 @@ class ConversationRunner:
             conversation_history.append(approval_continuation_message(continuation.tool_name, continuation.tool_call_id))
 
         tool_schemas = self._resolve_tool_schemas_for_ledger(allowed_tools, deferred_tools)
-        budget_accounting = self._resolve_budget_inputs(session, mode, tool_schemas)
+        budget_accounting = self._resolve_budget_inputs(session, mode)
         try:
             context_ledger = self._build_context_ledger(
                 system_prompt, tool_schemas, memory_result, conversation_history,
@@ -1007,7 +1007,6 @@ class ConversationRunner:
         self,
         session: SessionResponse,
         mode: Optional[ChatMode],
-        tool_schemas: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[context_budget.ContextProfile]:
         llm_config_id = getattr(session, "llm_config_id", None)
         if not llm_config_id:
@@ -1022,7 +1021,7 @@ class ConversationRunner:
             if config is None:
                 return None
             mode_options = (mode.llm_options or {}) if mode else {}
-            inputs = self._m.llm_service.context_profile_for(config, mode_options or None, tool_schemas)
+            inputs = self._m.llm_service.context_profile_for(config, mode_options or None)
             int(inputs.reserve_tokens)  # validate now — a non-numeric test double degrades below, not mid-ledger
             return inputs
         except Exception:

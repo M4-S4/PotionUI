@@ -114,15 +114,12 @@ async def test_generate_text_only_uses_the_generate_endpoint(monkeypatch, client
         "prompt": "say hi",
         "stream": False,
         "keep_alive": 0,
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
 
 
 async def test_generate_carries_a_saved_named_thinking_level_on_the_generate_endpoint(monkeypatch, client):
-    """The bare generate endpoint has no per-call override, so the saved
-    explicit level is the only choice it can honour; it must reach the root
-    `think` field verbatim rather than the legacy automatic default."""
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_GENERATE_REPLY)])
 
     await client.generate("say hi", make_config("ollama", provider_options={"think": "high"}), "SYS")
@@ -144,7 +141,7 @@ async def test_generate_with_an_image_switches_to_the_chat_endpoint(monkeypatch,
         "system": "SYS",
         "stream": False,
         "keep_alive": 0,
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
 
@@ -176,7 +173,7 @@ async def test_generate_with_history_pins_payload_and_trace(monkeypatch, client)
         "messages": PLAIN_MESSAGES,
         "stream": False,
         "keep_alive": 0,
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
     assert strip(capture.trace, "duration_ms") == {
@@ -270,7 +267,7 @@ async def test_stream_with_history_pins_payload(monkeypatch, client):
         "messages": PLAIN_MESSAGES,
         "stream": True,
         "keep_alive": 0,
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
 
@@ -287,7 +284,6 @@ async def test_native_tools_payload_and_trace(monkeypatch, client):
         "messages": NATIVE_TOOL_MESSAGES,
         "stream": False,
         "keep_alive": 0,
-        # Thinking is forced off whenever native tools are on the wire.
         "think": False,
         "options": DEFAULT_OPTIONS,
         "tools": tool_schemas(),
@@ -340,8 +336,7 @@ async def test_force_prompt_tools_rewrites_the_conversation_as_text(monkeypatch,
         ],
         "stream": False,
         "keep_alive": 0,
-        # No native tools on the wire, so thinking stays on.
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
     assert "tools" not in capture.body
@@ -349,13 +344,13 @@ async def test_force_prompt_tools_rewrites_the_conversation_as_text(monkeypatch,
     assert capture.trace["request_tools"] is None
 
 
-async def test_tools_omitted_keeps_thinking_on(monkeypatch, client):
+async def test_tools_omitted_leaves_thinking_off(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 
     await client.generate_with_tools(tool_history(), make_config("ollama"), "SYS")
 
     assert "tools" not in capture.body
-    assert capture.body["think"] is True
+    assert capture.body["think"] is False
     assert capture.trace["request_tools"] is None
 
 
@@ -377,15 +372,41 @@ async def test_stream_with_tools_pins_payload(monkeypatch, client):
     }
 
 
-# --- explicit think survives native tool calls (buffered and streaming) ---
-#
-# Before this fix, build_ollama_chat_request hard-coded
-# `"think": False if native_tools else think_enabled`, discarding any
-# explicit saved/per-call choice the instant `tools` was non-empty. These pin
-# that an explicit value now always wins, tools or not, while the
-# unspecified-plus-tools case above (test_native_tools_payload_and_trace,
-# test_stream_with_tools_pins_payload) still resolves to the legacy
-# automatic `False` default.
+async def test_a_saved_null_think_goes_out_as_false_without_tools(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": None})
+
+    await client.generate_with_tools(tool_history(), config, "SYS")
+
+    assert capture.body["think"] is False
+
+
+async def test_a_saved_null_think_goes_out_as_false_with_native_tools(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": None})
+
+    await client.generate_with_tools(tool_history(), config, "SYS", tools=tool_schemas())
+
+    assert capture.body["think"] is False
+
+
+async def test_a_saved_null_think_goes_out_as_false_on_the_generate_endpoint(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_GENERATE_REPLY)])
+    config = make_config("ollama", provider_options={"think": None})
+
+    await client.generate("say hi", config, "SYS")
+
+    assert capture.body["think"] is False
+
+
+async def test_a_null_per_call_override_leaves_the_saved_value(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": "high"})
+
+    await client.generate_with_tools(HISTORY, config, "SYS", options_override={"think": None})
+
+    assert capture.body["think"] == "high"
+
 
 async def test_explicit_true_survives_native_tools_buffered(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])

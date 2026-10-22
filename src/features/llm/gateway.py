@@ -152,19 +152,11 @@ class LLMGateway:
         self,
         config: LLMConfig,
         options_override: Optional[Dict[str, Any]] = None,
-        tool_schemas: Optional[List[Dict[str, Any]]] = None,
-        *,
-        force_prompt_tools_eligible: bool = False,
     ) -> context_budget.ContextProfile:
         client = self._client_for(config)
         capacity = context_budget.resolve_capacity(config, self._discovered_window(config))
         max_tokens = (options_override or {}).get("max_tokens", config.max_tokens)
-        provider_opts = getattr(config, "provider_options", None) or {}
-        force_prompt_tools = force_prompt_tools_eligible and bool(provider_opts.get("force_prompt_tools", False))
-        native_tools = context_budget.resolve_native_tools(tool_schemas, force_prompt_tools=force_prompt_tools)
-        thinking_enabled = context_budget.resolve_thinking_enabled(
-            config, options_override, native_tools=native_tools,
-        )
+        thinking_enabled = context_budget.resolve_thinking_enabled(config, options_override)
         reserve = context_budget.resolve_reserve(
             max_tokens=max_tokens, window_tokens=capacity.capacity_tokens, thinking_enabled=thinking_enabled,
         )
@@ -192,8 +184,6 @@ class LLMGateway:
         tool_schemas: Optional[List[Dict[str, Any]]] = None,
         image_data: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None,
-        *,
-        force_prompt_tools_eligible: bool = False,
     ) -> context_budget.BudgetOutcome:
         """The one shared budgeting call every gateway send path routes
         through (see ``_budgeted``) and that ``ConversationRunner`` also uses
@@ -202,9 +192,7 @@ class LLMGateway:
         the request doesn't fit even after trimming every eligible older
         message.
         """
-        inputs = self.context_profile_for(
-            config, options_override, tool_schemas, force_prompt_tools_eligible=force_prompt_tools_eligible,
-        )
+        inputs = self.context_profile_for(config, options_override)
         return context_budget.budget_with_profile(
             inputs, system_message=system_message, messages=messages,
             tool_schemas=tool_schemas, image_data=image_data,
@@ -218,15 +206,12 @@ class LLMGateway:
         tool_schemas: Optional[List[Dict[str, Any]]],
         image_data: Optional[str],
         options_override: Optional[Dict[str, Any]],
-        *,
-        force_prompt_tools_eligible: bool = False,
     ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Budget-check and, if needed, trim *messages* before ANY client
         call — the single choke point every one of the four send methods
         below calls, so a provider-specific path can never skip it."""
         outcome = self.estimate_context_budget(
             config, system_message, messages, tool_schemas, image_data, options_override,
-            force_prompt_tools_eligible=force_prompt_tools_eligible,
         )
         effective_override = options_override
         sent = outcome.ledger["max_tokens_sent"]
@@ -374,7 +359,6 @@ class LLMGateway:
         system_message = self._resolve_system_message(config, custom_system_message)
         messages, options_override = self._budgeted(
             config, system_message, messages, tools, image_data, options_override,
-            force_prompt_tools_eligible=True,
         )
         return self._wire_config(config), system_message, messages, options_override
 

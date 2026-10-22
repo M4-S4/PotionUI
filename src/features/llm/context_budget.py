@@ -304,12 +304,8 @@ def resolve_native_tools(tools: Optional[List[Dict[str, Any]]], *, force_prompt_
     return bool(tools) and not force_prompt_tools
 
 
-def resolve_ollama_think_default(*, native_tools: bool) -> bool:
-    return False if native_tools else True
-
-
 def resolve_thinking_enabled(
-    config: "LLMConfig", options_override: Optional[Dict[str, Any]] = None, *, native_tools: bool = False,
+    config: "LLMConfig", options_override: Optional[Dict[str, Any]] = None,
 ) -> bool:
     provider_type = getattr(config, "type", None)
     provider_opts = getattr(config, "provider_options", None) or {}
@@ -319,8 +315,6 @@ def resolve_thinking_enabled(
         value = options_override.get("think")
         if value is None:
             value = provider_opts.get("think")
-        if value is None:
-            return resolve_ollama_think_default(native_tools=native_tools)
         if isinstance(value, bool):
             return value
         if isinstance(value, str):

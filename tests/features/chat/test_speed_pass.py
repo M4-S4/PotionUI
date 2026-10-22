@@ -470,21 +470,7 @@ class TestResolveBudgetInputs:
         result = runner._resolve_budget_inputs(self._session(), mode=None)
 
         assert result is expected
-        manager.llm_service.context_profile_for.assert_called_once_with(config, None, None)
-
-    def test_tool_schemas_is_passed_through_to_the_gateways_shared_builder(self):
-        manager = Mock()
-        config = Mock(type="ollama", provider_options={"num_ctx": 4096}, max_tokens=2000)
-        manager.llm_service.repository.get_configuration.return_value = config
-        manager.llm_service.context_profile_for.return_value = context_budget.ContextProfile(
-            capacity=context_budget.CapacityInfo(4096, "config"), reserve_tokens=2000,
-        )
-        runner = ConversationRunner(manager)
-        tool_schemas = [{"type": "function", "function": {"name": "noop"}}]
-
-        runner._resolve_budget_inputs(self._session(), mode=None, tool_schemas=tool_schemas)
-
-        manager.llm_service.context_profile_for.assert_called_once_with(config, None, tool_schemas)
+        manager.llm_service.context_profile_for.assert_called_once_with(config, None)
 
     def test_mode_llm_options_is_passed_through_as_options_override(self):
         from types import SimpleNamespace
@@ -502,7 +488,7 @@ class TestResolveBudgetInputs:
         result = runner._resolve_budget_inputs(self._session(), mode=mode)
 
         assert result.reserve_tokens == 512
-        manager.llm_service.context_profile_for.assert_called_once_with(config, {"max_tokens": 512}, None)
+        manager.llm_service.context_profile_for.assert_called_once_with(config, {"max_tokens": 512})
 
     def test_config_lookup_failure_degrades_to_none_never_raises(self):
         manager = Mock()

@@ -338,7 +338,7 @@ class TestStreamOllamaWithHistory:
         assert call_kwargs["json"]["options"]["num_ctx"] == 4096
 
     @pytest.mark.asyncio
-    async def test_think_defaults_to_true_when_not_set(self):
+    async def test_think_defaults_to_false_when_not_set(self):
         config = _make_config("ollama", provider_options={})
         service = self._service(config)
 
@@ -353,7 +353,7 @@ class TestStreamOllamaWithHistory:
             )
 
         call_kwargs = mock_client.stream.call_args[1]
-        assert call_kwargs["json"]["think"] is True
+        assert call_kwargs["json"]["think"] is False
 
     @pytest.mark.asyncio
     async def test_stream_flag_is_true(self):
