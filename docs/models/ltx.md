@@ -323,13 +323,6 @@ metadata is the only reliable way to tell which shape a given pre-2.5 file is.
   (`video_director.modes.director` in `preset.yml`), exactly as the 2.0/2.3
   preset does, rather than LTX-2.5-native multishot conditioning. (Multishot
   and DFR are separate features; DFR is partly implemented — see below.)
-- **int8-convrot DiT** — untested. Quantized 2.5 split files load through the
-  same generic quant path as every other family (`detect_quant_format` + the
-  vendored int8_tensorwise/ConvRot and nvfp4 ops): the **nvfp4 DiT** and the
-  **int8-convrot Gemma4 TE** are GPU-confirmed in real generations
-  (2026-08-12). Only the int8-convrot *DiT* has never been loaded — relevant
-  because it is the one 2.5 repack that carries the trained
-  `keyframes_abs_pos_embedding` (the nvfp4 repack dropped that tensor).
 - **`use_keyframes_abs_pos_embedding`** — detected
   (`detect/unet_detect.py`'s `_detect_ltx`, from the
   `keyframes_abs_pos_embedding` state-dict key or the checkpoint's embedded
@@ -435,4 +428,20 @@ workflow's parameters against Lightricks' own inference package
 
 ## Hardware
 
-The 2.0/2.3 all-in-one checkpoint (DiT + both VAEs + vocoder + text-embedding projection) is **~27 GB on disk** (19–22B-parameter DiT; `memory_policy.py`'s `ltx2 = 27.0` cost estimate); LTX-2.5's split layout adds up to roughly the same total across its separate DiT/TE/VAE files. No measured VRAM peak exists for any LTX generation yet — **this family is not GPU-validated end-to-end** (AV forward + golden validation is still an open task per `docs/native-engine.md`), so there is no honest tier recommendation to give beyond "not yet" at any card size. Treat every number above as an implemented-contract description, not a measured result.
+The 2.0/2.3 all-in-one checkpoint (DiT + both VAEs + vocoder + text-embedding projection) is **~27 GB on disk** (19–22B-parameter DiT; `memory_policy.py`'s `ltx2 = 27.0` cost estimate); LTX-2.5's split layout adds up to roughly the same total across its separate DiT/TE/VAE files.
+
+**Measured on a 12 GB card (LTX-2.5 22B).** The files are the distilled DiT in int8 ConvRot, a Gemma4 12B text encoder in int8, and the video and audio VAEs: five files, about 40 GB, all present on the test machine. The runs were taken on one RTX 4070 Ti (12 GB) under Docker Desktop on WSL2, with the backend's `gpu_max_vram` at 10 and `text_encoder_placement` at `auto`:
+
+| Run | Settings | Result |
+|---|---|---|
+| Text to video with sound | 1 s, 480×832, 8 steps | 5 min 57 s from a cold start, about 7.5 s per step |
+| Layout-To-Render IC-LoRA (`ltx-2.5-22b-ic-lora-layout-to-render-1.0`, 1.22 GB of deltas), reference video plus first frame | 832×480, 3 s (73 frames), Distilled profile (8 steps, CFG 1) | 270 s from a cold start, including 103 s of loading, about 7 s per step; `peak_vram_mb` 10,702 |
+
+- **Earlier Layout-To-Render takes.** On 20 October 2026 the same run took 389 to 475 s, at 11 to 24 s per step, with a peak of 10,715.
+- **The placement fix (commit `46a33860`).** The DiT is placed after the IC-LoRA deltas are applied, and the activation reserve (1.72 GB) is computed from the real eager block. Before it, every Layout-To-Render take ran out of GPU memory in the first DiT step.
+- **Reference strength.** At a reference strength of 0.65 or 0.4 the take copies the reference video whatever its look. At 1.0, the value on the LoRA's own card, it follows the camera move and keeps the look of the first frame.
+- **Quantized DiT.** The int8-convrot DiT, the one 2.5 repack that carries the trained `keyframes_abs_pos_embedding` (the nvfp4 repack dropped that tensor), is the DiT of these runs. Quantized 2.5 split files load through the same generic quant path as every other family (`detect_quant_format` + the vendored int8_tensorwise/ConvRot and nvfp4 ops): the nvfp4 DiT and the int8-convrot Gemma4 TE were also GPU-confirmed in real generations on 2026-08-12.
+- **Smoke timeout.** The recipe `ltx25-starter` declares a 600 s smoke timeout.
+- **Known behaviour.** A run that fails leaves no `generation_stats` row, and cancelling a run does not interrupt the sampling step in progress.
+
+The 2.0/2.3 all-in-one checkpoints are not covered by these measurements, and the golden comparison against ComfyUI is still planned, not built (`docs/native-engine.md`, "Verification approach"). Apart from the runs above, this page describes the implemented contract, not a measured result.
