@@ -38,6 +38,7 @@ from .cfg import EmbeddedGuidance, FlowMapGuidance, GuidanceStrategy, NoCFG, Ski
 from .flow_schedule import build_sigmas
 from .registry import sampler_registry
 from .hooks import with_numerics_watchdog
+from ..cancellation import cancellation_scope
 from .step_cache import StepCacheSet
 
 logger = logging.getLogger(__name__)
@@ -458,18 +459,19 @@ def denoise(
     # start_step is only in euler's signature; pass it solely on a warm-start
     # (engine-gated to euler) so the uniform sampler contract is untouched.
     resume_kwargs = {"start_step": start_step} if start_step > 0 else {}
-    latent = sampler(
-        model_forward_fp32,
-        x,
-        sigmas,
-        guidance,
-        cond,
-        uncond,
-        hooks=watched_hooks,
-        is_cancelled=is_cancelled,
-        sampler_options=sampler_options,
-        **resume_kwargs,
-    )
+    with cancellation_scope(is_cancelled, step_index=start_step) as scope:
+        latent = sampler(
+            model_forward_fp32,
+            x,
+            sigmas,
+            guidance,
+            cond,
+            uncond,
+            hooks=watched_hooks if scope is None else (*watched_hooks, scope),
+            is_cancelled=is_cancelled,
+            sampler_options=sampler_options,
+            **resume_kwargs,
+        )
 
     if cache_set is not None:
         totals = cache_set.totals()
