@@ -143,6 +143,7 @@ test('prompt actions render at phone width', async ({ page }) => {
 	await expect(reply.getByText('Rename prompt 1')).toBeVisible();
 	await expect(applyButtons(page)).toHaveCount(3);
 
+	await page.getByRole('button', { name: 'Close chat', exact: true }).click();
 	await page.setViewportSize({ width: 390, height: 844 });
 	await openChat(page);
 	await expect(applyButtons(page)).toHaveCount(3);

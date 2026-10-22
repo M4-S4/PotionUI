@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { clearTabDrafts, loginAsOwner, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'inline-chip-editor-interactions';
@@ -57,6 +57,7 @@ test.describe('InlineChipEditor browser interactions', () => {
 	test.beforeEach(async ({ page }) => {
 		test.setTimeout(120000);
 		await loginAsOwner(page);
+		await clearTabDrafts(page);
 		const preset = await installAndSelectImagePreset(page);
 		if (!preset) {
 			test.skip(true, 'No native image preset available on this throwaway instance to render the prompt editor with.');

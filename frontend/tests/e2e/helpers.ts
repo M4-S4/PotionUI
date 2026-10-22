@@ -72,6 +72,17 @@ export async function ownerToken(page: Page): Promise<string> {
 	return token as string;
 }
 
+export async function clearTabDrafts(page: Page): Promise<void> {
+	const headers = { Authorization: `Bearer ${await ownerToken(page)}` };
+	const list = await page.request.get('/api/tab-drafts', { headers });
+	expect(list.ok(), `GET /api/tab-drafts -> ${list.status()}`).toBeTruthy();
+	const drafts = ((await list.json()).data ?? []) as Array<{ tab_id: string }>;
+	for (const { tab_id } of drafts) {
+		const removed = await page.request.delete(`/api/tab-drafts/${encodeURIComponent(tab_id)}`, { headers });
+		expect(removed.ok(), `DELETE /api/tab-drafts/${tab_id} -> ${removed.status()}`).toBeTruthy();
+	}
+}
+
 export async function scopedStorageKey(page: Page, base: string): Promise<string> {
 	return page.evaluate((key) => {
 		try {

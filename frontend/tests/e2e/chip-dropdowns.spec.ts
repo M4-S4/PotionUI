@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { clearTabDrafts, loginAsOwner, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'chip-dropdowns';
@@ -108,8 +108,14 @@ async function showNameField(modal: Locator) {
 	await expect(nameField).toBeVisible();
 }
 
+async function addVariable(modal: Locator) {
+	const add = modal.getByRole('button', { name: 'Add variable' });
+	if (!(await add.isVisible())) await modal.getByRole('button', { name: 'Variables', exact: true }).click();
+	await add.click();
+}
+
 async function defineChoice(modal: Locator, name: string, options: string[], first: boolean) {
-	if (!first) await modal.getByRole('button', { name: 'Add variable' }).click();
+	if (!first) await addVariable(modal);
 	await showNameField(modal);
 	await modal.getByLabel('Variable name').fill(name);
 	await modal.getByRole('tab', { name: 'Choice' }).click();
@@ -123,7 +129,7 @@ async function defineChoice(modal: Locator, name: string, options: string[], fir
 }
 
 async function defineNumber(modal: Locator, name: string) {
-	await modal.getByRole('button', { name: 'Add variable' }).click();
+	await addVariable(modal);
 	await showNameField(modal);
 	await modal.getByLabel('Variable name').fill(name);
 	await modal.getByRole('tab', { name: 'Number' }).click();
@@ -162,6 +168,7 @@ for (const viewport of VIEWPORTS) {
 	test(`chip dropdowns share one width and the variable picker searches at ${viewport.label}`, async ({ page }) => {
 		test.setTimeout(240000);
 		await loginAsOwner(page);
+		await clearTabDrafts(page);
 		await makeModelFieldsOptional(page);
 		await mockPhrasebook(page);
 		await page.emulateMedia({ colorScheme: 'dark' });
