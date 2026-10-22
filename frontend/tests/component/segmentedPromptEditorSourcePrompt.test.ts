@@ -121,7 +121,8 @@ describe('SegmentedPromptEditor reports the library prompt behind the compositio
 			segments: [{ id: 'a', type: 'content', content: 'a lighthouse keeper', chips: {}, enabled: true }]
 		});
 		await openMoreMenuItem(editor.target, 'Save as Prompt');
-		buttonByText(document.body, 'Save Prompt')?.click();
+		const primary = document.body.querySelector('[role="dialog"] [data-segment-modal-primary]');
+		(primary?.closest('button') as HTMLButtonElement | null)?.click();
 		await settle();
 
 		expect(api.createPrompt).toHaveBeenCalled();
