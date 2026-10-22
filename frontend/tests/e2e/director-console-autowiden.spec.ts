@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
 import { chooseLayout, selectPresetInPicker } from './presetPreamble';
+import { FORM_RAIL_WIDTH, PANE_HANDLE_WIDTH, WORKBENCH_FLOOR_WIDTH } from '../../src/lib/stores/generationLayout';
 
 // Video Director auto-widen (PLAN.md §C W4) — an HTTP-only check can't see a
 // real layout reflow, so this drives a real browser: three-pane layout, an
@@ -18,10 +19,7 @@ import { chooseLayout, selectPresetInPicker } from './presetPreamble';
 
 const JOURNEY = 'director-console-autowiden';
 
-// Mirrors GenerationPanels.svelte's own constants — this is a black-box
-// check of the rendered layout, not a re-import of the component's
-// internals, so the formula is duplicated deliberately.
-const WORKBENCH_BOUND_WIDTH = 336;
+const WORKBENCH_BOUND_WIDTH = FORM_RAIL_WIDTH + PANE_HANDLE_WIDTH + WORKBENCH_FLOOR_WIDTH;
 const MAX_WIDTH_TOLERANCE_PX = 2;
 
 interface DiscoveredPreset {
