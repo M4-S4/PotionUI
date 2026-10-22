@@ -131,7 +131,7 @@
 	>
 		<!-- Tint lives on an inner wrapper: padding on the animated element above
 		     would survive the fold as an empty tinted bar. -->
-		<div class="mt-1 space-y-2 rounded-lg bg-surface-2/40 p-3">
+		<div class="form-section mt-1 space-y-2 rounded-lg border border-line-strong bg-surface-2 p-3">
 			<FieldChildren children={config.children} {value} {onChange} {onOriginChange} {onMaskChange} location="section" {fieldPath} />
 		</div>
 	</div>

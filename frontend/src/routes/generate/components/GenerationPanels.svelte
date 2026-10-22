@@ -265,7 +265,7 @@
 		</Tooltip>
 	{:else}
 		<div class="flex h-full flex-shrink-0" style="width: {formPanelWidth}">
-			<div class="min-w-0 flex-1 overflow-y-auto bg-surface-1/30 pb-[var(--dock-height)]">
+			<div class="min-w-0 flex-1 overflow-y-auto bg-surface-1 pb-[var(--dock-height)]">
 			<div class="px-3 pb-4 pt-3">
 				<GenerationFormPane
 					bind:formRef={dynamicFormRefs[tab.id]}

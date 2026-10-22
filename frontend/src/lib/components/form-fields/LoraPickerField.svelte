@@ -777,10 +777,10 @@
 						: !enabled
 							? 'opacity-60'
 							: ''} {dragOverIndex === index && dragOverPosition === 'before'
-						? 'border border-line border-t-2 border-t-signal'
+						? 'border border-line-strong border-t-2 border-t-signal'
 						: dragOverIndex === index && dragOverPosition === 'after'
-							? 'border border-line border-b-2 border-b-signal'
-							: 'border border-line'}"
+							? 'border border-line-strong border-b-2 border-b-signal'
+							: 'border border-line-strong'}"
 					role="listitem"
 					draggable={armedIndex === index}
 					on:dragstart={(e) => handleRowDragStart(e, index)}
