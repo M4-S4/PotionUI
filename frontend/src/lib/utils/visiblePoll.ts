@@ -3,7 +3,7 @@ export interface VisiblePoll {
 	stop(): void;
 }
 
-export function createVisiblePoll(fn: () => void | Promise<void>, intervalMs: number): VisiblePoll {
+export function createVisiblePoll(fn: () => void | Promise<void>, intervalMs: number | (() => number)): VisiblePoll {
 	let running = false;
 	let inFlight = false;
 	let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
@@ -18,7 +18,7 @@ export function createVisiblePoll(fn: () => void | Promise<void>, intervalMs: nu
 
 	function scheduleNext() {
 		clearTimer();
-		timeoutHandle = setTimeout(tick, intervalMs);
+		timeoutHandle = setTimeout(tick, typeof intervalMs === 'function' ? intervalMs() : intervalMs);
 	}
 
 	async function tick() {

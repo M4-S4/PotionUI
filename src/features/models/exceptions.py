@@ -76,6 +76,10 @@ class ModelTypeNotAssignableException(ModelIndexException):
     pass
 
 
+class ModelDigestUnavailableException(ModelIndexException):
+    pass
+
+
 class ModelTypeConflictException(ModelIndexException):
     def __init__(self, message: str, other_model_id: str = ""):
         super().__init__(message)

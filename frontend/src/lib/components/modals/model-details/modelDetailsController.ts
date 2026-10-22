@@ -330,6 +330,7 @@ export interface AdminModelDetailsController {
 	savingPromptingGuidance: Writable<boolean>;
 
 	load(modelId: string): Promise<void>;
+	refresh(modelId: string): Promise<void>;
 	reset(): void;
 	prevImage(): void;
 	nextImage(): void;
@@ -512,6 +513,7 @@ export function createAdminModelDetailsController(): AdminModelDetailsController
 		savingDescription,
 		savingPromptingGuidance,
 		load,
+		refresh: (modelId: string) => loadModel(modelId, false),
 		reset,
 		prevImage,
 		nextImage,

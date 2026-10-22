@@ -398,3 +398,21 @@ def test_limit_status_reads_unlimited_when_the_plans_cannot_be_read(monkeypatch,
 
     assert status == {"kind": _KIND, "limit": None, "used": None, "exempt": False, "resets_at": None, "contact_line": ""}
     assert "treating it as unlimited" in caplog.text
+
+
+def test_the_installed_check_asks_the_core_for_a_copy_of_that_size_in_the_background(monkeypatch):
+    stand_in = _replace(monkeypatch, core_bridge.api_models, "model_for_sha256", {"id": "m1", "sha256": "a" * 64, "extra": 1})
+
+    found = core_bridge.find_model_by_sha256("a" * 64, 4096)
+
+    assert stand_in.calls == [{"sha256": "a" * 64, "size": 4096, "hash_candidates": "background", "admin": True}]
+    assert found == {"id": "m1", "sha256": "a" * 64, "is_available": None, "created_at": None, "filename": None, "model_type": None}
+
+
+def test_without_a_size_the_installed_check_looks_only_at_recorded_digests(monkeypatch):
+    stand_in = _replace(monkeypatch, core_bridge.api_models, "model_for_sha256", None)
+
+    assert core_bridge.find_model_by_sha256("a" * 64) is None
+    assert core_bridge.find_model_by_sha256("") is None
+
+    assert [call["size"] for call in stand_in.calls] == [None]

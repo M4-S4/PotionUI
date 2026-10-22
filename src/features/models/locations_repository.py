@@ -1,12 +1,32 @@
 import json
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from src.features.models.repository import model_repo
 from src.platform.util.ids import generate_ulid
 from src.platform.database import get_cursor
 
 _LOCATION_COLUMNS = (
     "id, model_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256, status, seen_at, binding_id"
 )
+
+_MODEL_CHUNK = 500
+
+DIGEST_STALE = "stale"
+DIGEST_RECORDED = "recorded"
+DIGEST_CONFLICT = "conflict"
+DIGEST_DUPLICATE = "duplicate"
+DIGEST_MERGED = "merged"
+
+
+@dataclass(frozen=True)
+class DigestApplication:
+    outcome: str
+    model_id: Optional[str] = None
+    model_filename: Optional[str] = None
+    owner_model_id: Optional[str] = None
+    owner_filename: Optional[str] = None
+    merged_from: Optional[str] = None
 
 
 def _pick_winner(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -84,6 +104,7 @@ class ModelLocationsRepository:
         sha256: Optional[str],
         status: str,
         seen_at: str,
+        quick_sig: Optional[str] = None,
     ) -> str:
         location_id = generate_ulid()
         with get_cursor() as cursor:
@@ -91,20 +112,21 @@ class ModelLocationsRepository:
                 """
                 INSERT INTO model_locations
                     (id, model_id, binding_id, root_id, model_type, rel_path, rel_key, size, mtime_ns, sha256,
-                     status, seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     status, seen_at, quick_sig)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(binding_id, rel_key) DO UPDATE SET
                     model_id = excluded.model_id,
                     rel_path = excluded.rel_path,
                     size = excluded.size,
                     mtime_ns = excluded.mtime_ns,
                     sha256 = excluded.sha256,
+                    quick_sig = excluded.quick_sig,
                     status = excluded.status,
                     seen_at = excluded.seen_at
                 """,
                 (
                     location_id, model_id, binding_id, root_id, model_type, rel_path, rel_key,
-                    size, mtime_ns, sha256, status, seen_at,
+                    size, mtime_ns, sha256, status, seen_at, quick_sig,
                 ),
             )
             cursor.execute(
@@ -126,11 +148,12 @@ class ModelLocationsRepository:
         with get_cursor() as cursor:
             cursor.executemany(
                 "UPDATE model_locations SET status = 'present', mtime_ns = ?, seen_at = ? "
-                "WHERE binding_id = ? AND rel_key = ?",
+                "WHERE binding_id = ? AND rel_key = ? AND status = 'present'",
                 [(mtime_ns, seen_at, binding_id, rel_key) for rel_key, mtime_ns in adopted],
             )
             cursor.executemany(
-                "UPDATE model_locations SET status = 'present', seen_at = ? WHERE binding_id = ? AND rel_key = ?",
+                "UPDATE model_locations SET status = 'present', seen_at = ? "
+                "WHERE binding_id = ? AND rel_key = ? AND status = 'present'",
                 [(seen_at, binding_id, rel_key) for rel_key in touched],
             )
 
@@ -162,27 +185,121 @@ class ModelLocationsRepository:
             cursor.execute("DELETE FROM model_locations WHERE id = ?", (location_id,))
             return cursor.rowcount > 0
 
-    def list_present_for_roots(self, root_ids: Sequence[str]) -> List[Dict[str, Any]]:
+    def list_present_by_size(self, size: int) -> List[Dict[str, Any]]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_LOCATION_COLUMNS}, quick_sig FROM model_locations WHERE size = ? AND status = 'present'",
+                (size,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def list_missing_digested_by_size(self, size: int) -> List[Dict[str, Any]]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_LOCATION_COLUMNS}, quick_sig FROM model_locations "
+                "WHERE size = ? AND status = 'missing' AND sha256 IS NOT NULL",
+                (size,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_by_id(self, location_id: str) -> Optional[Dict[str, Any]]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_LOCATION_COLUMNS}, quick_sig FROM model_locations WHERE id = ?", (location_id,)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def apply_digest_and_dequeue(
+        self, location_id: str, sha256: str, quick_sig: Optional[str], file_size: Optional[int]
+    ) -> DigestApplication:
+        with get_cursor() as cursor:
+            cursor.execute("SELECT model_id, status, sha256 FROM model_locations WHERE id = ?", (location_id,))
+            location = cursor.fetchone()
+            if location is None or location["status"] != "present" or location["sha256"] is not None:
+                cursor.execute("DELETE FROM model_digest_queue WHERE location_id = ?", (location_id,))
+                return DigestApplication(DIGEST_STALE)
+            cursor.execute(
+                "UPDATE model_locations SET sha256 = ?, quick_sig = ? WHERE id = ?", (sha256, quick_sig, location_id)
+            )
+            result = self._settle_model_digest(cursor, location_id, location["model_id"], sha256, file_size)
+            cursor.execute("DELETE FROM model_digest_queue WHERE location_id = ?", (location_id,))
+            return result
+
+    @staticmethod
+    def _settle_model_digest(
+        cursor, location_id: str, model_id: str, sha256: str, file_size: Optional[int]
+    ) -> DigestApplication:
+        cursor.execute("SELECT filename, sha256 FROM models WHERE id = ?", (model_id,))
+        model = cursor.fetchone()
+        if model is None or model["sha256"] == sha256:
+            return DigestApplication(DIGEST_RECORDED, model_id)
+        filename = model["filename"]
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM model_locations WHERE model_id = ? AND status = 'present'", (model_id,)
+        )
+        if model["sha256"] is not None and cursor.fetchone()["n"] > 1:
+            cursor.execute("UPDATE model_locations SET status = 'conflict' WHERE id = ?", (location_id,))
+            return DigestApplication(DIGEST_CONFLICT, model_id, filename)
+        if model_repo.update_digest(model_id, sha256=sha256, file_size=file_size, cursor=cursor):
+            return DigestApplication(DIGEST_RECORDED, model_id, filename)
+        cursor.execute("SELECT id, filename, model_type FROM models WHERE sha256 = ? AND id != ?", (sha256, model_id))
+        owner = cursor.fetchone()
+        if owner is not None and ModelLocationsRepository._merge_into_owner(
+            cursor, model_id, model, owner, file_size
+        ):
+            return DigestApplication(DIGEST_MERGED, owner["id"], filename, merged_from=model_id)
+        return DigestApplication(
+            DIGEST_DUPLICATE, model_id, filename,
+            owner["id"] if owner is not None else None, owner["filename"] if owner is not None else None,
+        )
+
+    @staticmethod
+    def _merge_into_owner(cursor, model_id: str, model, owner, file_size: Optional[int]) -> bool:
+        if model["sha256"] is not None:
+            return False
+        cursor.execute("SELECT COUNT(*) AS n FROM model_locations WHERE model_id = ?", (model_id,))
+        if cursor.fetchone()["n"] != 1:
+            return False
+        cursor.execute(
+            "SELECT COUNT(*) AS n FROM model_locations WHERE model_id = ? AND status = 'present'", (owner["id"],)
+        )
+        if cursor.fetchone()["n"] != 0:
+            return False
+        return model_repo.absorb(cursor, model_id, owner["id"], model["filename"], file_size)
+
+    def list_present_for_roots(
+        self, root_ids: Sequence[str], model_ids: Optional[Sequence[str]] = None
+    ) -> List[Dict[str, Any]]:
         if not root_ids:
             return []
         placeholders = ",".join("?" for _ in root_ids)
-        with get_cursor() as cursor:
-            cursor.execute(
-                f"""
+        select = f"""
                 SELECT ml.id, ml.model_id, ml.binding_id, ml.root_id, ml.model_type, ml.rel_path, ml.rel_key,
                        ml.size, ml.mtime_ns, ml.sha256, ml.status,
                        mrb.position AS position, mrb.subdir AS subdir
                 FROM model_locations ml
                 JOIN model_root_bindings mrb ON mrb.id = ml.binding_id
                 WHERE ml.status = 'present' AND ml.root_id IN ({placeholders})
-                """,
-                tuple(root_ids),
-            )
-            return [dict(row) for row in cursor.fetchall()]
+                """
+        with get_cursor() as cursor:
+            if model_ids is None:
+                cursor.execute(select, tuple(root_ids))
+                return [dict(row) for row in cursor.fetchall()]
+            rows: List[Dict[str, Any]] = []
+            wanted = sorted({model_id for model_id in model_ids if model_id})
+            for start in range(0, len(wanted), _MODEL_CHUNK):
+                chunk = wanted[start:start + _MODEL_CHUNK]
+                marks = ",".join("?" for _ in chunk)
+                cursor.execute(f"{select} AND ml.model_id IN ({marks})", (*root_ids, *chunk))
+                rows.extend(dict(row) for row in cursor.fetchall())
+            return rows
 
-    def winners_by_model(self, root_ids: Sequence[str]) -> Dict[str, Dict[str, Any]]:
+    def winners_by_model(
+        self, root_ids: Sequence[str], model_ids: Optional[Sequence[str]] = None
+    ) -> Dict[str, Dict[str, Any]]:
         by_model: Dict[str, List[Dict[str, Any]]] = {}
-        for row in self.list_present_for_roots(root_ids):
+        for row in self.list_present_for_roots(root_ids, model_ids):
             by_model.setdefault(row["model_id"], []).append(row)
         return {model_id: _pick_winner(rows) for model_id, rows in by_model.items()}
 

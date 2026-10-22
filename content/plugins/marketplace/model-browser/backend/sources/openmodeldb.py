@@ -650,6 +650,7 @@ def normalize_item(model_id: str, raw: Mapping[str, Any], catalog: Catalog) -> S
         stats=Stats(),
         source_url=model_page_url(model_id),
         primary_sha256=primary.sha256 if primary is not None else None,
+        primary_size_bytes=primary.size_bytes if primary is not None else None,
     )
 
 

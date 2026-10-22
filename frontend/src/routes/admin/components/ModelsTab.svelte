@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy, onMount, untrack } from 'svelte';
 	import { isAxiosError } from 'axios';
 	import dismiss from '$lib/actions/dismiss';
 	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
@@ -44,6 +44,7 @@
 	import BulkTagModal from './models/BulkTagModal.svelte';
 	import { DetailHeader, DetailBody, DetailLayout } from '$lib/components/detail';
 	import ModelRootsPanel from '$lib/model-roots/ModelRootsPanel.svelte';
+	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
 	import ModelTypeBadge from '$lib/components/ModelTypeBadge.svelte';
 	import {
 		MODEL_LIBRARY_SECTIONS,
@@ -168,6 +169,10 @@
 		}
 	}
 
+	const notIndexedYet = $derived(indexingStatusStore.status?.digests?.pending_total ?? 0);
+
+	$effect(() => untrack(() => indexingStatusStore.subscribe()));
+
 	const section = $derived($page.url.searchParams.get('view') || 'all');
 	const viewId = $derived($page.url.searchParams.get('id'));
 	const isAttributesSection = $derived(section === MODELS_ATTRIBUTES_SECTION);
@@ -194,7 +199,12 @@
 		availableTags.filter((tag) => tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase()))
 	);
 
-	const selectedModel = $derived(viewId && !isAttributesSection ? (models.find((m) => m.id === viewId) ?? null) : null);
+	let mergedOwner = $state<ModelListItem | null>(null);
+	const selectedModel = $derived(
+		viewId && !isAttributesSection
+			? (models.find((m) => m.id === viewId) ?? (mergedOwner?.id === viewId ? mergedOwner : null))
+			: null
+	);
 	const selectedDefinition = $derived(
 		viewId && isAttributesSection ? (definitions.find((d) => d.id === viewId) ?? null) : null
 	);
@@ -440,6 +450,18 @@
 				logger.error('Error deleting model:', error);
 			}
 		}
+	}
+
+	async function handleModelMerged(ownerId: string) {
+		try {
+			const response = await api.getModelById(ownerId, true);
+			const owner = response.success ? response.data?.model : null;
+			if (owner) mergedOwner = { id: owner.id, filename: owner.filename };
+		} catch (error) {
+			logger.error('Error loading the model this one was merged into:', error);
+		}
+		void urlState.replace({ id: ownerId });
+		void Promise.all([loadModels(), loadModelTypes(), loadUnindexedCount()]);
 	}
 
 	function handleModelDeleted() {
@@ -943,6 +965,17 @@
 
 	{#snippet overflow(close)}
 		{#if !isAttributesSection}
+			{#if notIndexedYet > 0}
+				<a
+					href="/admin?tab=models&view=folders"
+					role="menuitem"
+					class="w-full px-3 py-2 text-left text-sm flex items-center gap-2 hover:bg-surface-2"
+					onclick={close}
+				>
+					<Icon name="list-checks" className="w-3.5 h-3.5" />
+					{notIndexedYet} not indexed yet
+				</a>
+			{/if}
 			{#if unindexedCount && unindexedCount.total > 0}
 				<a
 					href="/admin?tab=backends"
@@ -1018,6 +1051,7 @@
 				onDeleted={handleModelDeleted}
 				onAssignChanged={(change) => handleModelAssignChanged(selectedModel.id, change)}
 				onTypeChanged={() => (typeChangedInDetail = true)}
+				onMerged={handleModelMerged}
 			/>
 		{/if}
 	{:else if isAttributesSection}

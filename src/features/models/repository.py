@@ -17,6 +17,7 @@ from src.features.models.search_filter import (
     substring_search_clause,
 )
 import json
+import sqlite3
 from src.platform.database.collection_tree import subtree_ids_sql
 import logging
 from src.platform.database import get_cursor
@@ -517,6 +518,13 @@ class ModelRepository:
 
             return cursor.rowcount > 0
 
+    def mark_available(self, model_id: str) -> bool:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE models SET is_available = 1, unavailable_at = NULL WHERE id = ?", (model_id,)
+            )
+            return cursor.rowcount > 0
+
     def update_description(self, model_id: str, description: str) -> bool:
         """Update the markdown description for a model"""
         with get_cursor() as cursor:
@@ -528,16 +536,71 @@ class ModelRepository:
 
             return cursor.rowcount > 0
 
-    def update_digest(self, model_id: str, *, sha256: str, file_size: int) -> bool:
-        """Persist a freshly computed content digest without touching any other column."""
-        with get_cursor() as cursor:
+    def update_digest(self, model_id: str, *, sha256: str, file_size: Optional[int], cursor=None) -> bool:
+        if cursor is None:
+            with get_cursor() as own_cursor:
+                return self._write_digest(own_cursor, model_id, sha256, file_size)
+        return self._write_digest(cursor, model_id, sha256, file_size)
+
+    def absorb(
+        self, cursor, source_id: str, target_id: str, filename: str, file_size: Optional[int]
+    ) -> bool:
+        cursor.execute("SELECT model_type FROM models WHERE id = ?", (target_id,))
+        target = cursor.fetchone()
+        if target is None:
+            return False
+        cursor.execute(
+            "SELECT 1 FROM models WHERE model_type = ? AND filename = ? AND id NOT IN (?, ?)",
+            (target["model_type"], filename, source_id, target_id),
+        )
+        if cursor.fetchone() is not None:
+            return False
+        self._repoint_model_references(cursor, source_id, target_id)
+        cursor.execute("DELETE FROM models WHERE id = ?", (source_id,))
+        self._rename_absorbed(cursor, target_id, filename, file_size)
+        return True
+
+    @staticmethod
+    def _model_references(cursor) -> List[tuple]:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        tables = [row["name"] for row in cursor.fetchall()]
+        references = []
+        for table in tables:
+            if table == "models":
+                continue
+            columns = set()
+            cursor.execute(f'PRAGMA foreign_key_list("{table}")')
+            columns.update(row["from"] for row in cursor.fetchall() if row["table"] == "models")
+            cursor.execute(f'PRAGMA table_info("{table}")')
+            columns.update(row["name"] for row in cursor.fetchall() if row["name"] == "model_id")
+            references.extend((table, column) for column in sorted(columns))
+        return references
+
+    def _repoint_model_references(self, cursor, source_id: str, target_id: str) -> None:
+        for table, column in self._model_references(cursor):
+            cursor.execute(
+                f'UPDATE OR IGNORE "{table}" SET "{column}" = ? WHERE "{column}" = ?', (target_id, source_id)
+            )
+
+    @staticmethod
+    def _rename_absorbed(cursor, model_id: str, filename: str, file_size: Optional[int]) -> None:
+        cursor.execute(
+            "UPDATE models SET filename = ?, file_size = COALESCE(?, file_size), is_available = 1, "
+            "unavailable_at = NULL, indexed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (filename, file_size, model_id),
+        )
+
+    @staticmethod
+    def _write_digest(cursor, model_id: str, sha256: str, file_size: Optional[int]) -> bool:
+        try:
             cursor.execute("""
                 UPDATE models
-                SET sha256 = ?, file_size = ?
+                SET sha256 = ?, file_size = COALESCE(?, file_size)
                 WHERE id = ?
             """, (sha256, file_size, model_id))
-
-            return cursor.rowcount > 0
+        except sqlite3.IntegrityError:
+            return False
+        return cursor.rowcount > 0
 
     def update_prompting_guidance(self, model_id: str, prompting_guidance: str) -> bool:
         """Update the admin-authored prompting guidance text for a model"""

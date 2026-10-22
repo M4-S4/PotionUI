@@ -5,7 +5,7 @@ Request/Response models for model index management operations.
 """
 
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 # ============ Request DTOs ============
@@ -26,6 +26,25 @@ class UpdateDescriptionRequest(BaseModel):
 
 class SetModelTypeRequest(BaseModel):
     model_type: str
+
+
+class IndexingSettingsRequest(BaseModel):
+    level: Optional[Literal["low", "normal", "max"]] = None
+    policy: Optional[Literal["unset", "background", "on_demand"]] = None
+
+
+class IndexingDigestsRequest(BaseModel):
+    mode: Literal["all", "selected", "matching"]
+    model_ids: Optional[List[str]] = None
+    query: Optional[str] = None
+    model_type: Optional[str] = None
+    exclude_model_ids: Optional[List[str]] = None
+
+    @model_validator(mode="after")
+    def _selected_needs_model_ids(self) -> "IndexingDigestsRequest":
+        if self.mode == "selected" and self.model_ids is None:
+            raise ValueError("mode 'selected' needs model_ids")
+        return self
 
 
 class UpdatePromptingGuidanceRequest(BaseModel):

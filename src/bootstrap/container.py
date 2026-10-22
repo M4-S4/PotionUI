@@ -1255,6 +1255,8 @@ def build_container() -> AppContainer:
         snapshot = generation_orchestrator.queue.snapshot()
         return bool(snapshot["pending"]) or any(snapshot["running"].values())
 
+    from src.features.models.indexing_governor import local_generation_probe, local_native_backend_ids
+
     model_index_manager = build_model_index_collaborators(
         model_repository=model_repository,
         tag_repository=tag_repository,
@@ -1267,7 +1269,12 @@ def build_container() -> AppContainer:
         attribute_definition_repository=attribute_definition_repository,
         user_attribute_repository=user_model_attribute_repository,
         backend_registry=backend_registry,
+        generation_busy=local_generation_probe(
+            generation_status_tracker, lambda: local_native_backend_ids(backend_registry)
+        ),
     )
+
+    backend_registry.bind_model_digests(model_index_manager.digests)
 
     model_roots_manager = ModelRootsManager(
         repository=model_root_repository,
@@ -1294,6 +1301,7 @@ def build_container() -> AppContainer:
     model_collection_controller = ModelCollectionController(model_collection_repository, model_smart_counts)
 
     download_queue.local_model_indexer = model_index_manager.indexing.index_downloaded
+    download_queue.verify_throttle = model_index_manager.indexing.scanner.governor.verification_throttle
     output_processor.model_file_indexer = model_index_manager.indexing.index_downloaded
 
     model_controller = ModelController(
@@ -1530,6 +1538,7 @@ def build_container() -> AppContainer:
         recipe_catalog,
         model_repository,
         download_queue=download_queue,
+        digests=model_index_manager.digests,
     )
     preset_controller = PresetController(
         preset_collaborators, backend_registry, media_store,
@@ -1556,8 +1565,9 @@ def build_container() -> AppContainer:
         backend_model_indexer=backend_model_indexer,
         download_queue=download_queue,
         step_kind_registry=recipe_step_kind_registry,
-        model_scanner=model_index_manager.indexing.scanner,
+        indexing_coordinator=model_index_manager.indexing,
         type_manager=model_index_manager.types,
+        digests=model_index_manager.digests,
     )
     # `workspace.activate` is the first-run wizard's own step, so setup - not
     # recipes - contributes it. Recipes mark it `onboarding_only`, so an admin

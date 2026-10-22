@@ -41,6 +41,7 @@ def app(lib):
     admin = Mock(id="admin-1")
     fastapi_app.dependency_overrides[get_current_admin_user] = lambda: admin
     fastapi_app.dependency_overrides[get_current_active_user] = lambda: admin
+    fastapi_app.state.types = types
     return fastapi_app
 
 
@@ -152,6 +153,26 @@ async def test_a_model_without_a_hash_is_unprocessable(app, mock_db):
 
     assert put.status_code == 422
     assert delete.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_a_model_that_is_still_being_hashed_answers_with_a_pending_digest_and_changes_nothing(app, mock_db):
+    bare = model_repo.create(Model(filename="bare.safetensors", model_type="lora"))
+    pending = {"state": "queued", "eta_seconds": 12}
+
+    class Digests:
+        def request_digest(self, model_id):
+            return pending
+
+    app.state.types.attach_digests(Digests())
+
+    async with client_for(app) as client:
+        response = await client.put(f"/api/models/{bare.id}/type", json={"model_type": "checkpoint"})
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["digest_pending"] == pending
+    assert data["model"]["model_type"] == "lora"
 
 
 @pytest.mark.asyncio

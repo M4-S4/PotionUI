@@ -1,6 +1,7 @@
 import type { ReadinessArea, ReadinessCheck, ReadinessReport, ReadinessStatus } from '$lib/services/api/setup';
 
 const INDEXING_CODES = new Set(['MODELS_INDEXING', 'RECIPE_MODELS_INDEXING']);
+const VERIFYING_CODES = new Set(['RECIPE_MODELS_VERIFYING']);
 
 /** Badge variant per readiness status - semantic tokens only. */
 export function readinessBadgeVariant(status: ReadinessStatus): 'success' | 'warning' | 'danger' | 'info' {
@@ -10,12 +11,13 @@ export function readinessBadgeVariant(status: ReadinessStatus): 'success' | 'war
 }
 
 export function readinessCheckBadgeVariant(check: ReadinessCheck): 'success' | 'warning' | 'danger' | 'info' {
-	if (INDEXING_CODES.has(check.code)) return 'info';
+	if (INDEXING_CODES.has(check.code) || VERIFYING_CODES.has(check.code)) return 'info';
 	return readinessBadgeVariant(check.status);
 }
 
 export function readinessCheckStatusLabel(check: ReadinessCheck): string {
 	if (INDEXING_CODES.has(check.code)) return 'indexing';
+	if (VERIFYING_CODES.has(check.code)) return 'checking';
 	return check.status.replace('_', ' ');
 }
 

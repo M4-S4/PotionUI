@@ -30,6 +30,8 @@
 	import ModelOtherVariants from '$lib/components/recipes/ModelOtherVariants.svelte';
 	import { createAdminModelDetailsController } from '$lib/components/modals/model-details/modelDetailsController';
 	import { overviewDraftFromModel, overviewDraftIsDirty, type ModelOverviewDraft } from './modelOverviewDraft';
+	import { createDigestWatch, type DigestWatch } from './modelDigestWatch';
+	import { formatEtaAbout } from '$lib/models-location/indexingDisplay';
 	import ModelScopeSection from './ModelScopeSection.svelte';
 	import AssignmentCard from '$lib/components/assignment/AssignmentCard.svelte';
 	import { createModelAssignmentAdapter } from '$lib/components/assignment/modelAssignmentAdapter';
@@ -43,13 +45,15 @@
 		onBack,
 		onDeleted,
 		onAssignChanged,
-		onTypeChanged
+		onTypeChanged,
+		onMerged
 	}: {
 		modelId: string;
 		onBack: () => void;
 		onDeleted: () => void;
 		onAssignChanged: (change: { userCount: number; groupCount: number }) => void;
 		onTypeChanged?: () => void;
+		onMerged?: (ownerId: string) => void;
 	} = $props();
 
 	let activeTab = $state<DetailTab>('overview');
@@ -107,6 +111,57 @@
 	const typeChange = $derived(typeChangeFromDraft(typeDraft, currentType));
 	const typeIsAssertion = $derived(typeSourceIsAssertion($model?.type_info));
 	const typeLocked = $derived(!$model?.sha256 || !!$model?.is_directory);
+	const awaitingDigest = $derived(!!$model && !$model.sha256 && !$model.is_directory && !modelIsCloud($model));
+	let verifying = $state(false);
+	let verifyFailed = $state(false);
+	let verifyEta = $state<number | null>(null);
+	let activeWatch: DigestWatch | null = null;
+
+	$effect(() => {
+		const id = currentModelId;
+		verifying = false;
+		verifyFailed = false;
+		verifyEta = null;
+		if (!id || !awaitingDigest) return;
+		verifying = true;
+		const watch = createDigestWatch({
+			request: async (retry) => {
+				const response = await api.requestModelDigest(id, { retry });
+				return response.success && response.data ? response.data : null;
+			},
+			onProgress: (eta) => (verifyEta = eta),
+			onReady: (mergedInto) => {
+				verifying = false;
+				if (mergedInto && mergedInto !== id) onMerged?.(mergedInto);
+				else void controller.refresh(id);
+			},
+			onFailed: (failure) => {
+				verifying = false;
+				verifyFailed = failure.reason === 'failed';
+				logger.error('Checking the model file failed:', failure.reason, failure.reason === 'request' ? failure.error : undefined);
+				typeError =
+					failure.reason === 'timeout'
+						? 'Checking this file is taking longer than expected. Reopen this page to try again.'
+						: 'This file could not be checked, so its type cannot be set yet.';
+			}
+		});
+		activeWatch = watch;
+		watch.start();
+		return () => {
+			watch.stop();
+			if (activeWatch === watch) activeWatch = null;
+		};
+	});
+
+	function retryVerify() {
+		if (!activeWatch) return;
+		typeError = null;
+		verifyFailed = false;
+		verifyEta = null;
+		verifying = true;
+		activeWatch.start({ retry: true });
+	}
+
 	const typeSelectOptions = $derived(typeOptions(currentType));
 	const isCloud = $derived(modelIsCloud($model));
 	let scopeRef: ModelScopeSection | undefined = $state();
@@ -327,7 +382,20 @@
 						<DetailSection label="Model type">
 							<div class="space-y-3">
 								<DetailField label="Type" id="model-type" error={typeError} wide>
-									{#if typeLocked}
+									{#if verifying}
+										{@render typeSelect()}
+										<p class="mt-2 flex items-center gap-2 text-sm text-fg-muted" aria-live="polite">
+											<Spinner size="sm" />
+											<span>
+												Verifying this file…{verifyEta == null ? '' : ` ${formatEtaAbout(verifyEta)} left`}
+											</span>
+										</p>
+									{:else if verifyFailed}
+										{@render typeSelect()}
+										<div class="mt-2">
+											<Button variant="secondary" size="sm" icon="refresh" onclick={retryVerify}>Try again</Button>
+										</div>
+									{:else if typeLocked}
 										<Tooltip
 											text="This model has no content hash yet, so its type cannot be set"
 											position="top"

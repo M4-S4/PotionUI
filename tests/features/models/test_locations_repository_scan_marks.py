@@ -43,6 +43,19 @@ def test_confirm_present_touches_and_adopts_only_the_listed_rows(mock_db):
     assert _state(binding_id, "other.safetensors") == ("present", 10, SEEN_BEFORE)
 
 
+def test_confirm_present_does_not_flip_a_row_the_digest_pool_marked_as_a_conflict(mock_db):
+    binding_id = _binding()
+    _row(binding_id, "touched.safetensors", status="conflict")
+    _row(binding_id, "adopted.safetensors", mtime_ns=None, status="conflict")
+
+    ModelLocationsRepository().confirm_present(
+        binding_id, ["touched.safetensors"], [("adopted.safetensors", 77)], SEEN_NOW,
+    )
+
+    assert _state(binding_id, "touched.safetensors") == ("conflict", 10, SEEN_BEFORE)
+    assert _state(binding_id, "adopted.safetensors") == ("conflict", None, SEEN_BEFORE)
+
+
 def test_mark_missing_keeps_every_present_key_past_the_sql_variable_limit(mock_db):
     with mock_db.get_connection() as conn:
         conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 32_766)

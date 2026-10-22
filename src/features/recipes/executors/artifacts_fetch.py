@@ -28,7 +28,11 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.features.models.repository import ModelRepository
-from src.features.recipes.executors._artifact_lookup import find_artifact_model, find_slot_model
+from src.features.recipes.executors._artifact_lookup import (
+    find_artifact_model,
+    find_slot_model,
+    same_size_candidates,
+)
 from src.features.recipes.executors._async_bridge import run_sync
 from src.features.recipes.executors._provider_credentials import (
     credential_prompt_for_provider,
@@ -104,10 +108,12 @@ class ArtifactsFetchExecutor:
         model_repository: ModelRepository,
         provider_registry_factory=None,
         type_manager=None,
+        digests=None,
     ):
         self.download_queue = download_queue
         self.model_repository = model_repository
         self._type_manager = type_manager
+        self._digests = digests
         # Lazy/optional: resolving the provider registry needs async
         # discovery/init this constructor shouldn't force (see
         # `src.features.providers.registry.ensure_providers_discovered`).
@@ -130,7 +136,7 @@ class ArtifactsFetchExecutor:
                     "ARTIFACTS_FETCH_MISCONFIGURED",
                     f"This step references an artifact ('{artifact_id}') the recipe doesn't declare.",
                 )
-            target = self._target(artifact, context.selections.get(artifact_id))
+            target = self._target(artifact, context.selections.get(artifact_id), context.report_progress)
             if target is not None:
                 to_fetch.append(target)
 
@@ -201,14 +207,36 @@ class ArtifactsFetchExecutor:
     def _get_provider_registry(self):
         return resolve_provider_registry(self._provider_registry_factory)
 
-    def _target(self, artifact, variant_id: Optional[str]):
+    def _target(self, artifact, variant_id: Optional[str], report: Optional[Callable[..., None]] = None):
         if artifact.variants and artifact.get_variant(variant_id) is None:
-            if find_slot_model(self.model_repository, artifact, type_manager=self._type_manager) is not None:
+            found = find_slot_model(
+                self.model_repository, artifact, type_manager=self._type_manager,
+                digests=self._digests, hash_candidates="never",
+            )
+            if found is not None:
                 return None
         resolved = resolve_selection(artifact, variant_id)
-        if find_artifact_model(self.model_repository, resolved, self._type_manager) is not None:
+        if find_artifact_model(
+            self.model_repository, resolved, self._type_manager, self._digests, "never"
+        ) is not None:
+            return None
+        if self._verified_among_candidates(resolved, report):
             return None
         return resolved
+
+    def _verified_among_candidates(self, resolved, report: Optional[Callable[..., None]]) -> bool:
+        if not same_size_candidates(resolved, self._digests):
+            return False
+
+        def progress(checked: int, total: int) -> None:
+            report(progress_current=checked, progress_total=total, progress_unit="files")
+
+        self._digests.find_by_digest(
+            resolved.checksum.value, resolved.size_bytes, "paced", on_progress=progress if report is not None else None
+        )
+        return find_artifact_model(
+            self.model_repository, resolved, self._type_manager, self._digests, "never"
+        ) is not None
 
     def _auth_repair_hint(self, artifact, message: str) -> Optional[str]:
         """A concrete repair suggestion when `message` looks like a missing-

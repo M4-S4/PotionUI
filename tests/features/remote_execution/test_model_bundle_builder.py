@@ -69,6 +69,26 @@ class FakeModelRepository:
         return False
 
 
+class FakeDigests:
+    def __init__(self, repo: "FakeModelRepository", locator: "FakeModelLocator", unreadable: bool = False):
+        self._repo = repo
+        self._locator = locator
+        self._unreadable = unreadable
+        self.ensure_calls: list = []
+
+    def ensure_digest(self, model_id: str, timeout=None) -> Optional[str]:
+        self.ensure_calls.append(model_id)
+        if self._unreadable:
+            return None
+        path = self._locator.path_for_model(model_id)
+        sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        for fields in list(self._repo.rows.values()) + list(self._repo.identity_rows.values()):
+            if fields.get("id") == model_id:
+                fields["sha256"] = sha256
+                fields["file_size"] = path.stat().st_size
+        return sha256
+
+
 class FakeModelLocator:
     def __init__(self, repo: FakeModelRepository):
         self._repo = repo
@@ -90,8 +110,12 @@ def _pipe(pipe_id: str, config: dict) -> ProcessedPipeV1:
     return ProcessedPipeV1(pipe_id=pipe_id, pipe_type="model_loader", enabled=True, config=config, inputs={})
 
 
-def _bundle(pipes, repo: FakeModelRepository):
-    return build_model_bundle(pipes, model_repository=repo, model_locator=FakeModelLocator(repo))
+def _bundle(pipes, repo: FakeModelRepository, with_digests: bool = True, unreadable: bool = False):
+    locator = FakeModelLocator(repo)
+    digests = FakeDigests(repo, locator, unreadable) if with_digests else None
+    bundle = build_model_bundle(pipes, model_repository=repo, model_locator=locator, digests=digests)
+    repo.last_digests = digests
+    return bundle
 
 
 class TestEmptyPipeline(unittest.TestCase):
@@ -265,7 +289,7 @@ class TestMissingDigest(unittest.TestCase):
         self.assertEqual(len(bundle.entries), 1)
         self.assertEqual(bundle.entries[0].digest.hex, expected_digest)
         self.assertEqual(bundle.entries[0].size_bytes, len(b"checkpoint bytes"))
-        self.assertEqual(repo.digest_writes, [("m-nd", expected_digest, len(b"checkpoint bytes"))])
+        self.assertEqual(repo.last_digests.ensure_calls, ["m-nd"])
 
     def test_a_second_build_does_not_rehash_an_already_digested_model(self):
         fd, path = tempfile.mkstemp()
@@ -281,9 +305,11 @@ class TestMissingDigest(unittest.TestCase):
         pipe = _pipe("p1", {"diffusion_model": {"file_path": path}})
 
         _bundle([pipe], repo)
+        first_calls = list(repo.last_digests.ensure_calls)
         _bundle([pipe], repo)
 
-        self.assertEqual(len(repo.digest_writes), 1)
+        self.assertEqual(first_calls, ["m-nd"])
+        self.assertEqual(repo.last_digests.ensure_calls, [])
 
     def test_a_missing_digest_for_a_file_absent_on_disk_still_refuses(self):
         repo = FakeModelRepository()
@@ -297,6 +323,45 @@ class TestMissingDigest(unittest.TestCase):
             _bundle([pipe], repo)
         self.assertIn("no local file to hash", str(ctx.exception))
         self.assertEqual(repo.digest_writes, [])
+
+    def test_a_missing_digest_with_no_digest_service_refuses_plainly(self):
+        fd, path = tempfile.mkstemp()
+        self.addCleanup(os.remove, path)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(b"checkpoint bytes")
+        repo = FakeModelRepository()
+        repo.register(path, id="m-nd", filename="no_digest.safetensors", model_type="checkpoint", sha256=None, file_size=None)
+
+        with self.assertRaises(ModelBundleResolutionError) as ctx:
+            _bundle([_pipe("p1", {"diffusion_model": {"file_path": path}})], repo, with_digests=False)
+        self.assertIn("no digest service", str(ctx.exception))
+
+    def test_a_file_the_digest_service_cannot_read_refuses_and_names_the_path(self):
+        fd, path = tempfile.mkstemp()
+        self.addCleanup(os.remove, path)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(b"checkpoint bytes")
+        repo = FakeModelRepository()
+        repo.register(path, id="m-nd", filename="no_digest.safetensors", model_type="checkpoint", sha256=None, file_size=None)
+
+        with self.assertRaises(ModelBundleResolutionError) as ctx:
+            _bundle([_pipe("p1", {"diffusion_model": {"file_path": path}})], repo, unreadable=True)
+        self.assertIn("could not be hashed", str(ctx.exception))
+        self.assertIn(path, str(ctx.exception))
+
+    def test_a_model_with_a_digest_but_no_recorded_size_gets_its_size_without_a_second_hash(self):
+        fd, path = tempfile.mkstemp()
+        self.addCleanup(os.remove, path)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(b"checkpoint bytes")
+        repo = FakeModelRepository()
+        repo.register(path, id="m-ds", filename="x.safetensors", model_type="checkpoint", sha256="e" * 64, file_size=None)
+
+        bundle = _bundle([_pipe("p1", {"diffusion_model": {"file_path": path}})], repo)
+
+        self.assertEqual(bundle.entries[0].size_bytes, len(b"checkpoint bytes"))
+        self.assertEqual(repo.last_digests.ensure_calls, [])
+        self.assertEqual(repo.digest_writes, [("m-ds", "e" * 64, len(b"checkpoint bytes"))])
 
     def test_a_directory_layout_model_fails_loudly_rather_than_a_wrong_entry(self):
         repo = FakeModelRepository()

@@ -120,13 +120,17 @@ def get_model_provider_info(model_id: str, provider: Optional[str] = None) -> Op
     }
 
 
-def model_for_sha256(sha256: str, *, admin: bool = False) -> Optional[Dict[str, Any]]:
-    """The catalog model with this SHA256 (any case), as `model_for_path` returns
-    it, or None. Unscoped: check `visible_model_ids` before showing it to a
-    non-admin, and `admin=True` only for a caller that has checked the user is one."""
+def model_for_sha256(
+    sha256: str, *, size: Optional[int] = None, hash_candidates: str = "background", admin: bool = False
+) -> Optional[Dict[str, Any]]:
     if not sha256:
         return None
-    model = get_container().model_repository.get_by_sha256(sha256.strip().lower(), include_providers=False)
+    container = get_container()
+    wanted = sha256.strip().lower()
+    if size:
+        model = container.model_index_manager.digests.find_by_digest(wanted, size, hash_candidates).model
+    else:
+        model = container.model_repository.get_by_sha256(wanted, include_providers=False)
     return model.to_dict(include_providers=False, admin=admin) if model is not None else None
 
 

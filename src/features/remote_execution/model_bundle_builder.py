@@ -8,16 +8,16 @@ module, nothing turned that set of paths into the
 :class:`~src.platform.worker_protocol.ModelBundleManifestV1` an execution
 package carries - ``RemoteNativeBackend`` sent an always-empty one.
 
-A model with no recorded digest gets hashed here, once, and the digest is
-persisted so later dispatches skip straight to the recorded value. This
-function does blocking file I/O - the caller runs it off the event loop.
+A model with no recorded digest gets hashed here, once, through the digest
+service, which records it so later dispatches skip straight to the stored
+value. This function blocks while a file is hashed - the caller runs it off
+the event loop.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Optional, Sequence, Tuple
 
 from src.features.models.locator import ModelFileUnavailable, ModelLocator
@@ -48,6 +48,7 @@ def build_model_bundle(
     *,
     model_repository: Optional[ModelRepository] = None,
     model_locator: ModelLocator,
+    digests: Optional[Any] = None,
 ) -> ModelBundleManifestV1:
     """The bundle for every model file ``processed_pipes`` actually references.
 
@@ -75,7 +76,7 @@ def build_model_bundle(
             if file_path in seen_paths:
                 continue
             seen_paths.add(file_path)
-            entry = _entry_for(file_path, repo, model_locator)
+            entry = _entry_for(file_path, repo, model_locator, digests)
             entries[entry.logical_id] = entry
 
     return build_bundle_manifest(entries.values())
@@ -118,7 +119,9 @@ def _is_disabled(entry: Dict[str, Any]) -> bool:
         return False
 
 
-def _entry_for(file_path: str, repo: ModelRepository, locator: ModelLocator) -> ModelBundleEntryV1:
+def _entry_for(
+    file_path: str, repo: ModelRepository, locator: ModelLocator, digests: Optional[Any]
+) -> ModelBundleEntryV1:
     model: Optional[Model] = locator.model_for_path(file_path)
     if model is None:
         model = _by_identity(file_path, repo)
@@ -127,7 +130,7 @@ def _entry_for(file_path: str, repo: ModelRepository, locator: ModelLocator) -> 
             f"Pipeline references model file {file_path!r}, which is not indexed. "
             "Re-index its location before dispatching to a remote worker."
         )
-    return resolve_bundle_entry(model, repo, locator)
+    return resolve_bundle_entry(model, repo, locator, digests)
 
 
 def _by_identity(file_path: str, repo: ModelRepository) -> Optional[Model]:
@@ -147,7 +150,9 @@ def _by_identity(file_path: str, repo: ModelRepository) -> Optional[Model]:
     return repo.get_by_identity(model_type, parts[1], include_providers=False)
 
 
-def resolve_bundle_entry(model: Model, repo: ModelRepository, locator: ModelLocator) -> ModelBundleEntryV1:
+def resolve_bundle_entry(
+    model: Model, repo: ModelRepository, locator: ModelLocator, digests: Optional[Any] = None
+) -> ModelBundleEntryV1:
     """The bundle entry for an already-resolved model row, hashing it on
     demand if it has never been hashed. Shared by pipeline bundling
     (`_entry_for`) and the admin model-push op, which resolves a model by id
@@ -167,7 +172,7 @@ def resolve_bundle_entry(model: Model, repo: ModelRepository, locator: ModelLoca
             "entries, not a single-file digest."
         )
     if not model.sha256 or model.file_size is None:
-        model.sha256, model.file_size = _hash_and_persist(model, repo, locator)
+        model.sha256, model.file_size = _ensure_digest_and_size(model, repo, locator, digests)
 
     role = model.model_type or "unknown"
     directory = MODEL_TYPE_TO_DIRECTORY.get(role, role)
@@ -180,7 +185,9 @@ def resolve_bundle_entry(model: Model, repo: ModelRepository, locator: ModelLoca
     )
 
 
-def _hash_and_persist(model: Model, repo: ModelRepository, locator: ModelLocator) -> Tuple[str, int]:
+def _ensure_digest_and_size(
+    model: Model, repo: ModelRepository, locator: ModelLocator, digests: Optional[Any]
+) -> Tuple[str, int]:
     try:
         path = locator.path_for_model(model.id)
     except ModelFileUnavailable as exc:
@@ -189,15 +196,21 @@ def _hash_and_persist(model: Model, repo: ModelRepository, locator: ModelLocator
             f"({exc.reason}) - re-fetch it via the Downloader, or re-index the backend once "
             "the worker has a digest for it."
         ) from exc
-    sha256 = _hash_file(path)
+    sha256 = model.sha256
+    if not sha256:
+        if digests is None:
+            raise ModelBundleResolutionError(
+                f"Model {model.filename!r} has no recorded digest and no digest service to make one."
+            )
+        sha256 = digests.ensure_digest(model.id)
+        if not sha256:
+            raise ModelBundleResolutionError(
+                f"Model {model.filename!r} could not be hashed ({path}) - check that the file is readable."
+            )
     file_size = path.stat().st_size
-    repo.update_digest(model.id, sha256=sha256, file_size=file_size)
+    if model.file_size != file_size:
+        repo.update_digest(model.id, sha256=sha256, file_size=file_size)
     return sha256, file_size
-
-
-def _hash_file(path: Path) -> str:
-    with path.open("rb") as handle:
-        return hashlib.file_digest(handle, _DIGEST_ALGORITHM).hexdigest()
 
 
 def _bundle_digest(entries: Tuple[ModelBundleEntryV1, ...]) -> ContentDigest:

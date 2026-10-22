@@ -300,3 +300,7 @@ def test_metadata_edits_skip_rules_that_never_read_metadata(lib, manager, seed):
 
 def test_worker_listens_to_metadata_edits():
     assert HOOK_EVENTS["model_index.after_update_metadata"] == ("model_metadata_changed", ("model_id", "user_id"))
+
+
+def test_worker_re_evaluates_models_when_their_digests_arrive_like_after_an_index_pass():
+    assert HOOK_EVENTS["model_index.after_digests"] == HOOK_EVENTS["model_index.after_index"] == ("models_indexed", ())

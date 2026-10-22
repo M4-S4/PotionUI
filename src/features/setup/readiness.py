@@ -38,7 +38,7 @@ repository) plus a trivial DB/migration sanity check.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from pydantic import BaseModel
 
@@ -133,6 +133,7 @@ class ReadinessAggregator:
         instance_claim_repository: "InstanceClaimRepository",
         recipe_catalog: Optional["RecipeCatalog"] = None,
         model_indexing_coordinator: Optional["ModelIndexingCoordinator"] = None,
+        model_digests: Optional[Any] = None,
     ):
         self.backend_registry = backend_registry
         self.preset_collaborators = preset_collaborators
@@ -142,6 +143,7 @@ class ReadinessAggregator:
         self.instance_claim_repository = instance_claim_repository
         self.recipe_catalog = recipe_catalog
         self.model_indexing_coordinator = model_indexing_coordinator
+        self.model_digests = model_digests
 
     def _indexing_progress(self) -> Optional[dict]:
         if self.model_indexing_coordinator is None:
@@ -362,13 +364,20 @@ class ReadinessAggregator:
                 user_message="This recipe isn't available.",
             )
 
-        from src.features.recipes.executors._artifact_lookup import find_slot_model
+        from src.features.recipes.executors._artifact_lookup import (
+            find_slot_model,
+            slot_candidate_counts,
+        )
 
-        missing_artifacts = [
-            artifact.display_name or artifact.filename
+        missing = [
+            artifact
             for artifact in recipe.artifacts
-            if artifact.required and find_slot_model(self.model_repository, artifact) is None
+            if artifact.required
+            and find_slot_model(
+                self.model_repository, artifact, digests=self.model_digests, hash_candidates="never"
+            ) is None
         ]
+        missing_artifacts = [artifact.display_name or artifact.filename for artifact in missing]
         if missing_artifacts:
             indexing = self._indexing_progress()
             if indexing is not None:
@@ -385,11 +394,33 @@ class ReadinessAggregator:
                         f"({indexing['processed']}/{indexing['total']}). Check back shortly."
                     ),
                 )
+            counts = [slot_candidate_counts(artifact, self.model_digests) for artifact in missing]
+            candidates = sum(item[0] for item in counts)
+            verifying = sum(item[1] for item in counts)
+            if verifying:
+                noun = "file that may be one of them is" if verifying == 1 else "files that may be them are"
+                return _Row(
+                    area=area,
+                    status=DEGRADED,
+                    code="RECIPE_MODELS_VERIFYING",
+                    admin_message=(
+                        f"{verifying} {noun} being verified, so {_format_missing(missing_artifacts)} "
+                        "cannot be ruled out yet - check back shortly."
+                    ),
+                    user_message="This recipe's models are still being checked. Check back shortly.",
+                )
+            unchecked = (
+                f" {candidates} file{'s' if candidates != 1 else ''} of the same size "
+                f"{'exist' if candidates != 1 else 'exists'} but {'have' if candidates != 1 else 'has'} not "
+                "been compared yet."
+                if candidates
+                else ""
+            )
             return _Row(
                 area=area,
                 status=NOT_READY,
                 code="RECIPE_MODELS_MISSING",
-                admin_message=f"This recipe is missing {_format_missing(missing_artifacts)}.",
+                admin_message=f"This recipe is missing {_format_missing(missing_artifacts)}.{unchecked}",
                 user_message="This recipe is missing models it needs.",
                 admin_action="Run this recipe from Administration -> Recipes.",
             )
@@ -470,4 +501,5 @@ def build_readiness_aggregator(container) -> ReadinessAggregator:
         migration_runner=container.migration_runner,
         recipe_catalog=getattr(container, "recipe_catalog", None),
         model_indexing_coordinator=getattr(model_index_manager, "indexing", None),
+        model_digests=getattr(model_index_manager, "digests", None),
     )

@@ -20,7 +20,7 @@ import hashlib
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable, Optional, Dict, List, TYPE_CHECKING
+from typing import Any, Callable, Optional, Dict, List, Tuple, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from src.features.downloads.exceptions import DownloadAuthenticationException
@@ -107,6 +107,7 @@ class DownloadWorker:
         worker_transport_override=None,
         resolver: Optional["ModelRootResolver"] = None,
         local_model_indexer: Optional[Callable[[str], Dict[str, Any]]] = None,
+        verify_throttle: Optional[Callable[[], Any]] = None,
         plugin_registry: Optional["PluginRegistry"] = None,
     ):
         """Initialize download worker.
@@ -140,6 +141,7 @@ class DownloadWorker:
         self._worker_transport_override = worker_transport_override
         self.resolver = resolver
         self.local_model_indexer = local_model_indexer
+        self.verify_throttle = verify_throttle
         self.plugins = plugin_registry
 
         # Worker management
@@ -1035,6 +1037,25 @@ class DownloadWorker:
                     f'{parent.filename} has been downloaded successfully'
                 )
 
+    @staticmethod
+    def _seed_hash_cache(destination_path: str, digest: str, size: int, mtime_ns: int) -> None:
+        try:
+            from src.features.models.hash_cache_repository import model_hash_cache_repo
+
+            model_hash_cache_repo.put(str(Path(destination_path)), size, mtime_ns, digest)
+        except Exception as e:
+            logger.debug(f"Could not seed the model hash cache for {destination_path}: {e}")
+
+    @staticmethod
+    def _hash_for_verification(path: str, pacing: Optional[Any]) -> Tuple[str, os.stat_result]:
+        from src.features.models.file_digest import read_chunks
+
+        before = os.stat(path)
+        digest = hashlib.sha256()
+        for chunk in read_chunks(path, pacing=pacing):
+            digest.update(chunk)
+        return digest.hexdigest().lower(), before
+
     async def _verify_checksum(self, download: Download) -> bool:
         """Verify SHA256 checksum of downloaded file.
 
@@ -1050,8 +1071,10 @@ class DownloadWorker:
         logger.info(f"Verifying checksum for {download.filename}")
 
         try:
-            with open(download.destination_path, 'rb') as f:
-                calculated = hashlib.file_digest(f, "sha256").hexdigest().lower()
+            pacing = self.verify_throttle() if self.verify_throttle is not None else None
+            calculated, before = await asyncio.to_thread(
+                self._hash_for_verification, download.destination_path, pacing
+            )
 
             expected = download.checksum_sha256.lower()
 
@@ -1060,6 +1083,7 @@ class DownloadWorker:
                 return False
 
             logger.info(f"Checksum verified for {download.filename}")
+            self._seed_hash_cache(download.destination_path, calculated, before.st_size, before.st_mtime_ns)
             return True
 
         except Exception as e:

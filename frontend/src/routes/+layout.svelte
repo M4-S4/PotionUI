@@ -17,6 +17,7 @@
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
+	import IndexingChoiceModal from '$lib/models-location/IndexingChoiceModal.svelte';
 	import AccountSwitchOverlay from '$lib/components/accounts/AccountSwitchOverlay.svelte';
 	import { initCrossTab } from '$lib/stores/accounts';
 	import { notifications } from '$lib/stores/notifications';
@@ -317,6 +318,7 @@
 		{#if NotificationPanelComponent}<svelte:component this={NotificationPanelComponent} />{/if}
 		<ToastContainer />
 		<ConfirmHost />
+		<IndexingChoiceModal />
 		<AccountSwitchOverlay />
 	</div>
 {:else}

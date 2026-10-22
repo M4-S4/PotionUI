@@ -382,7 +382,7 @@ class BackendController(BaseController):
                     message="Native model indexing is not wired up on this controller",
                     status_code=400,
                 )
-            self.model_indexing_coordinator.cancel_and_restart(trigger="admin_reindex")
+            self.model_indexing_coordinator.rescan(trigger="admin_reindex")
             return self.success_response(
                 data=self.model_indexing_coordinator.status(),
                 message=f"Started rescanning model roots for '{backend.name}'",

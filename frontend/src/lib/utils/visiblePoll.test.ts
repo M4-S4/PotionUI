@@ -102,4 +102,23 @@ describe('createVisiblePoll', () => {
 
 		removeSpy.mockRestore();
 	});
+
+	it('asks a function interval for the delay before every tick', async () => {
+		const delays = [1000, 3000, 500];
+		const fn = vi.fn().mockResolvedValue(undefined);
+		const poll = createVisiblePoll(fn, () => delays.shift() ?? 500);
+
+		poll.start();
+		await vi.advanceTimersByTimeAsync(999);
+		expect(fn).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(1);
+		expect(fn).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(2999);
+		expect(fn).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(fn).toHaveBeenCalledTimes(2);
+
+		poll.stop();
+	});
 });

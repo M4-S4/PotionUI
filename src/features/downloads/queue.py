@@ -106,6 +106,7 @@ class DownloadQueue:
         self.backend_model_indexer = backend_model_indexer
         self.resolver = resolver
         self.local_model_indexer: Optional[Callable[[str], Dict[str, Any]]] = None
+        self.verify_throttle: Optional[Callable[[], Any]] = None
         self.settings = DownloadSettings()
         self._load_settings()
         self.worker: Optional[DownloadWorker] = None
@@ -157,6 +158,7 @@ class DownloadQueue:
             backend_model_indexer=self.backend_model_indexer,
             resolver=self.resolver,
             local_model_indexer=self.local_model_indexer,
+            verify_throttle=self.verify_throttle,
             plugin_registry=self.plugins,
         )
         self._worker_loop = self._persistent_loop.ensure_running()

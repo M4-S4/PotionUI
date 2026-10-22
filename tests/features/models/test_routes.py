@@ -229,13 +229,13 @@ class TestModelControllerIndexingEndpoints:
     async def test_index_models_returns_the_run_status(
         self, controller, mock_index_manager
     ):
-        mock_index_manager.indexing.start_indexing.return_value = {"state": "scanning", "trigger": "manual"}
+        mock_index_manager.indexing.rescan.return_value = {"state": "scanning", "trigger": "manual"}
 
         result = await controller.index_models()
 
         assert result.success is True
         assert result.data["state"] == "scanning"
-        mock_index_manager.indexing.start_indexing.assert_called_once_with(trigger="manual")
+        mock_index_manager.indexing.rescan.assert_called_once_with("manual")
 
     @pytest.mark.asyncio
     async def test_index_models_reports_a_veto_as_blocked(
@@ -243,7 +243,7 @@ class TestModelControllerIndexingEndpoints:
     ):
         from src.features.models.exceptions import ModelIndexingException
 
-        mock_index_manager.indexing.start_indexing.side_effect = ModelIndexingException("maintenance window")
+        mock_index_manager.indexing.rescan.side_effect = ModelIndexingException("maintenance window")
 
         result = await controller.index_models()
 

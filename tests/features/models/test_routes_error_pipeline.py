@@ -53,7 +53,7 @@ async def test_an_unexpected_failure_shows_an_admin_the_scrubbed_text(controller
 
 
 async def test_one_exception_class_keeps_a_different_code_per_endpoint(controller, monkeypatch):
-    monkeypatch.setattr(routes.operations, "start_indexing", Mock(side_effect=ModelIndexingException("busy")))
+    monkeypatch.setattr(routes.operations, "rescan_indexing", Mock(side_effect=ModelIndexingException("busy")))
     monkeypatch.setattr(routes.operations, "delete_model", Mock(side_effect=ModelIndexingException("in use")))
 
     started = await controller.index_models()

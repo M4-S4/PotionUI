@@ -35,6 +35,8 @@ from src.features.models.dto import (
     UserModelAssignmentRequest,
     ModelFavoriteRequest,
     ModelLibraryNameRequest,
+    IndexingDigestsRequest,
+    IndexingSettingsRequest,
 )
 from src.features.models import (
     ModelIndexCollaborators,
@@ -50,6 +52,7 @@ from src.features.models import (
 from src.features.downloads.exceptions import DownloadNotFoundException
 from src.features.models import operations
 from src.features.models.exceptions import (
+    ModelDigestUnavailableException,
     InvalidModelTypeException,
     ModelTypeConflictException,
     ModelTypeNotAssignableException,
@@ -321,7 +324,52 @@ class ModelController(BaseController):
         Fail("indexing_failed", "Failed to start indexing", detail=failure_detail),
     )
     async def index_models(self) -> APIResponse:
-        data = operations.start_indexing(self.collaborators, trigger="manual")
+        data = operations.rescan_indexing(self.collaborators, trigger="manual")
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("indexing_settings_failed", "Failed to update indexing settings", detail=failure_detail))
+    async def update_indexing_settings(self, request: IndexingSettingsRequest) -> APIResponse:
+        data = await asyncio.to_thread(
+            operations.update_indexing_settings, self.collaborators, request.level, request.policy
+        )
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("indexing_pause_failed", "Failed to pause indexing", detail=failure_detail))
+    async def pause_indexing(self) -> APIResponse:
+        data = await asyncio.to_thread(operations.pause_indexing, self.collaborators)
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("indexing_resume_failed", "Failed to resume indexing", detail=failure_detail))
+    async def resume_indexing(self) -> APIResponse:
+        data = await asyncio.to_thread(operations.resume_indexing, self.collaborators)
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("pending_digests_failed", "Failed to list the files waiting to be indexed", detail=failure_detail))
+    async def list_pending_digests(
+        self, query: str, model_type: Optional[str], root_id: Optional[str], offset: int, limit: int
+    ) -> APIResponse:
+        data = await asyncio.to_thread(
+            operations.list_pending_digests, self.collaborators, query, model_type, root_id, offset, limit
+        )
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("queue_digests_failed", "Failed to queue the files for indexing", detail=failure_detail))
+    async def queue_digests(self, request: IndexingDigestsRequest) -> APIResponse:
+        data = await asyncio.to_thread(
+            operations.queue_digests, self.collaborators, request.mode, request.model_ids, request.query,
+            request.model_type, request.exclude_model_ids,
+        )
+        return self.success_response(data=data)
+
+    @guarded(
+        {
+            ModelNotFoundException: Fail("model_not_found", status=404),
+            ModelDigestUnavailableException: Fail("model_digest_unavailable", status=422),
+        },
+        Fail("model_digest_failed", "Failed to request the content hash", detail=failure_detail),
+    )
+    async def request_model_digest(self, model_id: str, retry: bool = False) -> APIResponse:
+        data = await asyncio.to_thread(operations.request_model_digest, self.collaborators, model_id, retry)
         return self.success_response(data=data)
 
     @guarded(
@@ -918,6 +966,44 @@ def build_router(container: "AppContainer") -> APIRouter:
         return await controller.get_indexing_status()
 
 
+    @router.put("/indexing/settings", response_model=APIResponse, summary="Update Indexing Settings")
+    async def update_indexing_settings(
+        request: IndexingSettingsRequest,
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.update_indexing_settings(request)
+
+
+    @router.post("/indexing/pause", response_model=APIResponse, summary="Pause Background Indexing")
+    async def pause_indexing(current_user: User = Depends(get_current_admin_user)):
+        return await controller.pause_indexing()
+
+
+    @router.post("/indexing/resume", response_model=APIResponse, summary="Resume Background Indexing")
+    async def resume_indexing(current_user: User = Depends(get_current_admin_user)):
+        return await controller.resume_indexing()
+
+
+    @router.get("/indexing/pending", response_model=APIResponse, summary="List Files Waiting To Be Indexed")
+    async def list_pending_digests(
+        query: str = Query("", description="Case-insensitive filename substring"),
+        model_type: Optional[str] = Query(None, description="Only files of this model type"),
+        root_id: Optional[str] = Query(None, description="Only files under this model root"),
+        offset: int = Query(0, ge=0),
+        limit: int = Query(50, ge=1, le=200),
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.list_pending_digests(query, model_type, root_id, offset, limit)
+
+
+    @router.post("/indexing/digests", response_model=APIResponse, summary="Queue Files For Indexing")
+    async def queue_digests(
+        request: IndexingDigestsRequest,
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.queue_digests(request)
+
+
     # Static, so it must be registered before the "/{model_id}" catch-all below -
     # "attributes" would otherwise be dispatched to it as a model id.
     @router.get("/attributes", response_model=APIResponse, summary="List Attribute Definitions")
@@ -1118,6 +1204,15 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Update description for a model (admin only)."""
         return await controller.update_model_description(model_id, request)
+
+
+    @router.post("/{model_id}/digest", response_model=APIResponse, summary="Request A Model's Content Hash")
+    async def request_model_digest(
+        model_id: str,
+        retry: bool = Query(False, description="Try again a file that failed to be read"),
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.request_model_digest(model_id, retry)
 
 
     @router.put("/{model_id}/type", response_model=APIResponse, summary="Set Model Type")

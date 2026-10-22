@@ -449,6 +449,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
             except Exception as exc:
                 logging.error(f"Resuming interrupted model indexing failed at startup: {exc}")
 
+        container.model_index_manager.digests.start()
+
         asyncio.create_task(asyncio.to_thread(_resume_model_indexing))
 
         # Heartbeat for rented compute: a pod paused or deleted in the
@@ -469,6 +471,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
+        await asyncio.to_thread(container.model_index_manager.indexing.shutdown)
+        await asyncio.to_thread(container.model_index_manager.digests.stop)
         await container.housekeeping_worker.stop()
         container.organize_worker.stop()
         container.organize_manager.shutdown()

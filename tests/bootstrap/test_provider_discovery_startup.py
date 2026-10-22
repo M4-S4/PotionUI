@@ -1,12 +1,6 @@
 import ast
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-
-
-def _lifespan():
-    tree = ast.parse((ROOT / "src/bootstrap/app.py").read_text())
-    return next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "lifespan")
+from tests.bootstrap.lifespan_support import lifespan
 
 
 def _awaits_ensure(node):
@@ -20,7 +14,7 @@ def _awaits_ensure(node):
 
 def test_startup_awaits_provider_discovery_and_survives_its_failure():
     guarded = [
-        n for n in ast.walk(_lifespan())
+        n for n in ast.walk(lifespan())
         if isinstance(n, ast.Try) and any(_awaits_ensure(stmt) for stmt in n.body)
     ]
 

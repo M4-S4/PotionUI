@@ -56,6 +56,7 @@ class BackendRegistry:
         # that asks for it.
         self.pipe_catalog = pipe_catalog
         self.model_locator = model_locator
+        self.model_digests = None
 
         # engine -> class. Populated by built-ins, then plugins.
         self._registered_backend_types: Dict[str, Type[BaseBackend]] = {}
@@ -257,7 +258,17 @@ class BackendRegistry:
         if model_locator is not None and hasattr(backend, "bind_model_locator"):
             backend.bind_model_locator(locator=model_locator)
 
+        model_digests = getattr(self, "model_digests", None)
+        if model_digests is not None and hasattr(backend, "bind_model_digests"):
+            backend.bind_model_digests(digests=model_digests)
+
         return backend
+
+    def bind_model_digests(self, digests) -> None:
+        self.model_digests = digests
+        for backend in list(self._backends_cache.values()):
+            if hasattr(backend, "bind_model_digests"):
+                backend.bind_model_digests(digests=digests)
 
     def get_backend(self, backend_id: str) -> Optional[BaseBackend]:
         """Get a backend by ID"""

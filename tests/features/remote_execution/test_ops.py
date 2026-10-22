@@ -207,6 +207,58 @@ class TestPushModels(OpsTestCase):
         dest = self.model_depot.depot_dir / _relative_path("checkpoint", "dit.safetensors")
         self.assertEqual(dest.read_bytes(), content)
 
+    def test_a_model_without_a_digest_is_hashed_through_the_digest_service_before_it_is_pushed(self):
+        content = b"checkpoint bytes" * 100
+        path = self._source("dit.safetensors", content)
+        self.repo.add(_model(model_id="m-1", filename="dit.safetensors", role="checkpoint", file_path=str(path)))
+        repo = self.repo
+
+        class Digests:
+            def __init__(self):
+                self.calls = []
+
+            def ensure_digest(self, model_id, timeout=None):
+                self.calls.append(model_id)
+                sha = hashlib.sha256(content).hexdigest()
+                repo.update_digest(model_id, sha256=sha, file_size=len(content))
+                return sha
+
+        digests = Digests()
+
+        results = self._run(ops.push_models(
+            ["m-1"], model_repository=self.repo, transport=self.transport, model_locator=self.locator,
+            digests=digests,
+        ))
+
+        self.assertEqual(digests.calls, ["m-1"])
+        self.assertIsNotNone(results[0]["transfer_id"])
+        dest = self.model_depot.depot_dir / _relative_path("checkpoint", "dit.safetensors")
+        self.assertEqual(dest.read_bytes(), content)
+
+    def test_an_unreadable_model_is_reported_as_an_error_for_that_model_only(self):
+        content = b"checkpoint bytes" * 100
+        self.repo.add(_model(
+            model_id="m-ok", filename="ok.safetensors", role="checkpoint",
+            file_path=str(self._source("ok.safetensors", content)), content=content,
+        ))
+        self.repo.add(_model(
+            model_id="m-bad", filename="bad.safetensors", role="checkpoint",
+            file_path=str(self._source("bad.safetensors", b"x" * 100)),
+        ))
+
+        class Digests:
+            def ensure_digest(self, model_id, timeout=None):
+                return None
+
+        results = self._run(ops.push_models(
+            ["m-bad", "m-ok"], model_repository=self.repo, transport=self.transport, model_locator=self.locator,
+            digests=Digests(),
+        ))
+
+        by_id = {r["model_id"]: r for r in results}
+        self.assertIn("could not be hashed", by_id["m-bad"]["error"])
+        self.assertIsNotNone(by_id["m-ok"]["transfer_id"])
+
     def test_an_unknown_model_id_is_reported_without_failing_the_batch(self):
         content = b"checkpoint bytes" * 100
         self.repo.add(_model(

@@ -10,7 +10,7 @@ import type { BadgeVariant } from '$lib/utils/setupRunDisplay';
  * recipe's models goes, so it reads as ready rather than inventing a fourth
  * state the admin can't act on here.
  */
-export type RecipeReadinessKind = 'ready' | 'missing-models' | 'indexing' | 'needs-backend' | 'unknown';
+export type RecipeReadinessKind = 'ready' | 'missing-models' | 'indexing' | 'checking' | 'needs-backend' | 'unknown';
 
 export interface RecipeReadinessBadge {
 	kind: RecipeReadinessKind;
@@ -22,11 +22,13 @@ const BADGES: Record<RecipeReadinessKind, RecipeReadinessBadge> = {
 	ready: { kind: 'ready', label: 'Ready', variant: 'success' },
 	'missing-models': { kind: 'missing-models', label: 'Missing models', variant: 'warning' },
 	indexing: { kind: 'indexing', label: 'Indexing models…', variant: 'info' },
+	checking: { kind: 'checking', label: 'Checking models…', variant: 'info' },
 	'needs-backend': { kind: 'needs-backend', label: 'Needs backend', variant: 'danger' },
 	unknown: { kind: 'unknown', label: 'Unknown', variant: 'neutral' }
 };
 
 const INDEXING_CODES = new Set(['MODELS_INDEXING', 'RECIPE_MODELS_INDEXING']);
+const VERIFYING_CODES = new Set(['RECIPE_MODELS_VERIFYING']);
 
 export function indexingBadgeLabel(message: string): string {
 	const match = message.match(/(\d[\d,]*)\s*\/\s*(\d[\d,]*)/);
@@ -53,6 +55,7 @@ export function deriveRecipeReadiness(report: ReadinessReport | null): RecipeRea
 
 	const contentCheck = find('content');
 	if (contentCheck) {
+		if (VERIFYING_CODES.has(contentCheck.code)) return BADGES.checking;
 		if (INDEXING_CODES.has(contentCheck.code)) {
 			return { kind: 'indexing', label: indexingBadgeLabel(contentCheck.message), variant: 'info' };
 		}

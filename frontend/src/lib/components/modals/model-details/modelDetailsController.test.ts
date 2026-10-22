@@ -201,3 +201,30 @@ describe('saveType', () => {
 		expect(get(controller.model)?.model_type).toBe('undefined');
 	});
 });
+
+describe('admin refresh', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('reloads the model without raising the loading flag and keeps the image position', async () => {
+		vi.mocked(api.getModelById).mockResolvedValue({ success: true, data: { model: { ...RAW_MODEL, sha256: null } } });
+		vi.mocked(api.getModelAvailability).mockResolvedValue({ success: false } as never);
+		const controller = createAdminModelDetailsController();
+		await controller.load('m1');
+		controller.currentImageIndex.set(2);
+		expect(get(controller.model)?.sha256).toBeNull();
+
+		vi.mocked(api.getModelById).mockResolvedValue({ success: true, data: { model: { ...RAW_MODEL, sha256: 'abc' } } });
+		const seen: boolean[] = [];
+		const stop = controller.loading.subscribe((value) => seen.push(value));
+		await controller.refresh('m1');
+		stop();
+
+		expect(get(controller.model)?.sha256).toBe('abc');
+		expect(seen.includes(true)).toBe(false);
+		expect(get(controller.currentImageIndex)).toBe(2);
+		expect(api.getModelAvailability).toHaveBeenCalledTimes(1);
+	});
+});
+

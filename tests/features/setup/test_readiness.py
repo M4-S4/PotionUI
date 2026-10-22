@@ -11,10 +11,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.features.models.digests import DigestMatch
 from src.features.recipes.schema import (
     Recipe,
     RecipeArtifact,
     RecipeArtifactVariant,
+    RecipeChecksum,
     RecipePresetRef,
 )
 from src.features.setup.readiness import (
@@ -88,6 +90,7 @@ def _manager(
     recipe_catalog=None,
     model_repository=None,
     model_indexing_coordinator=None,
+    model_digests=None,
 ):
     backend_registry = MagicMock()
     backend_registry.get_all_backends.return_value = (
@@ -113,6 +116,7 @@ def _manager(
         instance_claim_repository=instance_claim_repository or _OkClaimRepository(),
         recipe_catalog=recipe_catalog,
         model_indexing_coordinator=model_indexing_coordinator,
+        model_digests=model_digests,
     )
 
 
@@ -340,6 +344,121 @@ def test_recipe_missing_artifact_says_indexing_in_progress_while_a_scan_is_runni
     assert content.status == DEGRADED
     assert content.code == "RECIPE_MODELS_INDEXING"
     assert report.overall == DEGRADED
+
+
+class _Digests:
+    def __init__(self, found=None, candidates=0, waiting=None):
+        self.found = found
+        self.candidates = candidates
+        self.waiting = candidates if waiting is None else waiting
+        self.calls = []
+
+    def find_by_digest(self, sha256, size, hash_candidates="never", timeout=None):
+        self.calls.append((sha256, size, hash_candidates))
+        return DigestMatch(self.found, self.candidates, self.waiting)
+
+
+def _checksummed(size=4096, filename="missing.safetensors"):
+    return RecipeArtifact(
+        id="ckpt", kind="checkpoint", model_type="checkpoint", filename=filename, display_name="Missing Checkpoint",
+        required=True, size_bytes=size, checksum=RecipeChecksum("sha256", "a" * 64),
+    )
+
+
+def _recipe_manager(digests, coordinator=None):
+    manager = _manager(
+        recipe_catalog=_RecipeCatalog(_recipe(artifacts=[_checksummed()])),
+        model_repository=_RecipeModelRepo(),
+        model_indexing_coordinator=coordinator,
+        model_digests=digests,
+    )
+    manager.preset_collaborators.db_repo.is_preset_installed.return_value = True
+    return manager
+
+
+def test_a_same_size_file_that_is_not_verified_yet_reads_as_verifying_not_missing():
+    digests = _Digests(candidates=2)
+
+    report = _run(_recipe_manager(digests), _user(admin=True), recipe_id="r1")
+
+    content = _by_area(report)["content"]
+    assert (content.status, content.code) == (DEGRADED, "RECIPE_MODELS_VERIFYING")
+    assert "2 files that may be them are being verified" in content.message
+    assert "Missing Checkpoint" in content.message
+    assert {call[2] for call in digests.calls} == {"never"}
+
+
+def test_same_size_files_that_nobody_is_comparing_yet_stay_missing_and_say_so():
+    digests = _Digests(candidates=2, waiting=0)
+
+    content = _by_area(_run(_recipe_manager(digests), _user(admin=True), recipe_id="r1"))["content"]
+
+    assert (content.status, content.code) == (NOT_READY, "RECIPE_MODELS_MISSING")
+    assert "2 files of the same size exist but have not been compared yet" in content.message
+
+
+def test_a_single_unchecked_file_is_worded_in_the_singular_while_missing():
+    content = _by_area(
+        _run(_recipe_manager(_Digests(candidates=1, waiting=0)), _user(admin=True), recipe_id="r1")
+    )["content"]
+
+    assert content.code == "RECIPE_MODELS_MISSING"
+    assert "1 file of the same size exists but has not been compared yet" in content.message
+
+
+def test_a_single_unverified_file_is_worded_in_the_singular():
+    content = _by_area(_run(_recipe_manager(_Digests(candidates=1)), _user(admin=True), recipe_id="r1"))["content"]
+
+    assert "1 file that may be one of them is being verified" in content.message
+
+
+def test_a_renamed_file_whose_digest_is_known_counts_as_present():
+    found = MagicMock(model_type="checkpoint", is_available=True, filename="renamed.safetensors")
+
+    report = _run(_recipe_manager(_Digests(found=found)), _user(admin=True), recipe_id="r1")
+
+    content = _by_area(report)["content"]
+    assert (content.status, content.code) == (READY, "RECIPE_READY")
+
+
+def test_no_same_size_file_at_all_is_still_missing():
+    digests = _Digests(candidates=0)
+
+    content = _by_area(_run(_recipe_manager(digests), _user(admin=True), recipe_id="r1"))["content"]
+
+    assert (content.status, content.code) == (NOT_READY, "RECIPE_MODELS_MISSING")
+    assert {call[2] for call in digests.calls} == {"never"}
+
+
+def test_a_running_scan_is_reported_before_the_verifying_state():
+    coordinator = MagicMock()
+    coordinator.status.return_value = {"state": "scanning", "processed": 1, "total": 5}
+
+    content = _by_area(
+        _run(_recipe_manager(_Digests(candidates=3), coordinator), _user(admin=True), recipe_id="r1")
+    )["content"]
+
+    assert content.code == "RECIPE_MODELS_INDEXING"
+
+
+def test_checking_a_recipe_with_the_real_digest_service_reads_no_file(tmp_path, mock_db, monkeypatch):
+    from src.features.models import digests as digests_module
+    from src.features.models import indexer as indexer_module
+    from tests.features.models.rows_first_support import Harness, _blob
+
+    monkeypatch.setattr(indexer_module, "INLINE_HASH_LIMIT", 10)
+    harness = Harness(tmp_path)
+    harness.put("home", "renamed.safetensors", _blob(1, 4096))
+    harness.index()
+    reads = []
+    real = digests_module.digest_file
+    monkeypatch.setattr(digests_module, "digest_file", lambda *args, **kwargs: reads.append(args[0]) or real(*args, **kwargs))
+    manager = _recipe_manager(harness.manager)
+
+    content = _by_area(_run(manager, _user(admin=True), recipe_id="r1"))["content"]
+
+    assert content.code == "RECIPE_MODELS_VERIFYING"
+    assert reads == [] and harness.queued() == [("renamed.safetensors", "r_home", 0, "scan")]
 
 
 def test_recipe_optional_artifact_missing_is_still_ready():

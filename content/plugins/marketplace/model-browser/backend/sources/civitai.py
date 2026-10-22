@@ -312,15 +312,25 @@ def _file_sha256(raw: Any) -> Optional[str]:
     return sha256_hex(sha256)
 
 
-def primary_file_sha256(raw_version: Optional[Dict[str, Any]]) -> Optional[str]:
+def _primary_hashed_file(raw_version: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if raw_version is None:
         return None
     files = [raw for raw in _list(raw_version.get("files")) if isinstance(raw, dict)]
     for raw in [raw for raw in files if _is_true(raw.get("primary"))] + files:
-        sha256 = _file_sha256(raw)
-        if sha256:
-            return sha256
+        if _file_sha256(raw):
+            return raw
     return None
+
+
+def primary_file_sha256(raw_version: Optional[Dict[str, Any]]) -> Optional[str]:
+    raw = _primary_hashed_file(raw_version)
+    return _file_sha256(raw) if raw is not None else None
+
+
+def primary_file_size_bytes(raw_version: Optional[Dict[str, Any]]) -> Optional[int]:
+    raw = _primary_hashed_file(raw_version)
+    size_kb = _float(raw.get("sizeKB")) if raw is not None else None
+    return round(size_kb * 1024) if size_kb is not None and size_kb >= 0 else None
 
 
 _RED_HOSTS = frozenset({"civitai.red", "www.civitai.red"})
@@ -554,6 +564,7 @@ def normalize_item(raw: Dict[str, Any], max_level: int) -> SearchItem:
         stats=_stats(raw),
         source_url=model_page_url(model_id, nsfw),
         primary_sha256=primary_file_sha256(first),
+        primary_size_bytes=primary_file_size_bytes(first),
     )
 
 

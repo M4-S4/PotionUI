@@ -95,6 +95,27 @@ async def test_hashes_are_normalised_and_looked_up_once_each(core):
     assert core.calls == [("find_model_by_sha256", SHA)]
 
 
+async def test_a_known_size_goes_to_the_core_so_an_unverified_copy_of_that_size_can_match(core):
+    core.models_by_sha[SHA] = model("model-1")
+
+    result = await installed_map([SHA.upper(), OTHER_SHA], admin(), {" " + SHA.upper(): 1234, OTHER_SHA: None})
+
+    assert result == {SHA: True, OTHER_SHA: False}
+    assert core.calls == [("find_model_by_sha256", SHA, 1234), ("find_model_by_sha256", OTHER_SHA)]
+
+
+async def test_a_listing_hands_each_results_primary_size_to_the_core(core):
+    core.models_by_sha[SHA] = model("model-1")
+    sized = _item("1", SHA)
+    sized.primary_size_bytes = 4096
+    unsized = _item("2", OTHER_SHA)
+
+    await mark_installed([sized, unsized], admin())
+
+    assert core.calls == [("find_model_by_sha256", SHA, 4096), ("find_model_by_sha256", OTHER_SHA)]
+    assert (sized.installed, unsized.installed) == (True, False)
+
+
 async def test_no_hash_asks_the_core_nothing(core):
     assert await installed_map([], principal()) == {}
     assert await installed_map(["", " "], principal()) == {}
@@ -114,9 +135,9 @@ async def test_the_core_is_read_in_one_worker_thread_hop_never_on_the_event_loop
         hops.append(function)
         return await real_to_thread(function, *args, **kwargs)
 
-    def find_in_thread(sha256):
+    def find_in_thread(sha256, size):
         threads.add(threading.get_ident())
-        return real_find(sha256)
+        return real_find(sha256, size)
 
     monkeypatch.setattr(asyncio, "to_thread", counting_to_thread)
     monkeypatch.setattr(core_bridge, "find_model_by_sha256", find_in_thread)

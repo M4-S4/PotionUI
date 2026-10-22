@@ -116,6 +116,7 @@ def test_search_items_are_normalised():
         "stats": {"downloads": 0, "likes": 116, "rating": None},
         "source_url": "https://huggingface.co/sample-lab/Qwen-Image-2.1-Outfit-Sample-Consistency-LoRA",
         "primary_sha256": None,
+        "primary_size_bytes": None,
         "installed": None,
     }
     assert [(found.type, found.mb_type) for found in items.values()] == [

@@ -52,7 +52,7 @@
 	import BackendRowActions from './BackendRowActions.svelte';
 	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
 	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
-	import { indexingIsRunning, indexingIsVisible } from '$lib/models-location/indexingDisplay';
+	import { indexingIsRunning, indexingScanHasContent } from '$lib/models-location/indexingDisplay';
 	import {
 		NATIVE_LOCAL_DRIVER,
 		backendIndexBusy,
@@ -879,7 +879,7 @@
 									{/if}
 								{/snippet}
 								{#snippet main()}
-									{#if isNativeLocalBackend(activeBackend) && indexingIsVisible(indexingStatusStore.status)}
+									{#if isNativeLocalBackend(activeBackend) && indexingScanHasContent(indexingStatusStore.status)}
 										<DetailSection label="Model indexing">
 											<IndexingStatusPanel status={indexingStatusStore.status} />
 										</DetailSection>

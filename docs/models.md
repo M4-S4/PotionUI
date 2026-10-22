@@ -15,8 +15,9 @@ order: 20
 ## The problem
 
 A **model** in PotionUI is a row in the `models` table. That row is created by walking a
-directory on this host and computing a SHA-256 of each file's bytes, so a row exists only if the
-file exists locally. The schema enforces it: `file_path` is `NOT NULL UNIQUE`.
+directory on this host, so a row exists only if the file exists locally; the file's SHA-256 is
+worked out afterwards, in the background (see "Scanning and digests"). The schema enforces it:
+`file_path` is `NOT NULL UNIQUE`.
 
 The `model` and `lora_picker` form fields list those rows, and the value they store is the row's
 `file_path`.
@@ -214,9 +215,13 @@ Editing a root's folders through `PATCH /api/models/roots/{id}`:
 A **location** (`model_locations`, one row per `(binding, rel_path)`) is one on-disk copy
 of a model: `src/features/models/locator.py` (`ModelLocator`) turns a model id or a logical ref
 into the winning physical `Path`, and `ModelScanner` (`src/features/models/indexer.py`) is the only
-writer of both `models` rows with a location and of `model_locations` itself — it walks every
+writer that creates `models` rows with a location and `model_locations` rows — it walks every
 online root's bound directories, diffs against the last-seen `size`/`mtime_ns` per location, and
-never re-hashes a file that hasn't changed.
+never re-reads a file that hasn't changed. A scan creates rows without reading large files; their
+content digests arrive later and are written by the digest pool (`DigestManager`,
+`src/features/models/digests.py`), the one other writer, which only fills a location's digest and
+the model's `sha256` and, in the one case described under "Scanning and digests", folds a fresh
+row into the model it duplicates. Both take the scanner's write lock for every write.
 
 ### Layout profiles
 
@@ -393,6 +398,126 @@ Adding a model by hand (name, optionally size and sha256) creates a model row wi
 availability. Indexing attaches availability later. A user-supplied hash is an assertion, not a
 verification, and is flagged as such.
 
+## Scanning and digests
+
+Indexing a large library used to mean reading every byte of every file before a model existed.
+Two jobs are now separate. A **scan** (a directory walk, a `stat`, and a header read for
+header-typed files) creates rows at once, so models are listed and usable in seconds. A **digest**
+(the full SHA-256 of one file, stored in `models.sha256` and `model_locations.sha256`) is
+background work. A location with no digest is **pending**, one with a digest is **ready**.
+Pending locations already project to availability as `reported` and become `verified` when the
+digest lands; nothing about generation waits for a digest.
+
+### What the scan does with a file
+
+| File | What happens |
+|---|---|
+| Up to 1 MiB (embeddings and the like) | Hashed during the scan; nothing bigger is ever read in full by a scan |
+| HF-layout directory | Fingerprinted during the scan (config plus shard names and sizes) |
+| Digest already in `model_hash_cache` for this size and mtime | Ready at once |
+| Anything larger | A row at once with no digest (only its header is read, and only for header-typed files), handed to the background pool per the policy below |
+| Same name as an existing model but a different size | A `conflict` location straight away; different size proves different bytes |
+| Another file of exactly the same size exists, present or missing with a known digest | The **twin gate**: a quick signature (head, tail and 14 windows, about 3 MiB) is compared; a different signature proves the files differ, so the row is created; an equal signature only makes the file a **candidate**: it is held in memory, hashed together with its twin, and then decided by the same rules as a hashed file (duplicate of an existing model: skipped; same name in another folder: an extra location; otherwise a new model) |
+
+A held-back candidate is not a row yet; the indexing status reports it in `digests.duplicate_checks`.
+A renamed or moved large file is such a candidate: its old location is already missing and still
+holds the digest, so the new file is hashed once and joins the original model with its tags,
+collections and provider info. As a safety net, when a background digest lands on a model that
+has a single location and another model with that digest has no present copy, the new model is
+folded into the original: the original takes the new filename and every row that pointed at the
+new model (tags, collections, assignments, provider info, generation links, previews, availability)
+is moved to it in the same transaction. The fold is refused when the original's type already
+uses that filename.
+Header-typed files get their type from a header read during the scan; the stored verdict (family,
+whether a transformer can be extracted) is keyed by digest and is written when the digest lands.
+
+### Who asks for a digest
+
+| Consumer | When | Behaviour |
+|---|---|---|
+| Background pool | After every scan, per the policy below | One file at a time per worker, smaller files first |
+| Admin "Pick models" / "Index all" | On request | Queued ahead of the background work |
+| `POST /api/models/{id}/digest`, admin set type on a model with no digest | On demand | Runs at once, ignores the rate cap and the generation pause because someone is waiting |
+| Provider "Fetch info", remote bundling | On demand | Each model is hashed first, one after another |
+| Recipe `artifacts.plan` | A renamed file | Nothing is read: the plan goes by name and stat, queues same-size undigested files at the paced "chosen" priority, and reports them as "checking whether you already have X" |
+| Recipe `artifacts.fetch` | No name or digest match, but same-size undigested files exist | At most 2 of them are verified through the paced pool (the rate cap and the generation pause apply; the step reports how many of them are really checked and waits at most 15 minutes, never for a candidate that is backing off after a failure or sits on an offline root); a match means no download, otherwise the file is downloaded |
+| `plugin_api.models.model_for_sha256(..., size=...)` | A plugin asking by hash | See [the plugin API](plugin-api.md) |
+| A new download without a checksum | On completion | A row at once, queued as picked; the type pinned from its header is made permanent when the digest lands |
+
+### Resource levels, pause, policy
+
+| | Low (default) | Normal | Max |
+|---|---|---|---|
+| Hash workers | 1 | 2 | 4 |
+| CPU and IO priority of those threads | lowest | below normal | unchanged |
+| Read-rate cap | 96 MiB/s | 384 MiB/s | none |
+| Pauses while a local generation runs | yes | yes | no |
+
+The priority is set per thread (Linux `nice` and `ionice` on the worker thread; Windows background
+mode), never for the process, so generation is not slowed. The cap and the pause are the
+guarantees; IO priority depends on the disk scheduler. Changing the level replaces the worker
+threads; a file in flight restarts. **Pause** is persisted and survives a restart; demand requests
+still run while paused.
+
+`model_digest_policy` decides what is queued after a scan:
+
+- `unset`: with nothing pending it stays `unset`, so an empty first boot never makes the choice.
+  When at least one file is pending and no more than 20 files and no more than 64 GiB are waiting,
+  it becomes `background` silently. Otherwise nothing is queued and `digests.plan.awaiting_choice`
+  is `true` until an admin
+  answers: **Index all** (`background`), **Pick models** (the picked files are queued, the policy
+  becomes `on_demand`) or **Later** (`on_demand`). Models are listed and usable before the answer,
+  and nothing is queued or read for them while the choice is open. The only reads that can still
+  happen are a pair of same-size files whose quick signatures agree (probable copies, compared at
+  the paced twin priority) and the lookups an explicit recipe run asks for.
+- `background`: every pending file is queued, smallest first.
+- `on_demand`: nothing is queued; digests come from picks, demand and downloads only.
+
+An install that already had digests before this existed starts as `background`.
+
+| Setting | Values | Default |
+|---|---|---|
+| `model_indexing_level` | `low`, `normal`, `max` | `low` |
+| `model_indexing_paused` | boolean | `false` |
+| `model_digest_policy` | `unset`, `background`, `on_demand` | `background` if any model already had a digest, else `unset` |
+
+### API (admin only)
+
+| Route | Purpose |
+|---|---|
+| `GET /api/models/indexing/status` | The scan status plus the `digests` block below |
+| `POST /api/models/index` | A manual rescan; a running scan finishes and one more runs after it |
+| `PUT /api/models/indexing/settings` | `{level?, policy?}`; answers `{level, policy}`; `422` for any other value |
+| `POST /api/models/indexing/pause`, `POST /api/models/indexing/resume` | The persisted user pause; answer with the `digests` block |
+| `GET /api/models/indexing/pending?query=&model_type=&root_id=&offset=&limit=` | Files waiting for a digest, by filename (`limit` 1 to 200, default 50): `{items: [{model_id, location_id, filename, model_type, size, root_label, rel_path, queued}], total, total_bytes, by_type}`. `query` is a case-insensitive filename substring. `total` and `total_bytes` cover the whole filtered set, never just the page; `by_type` counts all pending files and ignores `query` and `model_type`, so chip counts stay put while typing |
+| `POST /api/models/indexing/digests` | `{mode: "all"}`, `{mode: "selected", model_ids}` or `{mode: "matching", query?, model_type?, exclude_model_ids?}`; answers `{queued, digests}`. Picked files go ahead of background work. The policy is not changed by this call |
+| `POST /api/models/{id}/digest` | Idempotent demand: `{state: "ready" \| "queued" \| "failed", eta_seconds}`; `failed` means every copy has failed its attempts and is not read again until the file changes or the request is repeated with `?retry=true`; a model folded into another one answers `ready` with `merged_into`; `404` for an unknown model, `422` when it has no readable file |
+
+The `digests` block: `policy`, `level`, `levels` (`[{id, workers, rate_bps, pauses_for_generation}]`,
+the one source of per-level numbers; `rate_bps` is `null` when uncapped), `paused` (the user's pause
+only), `pause_reason` (`"generation"` while the generation hold is active and the user has not
+paused, else `null`), `busy` (a generation is running on a local native backend), `workers` (of the
+current level), `pending_total`, `queued`, `deferred` (pending and not queued), `ready`,
+`pending_bytes`, `queued_bytes`, `ready_bytes`, `current` (`[{model_id, filename, size, done}]`),
+`throughput_bps` and `eta_seconds` (a 30-second moving average, `null` for the first 10 seconds,
+while paused, or with nothing queued), `duplicate_checks`, `failed` (`[{path, error}]`: a file
+that failed three times stays listed and is tried again when the file changes or when its digest is requested with `?retry=true`), `plan` (`{awaiting_choice,
+files, bytes, min_files, min_bytes}`) and `version` (moves whenever a digest, a row or the policy
+changes, so a client refetches lists only then).
+
+The hook `model_index.after_digests` (payload `model_ids`, at most once every 5 seconds) fires when
+digests land; the organize engine treats it like the end of a scan and re-evaluates new models.
+
+### Known limits
+
+- A type pin for a download without a checksum is held in memory; a restart between the download
+  and its digest loses the pin (the type itself already came from the header).
+- Header verdicts (family, "full checkpoint" packaging) appear when the digest does, so they lag a
+  freshly added file; the type itself is right at once.
+- A file held back for comparison is not listed until its comparison finishes, and it is found
+  again by the next scan after a restart.
+- Windows thread priority is untested; the cap and the generation pause do not depend on it.
+
 ## Indexing is per backend
 
 Indexing is an action on **each backend** (Admin → Backends), because what a backend can load
@@ -419,7 +544,7 @@ them:
 
 | engine  | source                     | yields                  | confidence |
 |---------|----------------------------|-------------------------|------------|
-| native  | filesystem scan + SHA-256  | ref, filename, size, hash | verified |
+| native  | filesystem scan; SHA-256 in the background | ref, filename, size, hash once known | verified once hashed, reported before |
 | comfyui | HTTP (see below)           | ref, filename, size      | reported |
 | comfyui | HTTP, degraded             | ref, filename            | name only |
 
@@ -455,11 +580,10 @@ its freshly-computed digest disagrees with the canonical one, the row is written
 needing that model. `resolve_form_model_refs` raises `ModelDigestConflictError` (naming the model,
 the backend, and both digests) as a last-resort block if a conflicted row is ever reached anyway.
 
-Hashing on every scan would make indexing a large depot unusable, so the native scan
-(`scan_native_models`) goes through `model_hash_cache` — a `(path, size, mtime_ns) -> sha256`
-table. A cache hit means the file hasn't moved since it was last hashed and the digest is reused
-without touching the file; a miss (new file, or one whose size/mtime changed) hashes it and caches
-the result. Directory-model fingerprints (`is_directory` rows, HF-layout checkpoints — see
+`model_hash_cache` — a `(path, size, mtime_ns) -> sha256` table — lets the scan and the background
+hasher reuse a digest without touching the file. A cache hit means the file hasn't moved since it
+was last hashed; a miss (new file, or one whose size/mtime changed) is hashed and cached, by the
+scan for files up to 1 MiB and by the digest queue for larger ones. Directory-model fingerprints (`is_directory` rows, HF-layout checkpoints — see
 `101_add_model_is_directory.py`) are never compared as digests: `sha256` there is a cheap
 config+shard-list fingerprint, not a content hash.
 

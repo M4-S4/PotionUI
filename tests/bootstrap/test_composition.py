@@ -129,6 +129,42 @@ report = {
         m for m in ("torch", "diffusers", "transformers") if m in sys.modules
     ],
 }
+from types import SimpleNamespace
+from src.features.generation.status_tracker import GenerationState
+governor = c.model_index_manager.indexing.scanner.governor
+c.backend_registry.get_backends_for_engine = lambda engine: [
+    SimpleNamespace(backend_id="local-1", config=SimpleNamespace(driver="native.local"))
+]
+idle = governor.throttle.generation_running()
+c.generation_status_tracker.create("g-cloud", backend_id="cloud-1").state = GenerationState.RUNNING
+other_backend = governor.throttle.generation_running()
+c.generation_status_tracker.create("g-local", backend_id="local-1").state = GenerationState.RUNNING
+report["indexing_wiring"] = {
+    "indexing_starts_at_the_low_level": governor.level() == "low",
+    "an_idle_app_does_not_pause_indexing": idle is False,
+    "a_generation_on_another_backend_does_not_pause_indexing": other_backend is False,
+    "a_running_local_generation_pauses_indexing": governor.throttle.generation_running() is True,
+}
+digests = c.model_index_manager.digests
+indexing = c.model_index_manager.indexing
+scanner = indexing.scanner
+report["digest_wiring"] = {
+    "the_scanner_hands_large_files_to_the_digest_pool": scanner.digests is digests,
+    "the_pool_writes_under_the_scanners_lock": digests._write_lock is scanner.write_lock,
+    "the_pool_follows_the_same_level_and_pause_rules": digests.governor is governor,
+    "the_pool_reports_applied_digests_to_the_coordinator": digests._on_applied == indexing.on_digests_applied,
+    "the_scanner_reports_contested_files_to_the_coordinator": scanner.contested_listener == indexing._on_contested_resolved,
+    "the_pool_resolves_paths_through_the_scanner": digests._path_for == scanner.location_path,
+    "the_pool_is_not_running_until_the_lifespan_starts_it": digests._running is False,
+    "provider_fetch_hashes_through_the_pool": c.model_index_manager.provider_info.digests is digests,
+    "setting_a_type_can_ask_the_pool_for_a_digest": c.model_index_manager.types._digests is digests,
+    "remote_backends_hash_bundled_models_through_the_pool": c.backend_registry.model_digests is digests,
+    "recipe_listings_look_for_renamed_files_through_the_pool": c.recipe_slot_variants._digests is digests,
+    "download_verification_is_paced_by_the_same_governor": c.download_queue.verify_throttle == governor.verification_throttle,
+    "preset_requirements_can_count_unverified_files": c.model_index_manager.digests.pending_count() == 0,
+    "the_recipe_plan_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.plan")._digests is digests,
+    "the_recipe_fetch_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.fetch")._digests is digests,
+}
 print("COMPOSITION_REPORT=" + json.dumps(report))
 """
 
@@ -187,6 +223,14 @@ def test_every_submit_and_upload_path_shares_the_one_limit_guard(report):
     wiring = dict(report["limit_wiring"])
     assert wiring.pop("core_kinds") == ["cloud_spend_usd_month", "generations_per_day", "storage_bytes", "upload_file_size"]
     assert [k for k, v in wiring.items() if not v] == []
+
+
+def test_indexing_pauses_only_for_a_generation_running_on_this_machine(report):
+    assert [k for k, v in report["indexing_wiring"].items() if not v] == []
+
+
+def test_the_digest_pool_is_wired_to_the_scanner_and_the_coordinator(report):
+    assert [k for k, v in report["digest_wiring"].items() if not v] == []
 
 
 def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):

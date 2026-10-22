@@ -76,10 +76,10 @@ def _trimmed(model: Optional[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
     return {key: model.get(key) for key in MODEL_KEYS}
 
 
-def find_model_by_sha256(sha256: str) -> Optional[Dict[str, Any]]:
+def find_model_by_sha256(sha256: str, size: Optional[int] = None) -> Optional[Dict[str, Any]]:
     if not sha256:
         return None
-    return _trimmed(api_models.model_for_sha256(sha256, admin=True))
+    return _trimmed(api_models.model_for_sha256(sha256, size=size, hash_candidates="background", admin=True))
 
 
 def find_model_by_path(path: str) -> Optional[Dict[str, Any]]:

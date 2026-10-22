@@ -253,6 +253,9 @@ test.describe('needs a type - desktop', () => {
 		const models = seedModels();
 		models[0].sha256 = null;
 		await mockModels(page, models);
+		await page.route('**/api/models/m1/digest', (route) =>
+			route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ success: false }) })
+		);
 		await page.goto('/admin?tab=models&id=m1');
 		const select = page.locator('#model-type');
 		await expect(select).toBeVisible({ timeout: 15000 });
@@ -260,6 +263,72 @@ test.describe('needs a type - desktop', () => {
 		await select.locator('xpath=..').hover({ force: true });
 		await expect(page.getByText('no content hash yet')).toBeVisible({ timeout: 5000 });
 		await screenshot(page, JOURNEY, 'desktop-detail-no-hash');
+	});
+
+	test('a model whose file is still being read shows the wait and unlocks when it is ready', async ({ page }) => {
+		await loginAsOwner(page);
+		const models = seedModels();
+		models[0].sha256 = null;
+		await mockModels(page, models);
+		let asked = 0;
+		await page.route('**/api/models/m1/digest', (route) => {
+			asked += 1;
+			if (asked === 1) return fulfillJson(route, { success: true, data: { state: 'queued', eta_seconds: 5 } });
+			models[0].sha256 = SHA_A;
+			return fulfillJson(route, { success: true, data: { state: 'ready', eta_seconds: null } });
+		});
+		await page.goto('/admin?tab=models&id=m1');
+		const select = page.locator('#model-type');
+		await expect(select).toBeVisible({ timeout: 15000 });
+		await expect(select).toBeDisabled();
+		await expect(page.getByText(/Verifying this file/)).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, 'desktop-detail-verifying');
+
+		await expect(page.getByText(/Verifying this file/)).toHaveCount(0, { timeout: 15000 });
+		await expect(select).toBeEnabled();
+	});
+
+	test('a file whose copies all failed shows the message and Try again resumes the check', async ({ page }) => {
+		await loginAsOwner(page);
+		const models = seedModels();
+		models[0].sha256 = null;
+		await mockModels(page, models);
+		const asked: string[] = [];
+		await page.route(/\/api\/models\/m1\/digest/, (route) => {
+			const retry = new URL(route.request().url()).searchParams.get('retry') ?? '';
+			asked.push(retry);
+			if (asked.length === 1) return fulfillJson(route, { success: true, data: { state: 'failed', eta_seconds: null } });
+			if (retry === 'true') return fulfillJson(route, { success: true, data: { state: 'queued', eta_seconds: 5 } });
+			models[0].sha256 = SHA_A;
+			return fulfillJson(route, { success: true, data: { state: 'ready', eta_seconds: null } });
+		});
+		await page.goto('/admin?tab=models&id=m1');
+		const select = page.locator('#model-type');
+		await expect(select).toBeDisabled({ timeout: 15000 });
+		await expect(page.getByText('This file could not be checked, so its type cannot be set yet.')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, 'desktop-detail-check-failed');
+
+		await page.getByRole('button', { name: 'Try again' }).click();
+		await expect(page.getByText(/Verifying this file/)).toBeVisible({ timeout: 10000 });
+		await expect(page.getByText(/Verifying this file/)).toHaveCount(0, { timeout: 15000 });
+		await expect(select).toBeEnabled();
+		expect(asked).toEqual(['', 'true', '']);
+	});
+
+	test('a model merged into another one opens the owner instead of the old id', async ({ page }) => {
+		await loginAsOwner(page);
+		const models = seedModels();
+		models[0].sha256 = null;
+		await mockModels(page, models);
+		await page.route(/\/api\/models\/m1\/digest/, (route) =>
+			fulfillJson(route, { success: true, data: { state: 'ready', eta_seconds: 0, merged_into: 'm4' } })
+		);
+		await page.goto('/admin?tab=models&id=m1');
+
+		await expect(page).toHaveURL(/id=m4/, { timeout: 15000 });
+		await expect(page.locator('#model-type')).toHaveValue('checkpoint', { timeout: 15000 });
+		await expect(page.locator('#model-type')).toBeEnabled();
+		expect(page.url()).not.toContain('id=m1');
 	});
 
 	test('download dialog explains that the type is read from the file', async ({ page }) => {
