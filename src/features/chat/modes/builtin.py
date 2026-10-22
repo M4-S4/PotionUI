@@ -6,6 +6,7 @@ receives. Every tool-name-bearing line is wrapped in a conditional block so the
 prompt only ever names tools the session can actually call.
 """
 
+from src.features.prompt.conditions import MAX_TESTS
 from src.platform.plugins.chat_modes import ChatMode
 
 GENERATION_MODE_ID = "generation"
@@ -72,7 +73,7 @@ DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE = (
     '<<if $age > 65>>grey hair<<else if $age < 25>>youthful<<else>>auburn hair<<end>>. '
     "It reads $name; ${name} prints it. Number tests: = != < <= > >=, in 18..30, not in. "
     'Choice/text tests: = != in "a", "b", not in, contains, not contains, is empty, is not empty. '
-    "Spaces around operators are required. A head takes up to 6 tests joined by and or by or, "
+    f"Spaces around operators are required. A head takes up to {MAX_TESTS} tests joined by and or by or, "
     "never both; no nesting; <<else>> is optional.\n"
     "{{#ifany get_current_segments get_video_director}}"
     "\n## Proposing prompt text\n\n"

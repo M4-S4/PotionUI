@@ -28,6 +28,11 @@ def number(**extra):
     return {"type": "number", "min": 0, "max": 10, "step": 1, "mode": "shuffle", **extra}
 
 
+def quarter_document_choice():
+    option = "w" * (validation.MAX_DOC_BYTES // 4 // validation.MAX_OPTIONS)
+    return choice(*[option] * validation.MAX_OPTIONS)
+
+
 class ManagerTestBase(TabDraftStoreTestBase):
 
     def setUp(self):
@@ -288,7 +293,7 @@ class TestValidationLimits(ManagerTestBase):
         self.assertEqual(failures[0]["name"], "long")
 
     def test_document_size_is_bounded_for_ops(self):
-        per_variable = choice(*["w" * validation.MAX_OPTION_CHARS] * validation.MAX_OPTIONS)
+        per_variable = quarter_document_choice()
         names = [f"v{i}" for i in range(6)]
         ops = [setop(name, per_variable) for name in names]
 
@@ -300,20 +305,20 @@ class TestValidationLimits(ManagerTestBase):
         self.assertIsNone(self.manager.find("u1", "t1"))
 
     def test_document_size_is_bounded_for_replace(self):
-        per_variable = choice(*["w" * validation.MAX_OPTION_CHARS] * validation.MAX_OPTIONS)
+        per_variable = quarter_document_choice()
         doc = {"variables": {f"v{i}": per_variable for i in range(6)}}
 
         with self.assertRaises(TabDraftTooLarge):
             self.manager.replace("u1", "t1", doc)
 
     def test_a_document_just_under_the_bound_is_stored(self):
-        per_variable = choice(*["w" * validation.MAX_OPTION_CHARS] * validation.MAX_OPTIONS)
+        per_variable = quarter_document_choice()
         self.manager.replace("u1", "t1", {"variables": {f"v{i}": per_variable for i in range(3)}})
 
         self.assertEqual(self.manager.get("u1", "t1").rev, 1)
 
     def test_a_growing_draft_cannot_cross_the_bound_one_batch_at_a_time(self):
-        per_variable = choice(*["w" * validation.MAX_OPTION_CHARS] * validation.MAX_OPTIONS)
+        per_variable = quarter_document_choice()
         stored = 0
         with self.assertRaises(TabDraftTooLarge):
             for i in range(10):

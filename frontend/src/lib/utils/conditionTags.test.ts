@@ -30,7 +30,7 @@ import {
 	testFromDraft,
 	type ConditionDraft
 } from './conditionTags';
-import { MAX_STRING_CHARS, MAX_TESTS } from './promptConditions';
+import { MAX_BRANCHES, MAX_HEAD_CHARS, MAX_STRING_CHARS, MAX_TESTS } from './promptConditions';
 import type { VariablesMap } from './variableDefs';
 
 const variables: VariablesMap = {
@@ -72,13 +72,19 @@ describe('draft round trip', () => {
 		expect(rawFromDraft(draft, variables)).toBe('<<if $name = "say \\"hi\\"">>a<<end>>');
 	});
 
-	it('limits tests to six and strings to the value cap', () => {
+	it('limits tests and strings to their caps', () => {
 		const draft = draftFromRaw('<<if $name = "x">>a<<end>>')!;
+		draft.branches[0].tests[0].strings = ['x'.repeat(MAX_STRING_CHARS)];
+		expect(rawFromDraft(draft, variables)).not.toBeNull();
 		draft.branches[0].tests[0].strings = ['x'.repeat(MAX_STRING_CHARS + 1)];
 		expect(rawFromDraft(draft, variables)).toBeNull();
-		const six = draftFromRaw('<<if $name = "x">>a<<end>>')!;
-		six.branches[0].tests = Array.from({ length: 7 }, () => ({ ...six.branches[0].tests[0] }));
-		expect(rawFromDraft(six, variables)).toBeNull();
+		const withTests = (count: number) => {
+			const tests = draftFromRaw('<<if $name = "x">>a<<end>>')!;
+			tests.branches[0].tests = Array.from({ length: count }, () => ({ ...tests.branches[0].tests[0] }));
+			return tests;
+		};
+		expect(rawFromDraft(withTests(MAX_TESTS), variables)).not.toBeNull();
+		expect(rawFromDraft(withTests(MAX_TESTS + 1), variables)).toBeNull();
 	});
 });
 
@@ -130,9 +136,13 @@ describe('draft problems', () => {
 			{ kind: 'tests', branch: 0 },
 			{ kind: 'nested', branch: 1 }
 		]);
-		const many = draftOf('<<if $age > 1>>x<<end>>');
-		many.branches = Array.from({ length: 9 }, (_, i) => ({ ...many.branches[0], kind: i === 0 ? 'if' : 'elseif' }));
-		expect(checkDraft(many, variables).problems).toEqual([{ kind: 'branches' }]);
+		const branches = (count: number) => {
+			const many = draftOf('<<if $age > 1>>x<<end>>');
+			many.branches = Array.from({ length: count }, (_, i) => ({ ...many.branches[0], kind: i === 0 ? 'if' : 'elseif' }));
+			return many;
+		};
+		expect(checkDraft(branches(MAX_BRANCHES), variables).problems).toEqual([]);
+		expect(checkDraft(branches(MAX_BRANCHES + 1), variables).problems).toEqual([{ kind: 'branches' }]);
 	});
 
 	it('refuses a head the parser would not read back', () => {
@@ -146,6 +156,33 @@ describe('draft problems', () => {
 		const unreadable = draftOf('<<if $age is empty>>x<<end>>');
 		unreadable.branches[0].tests[0].var = name;
 		expect(checkDraft(unreadable, variables)).toEqual({ raw: null, problems: [{ kind: 'grammar' }] });
+	});
+});
+
+describe('head length', () => {
+	const headOfLength = (target: number): ConditionDraft => {
+		const draft = draftFromRaw('<<if $name = "a">>x<<end>>')!;
+		const template = draft.branches[0].tests[0];
+		const lengths: number[] = [];
+		for (let left = target; left > 0; ) {
+			const overhead = (lengths.length > 0 ? 5 : 0) + 10;
+			const length = Math.min(MAX_STRING_CHARS, left - overhead);
+			lengths.push(length);
+			left -= overhead + length;
+		}
+		draft.branches[0].tests = lengths.map((length) => ({ ...template, strings: ['x'.repeat(length)] }));
+		return draft;
+	};
+
+	it('writes a head of exactly the cap and reads it back', () => {
+		const { raw, problems } = checkDraft(headOfLength(MAX_HEAD_CHARS), variables);
+		expect(problems).toEqual([]);
+		expect(Array.from(raw!).length).toBe(MAX_HEAD_CHARS + '<<if >>x<<end>>'.length);
+		expect(draftFromRaw(raw!)).not.toBeNull();
+	});
+
+	it('refuses a head one character over the cap', () => {
+		expect(checkDraft(headOfLength(MAX_HEAD_CHARS + 1), variables).problems).toEqual([{ kind: 'head', branch: 0 }]);
 	});
 });
 
@@ -181,11 +218,13 @@ describe('problem messages', () => {
 		expect(draftProblemText({ kind: 'nested', branch: 3 }, draft, variables)).toBe(
 			"Otherwise text contains another condition. Conditions can't be nested, so add an Else if instead."
 		);
-		expect(draftProblemText({ kind: 'tests', branch: 1 }, draft, variables)).toBe('Else if 1 needs 1 to 6 tests.');
+		expect(draftProblemText({ kind: 'tests', branch: 1 }, draft, variables)).toBe(`Else if 1 needs 1 to ${MAX_TESTS} tests.`);
 		expect(draftProblemText({ kind: 'head', branch: 0 }, draft, variables)).toBe(
 			'If is too long to save. Remove a test or pick shorter values.'
 		);
-		expect(draftProblemText({ kind: 'branches' }, draft, variables)).toBe('A condition can have at most 8 branches.');
+		expect(draftProblemText({ kind: 'branches' }, draft, variables)).toBe(
+			`A condition can have at most ${MAX_BRANCHES} branches.`
+		);
 		expect(draftProblemText({ kind: 'grammar' }, draft, variables)).toContain("can't be saved as it is");
 	});
 });
@@ -213,11 +252,16 @@ describe('nested condition to else if', () => {
 	});
 
 	it('stops at the branch limit', () => {
-		const heads = Array.from({ length: 6 }, (_, i) => `<<else if $age = ${i + 20}>>b${i}`).join('');
-		const outer = draftFromRaw(`<<if $age > 65>>a${heads}<<else>>x<<end>>`)!;
-		outer.branches[outer.branches.length - 1].body = '<<if $age < 5>>c<<else>>d<<end>>';
-		expect(outer.branches.length).toBe(8);
-		expect(nestedToElseIf(outer)).toBeNull();
+		const outerOf = (branches: number) => {
+			const heads = Array.from({ length: branches - 2 }, (_, i) => `<<else if $age = ${i + 20}>>b${i}`).join('');
+			const outer = draftFromRaw(`<<if $age > 65>>a${heads}<<else>>x<<end>>`)!;
+			outer.branches[outer.branches.length - 1].body = '<<if $age < 5>>c<<else>>d<<end>>';
+			return outer;
+		};
+		expect(nestedToElseIf(outerOf(MAX_BRANCHES - 1))!.branches).toHaveLength(MAX_BRANCHES);
+		const over = outerOf(MAX_BRANCHES);
+		expect(over.branches.length).toBe(MAX_BRANCHES);
+		expect(nestedToElseIf(over)).toBeNull();
 	});
 });
 

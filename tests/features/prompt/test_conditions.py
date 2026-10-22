@@ -15,6 +15,7 @@ from src.features.prompt.conditions import (
     render_conditions,
     splice,
 )
+from src.features.prompt.expander import expand_prompts
 from src.platform.resources.prompt_variables import MAX_OPTION_CHARS
 
 
@@ -49,6 +50,15 @@ class TestParseCondition:
         assert parse_condition('$a = "' + "x" * cond.MAX_STRING_CHARS + '"') is not None
         assert parse_condition('$a = "' + "x" * (cond.MAX_STRING_CHARS + 1) + '"') is None
         assert parse_condition('$a = ""') is None
+
+    def test_tests_per_head_cap(self):
+        def head(count):
+            return " and ".join(["$a = 1"] * count)
+
+        assert len(parse_condition(head(cond.MAX_TESTS)).tests) == cond.MAX_TESTS
+        assert parse_condition(head(cond.MAX_TESTS + 1)) is None
+        assert len(parse_condition(head(cond.MAX_TESTS).replace(" and ", " or ")).tests) == cond.MAX_TESTS
+        assert parse_condition(head(cond.MAX_TESTS + 1).replace(" and ", " or ")) is None
 
     @pytest.mark.parametrize("head", [
         "", "$a", "$a =", "$a = ", "a = 1", "$a  1", "$a = 1 and", "$a = 1 xor $b = 2",
@@ -102,29 +112,39 @@ class TestBlockStructure:
         assert parsed.skeleton == f"7{SENTINEL_OPEN}0{SENTINEL_CLOSE}"
 
     def test_branch_limit(self):
-        ok = "<<if $x = 1>>a" + "".join(f"<<else if $x = {n}>>b" for n in range(7)) + "<<end>>"
-        assert len(parse_template(ok).blocks) == 1
-        too_many = "<<if $x = 1>>a" + "".join(f"<<else if $x = {n}>>b" for n in range(8)) + "<<end>>"
-        parsed = parse_template(too_many)
+        def block(branches):
+            return "<<if $x = 1>>a" + "".join(f"<<else if $x = {n}>>b" for n in range(branches - 1)) + "<<end>>"
+
+        parsed = parse_template(block(cond.MAX_BRANCHES))
+        assert len(parsed.blocks) == 1
+        assert parsed.errors == ()
+        parsed = parse_template(block(cond.MAX_BRANCHES + 1))
         assert parsed.blocks == ()
         assert "limit" in kinds(parsed.errors)
         assert "<<" not in parsed.skeleton
 
     def test_branch_limit_counts_else(self):
-        ok = "<<if $x = 1>>a" + "".join(f"<<else if $x = {n}>>b" for n in range(6)) + "<<else>>c<<end>>"
-        assert len(parse_template(ok).blocks) == 1
-        over = "<<if $x = 1>>a" + "".join(f"<<else if $x = {n}>>b" for n in range(7)) + "<<else>>c<<end>>"
-        assert parse_template(over).blocks == ()
+        def block(branches):
+            return (
+                "<<if $x = 1>>a"
+                + "".join(f"<<else if $x = {n}>>b" for n in range(branches - 2))
+                + "<<else>>c<<end>>"
+            )
+
+        assert len(parse_template(block(cond.MAX_BRANCHES)).blocks) == 1
+        assert parse_template(block(cond.MAX_BRANCHES + 1)).blocks == ()
 
     def test_block_limit(self):
         one = '[<<if $x = "y">>A<<end>>]'
-        parsed = parse_template(one * 32)
-        assert len(parsed.blocks) == 32
-        parsed = parse_template(one * (33))
-        assert len(parsed.blocks) == 32
+        parsed = parse_template(one * cond.MAX_BLOCKS)
+        assert len(parsed.blocks) == cond.MAX_BLOCKS
+        assert parsed.errors == ()
+        over = one * (cond.MAX_BLOCKS + 1)
+        parsed = parse_template(over)
+        assert len(parsed.blocks) == cond.MAX_BLOCKS
         assert "limit" in kinds(parsed.errors)
-        text, _ = render_conditions(one * (33), {"x": "y"})
-        assert text == "[A]" * (33)
+        text, _ = render_conditions(over, {"x": "y"})
+        assert text == "[A]" * (cond.MAX_BLOCKS + 1)
         assert "<<" not in text
 
     def test_head_length_limit(self):
@@ -153,7 +173,7 @@ class TestBlockStructure:
 
 
 def _option(length, lead="a "):
-    text = (lead + "long hooded cloak woven from silver thread and moonlight, trimmed with fox fur, " * 8)
+    text = (lead + "long hooded cloak woven from silver thread and moonlight, trimmed with fox fur, " * 40)
     return text[: length - 1] + "s"
 
 
@@ -263,9 +283,28 @@ class TestRobustness:
         parsed = parse_template(text)
         assert isinstance(rendered, str)
         if parsed is not None:
-            assert len(parsed.blocks) <= 32
+            assert len(parsed.blocks) <= cond.MAX_BLOCKS
             assert cond._tokenize(parsed.skeleton)[0] == []
         assert elapsed < 2
+
+    @pytest.mark.parametrize("shape", ["widest_block", "most_blocks"])
+    def test_a_template_at_the_caps_expands_quickly(self, shape):
+        if shape == "widest_block":
+            head = " and ".join(["$a = 1"] * (cond.MAX_TESTS - 1) + ["$a = 2"])
+            branches = "".join(f"<<else if {head}>>b{n}" for n in range(cond.MAX_BRANCHES - 2))
+            template = f"<<if {head}>>a{branches}<<else>>z<<end>>"
+            expected = "z"
+        else:
+            template = "[<<if $a = 1>>A<<else>>B<<end>>]" * cond.MAX_BLOCKS
+            expected = "[A]" * cond.MAX_BLOCKS
+        assert len(parse_template(template).blocks) == (1 if shape == "widest_block" else cond.MAX_BLOCKS)
+        warnings = []
+        start = time.perf_counter()
+        expanded = expand_prompts(template, "", count=1, base_seed=7, variables={"a": "1"}, on_warning=warnings.append)
+        elapsed = time.perf_counter() - start
+        assert warnings == []
+        assert expanded[0].positive == expected
+        assert elapsed < 1
 
     def test_deep_nesting_attempt_is_fast_and_clean(self):
         text = '<<if $x = 1>>' * 5000 + "y" + "<<end>>" * 5000

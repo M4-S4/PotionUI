@@ -3,6 +3,10 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
 	MAX_BLOCKS,
+	MAX_BRANCHES,
+	MAX_HEAD_CHARS,
+	MAX_STRING_CHARS,
+	MAX_TESTS,
 	chooseBranch,
 	conditionReads,
 	formatCondition,
@@ -105,6 +109,59 @@ describe('formatCondition round trip', () => {
 		for (const bad of ['$a', '$a = ', '$a in 5..1', '$a = 1 and $b = 2 or $c = 3', 'a = 1']) {
 			expect(parseCondition(bad)).toBeNull();
 		}
+	});
+});
+
+describe('limits', () => {
+	const errorKinds = (text: string) => renderConditions(text, { x: 'y' }).errors.map((e) => e.kind);
+
+	it('holds as many tests in a head as the cap and no more', () => {
+		const head = (count: number, joiner: string) => Array.from({ length: count }, () => '$a = 1').join(` ${joiner} `);
+		for (const joiner of ['and', 'or']) {
+			expect(parseCondition(head(MAX_TESTS, joiner))!.tests).toHaveLength(MAX_TESTS);
+			expect(parseCondition(head(MAX_TESTS + 1, joiner))).toBeNull();
+		}
+	});
+
+	it('holds as many branches in a block as the cap and no more', () => {
+		const withElseIfs = (count: number, tail: string) =>
+			`<<if $x = 1>>a${Array.from({ length: count }, (_, n) => `<<else if $x = ${n}>>b`).join('')}${tail}<<end>>`;
+		expect(parseTemplate(withElseIfs(MAX_BRANCHES - 1, ''))!.blocks).toHaveLength(1);
+		expect(parseTemplate(withElseIfs(MAX_BRANCHES - 2, '<<else>>c'))!.blocks).toHaveLength(1);
+		const over = parseTemplate(withElseIfs(MAX_BRANCHES, ''))!;
+		expect(over.blocks).toHaveLength(0);
+		expect(over.errors.map((e) => e.kind)).toContain('limit');
+		expect(over.skeleton).not.toContain('<<');
+		expect(parseTemplate(withElseIfs(MAX_BRANCHES - 1, '<<else>>c'))!.blocks).toHaveLength(0);
+	});
+
+	it('holds as many blocks as the cap and no more', () => {
+		const one = '[<<if $x = "y">>A<<end>>]';
+		const full = parseTemplate(one.repeat(MAX_BLOCKS))!;
+		expect(full.blocks).toHaveLength(MAX_BLOCKS);
+		expect(full.errors).toEqual([]);
+		const over = one.repeat(MAX_BLOCKS + 1);
+		expect(parseTemplate(over)!.blocks).toHaveLength(MAX_BLOCKS);
+		expect(errorKinds(over)).toContain('limit');
+		expect(renderConditions(over, { x: 'y' }).text).toBe('[A]'.repeat(MAX_BLOCKS + 1));
+	});
+
+	it('holds a head of the cap in characters and no more', () => {
+		const block = (length: number) => {
+			const head = '$x in "v", "w"';
+			return `<<if ${head}${' '.repeat(length - head.length)}>>A<<else>>B<<end>>`;
+		};
+		expect(renderConditions(block(MAX_HEAD_CHARS), { x: 'v' })).toEqual({ text: 'A', errors: [] });
+		const over = renderConditions(block(MAX_HEAD_CHARS + 1), { x: 'v' });
+		expect(over.errors.map((e) => e.kind)).toContain('malformed_tag');
+		expect(over.text).not.toContain('<<if');
+	});
+
+	it('holds a quoted value of the cap and no more', () => {
+		const quoted = (length: number) => `$a = "${'x'.repeat(length)}"`;
+		expect(parseCondition(quoted(MAX_STRING_CHARS))).not.toBeNull();
+		expect(parseCondition(quoted(MAX_STRING_CHARS + 1))).toBeNull();
+		expect(parseCondition('$a = ""')).toBeNull();
 	});
 });
 

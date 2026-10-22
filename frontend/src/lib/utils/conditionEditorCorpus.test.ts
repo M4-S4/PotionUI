@@ -72,8 +72,8 @@ describe('editor output for long choice options', () => {
 		expect(rawFromDraft(draft, lookOf([option]))).toBe(escaped.template);
 	});
 
-	it('writes three options at the cap in one list', () => {
-		const listed = corpusCase('editor_three_options_at_value_cap_in_one_list');
+	it('writes two options at the cap in one list', () => {
+		const listed = corpusCase('editor_two_options_at_value_cap_in_one_list');
 		const lists = Array.from(listed.template.matchAll(/"((?:[^"\\]|\\.)*)"/g), (m) => m[1].replace(/\\(.)/g, '$1'));
 		const test = { ...equals(lists[0]), op: 'in' as const, strings: lists };
 		const draft = { branches: [branch('if', 'A', [test]), branch('else', 'B')] };

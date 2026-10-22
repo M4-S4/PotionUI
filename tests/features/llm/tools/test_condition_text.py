@@ -1,6 +1,7 @@
 import pytest
 
 from src.features.llm.tools.base import ToolContext
+from src.features.prompt import conditions
 from src.features.llm.tools.builtin.condition_text import condition_tag_error, ensure_condition_tags
 from types import SimpleNamespace
 
@@ -30,6 +31,14 @@ def test_malformed_tags_get_a_teaching_error(text, kind):
     assert kind in error
     assert "<<if $age > 65>>" in error
     assert "Nothing was proposed" in error
+
+
+def test_a_block_over_the_caps_names_them():
+    over = "<<if $x = 1>>a" + "".join(f"<<else if $x = {n}>>b" for n in range(conditions.MAX_BRANCHES)) + "<<end>>"
+    error = condition_tag_error([over])
+    assert f"{conditions.MAX_TESTS} tests per head" in error
+    assert f"{conditions.MAX_BRANCHES} branches" in error
+    assert f"{conditions.MAX_BLOCKS} blocks" in error
 
 
 @pytest.mark.parametrize("text", [GOOD, "plain text", "", "<lora:x:1> <<hello>> <Picture 1>", None])

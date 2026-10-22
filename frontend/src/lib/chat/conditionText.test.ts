@@ -9,6 +9,7 @@ import {
 } from './conditionText';
 import { buildApprovalDiff } from './approvalPreview';
 import { collapsedSummary } from './actionCard';
+import { MAX_BLOCKS, MAX_BRANCHES, MAX_TESTS } from '$lib/utils/promptConditions';
 import type { ToolExecution } from '$lib/types/chat';
 
 const BLOCK = '<<if $age > 65>>grey hair<<else>>auburn hair<<end>>';
@@ -53,6 +54,14 @@ describe('conditionTagProblems', () => {
 		const problems = conditionTagProblems(text);
 		expect(problems.map((p) => p.kind)).toContain(kind);
 		expect(problems.every((p) => p.message.length > 10)).toBe(true);
+	});
+
+	it('names the current caps when a block is over them', () => {
+		const over = `<<if $x = 1>>a${Array.from({ length: MAX_BRANCHES }, (_, n) => `<<else if $x = ${n}>>b`).join('')}<<end>>`;
+		const limit = conditionTagProblems(over).find((p) => p.kind === 'limit')!;
+		expect(limit.message).toBe(
+			`A block is over the limits: ${MAX_TESTS} tests per head, ${MAX_BRANCHES} branches, ${MAX_BLOCKS} blocks.`
+		);
 	});
 
 	it('does not repeat the same problem', () => {

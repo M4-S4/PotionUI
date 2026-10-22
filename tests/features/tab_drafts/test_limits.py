@@ -4,7 +4,7 @@ from src.platform.resources import prompt_variables
 
 def test_the_limits_the_frontend_mirrors_keep_their_values():
     assert prompt_variables.MAX_CHOICE_OPTIONS == 200
-    assert prompt_variables.MAX_OPTION_CHARS == 300
+    assert prompt_variables.MAX_OPTION_CHARS == 2000
     assert prompt_variables.MAX_TEXT_VALUE_CHARS == 2000
     assert validation.MAX_OPERATIONS == 500
     assert validation.MAX_DOC_BYTES == 256 * 1024

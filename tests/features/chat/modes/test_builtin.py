@@ -1,6 +1,7 @@
 """Tests for the generation mode's code-owned system prompt template."""
 
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from src.features.prompt.conditions import MAX_TESTS
 
 
 class TestMemoryPromptBullet:
@@ -80,5 +81,5 @@ class TestConditionGrammarGuidance:
         assert "in 18..30" in prompt
         assert "never both" in prompt
         assert "no nesting" in prompt
-        assert "up to 6 tests" in prompt
+        assert f"up to {MAX_TESTS} tests" in prompt
         assert "{{#if" not in prompt

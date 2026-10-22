@@ -95,9 +95,9 @@ inside `expand_prompts`, so every generation path (Generate, batch, X/Y, both Di
 | choice or text variable | `= "x"`, `!= "x"`, `in "a", "b"`, `not in "a", "b"`, `contains "x"`, `not contains "x"`, `is empty`, `is not empty` |
 
 - Spaces around every operator are required (`$age > 65`, never `$age>65`). Keywords are lowercase.
-- A head holds 1 to 6 tests joined by `and` or by `or`, never both; use another `else if` for mixed cases.
-- A quoted value holds 1 to 300 characters, the longest a choice option can be; a longer one makes the
-  head malformed. A head holds at most 1,024 characters; a longer `<<if …>>` is not a tag and is removed.
+- A head holds 1 to 32 tests joined by `and` or by `or`, never both; use another `else if` for mixed cases.
+- A quoted value holds 1 to 2,000 characters, the longest a choice option can be; a longer one makes the
+  head malformed. A head holds at most 4,096 characters; a longer `<<if …>>` is not a tag and is removed.
 - The first true branch wins; `<<else>>` is optional; there is no nesting.
 - Numbers compare exactly (`Decimal`), so `$age > 9` is true for `10`. `=` on text is exact and
   case-sensitive on the trimmed value; `contains` ignores case.
@@ -109,7 +109,7 @@ inside `expand_prompts`, so every generation path (Generate, batch, X/Y, both Di
   `<Picture 1>` are not tags and stay literal.
 
 **Errors never fail a generation.** A tag that is not part of a well-formed block (unclosed `<<if`,
-stray `<<else>>`/`<<end>>`, nesting, more than 32 blocks or 8 branches per channel, anything past
+stray `<<else>>`/`<<end>>`, nesting, more than 128 blocks or 32 branches per channel, anything past
 20,000 characters) is removed and the text around it is kept. A malformed head inside a good block
 counts as false. Either case raises one "Check your prompt" warning per generation.
 
