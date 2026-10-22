@@ -112,15 +112,6 @@ test('Settings pill opens the settings sheet; backdrop click closes it', async (
 });
 
 test('overlay opened from inside a Studio sheet covers the full viewport', async ({ page }) => {
-	// Regression this replaces: the old mobile carousel's swipe track carried a
-	// translateX transform, which becomes the containing block for any
-	// `position: fixed` descendant — a raw `fixed inset-0` overlay opened from
-	// inside a panel resolved against the 400%-wide transformed track instead
-	// of the viewport (small, offset, "desktop mode" looking). Studio's sheets
-	// are portaled to <body> instead, but the guard is still worth keeping: a
-	// modal opened from INSIDE a sheet (portal-in-portal) must still size
-	// itself against the viewport. The preset picker is a BaseModal consumer
-	// reachable from the preset & session sheet with no generation required.
 	await loginAsOwner(page);
 	await page.goto('/generate');
 
@@ -131,18 +122,15 @@ test('overlay opened from inside a Studio sheet covers the full viewport', async
 
 	await presetSheet.locator('button[aria-haspopup="dialog"]').first().click();
 
-	const backdrop = page.locator('div[role="button"][aria-label="Close modal"]');
-	await expect(backdrop).toBeVisible();
-	const backdropBox = await backdrop.boundingBox();
-	expect(backdropBox, 'modal backdrop has a box').toBeTruthy();
-	// Tolerance of 20px absorbs the app's `scrollbar-gutter: stable` — a real,
-	// pre-existing few-px discrepancy between the viewport and a fixed
-	// element's containing block that's unrelated to this regression. The
-	// containing-block bug this guards against is nowhere close to that:
-	// pre-fix, the backdrop was sized to the 400%-wide panel track (~1100px
-	// too wide), not off by a few px.
-	expect(Math.abs(backdropBox!.x), 'backdrop left edge at viewport origin').toBeLessThanOrEqual(20);
-	expect(Math.abs(backdropBox!.width - 375), 'backdrop spans the full viewport width').toBeLessThanOrEqual(20);
+	const picker = page.getByRole('dialog', { name: 'Choose preset' });
+	await expect(picker).toBeVisible();
+	const viewport = page.viewportSize()!;
+	const box = await picker.boundingBox();
+	expect(box, 'preset picker has a box').toBeTruthy();
+	expect(Math.abs(box!.x), 'picker left edge at viewport origin').toBeLessThanOrEqual(20);
+	expect(Math.abs(box!.y), 'picker top edge at viewport origin').toBeLessThanOrEqual(1);
+	expect(Math.abs(box!.width - viewport.width), 'picker spans the full viewport width').toBeLessThanOrEqual(20);
+	expect(Math.abs(box!.height - viewport.height), 'picker spans the full viewport height').toBeLessThanOrEqual(1);
 });
 
 test('a dropped mode-list request does not strand the settings sheet forever', async ({ page }) => {

@@ -237,7 +237,10 @@ test.describe('Video Director for a cloud video preset', () => {
 		await expect(notices).toContainText('Fake Director makes up to 4 shots in one film. Your film has 5, so shot 5 would not be made.');
 		await expect(notices).toContainText('Fake Director renders shots of 2, 4 and 6 s.');
 		await expect(page.getByText('Change these, or pick another model, to generate.')).toBeVisible();
-		await expect(page.getByText("Can't generate yet")).toBeVisible();
+		const deckTitle = page.locator('[data-deck-title]');
+		await expect(deckTitle).toBeVisible();
+		await expect(deckTitle).toHaveText("Can't generate yet");
+		await expect(page.locator('[data-deck-literal]')).toHaveText("Can't generate yet");
 		await expect(generateButton(page)).toHaveCount(0);
 		await noHorizontalOverflow(page);
 		await screenshot(page, JOURNEY, 'does-not-fit-1440');
