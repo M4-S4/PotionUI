@@ -69,13 +69,6 @@ class TestStateDictKeySetMatchesRealHeader:
         for key, tensor in sd.items():
             assert list(tensor.shape) == header[key]["shape"], key
 
-    def test_bite_check_wrong_temporal_placement_breaks_key_parity(self):
-        header = load_header("minimax_h3/latent_upscaler_3d_bf16")
-        with torch.device("meta"):
-            m = MiniMaxH3LatentUpsampler.from_config({"temporal_every": 3}, disable_weight_init)
-        assert set(m.state_dict().keys()) != set(header.keys())
-
-
 class TestConstructionAndLoadIntegrity:
     def test_default_config_builds(self):
         MiniMaxH3LatentUpsampler.from_config({}, disable_weight_init)

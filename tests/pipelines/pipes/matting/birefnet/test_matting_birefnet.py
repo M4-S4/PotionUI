@@ -120,11 +120,7 @@ def test_missing_image_input_raises():
 
 # -- array contract: process EVERY image, never just the first --------------
 
-def test_two_image_list_returns_two_images_bite_check():
-    """Feed a two-image list; both must come back distinct and in order.
-    Bite-check: reverting `process` to unwrap `image[0]` and return a bare
-    `PipeOutput(output={"image": result})` makes this go red (a one-element
-    result, or a crash iterating a bare Image downstream)."""
+def test_two_image_list_returns_both_images_in_order():
     model = _FakeMattingModel(raw_alpha=200)
     models = _FakeModels(model)
     pipe = MattingBirefnetPipe(_config())

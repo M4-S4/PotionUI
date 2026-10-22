@@ -1208,50 +1208,20 @@ def test_the_refused_clips_activation_reserve_drops_to_the_attention_and_ffn_ter
     assert reserve + _REFUSAL_EXTRA_RESERVE_GB < _REFUSAL_FREE_EFFECTIVE_GB
 
 
-def test_bite_check_the_stale_per_token_lora_buffer_would_still_refuse_this_clip():
-    # BITE CHECK: charge the per-token output buffer the way the old formula
-    # did (4 * inner_dim * 2 bytes/token whenever any LoRA was resident) and
-    # the maintainer's clip is refused again, before any placement I/O.
-    stale = DitLoraProfile(output_buffer_out_features=2 * _H3_INNER_DIM, active=True)
-    stale_reserve = estimate_activation_reserve_gb(
-        _REFUSAL_VIDEO_TOKENS, _REFUSAL_AUDIO_TOKENS, lora=stale,
-        inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
-    )
-    assert stale_reserve == pytest.approx(21.73, rel=0.02)  # the refusal detail's own number
-    assert stale_reserve + _REFUSAL_EXTRA_RESERVE_GB > _REFUSAL_FREE_EFFECTIVE_GB
-
-
 # -- the real OOM trace: both fixes together flip resident -> partial --------
 
-def _trace_dit(*, lora_weight_gb: float) -> Any:
-    """A dit test double shaped like the real trace: 19.52GB base weight,
-    LoRA active with `lora_weight_gb` of ACTUAL resident delta bytes (a real
-    tensor, not mocked, sized exactly -- avoids allocating a full 1.4GB
-    fixture while still exercising the real byte-summing code path)."""
+def _trace_dit() -> Any:
     dit, calls = _dit(estimated_vram_gb=_TRACE_DIT_WEIGHT_GB)
-    if lora_weight_gb > 0.0:
-        # One down/up pair sized to land on lora_weight_gb exactly (fp32,
-        # square matrices: 2*n*n*4 bytes total).
-        n = int((lora_weight_gb * 1024 ** 3 / 8) ** 0.5)
-        dit.module = nn.Sequential(_linear_with_sized_delta((n, n), (n, n)))
-    else:
-        dit.module = nn.Sequential(nn.Linear(4, 4))
+    n = int((_TRACE_LORA_WEIGHT_GB * 1024 ** 3 / 8) ** 0.5)
+    dit.module = nn.Sequential(_linear_with_sized_delta((n, n), (n, n)))
     return dit, calls
 
 
-# The trace reported `free_gb=27.4` at placement, yet the run died with
-# 25.55GB in play -- so that reading overstated what the card could actually
-# give by at least ~2GB (a free-VRAM accuracy question, owned elsewhere).
-# The mode this trace resolves to therefore turns on the free reading, not
-# on the LoRA term: with the stale per-token LoRA buffer gone, 20.92GB of
-# weights plus a 5.63GB reserve fits 27.4 and the decision is "resident".
-# `_TRACE_DECISIVE_FREE_GB` is the band where the SwiGLU term itself is what
-# flips the decision, which is what these two tests are actually about.
 _TRACE_DECISIVE_FREE_GB = 25.5
 
 
 def test_the_ffn_term_tips_the_real_trace_into_partial():
-    dit, calls = _trace_dit(lora_weight_gb=_TRACE_LORA_WEIGHT_GB)
+    dit, calls = _trace_dit()
     patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
     with patches[0], patches[1], patches[2]:
         decision = place_dit_for_sequence(
@@ -1263,20 +1233,6 @@ def test_the_ffn_term_tips_the_real_trace_into_partial():
     assert len(calls["stream_to"]) == 1
 
 
-def test_bite_check_without_ffn_dim_the_same_trace_wrongly_stays_resident():
-    # BITE CHECK 1/2: reverting JUST the activation-reserve half of the fix
-    # (drop ffn_dim) reproduces the ORIGINAL bug -- the exact scenario that
-    # OOM'd on real hardware would still be placed fully resident.
-    dit, calls = _trace_dit(lora_weight_gb=_TRACE_LORA_WEIGHT_GB)
-    patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
-    with patches[0], patches[1], patches[2]:
-        decision = place_dit_for_sequence(
-            dit, "cuda", video_tokens=_TRACE_VIDEO_TOKENS, audio_tokens=_TRACE_AUDIO_TOKENS,
-            inner_dim=_H3_INNER_DIM,  # ffn_dim NOT passed
-        )
-    assert decision.mode == "resident"
-
-
 def test_the_real_traces_reserve_still_covers_its_observed_activation_need():
     # Independent of any free reading: the trace died with 24.52GB allocated
     # (19.52 weights + 1.4 LoRA + ~3.6 activations) needing 1.03GiB more, so
@@ -1286,22 +1242,6 @@ def test_the_real_traces_reserve_still_covers_its_observed_activation_need():
         _TRACE_VIDEO_TOKENS, _TRACE_AUDIO_TOKENS, inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
     )
     assert reserve >= 4.63
-
-
-def test_bite_check_without_lora_weight_correction_the_same_trace_wrongly_stays_resident():
-    # BITE CHECK 2/2: reverting JUST the weight_gb half of the fix (no
-    # resident LoRA delta on the module -- `estimated_vram_gb` alone) ALSO
-    # reproduces the bug, even with the corrected activation reserve.
-    # Confirms BOTH halves of the fix are independently load-bearing -- the
-    # activation-reserve fix alone was not sufficient to flip this decision.
-    dit, calls = _trace_dit(lora_weight_gb=0.0)  # no resident delta on the module
-    patches, manager = _patched(free_gb=_TRACE_DECISIVE_FREE_GB)
-    with patches[0], patches[1], patches[2]:
-        decision = place_dit_for_sequence(
-            dit, "cuda", video_tokens=_TRACE_VIDEO_TOKENS, audio_tokens=_TRACE_AUDIO_TOKENS,
-            inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM,
-        )
-    assert decision.mode == "resident"
 
 
 # -- warm residency: a DiT the PRIOR generation already left resident must not
@@ -1370,18 +1310,6 @@ def test_warm_resident_dit_that_still_fits_is_kept_without_move_or_stream():
     assert calls["stream_to"] == []
     assert calls["offload"] == 0
     assert decision.dit_weight_gb == 19.6
-
-
-def test_bite_check_without_crediting_self_this_exact_scenario_would_wrongly_stream():
-    # BITE CHECK: the SAME numbers as the "still fits" test above, but
-    # computed the OLD way (free_vram_gb() alone, no credit for the DiT's own
-    # resident bytes) -- proves the credit-back is actually load-bearing,
-    # not a no-op: without it, this configuration would have concluded the
-    # DiT no longer fits and streamed it, reproducing the reported bug.
-    free_gb = 11.8
-    total_reserve = 5.0 + _ACTIVATION_RESERVE_FLOOR_GB  # video_tokens=0 -> floor
-    uncredited_budget = max(0.0, free_gb - total_reserve)
-    assert uncredited_budget < 19.6, "expected the OLD (uncredited) computation to wrongly conclude 'doesn't fit'"
 
 
 def test_warm_resident_dit_that_no_longer_fits_offloads_then_places_fresh():

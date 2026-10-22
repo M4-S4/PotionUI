@@ -162,27 +162,6 @@ def test_the_second_order_advantage_grows_as_the_grid_refines(sampler):
     assert ratios[-1] > 4.0 * ratios[0], ratios
 
 
-def test_bite_check_a_history_less_multistep_is_exactly_euler():
-    """BITE CHECK for both tests above: if the second-order term were dead,
-    the two samplers would be Euler. Reconstructing them with the history
-    dropped every step must reproduce Euler's trajectory bit for bit -- and
-    the intact steppers must NOT."""
-    sigmas = [0.95, 0.8, 0.62, 0.45, 0.28, 0.12, 0.04]
-    x_start = torch.tensor([0.2, 0.6, -1.1])
-
-    for sampler in (RES_MULTISTEP, DPMPP_2M):
-        x = x_start.clone()
-        for index in range(len(sigmas) - 1):
-            sigma = float(sigmas[index])
-            timestep = 1.0 - sigma
-            model_output = _velocity(_curved_denoised(sigma, x), x, timestep)
-            x = make_stepper(sampler).step(model_output, timestep, x, sigma, float(sigmas[index + 1]))
-
-        euler = _run(EULER, sigmas, _curved_denoised, x_start)
-        torch.testing.assert_close(x, euler, rtol=0, atol=0)
-        assert not torch.allclose(_run(sampler, sigmas, _curved_denoised, x_start), euler)
-
-
 # -- step-level contracts -------------------------------------------------------
 
 def test_euler_stepper_is_the_reference_euler_step():

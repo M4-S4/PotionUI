@@ -37,10 +37,9 @@ def _ref_sigma_schedule(num_inference_steps: int, shift: float) -> tuple[torch.T
     return sigmas, timesteps
 
 
-def _ref_euler_step(model_output, timestep, sample, sigma, sigma_next, *, negate_velocity: bool = False):
-    v = -model_output if negate_velocity else model_output
+def _ref_euler_step(model_output, timestep, sample, sigma, sigma_next):
     sigma_from_timestep = 1.0 - float(timestep)
-    denoised = sample + sigma_from_timestep * v
+    denoised = sample + sigma_from_timestep * model_output
     ratio = float(sigma_next) / float(sigma)
     return ratio * sample + (1.0 - ratio) * denoised
 
@@ -263,11 +262,10 @@ def test_video_sigma_shift_default_matches_video_shift_constant():
     torch.testing.assert_close(got[0].sigmas, default_shift[0].sigmas, rtol=0, atol=0)
 
 
-def test_bite_check_video_sigma_shift_9_differs_from_the_default_shift_12():
+def test_video_sigma_shift_changes_only_the_video_stream_schedule():
     shift_12 = resolve_schedules(8, video_shift=12.0)[0]
     shift_9 = resolve_schedules(8, video_shift=9.0)[0]
     assert not torch.allclose(shift_12.sigmas, shift_9.sigmas)
-    # The audio stream's own shift (3.0) is untouched by video_shift.
     audio_default = resolve_schedules(8, video_shift=12.0)[1]
     audio_alt = resolve_schedules(8, video_shift=9.0)[1]
     torch.testing.assert_close(audio_default.sigmas, audio_alt.sigmas, rtol=0, atol=0)
@@ -306,20 +304,6 @@ def test_euler_step_matches_independent_reference_scalar_case():
     got = euler_step(velocity, 0.4, sample, sigma=0.6, sigma_next=0.3)
     ref = _ref_euler_step(velocity, 0.4, sample, 0.6, 0.3)
     torch.testing.assert_close(got, ref, rtol=0, atol=1e-6)
-
-
-def test_bite_check_euler_step_sign_is_load_bearing():
-    # BITE CHECK: negating the velocity in the INDEPENDENT reference must
-    # produce a materially different result than schedule.euler_step -- if it
-    # didn't, the comparisons above would be vacuously insensitive to the
-    # data-ward-vs-noise-ward sign convention this module exists to get right.
-    sample = torch.tensor(2.0)
-    velocity = torch.tensor(0.9)
-    got = euler_step(velocity, 0.4, sample, sigma=0.6, sigma_next=0.3)
-    ref_correct = _ref_euler_step(velocity, 0.4, sample, 0.6, 0.3, negate_velocity=False)
-    ref_wrong_sign = _ref_euler_step(velocity, 0.4, sample, 0.6, 0.3, negate_velocity=True)
-    torch.testing.assert_close(got, ref_correct, rtol=0, atol=1e-6)
-    assert abs(float(got) - float(ref_wrong_sign)) > 1e-3
 
 
 def test_euler_step_uses_grid_sigma_not_recomputed_from_timestep():

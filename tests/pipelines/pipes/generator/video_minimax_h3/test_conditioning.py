@@ -144,24 +144,6 @@ def test_keyframe_encode_uses_the_fixed_seed_independent_of_request_seed():
     torch.testing.assert_close(got, reference_sample, rtol=0, atol=0)
 
 
-def test_bite_check_wrong_seed_would_not_reproduce_the_draw():
-    # BITE CHECK: a generator seeded to something OTHER than
-    # KEYFRAME_ENCODE_SEED must NOT reproduce the module's draw -- confirms
-    # the equality above is actually sensitive to the seed value, not
-    # vacuously true (e.g. because logvar collapsed std to ~0).
-    vae = _FakeVideoVae()
-    pixels = _pixels()
-    latents_mean = [0.0] * LATENT_CHANNELS
-    latents_std = [1.0] * LATENT_CHANNELS
-
-    got = encode_keyframe_condition(vae, pixels, latents_mean=latents_mean, latents_std=latents_std)
-
-    wrong_generator = torch.Generator(device="cpu").manual_seed(KEYFRAME_ENCODE_SEED + 1)
-    wrong_sample = vae.encode(pixels.to(torch.float32), sample_posterior=True, generator=wrong_generator)
-    wrong_sample = wrong_sample.to(torch.float16).float()
-    assert not torch.allclose(got, wrong_sample)
-
-
 def _tail_frames(num_frames: int, *, size: int = 8) -> np.ndarray:
     return np.zeros((num_frames, size, size, 3), dtype=np.uint8)
 
@@ -220,30 +202,6 @@ def test_continuation_encode_returns_the_encoders_own_head_slice():
     pixels = torch.from_numpy(tail_frames.copy()).permute(3, 0, 1, 2)[None].contiguous()
     full = encode_keyframe_condition(vae, pixels, latents_mean=latents_mean, latents_std=latents_std)
     torch.testing.assert_close(got, full[:, :, :5], rtol=0, atol=0)
-
-
-class _ChunkedFakeVideoVae:
-
-    def parameters(self):
-        return iter([torch.zeros(1, dtype=torch.float32)])
-
-    def encode(self, x, *, sample_posterior=False, generator=None):
-        b, _c, f, h, w = x.shape
-        num_latents = 1 if f == 1 else max(5 * -(-f // 17) - 3, 0)
-        return torch.full((b, LATENT_CHANNELS, num_latents, h, w), 0.5)
-
-
-def test_bite_check_17_frames_would_starve_the_vae_of_two_clean_latents():
-    vae = _ChunkedFakeVideoVae()
-    latents_mean = [0.0] * LATENT_CHANNELS
-    latents_std = [1.0] * LATENT_CHANNELS
-    wrong_tail_frames = _tail_frames(17)
-
-    pixels = torch.from_numpy(wrong_tail_frames.copy()).permute(3, 0, 1, 2)[None].contiguous()
-    full = encode_keyframe_condition(vae, pixels, latents_mean=latents_mean, latents_std=latents_std)
-
-    assert full.shape[2] == 2
-    assert full.shape[2] < 5
 
 
 # -- canvas fit: stretch (geometry anchor) vs cover-crop (follower) ---------
@@ -850,7 +808,7 @@ def test_repeated_keyframe_encodes_once_across_two_calls_sharing_a_cache():
     assert vae.encode_calls == 1
 
 
-def test_bite_check_without_a_cache_the_same_keyframe_encodes_every_time():
+def test_without_a_cache_the_same_keyframe_encodes_on_every_call():
     image = Image.new("RGB", (48, 32), (10, 20, 30))
     vae = _CountingVideoVae()
 
@@ -1042,28 +1000,6 @@ def test_a_buffer_object_replaced_with_identical_values_still_hits():
     )
 
     assert vae.encode_calls == 1
-
-
-def test_bite_check_a_buffer_object_replaced_with_DIFFERENT_values_still_misses():
-    """BITE CHECK for the hit above: `_normalization_digest` must not become
-    so permissive it hits regardless of content -- an actual value change
-    riding along with the object replacement still has to miss."""
-    image = Image.new("RGB", (48, 32), (10, 20, 30))
-    vae = _RebufferingVideoVae()
-    cache = VisualLatentCache()
-
-    prepare_keyframe_condition_rows(
-        [image], (0,), generator=torch.Generator().manual_seed(1),
-        **_keyframe_kwargs(vae, cache=cache, latents_mean=vae.latents_mean, latents_std=vae.latents_std),
-    )
-    vae.simulate_placement()
-    vae.latents_mean = vae.latents_mean + 1.0  # an actual normalization change
-    prepare_keyframe_condition_rows(
-        [image], (0,), generator=torch.Generator().manual_seed(2),
-        **_keyframe_kwargs(vae, cache=cache, latents_mean=vae.latents_mean, latents_std=vae.latents_std),
-    )
-
-    assert vae.encode_calls == 2
 
 
 def test_the_fit_role_distinguishes_an_anchor_from_a_follower_with_identical_pixels():

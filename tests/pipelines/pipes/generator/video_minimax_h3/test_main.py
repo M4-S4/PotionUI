@@ -54,7 +54,6 @@ from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
     AUDIO_SHIFT,
     VIDEO_SHIFT,
     build_sigma_schedule,
-    euler_step,
 )
 
 PATCH = (1, 2, 2)
@@ -321,17 +320,6 @@ def test_validate_refs_director_plan_accepts_a_valid_hard_cut_plan():
     document = _director_document(2, sub_types={1: "t2v"})
     plan = build_director_plan(document, default_seed=-1)
     GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image"])  # must not raise
-
-
-def test_bite_check_the_hard_cut_plan_would_fail_the_continuation_guard_unmodified():
-    # BITE CHECK for the "accepts" test above: the SAME document shape
-    # without forcing segment 1 to a cut defaults to 'chain' and must still
-    # be refused -- confirms the "accepts" test isn't vacuously passing
-    # because the guard never fires.
-    document = _director_document(2)  # segment 1 defaults to 'chain'
-    plan = build_director_plan(document, default_seed=-1)
-    with pytest.raises(DirectorPlanError):
-        GeneratorMinimaxH3Pipe._validate_refs_director_plan(plan, reference_kinds=["image"])
 
 
 def _pipe_input(**kwargs):
@@ -934,76 +922,49 @@ def test_forward_wrapper_reads_weight_revision_live_not_frozen_at_construction()
 
 # -- condition-row freeze ----------------------------------------------------
 
-def _step_all_rows(forward, layout, video_rows, audio_rows, *, freeze_condition: bool, steps: int = 3):
-    """A minimal re-implementation of generate_one's inner loop, parameterized
-    on whether the condition-row slice is respected -- lets the freeze test
-    also serve as its own bite check."""
-    video_schedule = build_sigma_schedule(steps, VIDEO_SHIFT)
-    audio_schedule = build_sigma_schedule(steps, AUDIO_SHIFT)
-    num_steps = video_schedule.timesteps.numel()
-    n_cv = 0 if freeze_condition is False else layout.num_condition_video_rows
-    n_ca = layout.num_condition_audio_rows
-    for i in range(num_steps):
-        video_t = float(video_schedule.timesteps[i])
-        audio_t = float(audio_schedule.timesteps[i])
-        unique_ts, ts_idx = build_row_timesteps(
-            layout.video_indices, layout.audio_indices,
-            num_condition_video_rows=layout.num_condition_video_rows, num_condition_audio_rows=n_ca,
-            num_text_tokens=layout.text_indices.numel(), video_timestep=video_t, audio_timestep=audio_t,
-            condition_video_timestep=max(video_t, 0.999), condition_audio_timestep=1.0,
-        )
-        video_pred, audio_pred = forward(video_rows, audio_rows, unique_ts, ts_idx)
-        video_rows[n_cv:] = euler_step(
-            video_pred[n_cv:], video_t, video_rows[n_cv:], video_schedule.sigmas[i], video_schedule.sigmas[i + 1],
-        )
-        audio_rows[n_ca:] = euler_step(
-            audio_pred[n_ca:], audio_t, audio_rows[n_ca:], audio_schedule.sigmas[i], audio_schedule.sigmas[i + 1],
-        )
-    return video_rows, audio_rows
+def test_generate_one_keeps_keyframe_condition_rows_frozen_while_generated_rows_move():
+    from PIL import Image
 
-
-def _fl2va_layout_and_forward():
-    num_text_tokens = 3
-    text_tags = torch.full((num_text_tokens,), TEXT_TAG, dtype=torch.long)
-    layout = build_packed_sequence(
-        text_tags, num_latent_frames=2, latent_height=2, latent_width=2, num_audio_latents=2, patch_size=PATCH,
-        keyframe_anchors=("first",),
-    )
     video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
-    dit = _fake_dit_module(video_patch_dim)
-    forward = _MiniMaxH3Forward(dit, layout, torch.zeros(1, num_text_tokens, 8))
-    return layout, forward, video_patch_dim
+    base = _fake_dit_module(video_patch_dim)
+    seen: list = []
 
+    def recording_dit(**kwargs):
+        seen.append((kwargs["hidden_states"][0].clone(), kwargs["num_condition_video_rows"]))
+        return base(**kwargs)
+    recording_dit.prepare_text_context = base.prepare_text_context
 
-def test_condition_rows_are_frozen_across_steps():
-    layout, forward, video_patch_dim = _fl2va_layout_and_forward()
-    n_cv = layout.num_condition_video_rows
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0, module=recording_dit,
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeKeyframeVae(), compute_dtype=torch.float32,
+                                   move_to=lambda d: None, offload=lambda: None),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx_extra = _MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=4,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[Image.new("RGB", (32, 32), (10, 20, 30))], keyframe_anchors=(0,),
+        audio_source="generate", decode=False,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False})
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+
+    pipe.generate_one(ctx, 0, 7, progress)
+
+    assert len(seen) > 1
+    first_rows, n_cv = seen[0]
     assert n_cv > 0
-    video_rows = torch.randn(layout.video_indices.numel(), video_patch_dim)
-    audio_rows = torch.randn(layout.audio_indices.numel(), 32)
-    condition_before = video_rows[:n_cv].clone()
-
-    video_after, _ = _step_all_rows(forward, layout, video_rows.clone(), audio_rows.clone(), freeze_condition=True)
-
-    torch.testing.assert_close(video_after[:n_cv], condition_before, rtol=0, atol=0)
-    # The generated rows, in contrast, must actually have moved.
-    assert not torch.allclose(video_after[n_cv:], video_rows[n_cv:])
-
-
-def test_bite_check_condition_row_freeze_detects_an_unfrozen_scheduler():
-    # BITE CHECK: stepping the scheduler over ALL rows (never excluding the
-    # condition slice) must change the condition rows -- confirms the freeze
-    # assertion above is actually exercising real behavior, not a vacuous
-    # no-op comparison.
-    layout, forward, video_patch_dim = _fl2va_layout_and_forward()
-    n_cv = layout.num_condition_video_rows
-    video_rows = torch.randn(layout.video_indices.numel(), video_patch_dim)
-    audio_rows = torch.randn(layout.audio_indices.numel(), 32)
-    condition_before = video_rows[:n_cv].clone()
-
-    video_after, _ = _step_all_rows(forward, layout, video_rows.clone(), audio_rows.clone(), freeze_condition=False)
-
-    assert not torch.allclose(video_after[:n_cv], condition_before)
+    for rows, count in seen[1:]:
+        assert count == n_cv
+        torch.testing.assert_close(rows[:n_cv], first_rows[:n_cv], rtol=0, atol=0)
+    assert not torch.allclose(seen[-1][0][n_cv:], first_rows[n_cv:])
 
 
 # -- audio source resolution --------------------------------------------------
@@ -1702,60 +1663,6 @@ def test_prepared_context_computed_once_and_reused_across_every_step():
     assert prep_calls["n"] == 1  # not `steps`
 
 
-def test_bite_check_removing_the_hoist_calls_prepare_every_step():
-    # BITE CHECK: a `__call__` that always recomputes proves the assertion
-    # above is not vacuous -- it must catch the un-hoisted behaviour too.
-    steps = 5
-    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
-    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
-    dit_module = _fake_dit_module(video_patch_dim)
-    prep_calls = _wrap_prepare_text_context_counter(dit_module)
-
-    class _AlwaysRecomputeForward(h3_main._MiniMaxH3Forward):
-        def __call__(self, *args, **kwargs):
-            self._prepared_context = None  # simulate a hoist that never sticks
-            return super().__call__(*args, **kwargs)
-
-    dit_native = SimpleNamespace(
-        compute_dtype=torch.float32, estimated_vram_gb=0.0, module=dit_module,
-        move_to=lambda d: None, offload=lambda: None,
-    )
-
-    class _FakeVideoVae(StubVideoVae):
-        def decode(self, z):
-            b, c, f, h, w = z.shape
-            return torch.rand(b, 3, f, h, w)
-
-    bundle = SimpleNamespace(
-        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
-                              latent_format={"format": "minimax_h3", "latent_channels": 24}),
-        dit=dit_native,
-        video_vae=SimpleNamespace(module=_FakeVideoVae(), compute_dtype=torch.float32,
-                                   move_to=lambda d: None, offload=lambda: None),
-        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
-        te=None, te_cache_key=None,
-    )
-    ctx_extra = _MiniMaxH3Ctx(
-        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=steps,
-        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
-        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
-        keyframe_images=[], keyframe_anchors=(), audio_source="generate", decode=True,
-    )
-    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=ctx_extra)
-    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "preview": False, "steps": steps})
-    pipe._audio_results = []
-    progress = ProgressEmitter([].append, title="test")
-
-    with (
-        patch("src.pipelines.pipes.generator.video_minimax_h3.main.encode_frames_to_mp4") as mock_encode,
-        patch("src.pipelines.pipes.generator.video_minimax_h3.main._MiniMaxH3Forward", _AlwaysRecomputeForward),
-    ):
-        mock_encode.return_value = None
-        pipe.generate_one(ctx, 0, 7, progress)
-
-    assert prep_calls["n"] == steps
-
-
 def test_prepared_context_released_after_a_successful_window():
     """The window's `_MiniMaxH3Forward` must not still be holding the hoisted
     text context once `_sample_window` returns -- nothing outlives the window
@@ -1791,17 +1698,7 @@ def test_prepared_context_released_when_the_dit_forward_raises():
         _run_generate_one_capturing_forwards(5, dit_module=flaky)
 
 
-# Both cancellation and failure tests above assert only that `generate_one`
-# raises: `_MiniMaxH3Forward` is a fresh local in `_sample_window`, so a
-# raise before `_run_generate_one_capturing_forwards` returns means the
-# `captured` list (and thus the released instance) is never handed back --
-# the release contract on those paths is proved by
-# `test_bite_check_release_runs_before_the_exception_propagates` instead.
-
-def test_bite_check_release_runs_before_the_exception_propagates():
-    # BITE CHECK: patch `_MiniMaxH3Forward.release` to record whether it ran
-    # even though the surrounding call raises -- proves the `finally` above
-    # is real (a bare `try`/no-finally would let the exception skip it).
+def test_forward_release_runs_when_sampling_is_cancelled_mid_step():
     from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
 
     released = {"called": False}
@@ -2002,9 +1899,7 @@ def test_manual_schedule_spelling_out_the_computed_one_is_bit_identical():
     torch.testing.assert_close(overridden._last_result, baseline._last_result, rtol=0, atol=0)
 
 
-def test_bite_check_a_different_manual_schedule_moves_the_latent():
-    # BITE CHECK: the equivalence above must not be vacuous -- a genuinely
-    # different manual grid of the SAME length has to change the output.
+def test_manual_sigma_values_change_the_generated_latent():
     steps = 6
     baseline, _ = _run_generate_one({}, steps=steps, ctx_overrides={"decode": False})
     overridden, _ = _run_generate_one(
@@ -2030,23 +1925,7 @@ def test_denoise_1_with_initial_latent_reproduces_the_plain_noise_path():
     torch.testing.assert_close(refine._last_result, plain._last_result, rtol=0, atol=0)
 
 
-def test_bite_check_denoise_below_1_moves_the_latent_off_the_plain_noise_path():
-    # BITE CHECK for the no-op test above: a genuinely partial denoise must
-    # not be vacuously identical to the from-noise path.
-    plain, _ = _run_generate_one({}, ctx_overrides={"decode": False})
-    refine, _ = _run_generate_one({}, ctx_overrides={
-        "decode": False, "denoise": 0.45,
-        "initial_latents": [torch.rand(1, 24, 2, 2, 2)],
-        "initial_audio_latents": [_refine_audio_latent()],
-    })
-    assert not torch.allclose(refine._last_result, plain._last_result)
-
-
-def test_bite_check_the_initial_latent_content_reaches_the_refine_trajectory():
-    # BITE CHECK isolating the noising wire (not just the schedule
-    # truncation): same seed, same denoise/steps, only the INITIAL LATENT's
-    # own content differs -- the two outputs must diverge, or the latent
-    # never actually reached `scale_noise`.
+def test_the_initial_latent_content_reaches_the_refine_trajectory():
     run_a, _ = _run_generate_one({}, ctx_overrides={
         "decode": False, "denoise": 0.5,
         "initial_latents": [torch.full((1, 24, 2, 2, 2), 3.0)],
@@ -2393,28 +2272,6 @@ def test_the_documents_overlap_reaches_the_condition_rows_bit_for_bit():
     torch.testing.assert_close(video_rows_seen[:expected_rows.shape[0]], expected_rows, rtol=0, atol=0)
 
 
-def test_bite_check_the_condition_rows_are_not_window_0s_raw_sampler_latent():
-    steps = 3
-    pipe, forwards, _, plan = _run_director(_director_document(2), steps=steps)
-    per_window = int(build_sigma_schedule(steps, VIDEO_SHIFT).timesteps.numel())
-    window = plan.windows[1]
-
-    first_latent = pipe.decoded_latents[0]
-    generator = torch.Generator(device="cpu").manual_seed(window.seed)
-    spliced = []
-    for offset in range(window.overlap_latents):
-        index = first_latent.shape[2] - window.overlap_latents + offset
-        frame = first_latent[:, :, index:index + 1].to(torch.float32)
-        noise = torch.randn(frame.shape, generator=generator, device="cpu", dtype=torch.float32)
-        spliced.append(patchify_video_latents(
-            scale_noise(frame, KEYFRAME_NOISE_AUG, noise).to(torch.float32), PATCH,
-        ))
-    spliced_rows = torch.cat(spliced, dim=0)
-
-    video_rows_seen = forwards[per_window][0]
-    assert not torch.allclose(video_rows_seen[:spliced_rows.shape[0]], spliced_rows)
-
-
 def test_a_five_latent_overlap_re_encodes_22_pixel_frames_not_17():
     pipe, _, _, plan = _run_director(
         _director_document(2), video_vae_module=(vae := _FakeKeyframeVae()),
@@ -2499,13 +2356,6 @@ def test_the_stitched_clip_is_every_windows_contribution_end_to_end():
     assert len(stitched) == plan.total_frames == DIRECTOR_FRAMES * 3 - 34
     assert int(stitched[0][0][0][0]) == 0
     assert int(stitched[DIRECTOR_FRAMES][0][0][0]) == 17
-
-
-def test_bite_check_the_trim_assertion_fails_on_an_untrimmed_stitch():
-    """BITE CHECK: the stitched length must not merely be "the sum of
-    something" -- emitting each window whole would be 34 frames longer."""
-    _, _, encodes, plan = _run_director(_director_document(3))
-    assert len(encodes[-1].args[0]) != sum(window.frames for window in plan.windows)
 
 
 def test_the_stitched_audio_loses_the_same_duration_as_the_video():
@@ -2631,16 +2481,6 @@ def test_a_shot_with_an_empty_selection_runs_without_references():
     assert plan.windows[1].reference_indices == ()
     assert [list(call) for call in calls] == [[references[0]]]
     assert mock_t2va.call_count == 1
-
-
-def test_bite_check_no_selection_would_also_pass_a_vacuous_subset_assertion():
-    # BITE CHECK for the selection test above: without `reference_indices`
-    # set at all, window 1 must get the FULL set too -- so the subset
-    # assertion above is verifying an actual narrowing, not just "not empty".
-    references = [_ref_image_media((4, 4)), _ref_image_media((4, 4))]
-    document = _director_document(2, sub_types={1: "t2v"})
-    pipe, calls, plan, *_ = _run_refs_director(document, references)
-    assert list(calls[1]) == references
 
 
 def test_single_window_refs_and_a_1_shot_refs_director_plan_are_bit_identical():

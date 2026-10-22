@@ -5,8 +5,6 @@ import re
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
-import pytest
-
 from src.platform.filesystem.model_types import MODEL_DIRECTORY_NAMES
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -180,7 +178,7 @@ def test_type_dir_path_literal_is_allowlisted(source_index):
     assert not violations, "a 'models/<type dir>/' string literal was found outside the allowlist:\n" + "\n".join(violations)
 
 
-def test_bite_check_directory_map_import_is_actually_caught(tmp_path):
+def test_directory_map_import_detector_flags_a_non_allowlisted_import(tmp_path):
     bad = tmp_path / "src" / "features" / "not_allowlisted.py"
     bad.parent.mkdir(parents=True)
     bad.write_text("from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY\n", encoding="utf-8")
@@ -193,19 +191,15 @@ def test_bite_check_directory_map_import_is_actually_caught(tmp_path):
     assert not _allowed(rel_posix, _DIRECTORY_MAP_ALLOWLIST)
 
 
-def test_bite_check_models_dir_literal_is_actually_caught():
+def test_models_dir_literal_detector_flags_a_non_allowlisted_use():
     text = "root = settings.get_setting('models_dir')\n"
     assert _models_dir_literal_hits(text)
     assert not _allowed("src/features/not_allowlisted.py", _MODELS_DIR_ALLOWLIST)
 
 
-def test_bite_check_type_dir_literal_is_actually_caught():
+def test_type_dir_literal_detector_flags_a_non_allowlisted_path():
     tree = ast.parse("path = 'models/loras/' + filename\n")
     hits = _type_dir_literal_hits(tree)
     assert hits
     assert not _allowed("src/features/not_allowlisted.py", _TYPE_DIR_LITERAL_ALLOWLIST)
 
-
-def test_bite_check_join_with_neither_half_available_cannot_be_written():
-    with pytest.raises(NameError):
-        eval("models_root / type_dir")

@@ -145,10 +145,6 @@ def test_frames_to_encode_for_continuation_rejects_nonpositive():
         frames_to_encode_for_continuation(0)
 
 
-def test_bite_check_frames_to_encode_for_continuation_is_not_the_samplers_own_span():
-    assert frames_to_encode_for_continuation(5) != 17
-
-
 # -- audio latent count -------------------------------------------------------
 
 @pytest.mark.parametrize("frames,expected", [

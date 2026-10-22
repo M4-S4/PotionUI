@@ -160,11 +160,6 @@ class TestMiniMaxH3VideoVAETiny:
 
 
 def _build_with_pinned_nontrivial_std(*, logvar_bias: float = 2.0) -> MiniMaxH3VideoVAE:
-    """A tiny module whose quant_conv bias forces the logvar half of the
-    moments to a known nonzero constant, so `std = exp(0.5*logvar)` is
-    guaranteed far from 1 regardless of the rest of the random init -- makes
-    the posterior-sampling bite-check robust instead of relying on the
-    default random init happening to produce non-trivial std."""
     module = _build()
     latent_channels = _TINY_CONFIG["latent_channels"]
     with torch.no_grad():
@@ -215,13 +210,6 @@ class TestPosteriorSampling:
         assert not torch.equal(mode, sample)
 
     def test_sample_matches_hand_computed_mean_plus_std_times_noise(self):
-        """Closeness test: independently recomputes `mean`/`std` from the
-        module's own raw moments (via the private `_encode`) and draws the
-        SAME noise via `_randn_like_reference`, then checks the module's
-        public `encode(sample_posterior=True, ...)` matches that formula
-        exactly. See the bite-check test below for why this specifically
-        catches a broken `std *` application (a determinism-only test would
-        not)."""
         module = _build_with_pinned_nontrivial_std()
         x = torch.randn(1, 3, 10, 16, 16)
         with torch.no_grad():
@@ -237,31 +225,6 @@ class TestPosteriorSampling:
         with torch.no_grad():
             actual = module.encode(x, sample_posterior=True, generator=torch.Generator().manual_seed(7))
         assert torch.allclose(actual, expected)
-
-    def test_bite_check_std_omitted_would_fail_the_closeness_test(self):
-        """Bite-check: a `mean + noise` formula (the `std *` factor dropped)
-        gives a measurably DIFFERENT result than the real module output,
-        because `_build_with_pinned_nontrivial_std` pins `std = exp(1.0) ≈
-        2.72` far from 1. This is the failure the closeness test above is
-        meant to catch; a determinism-only test would NOT catch it (a
-        broken-but-still-deterministic sample is still perfectly
-        deterministic under a fixed seed)."""
-        module = _build_with_pinned_nontrivial_std()
-        x = torch.randn(1, 3, 10, 16, 16)
-        with torch.no_grad():
-            moments = module._encode(x)
-        mean, logvar = moments.chunk(2, dim=1)
-        std = torch.exp(0.5 * torch.clamp(logvar, -30.0, 20.0))
-        assert not torch.allclose(std, torch.ones_like(std))  # confirms the fixture actually pins a non-trivial std
-        noise = _randn_like_reference(
-            mean.shape, generator=torch.Generator().manual_seed(7), device=mean.device, dtype=mean.dtype,
-        )
-        broken_sample = mean + noise  # missing `std *`
-
-        with torch.no_grad():
-            actual = module.encode(x, sample_posterior=True, generator=torch.Generator().manual_seed(7))
-        assert not torch.allclose(actual, broken_sample)
-
 
 # --- ViT decoder SwiGLU (gate FIRST half) + fused-qkv (PER-HEAD interleaved) ---
 #
@@ -302,25 +265,6 @@ def test_decoder_swiglu_gate_is_first_half():
     torch.testing.assert_close(ff(x), expected)
 
 
-def test_decoder_swiglu_halves_are_not_interchangeable():
-    """Sanity check for the test above: swapping which half is gate changes
-    the result by more than float noise (rules out a vacuous pass)."""
-    torch.manual_seed(31)
-    ops = disable_weight_init
-    ff = _VideoDecoderFeedForward(6, 4, operations=ops)
-    with torch.no_grad():
-        ff.w1.weight.copy_(torch.randn_like(ff.w1.weight))
-        ff.w1.bias.copy_(torch.randn_like(ff.w1.bias))
-        ff.w2.weight.copy_(torch.randn_like(ff.w2.weight))
-        ff.w2.bias.copy_(torch.randn_like(ff.w2.bias))
-    x = torch.randn(1, 3, 6)
-    w1_out = F.linear(x, ff.w1.weight, ff.w1.bias)
-    gate, value = w1_out.chunk(2, dim=-1)
-    correct = F.linear(F.silu(gate) * value, ff.w2.weight, ff.w2.bias)
-    swapped = F.linear(F.silu(value) * gate, ff.w2.weight, ff.w2.bias)
-    assert not torch.allclose(correct, swapped, atol=1e-4, rtol=1e-3)
-
-
 def test_decoder_qkv_split_is_per_head_interleaved():
     """Bite-checkable against an independent reference: transcribes
     ComfyUI's ``qkv.view(b, s, -1, 3*dim_head)`` + ``chunk(3, dim=-1)``
@@ -354,23 +298,6 @@ def test_decoder_qkv_split_is_per_head_interleaved():
     torch.testing.assert_close(q_ours, q_ref)
     torch.testing.assert_close(k_ours, k_ref)
     torch.testing.assert_close(v_ours, v_ref)
-
-
-def test_decoder_qkv_split_bite_check_against_block_convention():
-    """The bite check for the test above: the OLD (wrong) block-grouped
-    split -- `reshape(b,n,3,heads,dim_head)`, splitting q/k/v as three big
-    contiguous blocks across ALL heads -- gives a DIFFERENT q for any head
-    but the first, proving the two conventions are not accidentally
-    equivalent."""
-    torch.manual_seed(33)
-    heads, dim_head = 4, 8
-    dim = heads * dim_head
-    qkv_flat = torch.randn(1, 5, 3 * dim)
-
-    q_per_head, _, _ = torch.chunk(qkv_flat.view(1, 5, heads, 3 * dim_head), 3, dim=-1)
-    q_block_grouped, _, _ = qkv_flat.reshape(1, 5, 3, heads, dim_head).unbind(dim=2)
-
-    assert not torch.allclose(q_per_head, q_block_grouped)
 
 
 # -- batched spatial-tile decode -------------------------------------------

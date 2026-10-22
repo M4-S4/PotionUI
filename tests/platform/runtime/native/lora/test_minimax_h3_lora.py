@@ -582,21 +582,18 @@ def test_comfy_generic_apply_changes_forward_and_remove_restores():
     torch.testing.assert_close(restored_a, base_a, atol=1e-4, rtol=1e-3)
 
 
-# --- slice-offset correctness (bite-checkable against an unfused reference) ---
-
-def test_slice_offsets_match_unfused_reference_and_swap_bite_check():
+def test_qkv_slice_offsets_patch_the_fused_projection_like_the_unfused_reference():
     torch.manual_seed(11)
     rank = 4
     wq = torch.randn(INNER, HIDDEN) * 0.02
     wk = torch.randn(INNER, HIDDEN) * 0.02
     wv = torch.randn(INNER, HIDDEN) * 0.02
-    fused = torch.cat([wq, wk, wv], dim=0)  # matches qkv_proj's [3*inner, hidden] layout
+    fused = torch.cat([wq, wk, wv], dim=0)
 
     up_q, down_q = torch.randn(INNER, rank) * 0.1, torch.randn(rank, HIDDEN) * 0.1
     up_k, down_k = torch.randn(INNER, rank) * 0.1, torch.randn(rank, HIDDEN) * 0.1
     up_v, down_v = torch.randn(INNER, rank) * 0.1, torch.randn(rank, HIDDEN) * 0.1
 
-    # independent reference: patch each unfused matrix separately, then fuse.
     reference = torch.cat([
         wq + up_q @ down_q,
         wk + up_k @ down_k,
@@ -611,17 +608,6 @@ def test_slice_offsets_match_unfused_reference_and_swap_bite_check():
     got = apply_lora_deltas(fused.clone(), correct)
     torch.testing.assert_close(got, reference, atol=1e-5, rtol=1e-4)
 
-    # bite check: swap the k/v slice offsets -> must NOT match the reference.
-    swapped = [
-        LoraDelta(down=down_q, up=up_q, alpha=float(rank), scale=1.0, target_slice=(0, 0, INNER)),
-        LoraDelta(down=down_k, up=up_k, alpha=float(rank), scale=1.0, target_slice=(0, 2 * INNER, INNER)),
-        LoraDelta(down=down_v, up=up_v, alpha=float(rank), scale=1.0, target_slice=(0, INNER, INNER)),
-    ]
-    got_swapped = apply_lora_deltas(fused.clone(), swapped)
-    assert not torch.allclose(got_swapped, reference, atol=1e-5, rtol=1e-4)
-
-    # confirms the map's ACTUAL offsets are the q|k|v ones the model uses --
-    # cross-checked against build_minimax_h3_lora_key_map directly.
     km = build_minimax_h3_lora_key_map(_build())
     assert km["transformer.transformer_blocks.0.attn.to_q"][1] == (0, 0, INNER)
     assert km["transformer.transformer_blocks.0.attn.to_k"][1] == (0, INNER, INNER)

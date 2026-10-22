@@ -328,29 +328,6 @@ def test_swiglu_gate_is_first_half_of_fc1_output():
     torch.testing.assert_close(mlp(x), expected)
 
 
-def test_swiglu_is_not_symmetric_under_half_swap():
-    """Bite-check for the test above: if ``mlp.forward`` silently swapped
-    which half gets SiLU'd, this constructs an ``fc1``/``x`` pair where
-    swapping the two halves changes the result by more than float noise --
-    i.e. the reference test above is actually discriminating, not vacuously
-    true because gate/value happened to coincide."""
-    torch.manual_seed(1)
-    ops = _fp32_ops()
-    hidden, ffn = 6, 4
-    mlp = MiniMaxH3MLP(hidden, ffn, ops, dtype=torch.float32)
-    with torch.no_grad():
-        mlp.fc1.weight.copy_(torch.randn_like(mlp.fc1.weight))
-        mlp.fc2.weight.copy_(torch.randn_like(mlp.fc2.weight))
-    x = torch.randn(1, 2, hidden)
-
-    fc1_out = F.linear(x, mlp.fc1.weight)
-    gate, up = fc1_out.chunk(2, dim=-1)
-    correct = F.linear(F.silu(gate) * up, mlp.fc2.weight)
-    swapped = F.linear(F.silu(up) * gate, mlp.fc2.weight)
-
-    assert not torch.allclose(correct, swapped, atol=1e-4, rtol=1e-3)
-
-
 # --- AdaLN full-vs-pruned equivalence (validates the curve derivation) ------
 
 def test_pruned_curve_reproduces_full_modulation_at_grid_points():

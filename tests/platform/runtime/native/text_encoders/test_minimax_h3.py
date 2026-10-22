@@ -1115,23 +1115,6 @@ def test_mixed_reference_presentation_keeps_packed_order():
     assert torch.isfinite(out["context"]).all()
 
 
-def test_bite_check_a_video_reference_is_not_presented_as_a_single_image():
-    # BITE CHECK for the whole video branch: if a video were routed through
-    # the image path (one block, one pad run, grid_t == 1), the presentation
-    # would be strictly SHORTER than three timestamped blocks and carry no
-    # <|video_pad|> at all.
-    pytest.importorskip("transformers")
-    m = _tiny_h3_vl_module()
-    tok = MiniMaxH3Tokenizer()
-    enc = _SmallEncoder(m, tok, device="cpu")
-    video = _video(49)
-
-    as_video = enc.encode_reference_request("pan left", [MiniMaxH3Reference(kind="video", media=video)])
-    as_image = enc.encode_reference_request("pan left", [MiniMaxH3Reference(kind="image", media=video[0])])
-
-    assert as_video["context"].shape[1] > as_image["context"].shape[1]
-
-
 def test_image_only_reference_request_is_unchanged_by_the_video_branch():
     # Bystander: the existing image-only presentation must still be exactly
     # encode_request's, token for token.

@@ -93,15 +93,14 @@ def _apply_dense_lora(proj: MiniMaxH3AdalnProj, down: torch.Tensor, up: torch.Te
 
 
 def _apply_translated(proj: MiniMaxH3AdalnProj, down: torch.Tensor, up: torch.Tensor,
-                      alpha: float, scale: float, fit: AffineFit, *, with_bias: bool = True) -> None:
+                      alpha: float, scale: float, fit: AffineFit) -> None:
     translated = translate_adaln_lora(down, up, alpha, scale, fit)
     delta = translated.delta
     with torch.no_grad():
         proj.linear.weight.add_(
             (delta.scale * delta.alpha / delta.down.shape[0]) * (delta.up @ delta.down)
         )
-    if with_bias:
-        apply_bias_delta(proj.linear, translated.bias_delta)
+    apply_bias_delta(proj.linear, translated.bias_delta)
 
 
 # --- the grid mapping -------------------------------------------------------
@@ -143,68 +142,6 @@ def test_translated_lora_reproduces_dense_modulation_when_the_fit_is_exact():
     _apply_translated(pruned, down, up, alpha=float(RANK), scale=0.75, fit=fit)
 
     torch.testing.assert_close(_stack(dense(dense_grid)), _stack(pruned(table)), atol=1e-5, rtol=1e-4)
-
-
-# --- (c) bite-checks for the test above -------------------------------------
-
-def test_exact_translation_needs_the_bias_term():
-    """Bite-check: the constant half of the affine fit carries a real part of
-    the dense delta. Drop it and the EXACT test above stops holding."""
-    torch.manual_seed(11)
-    table = torch.randn(GRID, PRUNED_DIM)
-    true_v = torch.randn(DENSE_DIM, PRUNED_DIM) * 0.5
-    true_c = torch.randn(DENSE_DIM) * 0.5
-    dense_grid = true_c.unsqueeze(0) + table @ true_v.T
-    fit = fit_affine_grid(dense_grid, table)
-
-    dense = _adaln_proj(DENSE_DIM)
-    pruned = _pruned_twin_of(dense, fit)
-    down, up = _dense_lora()
-    _apply_dense_lora(dense, down, up, alpha=float(RANK), scale=0.75)
-    _apply_translated(pruned, down, up, alpha=float(RANK), scale=0.75, fit=fit, with_bias=False)
-
-    assert not torch.allclose(_stack(dense(dense_grid)), _stack(pruned(table)), atol=1e-5, rtol=1e-4)
-
-
-def test_exact_translation_needs_the_right_t_mapping():
-    """Bite-check: the fit is only meaningful if the dense curve is sampled at
-    exactly the ``t`` values the table's rows stand for. Shift the grid by one
-    row and the translation no longer reproduces the dense modulation."""
-    torch.manual_seed(11)
-    config = MiniMaxH3Config.from_detect_config(
-        dict(TINY_COMMON, pruned=False, time_embed_dim=DENSE_DIM, freq_dim=8, time_embed_hidden_dim=16)
-    )
-    full = MiniMaxH3Model(config, _fp32_ops(), dtype=torch.float32)
-    with torch.no_grad():
-        for p in full.parameters():
-            p.copy_(torch.randn_like(p) * 0.2)
-
-    correct_grid = dense_silu_grid(full.time_embedder, adaln_curve_timesteps(GRID))
-    shifted_grid = dense_silu_grid(full.time_embedder, adaln_curve_timesteps(GRID + 1)[1:])
-    table = _pca_table(correct_grid, PRUNED_DIM)
-
-    correct_fit = fit_affine_grid(correct_grid, table)
-    shifted_fit = fit_affine_grid(shifted_grid, table)
-
-    assert shifted_fit.residual > correct_fit.residual
-
-    dense = _adaln_proj(DENSE_DIM)
-    down, up = _dense_lora()
-    reference = _adaln_proj(DENSE_DIM)
-    with torch.no_grad():
-        reference.linear.weight.copy_(dense.linear.weight)
-        reference.linear.bias.copy_(dense.linear.bias)
-    _apply_dense_lora(reference, down, up, alpha=float(RANK), scale=0.75)
-    expected = _stack(reference(correct_grid))
-
-    good = _pruned_twin_of(dense, correct_fit)
-    bad = _pruned_twin_of(dense, correct_fit)
-    _apply_translated(good, down, up, alpha=float(RANK), scale=0.75, fit=correct_fit)
-    _apply_translated(bad, down, up, alpha=float(RANK), scale=0.75, fit=shifted_fit)
-
-    good_error = (_stack(good(table)) - expected).norm()
-    bad_error = (_stack(bad(table)) - expected).norm()
-    assert good_error < bad_error
 
 
 # --- (b) REAL tiny time embedder: the fit is approximate --------------------

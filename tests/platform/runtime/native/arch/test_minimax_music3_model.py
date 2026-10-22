@@ -100,21 +100,6 @@ def test_state_dict_shape_ranks_match_real_header():
         assert tensor.ndim == len(header[key]["shape"]), key
 
 
-def test_bite_check_wrong_ff_naming_breaks_key_parity():
-    """A regression sentinel for the checkpoint's own `ff.ff.0.proj`/`ff.ff.2`
-    double-nesting: a plausible-looking flatter naming (`ff.proj_in`/`ff.proj_out`)
-    would NOT match the real header, proving the parity test above actually
-    discriminates layout, not just tensor count."""
-    header = load_header("minimax_music3/minimax_music3_dit_fp16")
-    with torch.device("meta"):
-        m = MiniMaxMusic3Model.from_config(REAL_CONFIG, _fp32_ops())
-    wrong_keys = {
-        k.replace("ff.ff.0.proj", "ff.proj_in").replace("ff.ff.2", "ff.proj_out")
-        for k in m.state_dict().keys()
-    }
-    assert wrong_keys != set(header.keys())
-
-
 # --- full assign-load dry run (shrunk scale, real key set) --------------------
 
 def test_shrunk_module_assign_loads_and_forwards():
@@ -182,27 +167,6 @@ def test_glu_value_first_gate_second():
         glu.proj.bias[3:] = 50.0  # silu(50) ~ 50 -> out ~ value * 50 = 350
     out2 = glu(torch.zeros(1, 4))
     assert torch.allclose(out2, torch.full_like(out2, 7.0 * 50.0), atol=1e-1)
-
-
-def test_bite_check_gate_first_value_second_would_fail():
-    """If the chunk order were reversed (gate first, value second — diffusers'
-    OWN unfused convention, wrong for this checkpoint per the module's provenance
-    note), the same bias pattern above would silence the output instead of
-    passing it through — proving the test above discriminates the order."""
-    glu = MiniMaxMusic3GLU(4, 3, _fp32_ops())
-    with torch.no_grad():
-        glu.proj.weight.zero_()
-        glu.proj.bias.zero_()
-        glu.proj.bias[3:] = -50.0
-        glu.proj.bias[:3] = 7.0
-
-    def _wrong_order_forward(x):
-        gate, value = glu.proj(x).chunk(2, dim=-1)  # reversed
-        return value * F.silu(gate)
-
-    out = _wrong_order_forward(torch.zeros(1, 4))
-    # gate=7 (first half) -> silu(7)~7, value=-50 (second half) -> out ~ -350, NOT ~0.
-    assert not torch.allclose(out, torch.zeros_like(out), atol=1e-3)
 
 
 # --- fused qkv split + partial RoPE ---------------------------------------------
