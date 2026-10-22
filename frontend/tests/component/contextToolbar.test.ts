@@ -256,16 +256,100 @@ function saveButton() {
 }
 
 describe('ContextToolbar background', () => {
-	it('paints one surface on the bar root and leaves every zone transparent', async () => {
+	it('paints the bar root, puts the ribbon band behind the context steps and leaves the gap and tools transparent', async () => {
 		await render();
 		const root = bar();
 		expect(root.classList.contains('bg-surface-1')).toBe(true);
 		const zones = Array.from(root.children) as HTMLElement[];
 		expect(zones.map((zone) => zone.dataset.testid)).toEqual(['context-zone', 'context-gap', 'context-tools']);
 		for (const zone of zones) {
-			expect(Array.from(zone.classList).filter((token) => token.startsWith('bg-')), zone.dataset.testid).toEqual([]);
+			const painted = Array.from(zone.classList).filter((token) => token.startsWith('bg-'));
+			expect(painted, zone.dataset.testid).toEqual(zone.dataset.testid === 'context-zone' ? ['bg-canvas'] : []);
 		}
-		expect(root.querySelector('[data-testid="context-zone"]')!.classList.contains('border-r')).toBe(true);
+		const zone = root.querySelector('[data-testid="context-zone"]') as HTMLElement;
+		expect(Array.from(zone.classList).filter((token) => token.startsWith('border')), 'context zone borders').toEqual([]);
+		expect(Array.from(zone.classList).filter((token) => token.startsWith('gap-')), 'context zone gap').toEqual([]);
+	});
+});
+
+describe('ContextToolbar ribbon', () => {
+	const CUT = '[data-testid="context-separator"]';
+	const CUT_WIDTH = 20;
+	const ZONE_PARTS: Record<string, string> = {
+		'context-separator': 'cut',
+		'preset-header-picker': 'preset',
+		'preset-header-mode': 'mode',
+		'preset-variant-switch': 'variant',
+		'context-session': 'session'
+	};
+
+	function zone(): HTMLElement {
+		return target.querySelector('[data-testid="context-zone"]') as HTMLElement;
+	}
+
+	function zoneSequence(): string[] {
+		return Array.from(zone().children).map((child) => {
+			const id = Object.keys(ZONE_PARTS).find((testid) => (child as HTMLElement).dataset.testid === testid || child.querySelector(`[data-testid="${testid}"]`));
+			return id ? ZONE_PARTS[id] : 'unknown';
+		});
+	}
+
+	function steps(): HTMLElement[] {
+		return Array.from(zone().children).filter((child) => (child as HTMLElement).dataset.testid !== 'context-separator') as HTMLElement[];
+	}
+
+	it('cuts the ribbon once between Preset, Mode and Session, with none before the first step or after Save', async () => {
+		await render();
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'mode', 'cut', 'session']);
+		expect(zone().lastElementChild!.contains(saveButton())).toBe(true);
+	});
+
+	it('adds a cut before the Variant step when the mode has variants', async () => {
+		await render({ availableModes: VARIANT_MODES });
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'mode', 'cut', 'variant', 'cut', 'session']);
+	});
+
+	it('cuts once between Preset and Session when there is only one mode', async () => {
+		await render({ availableModes: [MODES[0]] });
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'session']);
+	});
+
+	it('keeps every cut decorative and out of the accessibility tree', async () => {
+		await render();
+		const cuts = Array.from(target.querySelectorAll<HTMLElement>(CUT));
+		expect(cuts).toHaveLength(2);
+		for (const cut of cuts) {
+			expect(cut.getAttribute('aria-hidden')).toBe('true');
+			expect(cut.querySelector('button, a, [tabindex]')).toBeNull();
+			expect(cut.textContent!.trim()).toBe('');
+		}
+	});
+
+	it('gives every step the same inline padding and narrows it once the labels are hidden', async () => {
+		await render({ availableModes: VARIANT_MODES });
+		expect(steps()).toHaveLength(4);
+		for (const step of steps()) expect(step.classList.contains('px-4'), step.dataset.testid ?? 'preset').toBe(true);
+		unmount(component!);
+		component = null;
+		target.remove();
+		measure({ 'context-bar': { client: 500, scroll: stagedContent } });
+		await render({ availableModes: VARIANT_MODES });
+		for (const step of steps()) {
+			expect(step.classList.contains('px-2.5'), step.dataset.testid ?? 'preset').toBe(true);
+			expect(step.classList.contains('px-4'), step.dataset.testid ?? 'preset').toBe(false);
+		}
+	});
+
+	it('counts the cuts in the width the fit logic measures, folding a tool they push out', async () => {
+		measure({ 'context-bar': { client: 1000, scroll: (el) => barContent(el) + 260 + CUT_WIDTH * count(el, CUT) } });
+		await render();
+		expect(toolOrder()).toEqual(['formulas', 'fields', 'more']);
+	});
+
+	it('keeps the same tools when the cuts are not counted against the bar', async () => {
+		measure({ 'context-bar': { client: 1000, scroll: (el) => barContent(el) + 260 } });
+		await render();
+		expect(toolOrder()).toEqual(['formulas', 'fields', 'layout', 'more']);
 	});
 });
 

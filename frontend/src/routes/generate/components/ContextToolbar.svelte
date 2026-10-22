@@ -162,6 +162,7 @@
 	let foldedTools = $derived(tools.slice(fit.visible));
 	let foldedActive = $derived(foldedTools.some((tool) => tool.pressed));
 	let labelClass = $derived(fit.compact ? 'sr-only' : 'whitespace-nowrap text-sm text-fg-subtle');
+	let stepPad = $derived(fit.compact ? 'px-2.5' : 'px-4');
 	let capClass = $derived(fit.squeeze === 2 ? 'max-w-[96px]' : fit.squeeze === 1 ? 'max-w-[160px]' : '');
 
 	let fitKey = $derived(
@@ -237,6 +238,12 @@
 	}
 </script>
 
+{#snippet cut()}
+	<span class="context-cut" aria-hidden="true" data-testid="context-separator">
+		<svg viewBox="0 0 20 48" preserveAspectRatio="none" focusable="false"><path d="M-4.25 -6 L17 24 L-4.25 54"></path></svg>
+	</span>
+{/snippet}
+
 {#snippet divider()}
 	<span class="mx-1 h-5 w-px flex-shrink-0 bg-line-strong" aria-hidden="true"></span>
 {/snippet}
@@ -248,12 +255,12 @@
 >
 	<div
 		bind:this={contextEl}
-		class="flex min-w-0 flex-shrink items-center border-r border-line {fit.compact ? 'gap-2.5 px-3' : 'gap-4 px-4'}"
+		class="flex min-w-0 flex-shrink items-center bg-canvas"
 		role="group"
 		aria-label="Generation context"
 		data-testid="context-zone"
 	>
-		<div class="flex flex-shrink-0 items-center gap-2">
+		<div class="flex flex-shrink-0 items-center gap-2 {stepPad}">
 			<span id="{uid}-preset" class={labelClass} data-context-label>Preset</span>
 			<div class="flex min-w-0" data-testid="preset-header-picker">
 				<PresetPicker
@@ -300,7 +307,8 @@
 		</div>
 
 		{#if modeOptions.length > 1}
-			<div class="flex flex-shrink-0 items-center gap-2" data-testid="preset-header-mode">
+			{@render cut()}
+			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-header-mode">
 				<span id="{uid}-mode" class={labelClass} data-context-label>Mode</span>
 				<CustomSelect
 					value={tab.selectedMode ?? ''}
@@ -338,7 +346,8 @@
 		{/if}
 
 		{#if variantOptions.length > 1}
-			<div class="flex flex-shrink-0 items-center gap-2" data-testid="preset-variant-switch">
+			{@render cut()}
+			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-variant-switch">
 				<span id="{uid}-variant" class={labelClass} data-context-label>Variant</span>
 				<CustomSelect
 					value={selectedVariant}
@@ -368,7 +377,8 @@
 			</div>
 		{/if}
 
-		<div class="flex min-w-0 shrink items-center gap-2">
+		{@render cut()}
+		<div class="flex min-w-0 shrink items-center gap-2 {stepPad}">
 			<span class={labelClass} data-context-label>Session</span>
 			<SessionControl {session} {actions} {fieldLabels} compact={fit.compact} />
 		</div>
@@ -463,6 +473,30 @@
 </div>
 
 <style>
+	.context-cut {
+		position: relative;
+		display: block;
+		width: 20px;
+		flex-shrink: 0;
+		align-self: stretch;
+	}
+
+	.context-cut svg {
+		position: absolute;
+		inset: 0;
+		display: block;
+		width: 100%;
+		height: 100%;
+		overflow: visible;
+	}
+
+	.context-cut path {
+		fill: none;
+		stroke: rgb(var(--surface-1));
+		stroke-width: 3;
+		vector-effect: non-scaling-stroke;
+	}
+
 	.pinned:not(:has(:global([data-testid='formulas-button']))) {
 		display: none;
 	}
