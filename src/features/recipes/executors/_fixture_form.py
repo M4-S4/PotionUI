@@ -78,7 +78,9 @@ def _field_get(field_obj: Any, attr: str) -> Any:
     return getattr(field_obj, attr, None)
 
 
-def _collect_named_fields(fields: List[Any], form_data: Dict[str, Any]) -> None:
+def _collect_named_fields(
+    fields: List[Any], form_data: Dict[str, Any], reactive_defaults: Optional[Dict[str, Any]] = None
+) -> None:
     for field_obj in fields:
         name = _field_get(field_obj, "name")
         if name:
@@ -88,9 +90,19 @@ def _collect_named_fields(fields: List[Any], form_data: Dict[str, Any]) -> None:
                 form_data[name] = value
             elif default is not None:
                 form_data[name] = default
+                if reactive_defaults is not None and _field_get(field_obj, "reactions"):
+                    reactive_defaults[name] = default
         children = _field_get(field_obj, "children")
         if children and isinstance(children, list):
-            _collect_named_fields(children, form_data)
+            _collect_named_fields(children, form_data, reactive_defaults)
+
+
+def _leave_reactive_defaults_to_binding(
+    form_data: Dict[str, Any], reactive_defaults: Dict[str, Any], overrides: Dict[str, Any]
+) -> None:
+    for name, default in reactive_defaults.items():
+        if name not in overrides and form_data.get(name) == default:
+            form_data.pop(name, None)
 
 
 def _inject_unresolvable_defaults(fields: List[Any], form_data: Dict[str, Any]) -> None:
@@ -289,6 +301,7 @@ def build_fixture_form_data(
     mode_data = preset_template.modes[mode]
     form_name = default_form_name(mode_data)
     form_data: Dict[str, Any] = {}
+    reactive_defaults: Dict[str, Any] = {}
     resolved_fields: List[Any] = []
 
     if form_name is not None:
@@ -302,7 +315,7 @@ def build_fixture_form_data(
         # Reach into the "private" `_resolve_external_children` to resolve
         # @loop / external tab files exactly like the real form-schema endpoint.
         resolved_fields = form_serializer._resolve_external_children(form_template.fields, context_dict)
-        _collect_named_fields(resolved_fields, form_data)
+        _collect_named_fields(resolved_fields, form_data, reactive_defaults)
         _inject_unresolvable_defaults(resolved_fields, form_data)
 
     form_data.setdefault("quantity", 1)
@@ -323,6 +336,8 @@ def build_fixture_form_data(
         document = _fixture_video_director(preset_template, mode, form_data, prompt)
         if document is not None:
             form_data["video_director"] = document
+
+    _leave_reactive_defaults_to_binding(form_data, reactive_defaults, overrides or {})
 
     bound = bind_form(
         preset_template, mode, form_name=None, raw_form_data=form_data, user_id=None, storage_dir=None
