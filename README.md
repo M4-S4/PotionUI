@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
   write action needs your approval.
 - **Video Director** — compose shots in sections instead of one giant prompt.
 
-*Alpha 0.0.16 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
+*Alpha 0.0.17 · Linux x86_64 + NVIDIA · Windows native (experimental), WSL2 or
 Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Reddit](https://www.reddit.com/r/PotionUI/) ·
 [Ko-fi](https://ko-fi.com/A3B325D031)*
@@ -237,7 +237,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.16 matrix. **Native
+> **Linux x86_64 with an NVIDIA GPU** is the tested 0.0.17 matrix. **Native
 > Windows is supported experimentally** as of 0.0.8: the installer, the CLI,
 > the backend test suite, the frontend checks and the E2E harness all run in
 > CI on `windows-latest` — see [Windows (native)](#windows-native) below.
@@ -281,7 +281,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.16                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.17                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | Experimental (0.0.8) — installer, CLI, backend suite, frontend checks and E2E harness run in CI on `windows-latest`; see [Windows (native)](#windows-native) |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -389,6 +389,72 @@ Start with the in-app documentation browser, or read the Markdown directly:
 
 The three most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.0.17 — 2026-10-22
+
+- Model indexing: a scan only lists files and reads headers, so models are usable at once, and
+  hashing runs afterwards in a paced, low-priority pool that pauses during generation and that an
+  admin can slow down or pause; a first-run choice (index all, pick models or later) is asked after
+  setup instead of over the wizard, onboarding never waits for hashing, and recipes verify at most
+  two same-size files before downloading.
+- Prompts: if / else if / otherwise conditions pick text per image from a prompt's variables, edited
+  in a wide condition editor (typing << opens it) with a per-image preview and warnings for
+  unfinished branches; Number variables join Choice variables; variables are kept on the server per
+  user, where PotionAI and MCP can read and change them; PotionAI understands conditions and can add
+  or delete segments; a literal $, % or # is plain text instead of silently switching off every
+  choice; Save as prompt keeps every variable.
+- Generate: a context toolbar under the tabs holds preset, mode, variant and session on the left and
+  Save plus the tools on the right; the preset dropdown has search, Recent, Pinned and families, and
+  a preset without a backend can be picked with Generate disabled and the reason shown; the
+  generation panel becomes a now-playing deck with a result thumbnail and a soft glow of the last
+  result; tabs show a dot for unsaved session changes, sessions can be reloaded from the last
+  snapshot, and a required model slot fills itself when one installed model matches.
+- History: cards show run time; `/history?generation=<id>` opens a generation's Details; deleting an
+  X/Y compare removes the whole compare after one confirm; History, Library, Prompts, Inspirations
+  and Models share a redesigned collections sidebar with search, Include subcollections and a phone
+  sheet; prompt search is faster.
+- Model Tools: a new admin-only preset for the local native backend quantizes to FP8, INT8, INT8
+  ConvRot, NVFP4 or INT4 ConvRot, bakes LoRA and LoKr into a model and merges LoRAs, writing the
+  result next to its source as a model card in the Workbench and History; layers a format cannot
+  hold stay in source precision and are reported; FLUX 3 Klein loads fused-QKV INT8 ConvRot
+  checkpoints, LoRAs included, and INT4 ConvRot files load too.
+- Native engine: MOSS-Image arrives with SFT and Base presets, a LoRA tab, a starter recipe and an
+  optional step cache; Krea-2 gets an experimental Text Enhancer (off by default) for stronger
+  prompt adherence and a Text Scale slider; torch.compile also runs on fp8-scaled and streamed DiTs;
+  a streamed MiniMax-H3 pins 19.5 GB of system memory instead of 30.6 GB and keeps more of long
+  clips on the GPU.
+- Chat: a configuration's Show thinking to users switch (off by default) shows the model's reasoning
+  in a foldable block above each reply, live with a timer and never sent back as context; Ollama's
+  Thinking Mode loses Automatic; LLM configurations get one Context window field with a Detect
+  button, detected from the server or checkpoint when unset; chat sends shorter prompts and only the
+  tools a mode and window need.
+- Sign-in: the OIDC plugin can send signed-out visitors straight to the identity provider (off by
+  default), with `/login?local=1` as the local recovery form; every login returns to the page you
+  were on; registration accepts local-domain emails; MCP generation tools return a details link per
+  generation, built from a new Public address setting or the request's origin.
+- Automations and plugins: an admin-only HTTP request action with a test panel, a public-address
+  guard and encrypted secret headers; Auto-organize can file generations by Media Tagging tags;
+  plugin pages call the app through an authenticated host API; Admin > Presets keeps its open tab in
+  the URL; the account menu links to the community.
+- Phones and keyboard: Chat sits in the bottom nav on every page, the deck sits above the tab bar,
+  and headers, Generation Details and confirm dialogs fit a phone; focus rings show only while the
+  keyboard is in use, tooltips open on keyboard focus, Escape closes only the topmost popover, and
+  shortcut hints show the command key on macOS.
+- Pinokio: media loads when PotionUI is embedded in Pinokio's window.
+- Reliability: the backend keeps serving past 10,000 requests; History queries are indexed; heavy
+  calls no longer block the server; unexpected errors no longer leak text or paths to regular users.
+- Fixes: Krea-2 Enhance no longer leaves noise; cancelling a cloud generation on a provider that
+  cannot cancel shows the calm notice; approving a prompt-variable change in chat reports what was
+  applied; the $, /, @ and # pickers insert at the typed character in a multi-line prompt; typing in
+  a choice group's options no longer triggers global shortcuts; MiniMax-H3 finds the bundled ffmpeg
+  and fails before sampling rather than after; Model Browser previews load without a referrer.
+- Upgrading: Ollama configurations on Thinking Mode Automatic (off during tool calls, on otherwise)
+  become Disabled, and thinking stays hidden until Show thinking to users is on; installs where any
+  model already had a hash keep verifying in the background, while one with none and a large library
+  (over 20 files or 64 GiB) is asked once and hashes nothing until it answers, models being usable
+  either way; prompt variables kept in the browser move to the server on first load; a stored S3
+  secret key and plugin credentials saved in clear are encrypted on first start; the installer needs
+  Node.js 22 or newer.
 
 ### 0.0.16 — 2026-10-16
 
@@ -518,56 +584,6 @@ The three most recent releases; older history lives in the
   first start and the variables are ignored afterwards (a startup warning names any still set), so
   change it in each native backend's Optimizations tab; tzdata is a new requirement, so reinstall
   requirements on a manual install.
-
-### 0.0.14 — 2026-10-02
-
-- Cloud models: a new OpenRouter plugin lets presets run on hosted image and video models such
-  as Nano Banana and Veo 3.1 Lite, with results landing in the same History; admins refresh a
-  backend's model catalog, see prices, enable models and limit them to chosen presets; the form
-  shows only the controls the chosen model supports, with a Provider options field for its
-  extras; jobs report progress, can be cancelled with a notice when the provider may still finish
-  and bill, never bill twice on a retry, and record their cost for admins with spend per backend
-  and model; cloud backends run several jobs at once.
-- Video Director on cloud models: each hosted model brings its own limits, a film of several
-  shots makes one request per shot and can continue each shot from the last frame of the one
-  before, the shots are joined into one film, and retrying a failed shot redoes only that shot
-  (a full redo asks first and shows the price to admins).
-- Image editor: images can be edited and drawn in a built-in editor with layers, brush and
-  eraser, selections, crop, flip, rotate, resize and colour adjustments, opened from a media
-  field, History and Library (Tools → Edit image), the generation details view or the Library
-  item view; the result is saved as a new Library upload and the original stays untouched.
-- Formulas: the settings of a preset mode can be saved as a formula and applied in any session,
-  with a preview of every value that will change, a mark on what changed, and one click to undo;
-  every marketplace and ComfyUI preset declares which settings belong in a formula.
-- Media fields: a redesigned field with one large preview, a Tools menu and file details, a
-  numbered strip for several items, and one field that can hold images, videos and audio in their
-  own groups; type @ in a prompt to cite any of them; MiniMax-H3 references are now one such
-  field, and old sessions and saved prompts are converted when loaded; Crop, Trim and Frame only
-  add the edited result to the Library, never the unedited original.
-- Qwen-Image 2.1: a Control mode with Fun ControlNet Union guides (canny, depth, pose and more)
-  and inpainting from one image with an optional mask; the extracted guide can be saved next to
-  the result as a labelled image, or extracted on its own without a prompt or image models; the
-  workbench shows the guide with its label beside the result.
-- Generate: three-pane mode folds the form on narrow screens and gives its width to the prompts;
-  dropdowns open above the Generate bar and work with the arrow keys; preset forms show and hide
-  fields for the value just picked; video presets have animated covers, and every cover zooms
-  slightly on hover.
-- Chat: attaching an image uses the same picker as a preset form.
-- Admin: a panel from the System Monitor shows every backend's status, jobs and hardware; the
-  System Monitor is admins only unless an admin opens it to everyone; plugins are grouped by what
-  they add; preset overrides say when a stored default is ignored and why.
-- Plugins: plugins can run generations, read preset forms, prepare requests from saved sessions,
-  use every app UI component and the app's list page and details viewer, and probe or re-encode
-  short videos.
-- Fixes: Enter in the session name saves the session and no longer resets the workspace; painted
-  inpaint masks reach the model; previews survive a reload with Windows paths or storage under a
-  tmp folder; regular users see a plain reason when a generation fails to start or prepare,
-  never server paths or error text; OpenRouter image models keep their aspect ratio choice; the
-  ControlNet preprocessors are installed with the requirements.
-- Upgrading: plugin manifests must use one of the current categories, and a plugin with an old
-  category name no longer loads; the Docker setup no longer has an outputs volume, since all
-  generated work lives in the storage volume; cloud models need the OpenRouter plugin enabled and
-  its API key set in Admin → Plugins.
 
 ## Contributing
 
