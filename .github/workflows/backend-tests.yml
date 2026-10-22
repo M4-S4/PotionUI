@@ -85,6 +85,23 @@ jobs:
       # skip silently rather than fail, so install it for real coverage.
       # ffmpeg unlocks the media-editing suite's video/audio round-trips the
       # same way.
+      # The 87 packages ffmpeg pulls in (64.7 MB) come from the runner's Azure
+      # Ubuntu mirror, which sometimes drops to ~75 kB/s and exhausts the step
+      # cap. The downloaded .deb files are cached per runner image + package
+      # list, so a hit installs from local files and a miss still falls back to
+      # the mirror with the retries below.
+      - name: Compute apt archive cache key
+        id: apt-cache-key
+        env:
+          APT_PACKAGES: libglib2.0-0 ffmpeg
+        run: echo "key=apt-debs-${ImageOS:-ubuntu}-${ImageVersion:-unknown}-$(echo "$APT_PACKAGES" | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore apt archive cache
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-debs
+          key: ${{ steps.apt-cache-key.outputs.key }}
+
       - name: Install system dependencies
         timeout-minutes: 12
         run: |
@@ -94,6 +111,8 @@ jobs:
           # that points at dl.google.com, and do not let an unrelated index failure
           # fail the step - the Ubuntu indexes the two packages come from still load.
           sudo grep -rl "dl.google.com" /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
+          mkdir -p "$HOME/apt-debs"
+          sudo cp -n "$HOME"/apt-debs/*.deb /var/cache/apt/archives/ 2>/dev/null || true
           APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
           for attempt in 1 2 3; do
             sudo timeout 120 apt-get update $APT_OPTS || true
@@ -101,6 +120,10 @@ jobs:
             [ "$attempt" = 3 ] && exit 1
             sleep 15
           done
+          if ls /var/cache/apt/archives/*.deb >/dev/null 2>&1; then
+            sudo cp -u /var/cache/apt/archives/*.deb "$HOME/apt-debs/"
+            sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-debs"
+          fi
 
       # pytest-timeout backs pytest.ini's `timeout = 300` - it is not in
       # requirements-dev.txt today, so it's installed explicitly here rather
