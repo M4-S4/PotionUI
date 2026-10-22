@@ -1687,9 +1687,9 @@
 		const cancelledId = currentGen.id;
 
 		try {
-			await api.cancelGeneration(cancelledId);
+			const response = await api.cancelGeneration(cancelledId);
 
-			applyConfirmedCancellations(tabsStore, targetTabId, [cancelledId]);
+			applyConfirmedCancellations(tabsStore, targetTabId, [cancelledId], response.data?.cancel_notice ?? null);
 			// Resolve any Director run it covers and retire its cache/
 			// subscription/retired-marker, same as the live generation_cancelled
 			// event does.

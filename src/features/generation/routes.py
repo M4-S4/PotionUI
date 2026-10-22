@@ -389,7 +389,11 @@ class GenerationController(BaseController):
 
         await self.output_broadcaster.broadcast_cancelled(generation_id)
 
-        return self.success_response(message="Generation cancelled successfully")
+        status = self.generation_orchestrator.status_tracker.get(generation_id)
+        return self.success_response(
+            data={"cancel_notice": status.cancel_notice if status else None},
+            message="Generation cancelled successfully",
+        )
 
     async def list_generations(self, current_user) -> APIResponse:
         """List active generations visible to the caller.

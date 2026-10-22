@@ -26,6 +26,7 @@ from src.pipelines.outputs import (
 from src.features.generation import GenerationHistoryFacade, GenerationDeleteFailedException, InvalidTagException
 from src.features.generation.dto import BulkDeleteByCriteriaRequest
 from src.features.generation.run_report_recorder import RunReportRecorder
+from src.features.generation.status_tracker import GenerationRecord
 from PIL import Image
 from src.features.generation.handlers.image_handler import ImageGenerationOutputHandler
 
@@ -326,7 +327,7 @@ class TestGenerationController:
         # Arrange
         controller.generation_orchestrator.cancel_generation.return_value = True
         controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
-        controller.generation_orchestrator.status_tracker.get.return_value = sample_generation_status
+        controller.generation_orchestrator.status_tracker.get.return_value = GenerationRecord(id="test-generation-123")
         controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         # Act
@@ -342,6 +343,21 @@ class TestGenerationController:
         call_args = controller.connection_hub.broadcast_to_generation.call_args
         assert call_args[0][0] == "test-generation-123"
         assert call_args[0][1]['type'] == 'generation_cancelled'
+        assert result.data == {"cancel_notice": None}
+
+    @pytest.mark.asyncio
+    async def test_cancel_generation_response_carries_the_cancel_notice(self, controller, sample_generation_status, mock_current_user):
+        controller.generation_orchestrator.cancel_generation.return_value = True
+        controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
+        controller.generation_orchestrator.status_tracker.get.return_value = GenerationRecord(
+            id="test-generation-123", cancel_notice="Stopped waiting."
+        )
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
+
+        result = await controller.cancel_generation("test-generation-123", mock_current_user)
+
+        assert result.success is True
+        assert result.data == {"cancel_notice": "Stopped waiting."}
 
     @pytest.mark.asyncio
     async def test_cancel_generation_failed(self, controller, sample_generation_status, mock_current_user):

@@ -86,6 +86,14 @@ test.describe('cloud generation against the fake provider', () => {
 		await expect(row('Fake Image')).toContainText('$0.04 / image');
 		await expect(row('Fake Lite')).toContainText('$0.01 / image');
 
+		for (const label of ['Fake Image', 'Fake Lite']) {
+			const toggle = row(label).getByRole('switch');
+			if (await toggle.isChecked()) await toggle.click();
+		}
+		await expect(row('Fake Image').getByRole('switch')).not.toBeChecked();
+		await expect(row('Fake Lite').getByRole('switch')).not.toBeChecked();
+		await expect(page.getByTestId('catalog-summary')).toContainText('0 enabled', { timeout: 10000 });
+
 		await row('Fake Image').getByRole('switch').click();
 		await expect(row('Fake Image').getByRole('switch')).toBeChecked();
 		await expect(page.getByTestId('catalog-summary')).toContainText('1 enabled', { timeout: 10000 });
@@ -222,6 +230,41 @@ test.describe('cloud generation against the fake provider', () => {
 			await screenshot(page, JOURNEY, 'cancel-notice-1440');
 			await notice.getByRole('button', { name: 'Dismiss' }).click();
 			await expect(notice).toHaveCount(0);
+		} finally {
+			await setKnob(page, token, id, { duration_seconds: 2, supports_cancel: true });
+		}
+	});
+
+	test('the calm notice still shows when the cancel response lands before the socket messages', async ({ page }) => {
+		test.setTimeout(180000);
+		await loginAsOwner(page);
+		token = await ownerToken(page);
+		id = await backendId(page, token);
+		let socketDelayMs = 0;
+		await page.routeWebSocket(/\/ws\/generation/, (ws) => {
+			const server = ws.connectToServer();
+			ws.onMessage((message) => server.send(message));
+			server.onMessage((message) => {
+				setTimeout(() => ws.send(message), socketDelayMs);
+			});
+		});
+		await setKnob(page, token, id, { duration_seconds: 120, supports_cancel: false });
+		try {
+			await openFakeStudio(page);
+			await pickModel(page, 'Fake Image');
+			await typePrompt(page, 'a late tide');
+			await page.getByRole('button', { name: 'Generate', exact: true }).click();
+			const cancel = page.getByRole('button', { name: 'Cancel generation' });
+			await expect(cancel).toBeVisible({ timeout: 15000 });
+			await page.waitForTimeout(2000);
+			socketDelayMs = 1500;
+			await cancel.click();
+			const notice = page.getByTestId('cancel-notice');
+			await expect(notice).toContainText('Stopped waiting. The provider may still finish this job and bill it.', { timeout: 15000 });
+			await expect(notice.getByRole('alert')).toHaveCount(0);
+			await expect(page.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
+			await page.waitForTimeout(2500);
+			await expect(notice).toContainText('Stopped waiting.');
 		} finally {
 			await setKnob(page, token, id, { duration_seconds: 2, supports_cancel: true });
 		}

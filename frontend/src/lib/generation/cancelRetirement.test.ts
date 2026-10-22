@@ -206,6 +206,7 @@ describe('retireConfirmedCancellations', () => {
 describe('applyConfirmedCancellations', () => {
 	beforeEach(() => {
 		tabsStore.reset();
+		resetGenerationOutputsRetirementForTests();
 	});
 
 	it('a normal single-tab cancel clears the active display and removes the queue entry', () => {
@@ -251,6 +252,65 @@ describe('applyConfirmedCancellations', () => {
 
 		expect(currentTab(tabId).generation.cancelNotice).toBe('Stopped waiting.');
 		expect(currentTab(tabId).generation.isGenerating).toBe(false);
+	});
+
+	it('puts the notice from the cancel response on the tab when the response lands before the cancelled event, and the event arriving after only retires the generation', () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-1',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running' },
+				queue: [{ generation_id: 'gen-1', queue_position: null, status: 'running' }]
+			}
+		});
+
+		applyConfirmedCancellations(tabsStore, tabId, ['gen-1'], 'Stopped waiting.');
+		expect(isGenerationOutputsRetired('gen-1')).toBe(false);
+		dispatchGenerationMessage(
+			{ type: 'generation_cancelled', generation_id: 'gen-1', data: { cancel_notice: 'Stopped waiting.' } } as any,
+			{ unsubscribe: () => {} }
+		);
+
+		expect(isGenerationOutputsRetired('gen-1')).toBe(true);
+		expect(currentTab(tabId).generation.cancelNotice).toBe('Stopped waiting.');
+		expect(currentTab(tabId).generation.isGenerating).toBe(false);
+		expect(currentTab(tabId).generation.currentGeneration).toBeNull();
+	});
+
+	it('leaves no notice when the cancel response carries none', () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-1',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running' }
+			}
+		});
+
+		applyConfirmedCancellations(tabsStore, tabId, ['gen-1'], null);
+
+		expect(currentTab(tabId).generation.cancelNotice ?? null).toBeNull();
+		expect(currentTab(tabId).generation.isGenerating).toBe(false);
+	});
+
+	it('does not put the response notice on a newer generation the tab has since adopted', () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-new',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-new', generation_id: 'gen-new', status: 'running' }
+			}
+		});
+
+		applyConfirmedCancellations(tabsStore, tabId, ['gen-old'], 'Stopped waiting.');
+
+		expect(currentTab(tabId).generation.cancelNotice ?? null).toBeNull();
+		expect(currentTab(tabId).generation.isGenerating).toBe(true);
 	});
 
 	it('writes into the ORIGINAL tab, not whichever tab is active by completion time (deferred single cancel)', () => {
