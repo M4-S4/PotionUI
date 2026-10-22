@@ -6,6 +6,7 @@ import {
 	buildSegmentNode,
 	extractContentFromDOM,
 	collectTextNodeSpans,
+	chipContainerSpan,
 	resourceContainerSpan,
 	atomicContainerAt,
 	atomicContainerAround,
@@ -289,6 +290,48 @@ describe('resourceContainerSpan', () => {
 		const detached = document.createElement('span');
 		detached.dataset.resourceMarker = '@[references:a.png]';
 		expect(resourceContainerSpan(editor, {}, detached)).toBeNull();
+	});
+});
+
+describe('container spans across Enter-created blocks', () => {
+	function buildBlocks(tail: HTMLElement) {
+		const editor = document.createElement('div');
+		const first = document.createElement('div');
+		first.textContent = 'line1';
+		const second = document.createElement('div');
+		second.textContent = 'line2';
+		editor.append(first, second, tail);
+		return editor;
+	}
+
+	it('finds a chip container at its place in the extracted value', () => {
+		const chip = makeChip();
+		const container = document.createElement('span');
+		container.dataset.chipId = chip.id;
+		const editor = buildBlocks(container);
+		const chips = { [chip.id]: chip };
+		const { value } = extractContentFromDOM(editor, chips);
+		expect(value).toBe('line1\nline2\n#emotions.happy');
+		expect(chipContainerSpan(editor, chips, container)).toEqual({ start: value.indexOf('#emotions.happy'), end: value.length });
+	});
+
+	it('finds a resource container at its place in the extracted value', () => {
+		const container = document.createElement('span');
+		container.dataset.resourceMarker = '@[references:a.png]';
+		const editor = buildBlocks(container);
+		const { value } = extractContentFromDOM(editor, {});
+		expect(resourceContainerSpan(editor, {}, container)).toEqual({
+			start: value.indexOf('@[references:a.png]'),
+			end: value.length
+		});
+	});
+
+	it('returns null for a chip container that is not under root', () => {
+		const editor = document.createElement('div');
+		editor.textContent = 'a';
+		const detached = document.createElement('span');
+		detached.dataset.chipId = 'chip-1';
+		expect(chipContainerSpan(editor, {}, detached)).toBeNull();
 	});
 });
 

@@ -122,6 +122,10 @@ export function atomicDeletionTarget(
 	return null;
 }
 
+export function endsWithLineBreak(el: HTMLElement): boolean {
+	return el.tagName === 'DIV' && el.nextSibling !== null;
+}
+
 export function chipContainerSpan(
 	root: HTMLElement,
 	chips: Record<string, ChipData>,
@@ -157,6 +161,7 @@ export function chipContainerSpan(
 				for (const child of Array.from(node.childNodes)) {
 					if (walk(child)) return true;
 				}
+				if (endsWithLineBreak(el)) offset += 1;
 			}
 		}
 		return false;
@@ -202,6 +207,7 @@ export function resourceContainerSpan(
 				for (const child of Array.from(node.childNodes)) {
 					if (walk(child)) return true;
 				}
+				if (endsWithLineBreak(el)) offset += 1;
 			}
 		}
 		return false;
@@ -254,7 +260,7 @@ export function extractContentFromDOM(
 					walkNode(child);
 				}
 				// Add newline after block elements
-				if (el.tagName === 'DIV' && el.nextSibling) {
+				if (endsWithLineBreak(el)) {
 					textContent += '\n';
 				}
 			}
@@ -300,7 +306,7 @@ export function collectTextNodeSpans(
 				offset += 1;
 			} else {
 				for (const child of Array.from(node.childNodes)) walk(child);
-				if (el.tagName === 'DIV' && el.nextSibling) offset += 1;
+				if (endsWithLineBreak(el)) offset += 1;
 			}
 		}
 	}

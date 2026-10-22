@@ -3,6 +3,7 @@
 // matching the original component methods.
 import type { ChipData } from '$lib/types/segments';
 import { encodePathForText } from './chipSegments';
+import { endsWithLineBreak } from './chipEditorDom';
 
 /** Per-node contribution to the absolute char offset, matching how
  * `extractContentFromDOM` linearizes the editor's content. Shared by the
@@ -23,6 +24,13 @@ function nodeCharLength(node: Node, chips: Record<string, ChipData>): number {
 	if (el.tagName === 'BR') return 1;
 	let sum = 0;
 	for (const child of Array.from(node.childNodes)) sum += nodeCharLength(child, chips);
+	return endsWithLineBreak(el) ? sum + 1 : sum;
+}
+
+function boundaryCharLength(container: Node, offset: number, chips: Record<string, ChipData>): number {
+	if (container.nodeType === Node.TEXT_NODE) return offset;
+	let sum = 0;
+	for (const child of Array.from(container.childNodes).slice(0, offset)) sum += nodeCharLength(child, chips);
 	return sum;
 }
 
@@ -46,11 +54,7 @@ export function getCaretCharOffset(
 	// range's end boundary equals its start boundary by definition, so
 	// endContainer/endOffset never need separate handling here.
 	if (range.startContainer === editorRef) {
-		let offset = 0;
-		for (const child of Array.from(editorRef.childNodes).slice(0, range.startOffset)) {
-			offset += nodeCharLength(child, chips);
-		}
-		return offset;
+		return boundaryCharLength(editorRef, range.startOffset, chips);
 	}
 
 	let offset = 0;
@@ -59,7 +63,7 @@ export function getCaretCharOffset(
 	function walk(node: Node): boolean {
 		if (found) return true;
 		if (node === range.startContainer) {
-			offset += range.startOffset;
+			offset += boundaryCharLength(node, range.startOffset, chips);
 			found = true;
 			return true;
 		}
@@ -81,6 +85,7 @@ export function getCaretCharOffset(
 				for (const child of Array.from(node.childNodes)) {
 					if (walk(child)) return true;
 				}
+				if (endsWithLineBreak(el)) offset += 1;
 			}
 		}
 		return false;
@@ -147,6 +152,7 @@ export function placeCaretAtCharOffset(
 				const result = walk(child);
 				if (result) return result;
 			}
+			if (endsWithLineBreak(el)) remaining -= 1;
 		}
 		return null;
 	}

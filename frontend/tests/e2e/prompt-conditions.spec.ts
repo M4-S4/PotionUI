@@ -148,7 +148,7 @@ test.describe('prompt conditions', () => {
 		expect(request.variables.age).toMatch(/^\{0\|1\|/);
 	});
 
-	test('typing the grammar becomes a chip and a read variable is sent once', async ({ page }) => {
+	test('inserted grammar becomes a chip and a read variable is sent once', async ({ page }) => {
 		await captureStart(page);
 		const modal = await openVariableManager(page);
 		await defineNumber(modal, 'age');
@@ -156,7 +156,8 @@ test.describe('prompt conditions', () => {
 
 		const editor = await segmentEditor(page);
 		await editor.click();
-		await page.keyboard.type('a ${age} and ${age}, <<if $age > 50>>grey<<else>>dark<<end>>');
+		await page.keyboard.type('a ${age} and ${age}, ');
+		await page.keyboard.insertText('<<if $age > 50>>grey<<else>>dark<<end>>');
 		await expect(editor.locator('.condition-chip')).toHaveCount(1);
 		await expect(editor.locator('.variable-chip .chip-state').first()).toContainText('Linked 2');
 
@@ -168,13 +169,89 @@ test.describe('prompt conditions', () => {
 		await captureStart(page);
 		const editor = await segmentEditor(page);
 		await editor.click();
-		await page.keyboard.type('hair <<if $ghost > 1>>grey<<end>> done');
+		await page.keyboard.type('hair ');
+		await page.keyboard.insertText('<<if $ghost > 1>>grey<<end>>');
+		await page.keyboard.type(' done');
 		const chip = editor.locator('.condition-chip');
 		await expect(chip).toHaveClass(/broken/);
 		await settleAnimations(page);
 		await screenshot(page, JOURNEY, '05-broken-chip-1440');
 		const request = await generateAndCapture(page);
 		expect(request.prompts[0].positive).toContain('<<if $ghost > 1>>grey<<end>>');
+	});
+
+	test('typing << opens the condition editor and saving drops the chip where it was typed', async ({ page }) => {
+		await captureStart(page);
+		const manager = await openVariableManager(page);
+		await defineNumber(manager, 'age');
+		await closeManager(manager);
+
+		const editor = await segmentEditor(page);
+		await editor.click();
+		await page.keyboard.type('portrait, soft light');
+		for (let step = 0; step < 'soft light'.length; step++) await page.keyboard.press('ArrowLeft');
+		await page.keyboard.type('<');
+		await expect(popover(page)).toBeHidden();
+		await page.keyboard.type('<');
+		const dialog = popover(page);
+		await expect(dialog).toBeVisible();
+		await dialog.getByLabel('Operator').selectOption('>');
+		await dialog.getByLabel('If text').fill('grey hair');
+		await dialog.getByRole('button', { name: /^Save/ }).click();
+		await expect(dialog).toBeHidden();
+		await expect(editor.locator('.condition-chip')).toHaveCount(1);
+		await expect(editor.getByTestId('condition-chip-summary')).toContainText('grey hair');
+		await expect(editor).not.toContainText('<<');
+
+		await page.keyboard.type('!');
+		const request = await generateAndCapture(page);
+		expect(request.prompts[0].positive).toContain('portrait, <<if $age > 0>>grey hair<<end>>!soft light');
+	});
+
+	test('typing << on a later line saves the chip on that line', async ({ page }) => {
+		await captureStart(page);
+		const manager = await openVariableManager(page);
+		await defineNumber(manager, 'age');
+		await closeManager(manager);
+
+		const editor = await segmentEditor(page);
+		await editor.click();
+		await page.keyboard.type('line one');
+		await page.keyboard.press('Enter');
+		await page.keyboard.type('line two');
+		await page.keyboard.press('Enter');
+		await page.keyboard.type('line three<<');
+		const dialog = popover(page);
+		await expect(dialog).toBeVisible();
+		await dialog.getByLabel('Operator').selectOption('>');
+		await dialog.getByLabel('If text').fill('grey hair');
+		await dialog.getByRole('button', { name: /^Save/ }).click();
+		await expect(dialog).toBeHidden();
+		await expect(editor.locator('.condition-chip')).toHaveCount(1);
+		await expect(editor).not.toContainText('<<');
+
+		await page.keyboard.type('!');
+		const request = await generateAndCapture(page);
+		const positive: string = request.prompts[0].positive;
+		expect(positive).toContain('line three<<if $age > 0>>grey hair<<end>>!');
+		expect(positive.indexOf('line one')).toBeLessThan(positive.indexOf('line two'));
+		expect(positive.indexOf('line two')).toBeLessThan(positive.indexOf('line three'));
+	});
+
+	test('cancelling the typed << editor keeps the literal text and a third < does not reopen it', async ({ page }) => {
+		await captureStart(page);
+		const editor = await segmentEditor(page);
+		await editor.click();
+		await page.keyboard.type('a cat<<');
+		const dialog = popover(page);
+		await expect(dialog).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(dialog).toBeHidden();
+
+		await page.keyboard.type('<x');
+		await expect(popover(page)).toBeHidden();
+		await expect(editor).toContainText('a cat<<<x');
+		await expect(editor.locator('.condition-chip')).toHaveCount(0);
 	});
 
 	test('the condition modal fits a phone', async ({ page }) => {
@@ -189,7 +266,8 @@ test.describe('prompt conditions', () => {
 		}
 		const editor = await segmentEditor(page);
 		await editor.click();
-		await page.keyboard.type('hair <<if $age > 50>>grey<<else>>dark<<end>>');
+		await page.keyboard.type('hair ');
+		await page.keyboard.insertText('<<if $age > 50>>grey<<else>>dark<<end>>');
 		await expect(editor.locator('.condition-chip')).toHaveCount(1);
 		await screenshot(page, JOURNEY, '06-chip-390');
 		await editor.locator('.condition-chip .chip-main').first().dispatchEvent('mousedown');

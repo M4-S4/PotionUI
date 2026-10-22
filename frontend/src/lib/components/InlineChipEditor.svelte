@@ -14,8 +14,11 @@
 	import InlineChip from './InlineChip.svelte';
 	import ChoiceGroupChip from './ChoiceGroupChip.svelte';
 	import ConditionChip from './ConditionChip.svelte';
+	import ConditionEditorModal from './ConditionEditorModal.svelte';
 	import { writable } from 'svelte/store';
 	import { conditionTagWarnings, countConditionBlocks, defaultConditionRaw, isConditionRaw } from '$lib/utils/conditionTags';
+	import { CONDITION_TRIGGER, detectConditionTrigger, isTypedCharacter } from '$lib/utils/conditionTrigger';
+	import { topDismissLayer } from '$lib/actions/layerStack';
 	import VariableUsageChip from './VariableUsageChip.svelte';
 	import PromptResourceChip from './PromptResourceChip.svelte';
 	import {
@@ -221,6 +224,9 @@
 	let pendingOpenCondition: { raw: string; nth: number } | null = null;
 	let lastCaretOffset: number | null = null;
 	let openConditionSlotId: string | null = null;
+	let isConditionTriggerOpen = false;
+	let conditionTriggerStart = -1;
+	let conditionTriggerRaw = '';
 	const conditionContext = writable<{ variables: VariablesMap; rolls: Record<string, VariableRoll> }>({
 		variables: {},
 		rolls: {}
@@ -503,7 +509,7 @@
 	// Input Handling
 	// =====================
 
-	function handleInput() {
+	function handleInput(event?: Event) {
 		if (isInternalUpdate) return;
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
@@ -512,6 +518,7 @@
 		detectVariablePickerTrigger();
 		detectResourceTrigger();
 		detectSyntaxTrigger();
+		if (event) openTypedCondition(event);
 
 		// A group/variable container is contentEditable=false, so the user can
 		// only ever be typing in plain text here — a newly-*higher* count means
@@ -1711,6 +1718,60 @@
 		pendingOpenCondition = null;
 	}
 
+	function conditionsAvailable(): boolean {
+		return !isDisabled && (onVariableDefChange !== undefined || Object.keys(variables).length > 0);
+	}
+
+	function openTypedCondition(event: Event) {
+		if (!editorRef || event.target !== editorRef || !isTypedCharacter(event, '<')) return;
+		if (!conditionsAvailable()) return;
+		const top = topDismissLayer();
+		if (top && !top.node.contains(editorRef)) return;
+		const selection = window.getSelection();
+		if (!selection?.rangeCount) return;
+		const range = selection.getRangeAt(0);
+		const node = range.startContainer;
+		if (node.nodeType !== Node.TEXT_NODE) return;
+		const match = detectConditionTrigger(node.textContent ?? '', range.startOffset);
+		const caret = getCaretCharOffset(editorRef, chips);
+		if (!match || caret === null) return;
+		conditionTriggerStart = caret - (match.end - match.start);
+		conditionTriggerRaw = defaultConditionRaw(variables);
+		isConditionTriggerOpen = true;
+	}
+
+	function takeTypedConditionStart(): number | null {
+		const start = conditionTriggerStart;
+		isConditionTriggerOpen = false;
+		conditionTriggerStart = -1;
+		conditionTriggerRaw = '';
+		if (!editorRef) return null;
+		const { value: current } = extractContentFromDOM(editorRef, chips);
+		return current.slice(start, start + CONDITION_TRIGGER.length) === CONDITION_TRIGGER ? start : null;
+	}
+
+	function handleTypedConditionSave(raw: string) {
+		const start = takeTypedConditionStart();
+		if (!editorRef) return;
+		editorRef.focus();
+		if (start !== null) {
+			selectCharRange(start, start + CONDITION_TRIGGER.length);
+		} else {
+			placeCaretAtCharOffset(editorRef, chips, extractContentFromDOM(editorRef, chips).value.length);
+		}
+		if (insertTextAtCaret(raw)) handleInput();
+	}
+
+	function handleTypedConditionCancel() {
+		const start = takeTypedConditionStart();
+		if (start === null) return;
+		tick().then(() => {
+			if (!editorRef) return;
+			editorRef.focus();
+			placeCaretAtCharOffset(editorRef, chips, start + CONDITION_TRIGGER.length);
+		});
+	}
+
 	export function insertChoiceGroup(): void {
 		if (isDisabled) return;
 		insertTextAtCaret('{option one|option two}');
@@ -2795,6 +2856,17 @@
 				if (spec) handleSelectSyntax(spec);
 			}}
 			onClose={closeBrowseModal}
+		/>
+	{/if}
+
+	{#if isConditionTriggerOpen}
+		<ConditionEditorModal
+			raw={conditionTriggerRaw}
+			{variables}
+			rolls={variableRolls}
+			onsave={handleTypedConditionSave}
+			oncancel={handleTypedConditionCancel}
+			onCreateVariable={handleVariableCreate}
 		/>
 	{/if}
 </div>
