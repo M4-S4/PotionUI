@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.tab_drafts.errors import TabDraftError
 from src.features.llm.tools.builtin.utils import parse_page
+from src.features.llm.tools.operation_args import collapse_repeats, operations_from
 from src.platform.resources.prompt_variables import (
     VALID_MODES,
     dependency_prefix,
@@ -74,6 +75,13 @@ NO_TAB_ERROR = (
 NO_TAB_OPEN_MESSAGE = "No Generate tab is open — open the Generate page to read or change prompt variables."
 NO_DRAFT_STORE_ERROR = "Tab drafts are not available."
 TAB_ID_PARAMETER = {"type": "string", "description": "MCP only; ignored in chat."}
+NO_OPERATIONS_ERROR = "No operations provided. Specify at least one variable change."
+CALL_EXAMPLE = (
+    '<tool_call>{"name": "manage_prompt_variables", "arguments": {"operations": '
+    '[{"op": "set", "name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "shuffle"}, '
+    '{"op": "set", "name": "palette", "type": "text", "value": "teal and orange"}, '
+    '{"op": "remove", "name": "old_style"}]}}</tool_call>'
+)
 
 
 def _tab_id(context: ToolContext, kwargs: Dict[str, Any]) -> Optional[str]:
@@ -282,7 +290,7 @@ def _validate_operations(
             row["reason"] = reason
         preview_rows.append(row)
 
-    return validated_ops, preview_rows, errors
+    return validated_ops, preview_rows, collapse_repeats(errors)
 
 
 def _applied_summary(rows: List[Dict[str, Any]]) -> str:
@@ -420,14 +428,9 @@ class ManagePromptVariablesTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        """Preview proposed variable changes - validates and shows old -> new values."""
-        operations = kwargs.get("operations", [])
-        if not operations:
-            return ToolResult(
-                success=False,
-                data="",
-                error="No operations provided. Specify at least one variable change.",
-            )
+        operations, problem = operations_from(kwargs.get("operations"), CALL_EXAMPLE, NO_OPERATIONS_ERROR)
+        if problem:
+            return ToolResult(success=False, data="", error=problem)
 
         _tab, existing, load_error = _load_variables(context, kwargs)
         if load_error:
@@ -450,7 +453,9 @@ class ManagePromptVariablesTool(BaseTool):
         return ToolResult(success=True, data=json.dumps(result))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        operations = kwargs.get("operations", [])
+        operations, problem = operations_from(kwargs.get("operations"), CALL_EXAMPLE, NO_OPERATIONS_ERROR)
+        if problem:
+            return ToolResult(success=False, data="", error=problem)
 
         tab_id, existing, load_error = _load_variables(context, kwargs)
         if load_error:

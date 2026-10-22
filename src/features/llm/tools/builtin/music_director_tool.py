@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import music_director_active
-from src.features.llm.tools.tool_call_rescue import decode_payload, demangle_quote_tokens
+from src.features.llm.tools.operation_args import operations_from
 from src.features.music_director import apply_preset_mode_overlay
 
 # Mirrors MUSIC_MODE_ORDER in frontend/src/lib/types/musicDirector.ts exactly
@@ -72,6 +72,7 @@ _CALL_EXAMPLE = (
     f"{_OPERATIONS_EXAMPLE}"
     "}}</tool_call>"
 )
+_NO_OPERATIONS_ERROR = f"No operations provided. Specify at least one: {_CALL_EXAMPLE}"
 
 
 class _OperationError(ValueError):
@@ -117,30 +118,6 @@ def _normalize_op(raw_op: Any) -> Any:
                 k: (_as_number(v) if k in _NUMERIC_FIELDS else v) for k, v in value.items()
             }
     return op
-
-
-def coerce_operations(operations: Any) -> Tuple[Optional[List[Any]], Optional[str]]:
-    """The `operations` argument as a list, or `(None, <corrective error>)`.
-    Mirrors video_director_tool.coerce_operations exactly."""
-    if isinstance(operations, dict):
-        return [operations], None
-    if isinstance(operations, list):
-        return operations, None
-    if isinstance(operations, str):
-        decoded, problem = decode_payload(demangle_quote_tokens(operations))
-        if isinstance(decoded, list):
-            return decoded, None
-        if isinstance(decoded, dict):
-            return [decoded], None
-        return None, (
-            "'operations' must be an ARRAY of operation objects, not text. "
-            + (f"The text you sent could not be read: {problem}. " if problem else "")
-            + f"Send the whole call as JSON with double quotes: {_CALL_EXAMPLE}"
-        )
-    return None, (
-        f"'operations' must be an array of operation objects, got {type(operations).__name__}. "
-        f"The whole call looks like this: {_CALL_EXAMPLE}"
-    )
 
 
 def _truncate(text: Any, limit: int = 60) -> str:
@@ -834,14 +811,7 @@ class UpdateMusicDirectorTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        raw_operations = kwargs.get("operations")
-        if not raw_operations:
-            return ToolResult(
-                success=False,
-                data="",
-                error=f"No operations provided. Specify at least one: {_CALL_EXAMPLE}",
-            )
-        operations, problem = coerce_operations(raw_operations)
+        operations, problem = operations_from(kwargs.get("operations"), _CALL_EXAMPLE, _NO_OPERATIONS_ERROR)
         if problem:
             return ToolResult(success=False, data="", error=problem)
 
@@ -876,7 +846,7 @@ class UpdateMusicDirectorTool(BaseTool):
         return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        operations, problem = coerce_operations(kwargs.get("operations") or [])
+        operations, problem = operations_from(kwargs.get("operations"), _CALL_EXAMPLE, _NO_OPERATIONS_ERROR)
         if problem:
             return ToolResult(success=False, data="", error=problem)
 
