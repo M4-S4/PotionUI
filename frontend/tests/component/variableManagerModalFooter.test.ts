@@ -34,7 +34,7 @@ function buttonWithText(text: string): HTMLButtonElement {
 }
 
 function footerContainer(): HTMLElement {
-	const el = document.querySelector<HTMLElement>('.border-t.border-line');
+	const el = document.querySelector<HTMLElement>('[data-segment-modal-footer]');
 	if (!el) throw new Error('footer container not found');
 	return el;
 }
@@ -97,6 +97,10 @@ describe('VariableManagerModal footer', () => {
 		expect(changes.at(-1)?.mood).toMatchObject({ value: 'bright' });
 
 		buttonWithText('Cancel').click();
+		await tick();
+		expect(changes.at(-1)?.mood).toMatchObject({ value: 'bright' });
+		expect(document.querySelector('[role="alertdialog"]')!.textContent).toContain('Discard changes?');
+		buttonWithText('Discard').click();
 		await tick();
 
 		expect(changes.at(-1)).toEqual({ mood: { type: 'text', value: 'moody' } });

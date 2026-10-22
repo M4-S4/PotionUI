@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import ConfirmDialog from './modals/ConfirmDialog.svelte';
+	import SegmentModal from './modals/SegmentModal.svelte';
+	import SegmentFormRow from './modals/SegmentFormRow.svelte';
 	import { findNameCollision } from '$lib/utils/variableNames';
 	import { parseVariablesImport, mergeVariablesDetailed, remapNote, type ParsedVariablesImport } from '$lib/utils/variablesTransfer';
 	import type { VariablesMap } from '$lib/utils/variableDefs';
@@ -13,7 +14,6 @@
 	let text = '';
 	let mergeRule: 'keep' | 'replace' = 'replace';
 	let previousOpen = false;
-	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	$: if (isOpen !== previousOpen) {
 		previousOpen = isOpen;
@@ -56,81 +56,72 @@
 		dispatch('confirm', { variables: merge.variables, count: parsed.summary.variables });
 		return true;
 	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (!isOpen || event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return;
-		event.preventDefault();
-		dialog.confirm();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<ConfirmDialog
-	bind:this={dialog}
+<SegmentModal
 	{isOpen}
+	tier="M"
+	icon="clipboard-list"
 	title="Paste variables"
-	size="sm"
-	confirmLabel="Import"
-	confirmDisabled={!canConfirm}
+	context={`Into Prompt variables · ${Object.keys(existing).length} now`}
+	primaryLabel="Import"
+	primaryDisabled={!canConfirm}
+	submit="ctrl"
 	onConfirm={confirmImport}
 	onCancel={() => dispatch('close')}
 >
-	<div class="space-y-3 p-4 sm:p-6">
-		<textarea
-			class="input w-full resize-none font-mono text-xs leading-relaxed"
-			rows="8"
-			placeholder={'{ "mood": { "type": "text", "value": "moody" } }'}
-			bind:value={text}
-			data-autofocus
-			aria-label="Variables JSON"
-		></textarea>
+	<div class="space-y-4 p-5 max-md:p-4">
+		<SegmentFormRow label="Variables JSON" forId="paste-variables-json">
+			<textarea
+				id="paste-variables-json"
+				class="input w-full resize-y font-mono text-sm leading-5"
+				rows="9"
+				placeholder={'{ "mood": { "type": "text", "value": "moody" } }'}
+				bind:value={text}
+				data-autofocus
+				aria-label="Variables JSON"
+			></textarea>
+		</SegmentFormRow>
 
 		{#if parsed.errors.length > 0}
 			<ul class="space-y-1">
 				{#each parsed.errors as error}
-					<li class="font-mono text-xs text-danger">{error}</li>
+					<li class="font-mono text-sm text-danger">{error}</li>
 				{/each}
 			</ul>
 		{:else if text.trim()}
-			<p class="font-mono text-xs text-fg-subtle">{summaryLine}</p>
+			<p class="font-mono text-sm text-fg-subtle">{summaryLine}</p>
 			{#if parsed.notes.length > 0 || merge.remapped.length > 0}
 				<ul class="space-y-1" data-testid="paste-notes">
 					{#each parsed.notes as note}
-						<li class="font-mono text-xs text-warning">{note}</li>
+						<li class="font-mono text-sm text-warning">{note}</li>
 					{/each}
 					{#each merge.remapped as remap}
-						<li class="font-mono text-xs text-warning">Matched by name: {remapNote(remap)}</li>
+						<li class="font-mono text-sm text-warning">Matched by name: {remapNote(remap)}</li>
 					{/each}
 				</ul>
 			{/if}
 		{/if}
 
 		{#if showMergeControl}
-			<div class="inline-flex rounded bg-surface-2 p-0.5" role="tablist" aria-label="On name clash">
-				<button
-					type="button"
-					role="tab"
-					aria-selected={mergeRule === 'keep'}
-					class="rounded px-2.5 py-1 text-xs font-medium transition-colors {mergeRule === 'keep'
-						? 'bg-surface-1 text-fg shadow-raised'
-						: 'text-fg-muted hover:text-fg'}"
-					on:click={() => (mergeRule = 'keep')}
-				>
-					Keep mine
-				</button>
-				<button
-					type="button"
-					role="tab"
-					aria-selected={mergeRule === 'replace'}
-					class="rounded px-2.5 py-1 text-xs font-medium transition-colors {mergeRule === 'replace'
-						? 'bg-signal/15 text-signal'
-						: 'text-fg-muted hover:text-fg'}"
-					on:click={() => (mergeRule = 'replace')}
-				>
-					Replace
-				</button>
+			<div class="space-y-1.5">
+				<span class="block text-sm font-medium text-fg-muted">When a name already exists</span>
+				<div class="inline-grid grid-cols-2 gap-0.5 rounded border border-line bg-surface-2 p-0.5" role="tablist" aria-label="On name clash">
+					{#each [['keep', 'Keep mine'], ['replace', 'Replace']] as [rule, label] (rule)}
+						<button
+							type="button"
+							role="tab"
+							aria-selected={mergeRule === rule}
+							class="rounded-sm px-2.5 py-1 text-sm font-medium transition-colors max-md:py-2.5 {mergeRule === rule
+								? 'bg-surface-3 text-fg shadow-raised'
+								: 'text-fg-muted hover:text-fg'}"
+							on:click={() => (mergeRule = rule as 'keep' | 'replace')}
+						>
+							{label}
+						</button>
+					{/each}
+				</div>
 			</div>
 		{/if}
 	</div>
-</ConfirmDialog>
+</SegmentModal>

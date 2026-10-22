@@ -179,7 +179,7 @@ test.describe('number variable', () => {
 		const scroll = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 		expect(scroll).toBe(true);
 		const tops = await Promise.all(
-			['Copy', 'Paste', 'Roll preview'].map(async (label) => {
+			['Copy', 'Paste…', 'Roll preview'].map(async (label) => {
 				const box = await modal.getByRole('button', { name: label, exact: true }).boundingBox();
 				return Math.round(box?.y ?? -1);
 			})

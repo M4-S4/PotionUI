@@ -83,6 +83,8 @@ describe('VariableManagerModal with a change arriving while open', () => {
 		await typeValue('watercolor');
 		buttonWithText('Cancel').click();
 		await tick();
+		buttonWithText('Discard').click();
+		await tick();
 
 		expect(mounted.changes.at(-1)).toEqual({ style, mood });
 	});

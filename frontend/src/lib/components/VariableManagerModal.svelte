@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import ConfirmDialog from './modals/ConfirmDialog.svelte';
-	import { Button } from '$lib/components/ui';
+	import SegmentModal from './modals/SegmentModal.svelte';
+	import { Badge, Button } from '$lib/components/ui';
 	import autosize from '$lib/actions/autosize';
 	import Icon from './Icon.svelte';
 	import Tooltip from './Tooltip.svelte';
@@ -70,6 +70,16 @@
 		{ linked: false, label: 'Independent' },
 		{ linked: true, label: 'Linked' }
 	];
+	const TYPE_CHOICES: { type: 'text' | 'choice' | 'number'; label: string }[] = [
+		{ type: 'text', label: 'Text' },
+		{ type: 'choice', label: 'Choice' },
+		{ type: 'number', label: 'Number' }
+	];
+	const TYPE_LABELS = { text: 'Text', choice: 'Choice', number: 'Number' } as const;
+	const segmentedButton = 'rounded-sm px-2.5 py-1 text-sm font-medium transition-colors max-md:py-2.5';
+	const segmentedOn = 'bg-surface-3 text-fg shadow-raised';
+	const segmentedOff = 'text-fg-muted hover:text-fg';
+	const eyebrow = 'font-mono text-sm uppercase tracking-[0.04em] text-fg-subtle';
 
 	let rows: Row[] = [];
 	let selectedKey: string | null = null;
@@ -140,6 +150,9 @@
 	// ANY row's name changes; a function call would only recompute the row whose own
 	// reference changed, leaving the collision partner's error stale.
 	$: nameErrorByKey = variableNameErrors(rows);
+
+	$: dirty = JSON.stringify(committedEdits) !== JSON.stringify(openedWith);
+	$: variableCount = Object.keys(liveVariables).length;
 
 	$: liveVariables = Object.fromEntries(
 		usableNamedRows(rows).map((r) => [r.name.trim(), r.def])
@@ -414,59 +427,79 @@
 	}
 </script>
 
-<ConfirmDialog
+{#snippet footerTools()}
+	<Tooltip text="Copy variables as JSON">
+		<Button variant="ghost" size="sm" icon="copy" disabled={variableCount === 0} onclick={copyVariables}>Copy</Button>
+	</Tooltip>
+	<Tooltip text="Paste variables JSON">
+		<Button variant="ghost" size="sm" icon="clipboard-list" onclick={() => (pasteModalOpen = true)}>Paste…</Button>
+	</Tooltip>
+	{#if showRollPreview}
+		<span class="mx-1 h-5 w-px flex-shrink-0 bg-line-strong max-md:hidden" aria-hidden="true"></span>
+		<Button variant="ghost" size="sm" icon="shuffle" onclick={runRollPreview}>Roll preview</Button>
+		{#each rollPreview ?? [] as entry, i (entry.name)}
+			{#if i > 0}<Icon name="chevron-right" className="h-3 w-3 flex-shrink-0 text-fg-subtle" />{/if}
+			<span class="inline-flex min-w-0 flex-wrap items-center gap-1 font-mono text-sm">
+				<span class="whitespace-nowrap text-fg-subtle">${entry.name}</span>
+				<span class="break-words {entry.warn ? 'text-warning' : 'text-fg'}">{entry.value || '∅'}</span>
+				{#if entry.note}
+					<span class={entry.warn ? 'text-warning' : 'text-fg-subtle'}>{entry.note}</span>
+				{/if}
+			</span>
+		{/each}
+	{/if}
+{/snippet}
+
+<SegmentModal
 	{isOpen}
+	tier="L"
+	icon="braces"
+	tone="variable"
 	title="Prompt variables"
-	sizeClass="md:w-[min(94vw,80rem)]"
-	keyboard={!pasteModalOpen}
-	confirmLabel="Done"
-	stackOnPhone
+	context={`${variableCount} variable${variableCount === 1 ? '' : 's'} · shared by every segment of this tab`}
+	primaryLabel="Done"
+	submit="ctrl"
+	{dirty}
+	discardMessage="Your edits to the variables are undone."
+	footerStart={footerTools}
 	onConfirm={() => dispatch('close')}
 	onCancel={handleCancel}
 >
-	{#snippet headerIconContent()}<Icon name="braces" className="h-5 w-5 text-fg-muted" />{/snippet}
-	<div class="space-y-3 p-4 sm:p-6">
-		<p class="text-xs text-fg-subtle">
-			Defined here, used in any segment as <code class="rounded bg-surface-2 px-1 py-0.5 font-mono text-xs text-fg">${'{'}name{'}'}</code>.
-			A <span class="text-fg">Choice</span> variable picks a new option each time you click Generate — same idea as a
-			phrasebook chip's shuffle. A <span class="text-fg">Number</span> variable rolls a value between a minimum and a maximum. Shared by every segment of this tab, for the life of the session.
-		</p>
-
-		<div class="flex min-h-0 flex-col gap-3 md:h-[62vh] md:flex-row">
-			<div
-				class="min-h-0 flex-shrink-0 flex-col rounded-lg border border-line bg-surface-1 md:flex md:w-[280px] {mobileView === 'list' ? 'flex' : 'hidden'}"
-			>
-				<div class="space-y-2 border-b border-line p-2">
-					<label class="flex h-8 items-center gap-2 rounded border border-line bg-surface-2 px-2.5 text-fg-subtle focus-within:border-signal">
-						<Icon name="search" className="h-3.5 w-3.5 flex-shrink-0" />
-						<input
-							type="text"
-							class="min-w-0 flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-fg-subtle"
-							placeholder="Filter variables"
-							bind:value={listQuery}
-							aria-label="Filter variables"
-						/>
-					</label>
-					<div class="flex items-center gap-2 px-0.5">
-						<span class="rounded bg-surface-2 px-1.5 font-mono text-xs tabular-nums text-fg-muted">{rows.length}</span>
-						<span class="text-xs text-fg-subtle">variables</span>
-					</div>
-				</div>
-				<div class="min-h-0 flex-1 overflow-y-auto p-1.5 max-md:max-h-[50vh]" role="listbox" aria-label="Variables">
-					{#each visibleRows as row (row.key)}
-						{@const error = nameErrorByKey.get(row.key) ?? null}
-						{@const used = usageCounts[row.name.trim()] ?? 0}
-						<button
-							type="button"
-							role="option"
-							aria-selected={row.key === selectedKey}
-							class="flex w-full flex-col gap-0.5 rounded border-l-2 px-2.5 py-1.5 text-left transition-colors {row.key === selectedKey
-								? 'border-signal bg-signal/10'
-								: 'border-transparent hover:bg-surface-2'}"
-							on:click={() => selectRow(row.key)}
-						>
+	<div class="grid h-full min-h-0 grid-cols-[17.5rem_minmax(0,1fr)] max-md:grid-cols-1">
+		<div class="min-h-0 flex-col border-r border-line max-md:border-r-0 {mobileView === 'list' ? 'flex' : 'hidden md:flex'}">
+			<div class="space-y-2 border-b border-line p-3">
+				<label class="input flex h-9 items-center gap-2 px-2.5 text-fg-subtle max-md:h-11">
+					<Icon name="search" className="h-4 w-4 flex-shrink-0" />
+					<input
+						type="text"
+						class="min-w-0 flex-1 bg-transparent text-base text-fg outline-none placeholder:text-fg-subtle"
+						placeholder="Filter variables"
+						bind:value={listQuery}
+						aria-label="Filter variables"
+						data-autofocus
+					/>
+					<span class="flex-shrink-0 font-mono text-sm tabular-nums text-fg-subtle">
+						{listQuery.trim() ? `${visibleRows.length} of ${rows.length}` : rows.length}
+					</span>
+				</label>
+				<Button variant="secondary" size="sm" icon="plus" class="w-full max-md:h-11" onclick={addRow}>Add variable</Button>
+			</div>
+			<div class="min-h-0 flex-1 overflow-y-auto p-1.5" role="listbox" aria-label="Variables">
+				{#each visibleRows as row (row.key)}
+					{@const error = nameErrorByKey.get(row.key) ?? null}
+					{@const used = usageCounts[row.name.trim()] ?? 0}
+					<button
+						type="button"
+						role="option"
+						aria-selected={row.key === selectedKey}
+						class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded px-2.5 py-2 text-left transition-colors max-md:py-3 {row.key === selectedKey
+							? 'bg-signal/10 shadow-[inset_2px_0_0_rgb(var(--signal))]'
+							: 'hover:bg-surface-2'}"
+						on:click={() => selectRow(row.key)}
+					>
+						<span class="min-w-0">
 							<span class="flex min-w-0 items-center gap-1.5">
-								<span class="truncate font-mono text-sm {error ? 'text-danger' : 'text-fg'}">{row.name ? `$${row.name}` : 'unnamed'}</span>
+								<span class="truncate font-mono text-base {error ? 'text-danger' : 'text-fg'}">{row.name ? `$${row.name}` : 'unnamed'}</span>
 								{#if used > 0}
 									<Tooltip text={`Used in the prompt · ${used}`}>
 										<span class="inline-flex flex-shrink-0 text-success" role="img" aria-label={`Used in the prompt ${used} ${used === 1 ? 'time' : 'times'}`} data-testid="variable-used-tick">
@@ -475,265 +508,208 @@
 									</Tooltip>
 								{/if}
 							</span>
-							<span class="flex min-w-0 items-center gap-1.5">
-							<span class="min-w-0 flex-1 truncate font-mono text-xs tabular-nums text-fg-subtle">{rowMeta(row)}</span>
-							<span class="flex-shrink-0 rounded bg-surface-2 px-1 font-mono text-xs text-fg-subtle" aria-label={`${row.def.type} variable`}>
-								{row.def.type === 'number' ? '123' : row.def.type === 'text' ? 'Aa' : '[ ]'}
-							</span>
+							<span class="mt-0.5 block truncate font-mono text-sm tabular-nums text-fg-subtle">{rowMeta(row)}</span>
 						</span>
-						</button>
-					{:else}
-						<p class="px-2.5 py-3 text-xs text-fg-subtle">No variables match.</p>
-					{/each}
-				</div>
+						<Badge size="lg">{TYPE_LABELS[row.def.type]}</Badge>
+					</button>
+				{:else}
+					<p class="px-2.5 py-3 text-sm text-fg-subtle">No variables match.</p>
+				{/each}
 			</div>
-
-			<div class="min-h-0 min-w-0 flex-1 overflow-y-auto md:block {mobileView === 'detail' ? 'block' : 'hidden'}">
-				{#if selected}
-					{@const row = selected}
-					{@const error = nameErrorByKey.get(row.key) ?? null}
-					<div class="rounded-lg border border-line bg-surface-2/30 p-3">
-						<div class="space-y-3">
-							<div class="flex flex-wrap items-center gap-2">
-								<button
-									type="button"
-									class="inline-flex h-8 items-center gap-1 rounded px-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg md:hidden"
-									on:click={() => (mobileView = 'list')}
-								>
-									<Icon name="chevron-left" className="h-3.5 w-3.5" />
-									Variables
-								</button>
-								<input
-									type="text"
-									class="input w-44 font-mono text-sm {error ? 'border-danger' : ''}"
-									placeholder="name"
-									value={row.name}
-									on:input={(e) => updateName(row.key, e.currentTarget.value)}
-									aria-invalid={!!error}
-									aria-label="Variable name"
-								/>
-
-								<div class="inline-flex rounded bg-surface-2 p-0.5" role="tablist" aria-label="Variable type">
-									<button
-										type="button"
-										role="tab"
-										aria-selected={row.def.type === 'text'}
-										class="rounded px-2.5 py-1 text-xs font-medium transition-colors {row.def.type === 'text'
-											? 'bg-surface-1 text-fg shadow-raised'
-											: 'text-fg-muted hover:text-fg'}"
-										on:click={() => setType(row.key, 'text')}
-									>
-										Text
-									</button>
-									<button
-										type="button"
-										role="tab"
-										aria-selected={row.def.type === 'choice'}
-										class="rounded px-2.5 py-1 text-xs font-medium transition-colors {row.def.type === 'choice'
-											? 'bg-signal/15 text-signal'
-											: 'text-fg-muted hover:text-fg'}"
-										on:click={() => setType(row.key, 'choice')}
-									>
-										Choice
-									</button>
-									<button
-										type="button"
-										role="tab"
-										aria-selected={row.def.type === 'number'}
-										class="rounded px-2.5 py-1 text-xs font-medium transition-colors {row.def.type === 'number'
-											? 'bg-signal/15 text-signal'
-											: 'text-fg-muted hover:text-fg'}"
-										on:click={() => setType(row.key, 'number')}
-									>
-										Number
-									</button>
-								</div>
-
-								{#if row.def.type === 'choice'}
-									{@const deps = dependencies(row.name.trim(), liveVariables)}
-									{@const usedBy = dependents(row.name.trim(), liveVariables)}
-									{#if deps.length > 0}
-										<span
-											class="inline-flex items-center gap-1 rounded border border-line-strong bg-surface-2 px-1.5 py-0.5 font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle"
-										>
-											after
-											<span class="text-signal normal-case">{deps.map((d) => `$${d}`).join(', ')}</span>
-										</span>
-									{/if}
-									{#if usedBy.length > 0}
-										<span
-											class="inline-flex items-center gap-1 rounded border border-line-strong bg-surface-2 px-1.5 py-0.5 font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle"
-										>
-											used by
-											<span class="text-signal normal-case">{usedBy.map((d) => `$${d}`).join(', ')}</span>
-										</span>
-									{/if}
-								{/if}
-
-								<Tooltip text="Remove">
-									<button
-										type="button"
-										class="ml-auto inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded text-fg-muted transition-colors hover:bg-surface-2 hover:text-danger"
-										on:click={() => removeRow(row.key)}
-										aria-label={`Remove variable ${row.name || ''}`.trim()}
-									>
-										<Icon name="trash" className="h-4 w-4" />
-									</button>
-								</Tooltip>
-							</div>
-
-							{#if error}
-								<p class="text-xs text-danger">{error}</p>
-							{/if}
-
-							{#if row.def.type === 'text'}
-								<input
-									type="text"
-									class="input w-full text-sm"
-									placeholder="value"
-									value={row.def.value}
-									on:input={(e) => updateTextValue(row.key, e.currentTarget.value)}
-									aria-label="Variable value"
-								/>
-							{:else if row.def.type === 'number'}
-								<NumberVariableEditor
-									name={row.name.trim()}
-									def={row.def}
-									variables={liveVariables}
-									usageCount={usageCounts[row.name.trim()] ?? 0}
-									readers={readers[row.name.trim()] ?? []}
-									onChange={(next) => updateNumberDef(row.key, next)}
-								/>
-							{:else}
-								{@const whenTarget = isWhenTarget(row.name.trim(), liveVariables)}
-								{@const usageCount = usageCounts[row.name.trim()] ?? 0}
-								{@const usagesLocked = whenTarget || row.def.mode !== 'shuffle'}
-								<div class="grid gap-3 sm:grid-cols-2">
-									<div class="space-y-1.5">
-										<span class="font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle">Value</span>
-										<div class="grid grid-cols-3 gap-0.5 rounded bg-surface-2 p-0.5" role="radiogroup" aria-label={`How ${row.name || 'this variable'} picks a value`}>
-											{#each MODE_CHOICES as choice (choice.mode)}
-												<button
-													type="button"
-													role="radio"
-													aria-checked={row.def.mode === choice.mode}
-													class="rounded px-2 py-1 text-xs font-medium transition-colors {row.def.mode === choice.mode
-														? 'bg-surface-1 text-fg shadow-raised'
-														: 'text-fg-muted hover:text-fg'}"
-													on:click={() => setMode(row.key, choice.mode)}
-												>
-													{choice.label}
-												</button>
-											{/each}
-										</div>
-									</div>
-									<div class="space-y-1.5">
-										<span class="font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle">Usages{usageCount > 0 ? ` · ${usageCount}` : ''}</span>
-										<div class="grid grid-cols-2 gap-0.5 rounded bg-surface-2 p-0.5" role="radiogroup" aria-label={`Whether each usage of ${row.name || 'this variable'} rolls separately`}>
-											{#each USAGE_CHOICES as choice (choice.label)}
-												<button
-													type="button"
-													role="radio"
-													aria-checked={usagesShareRoll(row.name.trim(), liveVariables, readers) === choice.linked}
-													disabled={usagesLocked}
-													class="rounded px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 {usagesShareRoll(row.name.trim(), liveVariables, readers) === choice.linked
-														? 'bg-surface-1 text-fg shadow-raised'
-														: 'text-fg-muted hover:text-fg'}"
-													on:click={() => setLinked(row.key, choice.linked)}
-												>
-													{choice.label}
-												</button>
-											{/each}
-										</div>
-									</div>
-								</div>
-								<p class="text-xs text-fg-subtle">
-									{#if whenTarget}
-										Other options depend on this variable, so every usage shares one roll.
-									{:else if row.def.mode === 'pin'}
-										Always uses the pinned option; pick it with the radio on the left.
-									{:else if row.def.mode === 'per-image'}
-										Rolls again for every image, and every usage rolls on its own, so usages can't be linked in this mode. Check the result card to see what each image got.
-									{:else if isVariableLinked(row.name.trim(), liveVariables, readers)}
-										Every usage shares one roll per generation.
-									{:else}
-										Each usage rolls its own value per generation.
-									{/if}
-								</p>
-
-								<div class="space-y-1.5">
-									<div class="flex items-center gap-1.5 px-0.5">
-										<span class="min-w-0 flex-1 font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle">Options · {row.def.options.length}</span>
-										<span class="hidden w-[190px] flex-shrink-0 font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle md:block">When</span>
-										<span class="hidden w-7 flex-shrink-0 md:block"></span>
-									</div>
-									{#each row.def.options as option, index (index)}
-										<div class="flex flex-wrap items-start gap-1.5 md:flex-nowrap">
-											{#if row.def.mode === 'pin'}
-												<button
-													type="button"
-													role="radio"
-													aria-checked={(row.def.pinnedIndex ?? 0) === index}
-													aria-label={`Pin option ${index + 1}`}
-													class="mt-2 grid h-4 w-4 flex-shrink-0 place-items-center rounded-full border {(row.def.pinnedIndex ?? 0) === index
-														? 'border-signal'
-														: 'border-line-hover'}"
-													on:click={() => setPinnedIndex(row.key, index)}
-												>
-													{#if (row.def.pinnedIndex ?? 0) === index}
-														<span class="h-2 w-2 rounded-full bg-signal"></span>
-													{/if}
-												</button>
-											{:else}
-												<span class="mt-1.5 w-5 flex-shrink-0 text-right font-mono text-xs tabular-nums text-fg-subtle">{index + 1}</span>
-											{/if}
-											<textarea
-												use:autosize={optionText(option)}
-												class="input min-w-0 flex-1 resize-none py-1 text-sm leading-5"
-												rows="2"
-												placeholder={`option ${index + 1}`}
-												value={optionText(option)}
-												on:input={(e) => updateOptionText(row.key, index, e.currentTarget.value)}
-												aria-label={`Option ${index + 1}`}
-											></textarea>
-											<div class="w-full flex-shrink-0 md:w-[190px]">
-												<VariableConditionChip
-													ownerName={row.name.trim()}
-													when={optionWhen(option)}
-													mode={row.def.mode}
-													variables={liveVariables}
-													onChange={(when) => updateOptionWhen(row.key, index, when)}
-												/>
-											</div>
-											<button
-												type="button"
-												class="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded text-fg-muted transition-colors hover:bg-surface-3 hover:text-danger"
-												on:click={() => removeOption(row.key, index)}
-												aria-label={`Remove option ${index + 1}`}
-											>
-												<Icon name="trash" className="h-3.5 w-3.5" />
-											</button>
-										</div>
-									{/each}
-								</div>
-
-								<button
-									type="button"
-									class="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg"
-									on:click={() => addOption(row.key)}
-								>
-									<Icon name="plus" className="h-3.5 w-3.5" />
-									Add option
-								</button>
-							{/if}
-						</div>
-					</div>
-				{/if}
-			</div>
+			<p class="border-t border-line px-3.5 py-2.5 text-sm text-fg-subtle">
+				Use <code class="rounded bg-surface-2 px-1 font-mono text-fg">${'{'}name{'}'}</code> in any segment. A Choice variable picks a new option each time you click Generate, a Number rolls between its minimum and maximum. Shared by every segment of this tab, for the life of the session.
+			</p>
 		</div>
 
-		<div class="flex flex-wrap items-center gap-2">
-			<Button variant="secondary" size="xs" icon="plus" onclick={addRow}>Add variable</Button>
+		<div class="min-h-0 min-w-0 overflow-y-auto {mobileView === 'detail' ? 'block' : 'hidden md:block'}">
+			{#if selected}
+				{@const row = selected}
+				{@const error = nameErrorByKey.get(row.key) ?? null}
+				<div class="space-y-4 p-5 max-md:p-4">
+					<div class="flex flex-wrap items-center gap-2">
+						<Button variant="ghost" size="sm" icon="chevron-left" class="md:hidden max-md:h-11" onclick={() => (mobileView = 'list')}>Variables</Button>
+						<input
+							type="text"
+							class="input h-9 w-52 font-mono text-base max-md:h-11 max-md:flex-1 {error ? 'border-danger' : ''}"
+							placeholder="name"
+							value={row.name}
+							on:input={(e) => updateName(row.key, e.currentTarget.value)}
+							aria-invalid={!!error}
+							aria-label="Variable name"
+						/>
+						<div class="inline-grid grid-cols-3 gap-0.5 rounded border border-line bg-surface-2 p-0.5" role="tablist" aria-label="Variable type">
+							{#each TYPE_CHOICES as choice (choice.type)}
+								<button
+									type="button"
+									role="tab"
+									aria-selected={row.def.type === choice.type}
+									class="{segmentedButton} {row.def.type === choice.type ? segmentedOn : segmentedOff}"
+									on:click={() => setType(row.key, choice.type)}
+								>
+									{choice.label}
+								</button>
+							{/each}
+						</div>
+						{#if row.def.type === 'choice'}
+							{@const deps = dependencies(row.name.trim(), liveVariables)}
+							{@const usedBy = dependents(row.name.trim(), liveVariables)}
+							{#if deps.length > 0}
+								<Badge size="lg">after&nbsp;<span class="font-mono text-signal">{deps.map((d) => `$${d}`).join(', ')}</span></Badge>
+							{/if}
+							{#if usedBy.length > 0}
+								<Badge size="lg">used by&nbsp;<span class="font-mono text-signal">{usedBy.map((d) => `$${d}`).join(', ')}</span></Badge>
+							{/if}
+						{/if}
+						<Button
+							variant="ghost"
+							size="sm"
+							icon="trash"
+							class="ml-auto !text-danger hover:bg-danger/10"
+							ariaLabel={`Remove variable ${row.name || ''}`.trim()}
+							onclick={() => removeRow(row.key)}
+						>
+							Remove
+						</Button>
+					</div>
+
+					{#if error}
+						<p class="text-sm text-danger">{error}</p>
+					{/if}
+
+					{#if row.def.type === 'text'}
+						<div>
+							<span class="mb-1.5 block {eyebrow}">Value</span>
+							<input
+								type="text"
+								class="input w-full text-base"
+								placeholder="value"
+								value={row.def.value}
+								on:input={(e) => updateTextValue(row.key, e.currentTarget.value)}
+								aria-label="Variable value"
+							/>
+						</div>
+					{:else if row.def.type === 'number'}
+						<NumberVariableEditor
+							name={row.name.trim()}
+							def={row.def}
+							variables={liveVariables}
+							usageCount={usageCounts[row.name.trim()] ?? 0}
+							readers={readers[row.name.trim()] ?? []}
+							onChange={(next) => updateNumberDef(row.key, next)}
+						/>
+					{:else}
+						{@const whenTarget = isWhenTarget(row.name.trim(), liveVariables)}
+						{@const usageCount = usageCounts[row.name.trim()] ?? 0}
+						{@const usagesLocked = whenTarget || row.def.mode !== 'shuffle'}
+						<div class="grid gap-4 sm:grid-cols-2">
+							<div class="space-y-1.5">
+								<span class="block {eyebrow}">Value</span>
+								<div class="grid grid-cols-3 gap-0.5 rounded border border-line bg-surface-2 p-0.5" role="radiogroup" aria-label={`How ${row.name || 'this variable'} picks a value`}>
+									{#each MODE_CHOICES as choice (choice.mode)}
+										<button
+											type="button"
+											role="radio"
+											aria-checked={row.def.mode === choice.mode}
+											class="{segmentedButton} {row.def.mode === choice.mode ? segmentedOn : segmentedOff}"
+											on:click={() => setMode(row.key, choice.mode)}
+										>
+											{choice.label}
+										</button>
+									{/each}
+								</div>
+							</div>
+							<div class="space-y-1.5">
+								<span class="block {eyebrow}">Usages{usageCount > 0 ? ` · ${usageCount}` : ''}</span>
+								<div class="grid grid-cols-2 gap-0.5 rounded border border-line bg-surface-2 p-0.5" role="radiogroup" aria-label={`Whether each usage of ${row.name || 'this variable'} rolls separately`}>
+									{#each USAGE_CHOICES as choice (choice.label)}
+										{@const on = usagesShareRoll(row.name.trim(), liveVariables, readers) === choice.linked}
+										<button
+											type="button"
+											role="radio"
+											aria-checked={on}
+											disabled={usagesLocked}
+											class="{segmentedButton} disabled:cursor-not-allowed disabled:opacity-60 {on ? segmentedOn : segmentedOff}"
+											on:click={() => setLinked(row.key, choice.linked)}
+										>
+											{choice.label}
+										</button>
+									{/each}
+								</div>
+							</div>
+						</div>
+						<p class="text-sm text-fg-subtle">
+							{#if whenTarget}
+								Other options depend on this variable, so every usage shares one roll.
+							{:else if row.def.mode === 'pin'}
+								Always uses the pinned option; pick it with the radio beside it.
+							{:else if row.def.mode === 'per-image'}
+								Rolls again for every image, and every usage rolls on its own, so usages can't be linked in this mode. Check the result card to see what each image got.
+							{:else if isVariableLinked(row.name.trim(), liveVariables, readers)}
+								Every usage shares one roll per generation.
+							{:else}
+								Each usage rolls its own value per generation.
+							{/if}
+						</p>
+
+						<div class="space-y-3">
+							<span class="block {eyebrow}">Options · {row.def.options.length}</span>
+							{#each row.def.options as option, index (index)}
+								<div class="grid grid-cols-[1.75rem_minmax(0,1fr)_2rem] items-start gap-x-2 gap-y-1.5" data-testid="variable-option-row">
+									{#if row.def.mode === 'pin'}
+										<button
+											type="button"
+											role="radio"
+											aria-checked={(row.def.pinnedIndex ?? 0) === index}
+											aria-label={`Pin option ${index + 1}`}
+											class="mt-2.5 grid h-4 w-4 place-items-center justify-self-end rounded-full border {(row.def.pinnedIndex ?? 0) === index
+												? 'border-signal'
+												: 'border-line-hover'}"
+											on:click={() => setPinnedIndex(row.key, index)}
+										>
+											{#if (row.def.pinnedIndex ?? 0) === index}
+												<span class="h-2 w-2 rounded-full bg-signal"></span>
+											{/if}
+										</button>
+									{:else}
+										<span class="mt-2 text-right font-mono text-sm tabular-nums text-fg-subtle">{index + 1}</span>
+									{/if}
+									<textarea
+										use:autosize={optionText(option)}
+										class="input min-w-0 resize-none py-2 text-base leading-5"
+										rows="1"
+										placeholder={`option ${index + 1}`}
+										value={optionText(option)}
+										on:input={(e) => updateOptionText(row.key, index, e.currentTarget.value)}
+										aria-label={`Option ${index + 1}`}
+									></textarea>
+									<Tooltip text="Remove option">
+										<button
+											type="button"
+											class="inline-flex h-9 w-8 flex-shrink-0 items-center justify-center rounded text-fg-muted transition-colors hover:bg-surface-3 hover:text-danger"
+											on:click={() => removeOption(row.key, index)}
+											aria-label={`Remove option ${index + 1}`}
+										>
+											<Icon name="trash" className="h-4 w-4" />
+										</button>
+									</Tooltip>
+									<div class="col-start-2 flex min-w-0 items-center gap-2" data-testid="variable-option-when">
+										<span class="{eyebrow} flex-shrink-0">When</span>
+										<VariableConditionChip
+											ownerName={row.name.trim()}
+											optionNumber={index + 1}
+											when={optionWhen(option)}
+											mode={row.def.mode}
+											variables={liveVariables}
+											onChange={(when) => updateOptionWhen(row.key, index, when)}
+										/>
+									</div>
+								</div>
+							{/each}
+							<Button variant="ghost" size="sm" icon="plus" onclick={() => addOption(row.key)}>Add option</Button>
+						</div>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -743,36 +719,4 @@
 		on:close={() => (pasteModalOpen = false)}
 		on:confirm={handlePasteConfirm}
 	/>
-	{#snippet leftActions()}
-				<Tooltip text="Copy variables as JSON">
-					<Button
-						variant="secondary"
-						size="xs"
-						icon="copy"
-						disabled={Object.keys(liveVariables).length === 0}
-						onclick={copyVariables}
-					>
-						Copy
-					</Button>
-				</Tooltip>
-				<Tooltip text="Paste variables JSON">
-					<Button variant="secondary" size="xs" icon="clipboard-list" onclick={() => (pasteModalOpen = true)}>
-						Paste
-					</Button>
-				</Tooltip>
-				{#if showRollPreview}
-					<span class="mx-1 h-4 w-px flex-shrink-0 bg-line-strong/60 max-sm:hidden"></span>
-					<Button variant="secondary" size="xs" onclick={runRollPreview}>Roll preview</Button>
-					{#each rollPreview ?? [] as entry, i (entry.name)}
-						{#if i > 0}<Icon name="chevron-right" className="h-3 w-3 flex-shrink-0 text-fg-subtle" />{/if}
-						<span class="inline-flex min-w-0 flex-wrap items-center gap-1 font-mono text-xs">
-							<span class="whitespace-nowrap text-fg-subtle">${entry.name}</span>
-							<span class="break-words {entry.warn ? 'text-warning' : 'text-fg'}">{entry.value || '∅'}</span>
-							{#if entry.note}
-								<span class="text-xs {entry.warn ? 'text-warning' : 'text-fg-subtle'}">{entry.note}</span>
-							{/if}
-						</span>
-					{/each}
-				{/if}
-	{/snippet}
-</ConfirmDialog>
+</SegmentModal>

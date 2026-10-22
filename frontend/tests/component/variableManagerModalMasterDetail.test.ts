@@ -39,7 +39,7 @@ const rows = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[rol
 describe('VariableManagerModal master-detail', () => {
 	it('lists every variable with meta and edits the selected one', () => {
 		open({ color: 3 });
-		expect(rows().map((r) => r.querySelector('span > span')?.textContent)).toEqual(['$color', '$mood', '$style']);
+		expect(rows().map((r) => r.querySelector('span > span')?.textContent?.trim())).toEqual(['$color', '$mood', '$style']);
 		expect(rows()[0].textContent).toContain('3 opt · shuffle · 3 uses');
 		expect(rows()[0].getAttribute('aria-selected')).toBe('true');
 		expect(document.querySelectorAll('textarea').length).toBe(3);

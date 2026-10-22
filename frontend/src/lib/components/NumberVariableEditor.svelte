@@ -127,7 +127,7 @@
 		previewSeed += 1;
 	}
 
-	const sectionLabel = 'font-mono text-xs uppercase tracking-[0.04em] text-fg-subtle';
+	const sectionLabel = 'font-mono text-sm uppercase tracking-[0.04em] text-fg-subtle';
 	const ticks = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 </script>
 
@@ -141,7 +141,7 @@
 						type="button"
 						role="radio"
 						aria-checked={def.mode === choice.mode}
-						class="rounded px-2 py-1 text-xs font-medium transition-colors max-md:py-2.5 {def.mode === choice.mode
+						class="rounded px-2 py-1 text-sm font-medium transition-colors max-md:py-2.5 {def.mode === choice.mode
 							? 'bg-surface-1 text-fg shadow-raised'
 							: 'text-fg-muted hover:text-fg'}"
 						onclick={() => setMode(choice.mode)}
@@ -150,7 +150,7 @@
 					</button>
 				{/each}
 			</div>
-			<p class="text-xs text-fg-subtle" data-testid="number-mode-note">
+			<p class="text-sm text-fg-subtle" data-testid="number-mode-note">
 				{#if def.mode === 'pin'}
 					The same number on every image. Min and max still limit what you can type, so a pinned value is always inside the range.
 				{:else if def.mode === 'per-image'}
@@ -169,7 +169,7 @@
 						role="radio"
 						aria-checked={sharesRoll === choice.linked}
 						disabled={usagesLocked}
-						class="rounded px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 max-md:py-2.5 {sharesRoll === choice.linked
+						class="rounded px-2 py-1 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 max-md:py-2.5 {sharesRoll === choice.linked
 							? 'bg-surface-1 text-fg shadow-raised'
 							: 'text-fg-muted hover:text-fg'}"
 						onclick={() => setLinked(choice.linked)}
@@ -178,7 +178,7 @@
 					</button>
 				{/each}
 			</div>
-			<p class="text-xs text-fg-subtle" data-testid="number-usage-note">
+			<p class="text-sm text-fg-subtle" data-testid="number-usage-note">
 				{#if conditionRead}
 					Linked because a condition reads it. Every <code class="rounded bg-surface-2 px-1 font-mono text-fg">{usageRef}</code> and every condition in an image share one value.
 				{:else if def.mode === 'pin'}
@@ -223,7 +223,7 @@
 						type="button"
 						role="radio"
 						aria-checked={!isDecimal}
-						class="min-w-0 truncate rounded px-2 text-xs font-medium transition-colors {!isDecimal
+						class="min-w-0 truncate rounded px-2 text-sm font-medium transition-colors {!isDecimal
 							? 'bg-surface-1 text-fg shadow-raised'
 							: 'text-fg-muted hover:text-fg'}"
 						onclick={() => setNumbers(false)}
@@ -234,7 +234,7 @@
 						type="button"
 						role="radio"
 						aria-checked={isDecimal}
-						class="min-w-0 truncate rounded px-2 text-xs font-medium transition-colors {isDecimal
+						class="min-w-0 truncate rounded px-2 text-sm font-medium transition-colors {isDecimal
 							? 'bg-surface-1 text-fg shadow-raised'
 							: 'text-fg-muted hover:text-fg'}"
 						onclick={() => setNumbers(true)}
@@ -259,11 +259,11 @@
 			</div>
 		{/if}
 		{#if issue === 'too-large'}
-			<p class="text-xs text-warning" role="alert" data-testid="number-grid-warning">
+			<p class="text-sm text-warning" role="alert" data-testid="number-grid-warning">
 				This range has {size} values and the limit is {MAX_NUMBER_GRID}. Raise the step to roll it.
 			</p>
 		{:else if issue}
-			<p class="text-xs text-danger" role="alert" data-testid="number-range-error">
+			<p class="text-sm text-danger" role="alert" data-testid="number-range-error">
 				{#if issue === 'step'}
 					Step must be above 0, with at most 6 decimal places.
 				{:else if issue === 'precision'}
@@ -285,7 +285,7 @@
 				</span>
 				{#if def.mode !== 'pin'}
 					<Tooltip text="Roll the preview again">
-						<Button variant="ghost" size="xs" icon="refresh" onclick={reroll}>Roll again</Button>
+						<Button variant="ghost" size="sm" icon="refresh" onclick={reroll}>Roll again</Button>
 					</Tooltip>
 				{/if}
 			</div>
@@ -308,25 +308,25 @@
 						data-testid="number-dot"
 						data-value={value}
 					>
-						<span class="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2 font-mono text-xs tabular-nums text-fg-muted">{value}</span>
-						<span class="grid h-5 w-5 place-items-center rounded-full border border-signal bg-signal/20 font-mono text-xs tabular-nums text-signal">
+						<span class="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2 font-mono text-sm tabular-nums text-fg-muted">{value}</span>
+						<span class="grid h-5 w-5 place-items-center rounded-full border border-signal bg-signal/20 font-mono text-sm tabular-nums text-signal">
 							{#if def.mode === 'per-image'}{index + 1}{/if}
 						</span>
 					</div>
 				{/each}
 			</div>
-			<div class="mx-3 flex justify-between font-mono text-xs tabular-nums text-fg-subtle">
+			<div class="mx-3 flex justify-between font-mono text-sm tabular-nums text-fg-subtle">
 				<span>{numberGridValue(def, 0)}</span>
 				<span>{numberGridValue(def, size - 1)}</span>
 			</div>
 			{#if trackRanges.length > 0}
-				<div class="mx-3 flex justify-between font-mono text-xs uppercase tracking-[0.04em] text-signal">
+				<div class="mx-3 flex justify-between font-mono text-sm uppercase tracking-[0.04em] text-signal">
 					{#each trackRanges as range, ri (ri)}
 						<span>{range.label}</span>
 					{/each}
 				</div>
 			{/if}
-			<p class="text-xs text-fg-subtle" data-testid="number-preview-note">
+			<p class="text-sm text-fg-subtle" data-testid="number-preview-note">
 				{#if def.mode === 'pin'}
 					Every image gets <span class="font-mono tabular-nums text-fg">{pinned}</span>.
 				{:else if def.mode === 'per-image'}
@@ -341,7 +341,7 @@
 	<div class="space-y-1.5">
 		<span class={sectionLabel}>Used by</span>
 		{#if usageCount === 0 && readers.length === 0}
-			<p class="text-xs text-fg-subtle">Nothing uses this variable yet.</p>
+			<p class="text-sm text-fg-subtle">Nothing uses this variable yet.</p>
 		{/if}
 		<div class="space-y-1.5">
 			{#if usageCount > 0}
@@ -350,7 +350,7 @@
 						<span class="text-fg-subtle">$</span>{name}
 					</span>
 					<span>used in text</span>
-					<span class="font-mono text-xs tabular-nums text-fg-subtle">{usageCount} {usageCount === 1 ? 'use' : 'uses'}</span>
+					<span class="font-mono text-sm tabular-nums text-fg-subtle">{usageCount} {usageCount === 1 ? 'use' : 'uses'}</span>
 				</div>
 			{/if}
 			{#each readers as reader, index (index)}
@@ -360,7 +360,7 @@
 					</span>
 					<span>condition reads it</span>
 					{#if reader.segment}
-						<span class="font-mono text-xs text-fg-subtle">{reader.segment}</span>
+						<span class="font-mono text-sm text-fg-subtle">{reader.segment}</span>
 					{/if}
 				</div>
 			{/each}
