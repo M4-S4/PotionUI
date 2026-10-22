@@ -20,7 +20,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipResponder
 
 from src.platform.security.current_user import get_auth
-from src.platform.security.media_session import media_cookie_header, media_cookie_name
+from src.platform.security.media_session import (
+    media_cookie_headers,
+    media_cookie_name,
+    partitioned_media_cookie_name,
+)
 from src.platform.security.redaction import SECRET_MASK, is_secret_key, redact_mapping
 from src.platform.security.session_renewal import renewed_token
 
@@ -99,9 +103,9 @@ class SessionRenewalMiddleware:
 
     @staticmethod
     def _attach_renewal(scope, token, message) -> None:
-        cookie_prefix = f"{media_cookie_name()}="
+        cookie_prefixes = (f"{media_cookie_name()}=", f"{partitioned_media_cookie_name()}=")
         headers = MutableHeaders(scope=message)
-        if any(value.startswith(cookie_prefix) for value in headers.getlist("set-cookie")):
+        if any(value.startswith(cookie_prefixes) for value in headers.getlist("set-cookie")):
             return
         try:
             codec = get_auth().tokens
@@ -111,8 +115,7 @@ class SessionRenewalMiddleware:
         if fresh is None:
             return
         headers[REFRESHED_TOKEN_HEADER] = fresh
-        cookie = media_cookie_header(Request(scope), fresh)
-        if cookie is not None:
+        for cookie in media_cookie_headers(Request(scope), fresh):
             headers.append("set-cookie", cookie)
 
 

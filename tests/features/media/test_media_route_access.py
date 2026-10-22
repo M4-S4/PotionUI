@@ -25,7 +25,7 @@ from src.features.models.repository import ModelRepository
 from src.features.users.routes import build_router as build_users_router
 from src.platform.filesystem.file_store import FileStore
 from src.platform.security import current_user
-from src.platform.security.media_session import media_cookie_name
+from src.platform.security.media_session import media_cookie_name, partitioned_media_cookie_name
 from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
@@ -235,6 +235,8 @@ def _get(client, url, token=None, via="cookie"):
     headers = {}
     if token and via == "cookie":
         client.cookies.set(media_cookie_name(), token)
+    elif token and via == "partitioned":
+        client.cookies.set(partitioned_media_cookie_name(), token)
     elif token:
         headers["Authorization"] = f"Bearer {token}"
     return client.get(url, headers=headers)
@@ -260,14 +262,15 @@ class TestSignedOut:
             response = _get(client, url)
             assert response.status_code == 401, name
 
-    def test_a_forged_cookie_is_not_a_session(self, client, world):
+    @pytest.mark.parametrize("via", ["cookie", "partitioned"])
+    def test_a_forged_cookie_is_not_a_session(self, client, world, via):
         _, routes = _owner_routes(world)
         for name, url in routes.items():
-            assert _get(client, url, "tok-forged").status_code == 401, name
+            assert _get(client, url, "tok-forged", via=via).status_code == 401, name
 
 
 class TestOwnership:
-    @pytest.mark.parametrize("via", ["cookie", "header"])
+    @pytest.mark.parametrize("via", ["cookie", "partitioned", "header"])
     def test_the_owner_gets_the_bytes(self, client, world, via):
         _, routes = _owner_routes(world)
         for name, url in routes.items():
