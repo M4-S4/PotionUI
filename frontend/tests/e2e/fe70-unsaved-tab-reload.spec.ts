@@ -32,7 +32,7 @@ async function setSegmentMeta(page: Page, listAriaLabel: string, index: number, 
 	const dialog = page.getByRole('dialog', { name: 'Segment details' });
 	await dialog.getByPlaceholder('Optional segment name').fill(name);
 	await dialog.getByRole('button', { name: colorName, exact: true }).click();
-	await dialog.getByRole('button', { name: 'Save details' }).click();
+	await dialog.getByRole('button', { name: /^Save/ }).click();
 	// BaseModal's own exit transition (~150ms) keeps the dialog node — and its
 	// focusTrap action — mounted a beat after `isOpen` flips false; that
 	// action's `destroy()` restores focus to whatever was focused before the

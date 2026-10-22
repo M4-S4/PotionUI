@@ -87,7 +87,7 @@ async function insertFromMenu(target: HTMLElement) {
 	trigger.click();
 	await settle();
 	const item = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
-		(b) => b.textContent?.trim().endsWith('Insert a condition')
+		(b) => b.textContent?.trim().endsWith('Insert a condition…')
 	)!;
 	item.click();
 	await settle();

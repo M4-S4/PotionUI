@@ -59,7 +59,7 @@ function openMoreMenu() {
 
 function detailsMenuItem() {
 	return Array.from(document.querySelectorAll('[role="menuitem"]')).find(
-		(el) => (el.textContent || '').trim() === 'Details'
+		(el) => (el.textContent || '').trim() === 'Details…'
 	) as HTMLButtonElement;
 }
 
@@ -71,13 +71,13 @@ async function clickDetails() {
 
 function dialog() {
 	return Array.from(document.querySelectorAll('[role="dialog"]')).find(
-		(el) => el.getAttribute('aria-label') === 'Segment details'
+		(el) => document.getElementById(el.getAttribute('aria-labelledby') ?? '')?.textContent === 'Segment details'
 	) as HTMLElement | undefined;
 }
 
 function saveButton(scope: HTMLElement) {
 	return Array.from(scope.querySelectorAll('button')).find((b) =>
-		(b.textContent || '').includes('Save details')
+		(b.textContent || '').trim().startsWith('Save')
 	) as HTMLButtonElement;
 }
 
@@ -89,7 +89,7 @@ function wait(ms: number) {
 }
 
 describe('PromptSegmentDetailsModal close loop', () => {
-	it('Save details actually removes the dialog before the next Details click, which is not intercepted', async () => {
+	it('Save actually removes the dialog before the next Details click, which is not intercepted', async () => {
 		mount();
 
 		await clickDetails();

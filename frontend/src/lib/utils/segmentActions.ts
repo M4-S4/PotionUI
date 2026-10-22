@@ -42,15 +42,15 @@ export function segmentMenuActions(segment: Segment, context: SegmentActionConte
 	const actions: SegmentAction[] = [
 		{ id: 'moveUp', label: 'Move up', icon: 'chevron-up', disabled: index === 0 },
 		{ id: 'moveDown', label: 'Move down', icon: 'chevron-down', disabled: index >= total - 1 },
-		byId('editDetails'),
-		byId('saveAsSegment'),
-		{ id: 'replaceFromSaved', label: 'Replace from saved', icon: 'library' },
+		{ ...byId('editDetails'), label: 'Details…' },
+		{ ...byId('saveAsSegment'), label: 'Save as Segment…' },
+		{ id: 'replaceFromSaved', label: 'Replace from saved…', icon: 'library' },
 		byId('duplicate'),
 		byId('toggleDisabled'),
-		{ id: 'insertPhrasebook', label: 'Insert a phrasebook value', glyph: '#', glyphClass: 'phrasebook', disabled: segmentDisabled },
-		{ id: 'insertVariable', label: 'Insert a variable', glyph: '$', glyphClass: 'variable', disabled: segmentDisabled },
+		{ id: 'insertPhrasebook', label: 'Insert a phrasebook value…', glyph: '#', glyphClass: 'phrasebook', disabled: segmentDisabled },
+		{ id: 'insertVariable', label: 'Insert a variable…', glyph: '$', glyphClass: 'variable', disabled: segmentDisabled },
 		{ id: 'insertChoice', label: 'Insert a choice group', glyph: '{}', glyphClass: 'choice', disabled: segmentDisabled },
-		{ id: 'insertCondition', label: 'Insert a condition', glyph: 'if', glyphClass: 'condition', disabled: segmentDisabled }
+		{ id: 'insertCondition', label: 'Insert a condition…', glyph: 'if', glyphClass: 'condition', disabled: segmentDisabled }
 	];
 
 	if (hasPromptResources) {

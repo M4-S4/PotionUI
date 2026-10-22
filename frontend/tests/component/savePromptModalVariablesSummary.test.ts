@@ -26,7 +26,7 @@ function mountModal(segments: Segment[], variables: VariablesMap) {
 }
 
 function clickSave() {
-	const save = [...document.body.querySelectorAll('button')].find((b) => b.textContent?.includes('Save Prompt'));
+	const save = [...document.body.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith('Save'));
 	save?.click();
 }
 

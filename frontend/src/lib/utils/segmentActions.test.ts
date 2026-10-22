@@ -116,3 +116,26 @@ describe('segmentMenuActions', () => {
 		expect(actions.find((a) => a.id === 'insertResource')?.disabled).toBe(true);
 	});
 });
+
+describe('segment menu labels', () => {
+	it('end in an ellipsis exactly when the item opens a dialog or picker', () => {
+		const labels = Object.fromEntries(
+			segmentMenuActions(segment(), { index: 0, total: 2, segmentDisabled: false, hasPromptResources: true, hasPromptSyntax: true }).map(
+				(a) => [a.id, a.label]
+			)
+		);
+		expect(labels).toMatchObject({
+			editDetails: 'Details…',
+			saveAsSegment: 'Save as Segment…',
+			replaceFromSaved: 'Replace from saved…',
+			insertPhrasebook: 'Insert a phrasebook value…',
+			insertVariable: 'Insert a variable…',
+			insertCondition: 'Insert a condition…',
+			insertResource: 'Insert a reference…',
+			insertSyntax: 'Insert syntax…',
+			insertChoice: 'Insert a choice group',
+			duplicate: 'Duplicate',
+			moveUp: 'Move up'
+		});
+	});
+});

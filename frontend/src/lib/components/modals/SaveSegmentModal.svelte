@@ -5,8 +5,9 @@
 	import { toRichSegment } from '$lib/utils/richSegments';
 	import { toasts } from '$lib/stores/toast';
 	import { resolveResourceMarkers, textHasResourceMarkers, type PromptResourceSpec } from '$lib/utils/promptResources';
-	import ConfirmDialog from './ConfirmDialog.svelte';
-	import Icon from '$lib/components/Icon.svelte';
+	import SegmentModal from './SegmentModal.svelte';
+	import SegmentFormRow from './SegmentFormRow.svelte';
+	import SegmentColorField from '$lib/components/SegmentColorField.svelte';
 
 	export let isOpen = false;
 	export let segment: Segment;
@@ -22,6 +23,7 @@
 	let saving = false;
 	let previousOpen = false;
 	let convertReferences = true;
+	let nameMissing = false;
 
 	$: hasReferences = textHasResourceMarkers(segment?.content);
 
@@ -38,6 +40,7 @@
 		color = segment.color || '';
 		tags = '';
 		convertReferences = true;
+		nameMissing = false;
 		try {
 			categories = (await api.listSegmentCategories()).data?.categories || [];
 			categoryId = categories[0]?.id || '';
@@ -47,7 +50,11 @@
 	}
 
 	async function save() {
-		if (!name.trim() || !categoryId) return false;
+		if (!name.trim()) {
+			nameMissing = true;
+			return false;
+		}
+		if (!categoryId) return false;
 		saving = true;
 		try {
 			const shouldConvert = hasReferences && convertReferences;
@@ -83,41 +90,59 @@
 	}
 </script>
 
-<ConfirmDialog
+<SegmentModal
 	{isOpen}
+	tier="M"
+	icon="save"
 	title="Save as Segment"
-	sizeClass="md:max-w-lg md:w-full"
-	confirmLabel="Save Segment"
+	context={segment?.name || segment?.title || 'Untitled segment'}
+	primaryLabel="Save"
 	busy={saving}
-	confirmDisabled={!name.trim() || !categoryId}
+	primaryDisabled={!categoryId}
 	onConfirm={save}
 	onCancel={() => dispatch('close')}
 >
-	{#snippet headerIconContent()}<Icon name="save" className="h-5 w-5 text-fg-muted" />{/snippet}
-	<div class="space-y-4 p-4 sm:p-6">
-		<label class="block text-sm font-medium text-fg" for="saved-segment-name">Name <span class="text-danger">*</span></label>
-		<input id="saved-segment-name" class="input -mt-3 w-full" bind:value={name} placeholder="Required library name" />
-		<label class="block text-sm font-medium text-fg" for="saved-segment-category">Category <span class="text-danger">*</span></label>
-		<select id="saved-segment-category" class="input -mt-3 w-full" bind:value={categoryId}><option value="">Select a category</option>{#each categories as category}<option value={category.id}>{category.name}</option>{/each}</select>
-		<label class="block text-sm font-medium text-fg" for="saved-segment-description">Description</label>
-		<textarea id="saved-segment-description" class="input -mt-3 w-full" rows="2" bind:value={description}></textarea>
-		<div class="grid grid-cols-[7rem_1fr] gap-3"><label class="text-sm font-medium text-fg" for="saved-segment-color">Color</label><label class="text-sm font-medium text-fg" for="saved-segment-tags">Tags</label><input id="saved-segment-color" class="input w-full" bind:value={color} placeholder="Optional" /><input id="saved-segment-tags" class="input w-full" bind:value={tags} placeholder="comma, separated" /></div>
+	<div class="grid grid-cols-2 gap-4 p-5 max-md:grid-cols-1 max-md:p-4">
+		<SegmentFormRow label="Name" forId="saved-segment-name" problem={nameMissing ? 'Give it a name to save it.' : ''} class="col-span-2 max-md:col-span-1">
+			<input
+				id="saved-segment-name"
+				class="input {nameMissing ? 'border-warning/60 ring-1 ring-warning/40' : ''}"
+				bind:value={name}
+				placeholder="How you'll find it in the library"
+				aria-invalid={nameMissing ? 'true' : undefined}
+				data-autofocus
+				on:input={() => (nameMissing = false)}
+			/>
+		</SegmentFormRow>
+		<SegmentFormRow label="Category" forId="saved-segment-category" helper={categories.length === 0 ? 'Create a category in the Prompts library first.' : ''}>
+			<select id="saved-segment-category" class="input" bind:value={categoryId} disabled={categories.length === 0}>
+				{#each categories as category (category.id)}<option value={category.id}>{category.name}</option>{/each}
+			</select>
+		</SegmentFormRow>
+		<SegmentFormRow label="Tags" forId="saved-segment-tags" optional>
+			<input id="saved-segment-tags" class="input" bind:value={tags} placeholder="comma, separated" />
+		</SegmentFormRow>
+		<SegmentFormRow label="Colour" optional class="col-span-2 max-md:col-span-1">
+			<SegmentColorField value={color} onchange={(next) => (color = next)} />
+		</SegmentFormRow>
+		<SegmentFormRow label="Description" forId="saved-segment-description" optional class="col-span-2 max-md:col-span-1">
+			<textarea id="saved-segment-description" class="input resize-y" rows="2" bind:value={description}></textarea>
+		</SegmentFormRow>
 		{#if hasReferences}
-			<div class="rounded-lg border border-warning/40 bg-warning/10 p-3 space-y-2">
-				<p class="text-xs text-fg">
-					This segment references media uploaded on this tab. Those references only resolve here — a copy saved to
-					the library needs its own choice.
+			<div class="col-span-2 space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3 max-md:col-span-1">
+				<p class="text-sm text-fg">
+					This segment references media uploaded on this tab. Those references only resolve here, so a library copy needs its own choice.
 				</p>
-				<label class="flex items-start gap-2 text-xs text-fg">
+				<label class="flex items-start gap-2 text-sm text-fg">
 					<input type="radio" name="reference-handling" checked={convertReferences} on:change={() => (convertReferences = true)} class="mt-0.5" />
-					<span>Convert to plain text now (e.g. "Picture 2") — always valid, never dangling</span>
+					<span>Convert to plain text now (“Picture 2”). Always valid, never dangling.</span>
 				</label>
-				<label class="flex items-start gap-2 text-xs text-fg">
+				<label class="flex items-start gap-2 text-sm text-fg">
 					<input type="radio" name="reference-handling" checked={!convertReferences} on:change={() => (convertReferences = false)} class="mt-0.5" />
-					<span>Keep the references — only works when applied on a tab with the same uploads</span>
+					<span>Keep the references. Only works on a tab with the same uploads.</span>
 				</label>
 			</div>
 		{/if}
-		<p class="text-xs text-fg-subtle">This creates a detached reusable card; later edits to either copy do not stay linked.</p>
+		<p class="col-span-2 text-sm text-fg-subtle max-md:col-span-1">Creates a detached copy; later edits to either copy don't sync.</p>
 	</div>
-</ConfirmDialog>
+</SegmentModal>

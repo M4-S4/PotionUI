@@ -85,7 +85,7 @@ describe('SaveSegmentModal resource-reference conversion', () => {
 		categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
 		flushSync();
 
-		const saveButton = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('Save Segment'))!;
+		const saveButton = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim().startsWith('Save'))!;
 		saveButton.click();
 		await new Promise((r) => setTimeout(r, 0));
 
@@ -116,7 +116,7 @@ describe('SaveSegmentModal resource-reference conversion', () => {
 		categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
 		flushSync();
 
-		const saveButton = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('Save Segment'))!;
+		const saveButton = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.trim().startsWith('Save'))!;
 		saveButton.click();
 		await new Promise((r) => setTimeout(r, 0));
 
