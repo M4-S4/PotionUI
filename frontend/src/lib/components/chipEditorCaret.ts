@@ -3,7 +3,7 @@
 // matching the original component methods.
 import type { ChipData } from '$lib/types/segments';
 import { encodePathForText } from './chipSegments';
-import { endsWithLineBreak } from './chipEditorDom';
+import { breakElementLength, endsWithLineBreak, startsWithLineBreak } from './chipEditorDom';
 
 /** Per-node contribution to the absolute char offset, matching how
  * `extractContentFromDOM` linearizes the editor's content. Shared by the
@@ -21,8 +21,8 @@ function nodeCharLength(node: Node, chips: Record<string, ChipData>): number {
 	if (el.dataset.chipId && chips[el.dataset.chipId]) {
 		return encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 	}
-	if (el.tagName === 'BR') return 1;
-	let sum = 0;
+	if (el.tagName === 'BR') return breakElementLength(el);
+	let sum = startsWithLineBreak(el) ? 1 : 0;
 	for (const child of Array.from(node.childNodes)) sum += nodeCharLength(child, chips);
 	return endsWithLineBreak(el) ? sum + 1 : sum;
 }
@@ -63,6 +63,7 @@ export function getCaretCharOffset(
 	function walk(node: Node): boolean {
 		if (found) return true;
 		if (node === range.startContainer) {
+			if (node.nodeType === Node.ELEMENT_NODE && startsWithLineBreak(node as HTMLElement)) offset += 1;
 			offset += boundaryCharLength(node, range.startOffset, chips);
 			found = true;
 			return true;
@@ -80,8 +81,9 @@ export function getCaretCharOffset(
 			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 			} else if (el.tagName === 'BR') {
-				offset += 1;
+				offset += breakElementLength(el);
 			} else {
+				if (startsWithLineBreak(el)) offset += 1;
 				for (const child of Array.from(node.childNodes)) {
 					if (walk(child)) return true;
 				}
@@ -96,6 +98,19 @@ export function getCaretCharOffset(
 	}
 
 	return found ? offset : null;
+}
+
+export function triggerCharOffset(
+	editorRef: HTMLElement | undefined | null,
+	chips: Record<string, ChipData>,
+	node: Text | null,
+	offset: number
+): number | null {
+	if (!editorRef || !node || offset < 0) return null;
+	const range = document.createRange();
+	range.setStart(node, Math.min(offset, node.length));
+	range.collapse(true);
+	return getCaretCharOffset(editorRef, chips, range);
 }
 
 /** Inverse of getCaretCharOffset: place the caret at an absolute char offset, landing just after an atomic (chip/group) container if the offset falls at its boundary. */
@@ -144,10 +159,14 @@ export function placeCaretAtCharOffset(
 				return null;
 			}
 			if (el.tagName === 'BR') {
+				if (breakElementLength(el) === 0) {
+					return remaining <= 0 ? { node: el.parentNode as Node, afterNode: false } : null;
+				}
 				if (remaining <= 1) return { node: el, afterNode: true };
 				remaining -= 1;
 				return null;
 			}
+			if (startsWithLineBreak(el)) remaining -= 1;
 			for (const child of Array.from(node.childNodes)) {
 				const result = walk(child);
 				if (result) return result;
@@ -168,7 +187,7 @@ export function placeCaretAtCharOffset(
 		if (result.afterNode) {
 			range.setStartAfter(result.node);
 		} else {
-			range.setStart(result.node, remaining);
+			range.setStart(result.node, Math.max(0, remaining));
 		}
 	} else {
 		range.selectNodeContents(editorRef);

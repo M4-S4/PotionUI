@@ -83,8 +83,9 @@
 		atomicDeletionTarget,
 		rangeOutsideAtomics
 	} from './chipEditorDom';
-	import { getCaretCharOffset, placeCaretAtCharOffset } from './chipEditorCaret';
+	import { getCaretCharOffset, placeCaretAtCharOffset, triggerCharOffset } from './chipEditorCaret';
 	import { variablePickerRows } from '$lib/utils/variablePicker';
+	import { stepIndex } from '$lib/utils/listNavigation';
 	import { variablePreview, getChipValueMap, getChipsHash, hashVariableRolls } from './chipEditorHelpers';
 
 	// Track mounted chip components for cleanup
@@ -267,50 +268,9 @@
 	let browseModalTrigger: '#' | '$' | '@' | '/' | null = null;
 	let browseContext = { before: '', after: '' };
 
-	function triggerCharIndexInText(triggerNode: Text | null, triggerNodeOffset: number): number | null {
-		if (!editorRef || !triggerNode || triggerNodeOffset < 0) return null;
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function walk(node: Node): boolean {
-			if (foundTrigger) return true;
-			if (node === triggerNode) {
-				triggerIndex += triggerNodeOffset;
-				foundTrigger = true;
-				return true;
-			}
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1;
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (walk(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (walk(child)) break;
-		}
-		return foundTrigger ? triggerIndex : null;
-	}
-
 	function openBrowseModal(trigger: '#' | '$' | '@' | '/', triggerNode: Text | null, triggerNodeOffset: number, typedLength: number) {
 		const { value: fullText } = extractContentFromDOM(editorRef, chips);
-		const triggerIndex = triggerCharIndexInText(triggerNode, triggerNodeOffset);
+		const triggerIndex = triggerCharOffset(editorRef, chips, triggerNode, triggerNodeOffset);
 		browseContext =
 			triggerIndex === null
 				? { before: '', after: '' }
@@ -547,15 +507,11 @@
 		if (isVariablePickerOpen) {
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				variableSelectedIndex = variableSuggestions.length
-					? (variableSelectedIndex + 1) % variableSuggestions.length
-					: 0;
+				variableSelectedIndex = stepIndex(variableSelectedIndex, 1, variableSuggestions.length);
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				variableSelectedIndex = variableSelectedIndex === 0
-					? Math.max(variableSuggestions.length - 1, 0)
-					: variableSelectedIndex - 1;
+				variableSelectedIndex = stepIndex(variableSelectedIndex, -1, variableSuggestions.length);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -580,12 +536,11 @@
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				phrasebookSelectedIndex = (phrasebookSelectedIndex + 1) % totalItems;
+				phrasebookSelectedIndex = stepIndex(phrasebookSelectedIndex, 1, totalItems);
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				phrasebookSelectedIndex =
-					phrasebookSelectedIndex === 0 ? totalItems - 1 : phrasebookSelectedIndex - 1;
+				phrasebookSelectedIndex = stepIndex(phrasebookSelectedIndex, -1, totalItems);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -607,11 +562,11 @@
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				resourceSelectedIndex = totalItems ? (resourceSelectedIndex + 1) % totalItems : 0;
+				resourceSelectedIndex = stepIndex(resourceSelectedIndex, 1, totalItems);
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				resourceSelectedIndex = resourceSelectedIndex === 0 ? Math.max(totalItems - 1, 0) : resourceSelectedIndex - 1;
+				resourceSelectedIndex = stepIndex(resourceSelectedIndex, -1, totalItems);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -633,11 +588,11 @@
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				syntaxSelectedIndex = totalItems ? (syntaxSelectedIndex + 1) % totalItems : 0;
+				syntaxSelectedIndex = stepIndex(syntaxSelectedIndex, 1, totalItems);
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				syntaxSelectedIndex = syntaxSelectedIndex === 0 ? Math.max(totalItems - 1, 0) : syntaxSelectedIndex - 1;
+				syntaxSelectedIndex = stepIndex(syntaxSelectedIndex, -1, totalItems);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -805,11 +760,12 @@
 		const totalCategories = phrasebookCategories.length;
 
 		if (phrasebookSelectedIndex < totalCategories) {
-			handleSelectCategory(phrasebookCategories[phrasebookSelectedIndex]);
-		} else {
-			const valueIndex = phrasebookSelectedIndex - totalCategories;
-			handleSelectValue(phrasebookSuggestions[valueIndex]);
+			const category = phrasebookCategories[phrasebookSelectedIndex];
+			if (category) handleSelectCategory(category);
+			return;
 		}
+		const value = phrasebookSuggestions[phrasebookSelectedIndex - totalCategories];
+		if (value) handleSelectValue(value);
 	}
 
 	function handleSelectCategory(category: DropdownAutocompleteCategory) {
@@ -955,49 +911,8 @@
 		}
 		if (!editorRef || !phrasebookTriggerNode || phrasebookTriggerOffset < 0) return;
 
-		// Calculate the trigger index in the full extracted text
-		// by counting characters up to the trigger node + offset
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function countCharsUntilTrigger(node: Node): boolean {
-			if (foundTrigger) return true;
-
-			if (node === phrasebookTriggerNode) {
-				triggerIndex += phrasebookTriggerOffset;
-				foundTrigger = true;
-				return true;
-			}
-
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					// Chip contributes its encoded path length
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1; // newline
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (countCharsUntilTrigger(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (countCharsUntilTrigger(child)) break;
-		}
-
-		if (!foundTrigger) return;
+		const triggerIndex = triggerCharOffset(editorRef, chips, phrasebookTriggerNode, phrasebookTriggerOffset);
+		if (triggerIndex === null) return;
 
 		// Extract current content preserving existing chip markers
 		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
@@ -1428,45 +1343,10 @@
 		const triggerNodeOffset = resourceTriggerOffset;
 		const typedLength = 1 + resourceQuery.length;
 
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function countCharsUntilTrigger(node: Node): boolean {
-			if (foundTrigger) return true;
-			if (node === triggerNode) {
-				triggerIndex += triggerNodeOffset;
-				foundTrigger = true;
-				return true;
-			}
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1;
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (countCharsUntilTrigger(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (countCharsUntilTrigger(child)) break;
-		}
+		const triggerIndex = triggerCharOffset(editorRef, chips, triggerNode, triggerNodeOffset);
 
 		closeResourcePicker();
-		if (!foundTrigger) return;
+		if (triggerIndex === null) return;
 
 		applyResourceSelection(triggerIndex, triggerIndex + typedLength, field, itemKey);
 	}
@@ -1541,45 +1421,10 @@
 		const triggerNodeOffset = syntaxTriggerOffset;
 		const typedLength = 1 + syntaxQuery.length;
 
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function countCharsUntilTrigger(node: Node): boolean {
-			if (foundTrigger) return true;
-			if (node === triggerNode) {
-				triggerIndex += triggerNodeOffset;
-				foundTrigger = true;
-				return true;
-			}
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1;
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (countCharsUntilTrigger(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (countCharsUntilTrigger(child)) break;
-		}
+		const triggerIndex = triggerCharOffset(editorRef, chips, triggerNode, triggerNodeOffset);
 
 		closeSyntaxPicker();
-		if (!foundTrigger) return;
+		if (triggerIndex === null) return;
 
 		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
 		const insertResult = applySyntaxInsert(spec.insert ?? spec.token, pendingSyntaxSelection);
@@ -1816,45 +1661,10 @@
 		const triggerNodeOffset = variableTriggerOffset;
 		const typedLength = 1 + variableQuery.length; // "$" + whatever was typed after it
 
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function countCharsUntilTrigger(node: Node): boolean {
-			if (foundTrigger) return true;
-			if (node === triggerNode) {
-				triggerIndex += triggerNodeOffset;
-				foundTrigger = true;
-				return true;
-			}
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1;
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (countCharsUntilTrigger(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (countCharsUntilTrigger(child)) break;
-		}
+		const triggerIndex = triggerCharOffset(editorRef, chips, triggerNode, triggerNodeOffset);
 
 		closeVariablePicker();
-		if (!foundTrigger) return;
+		if (triggerIndex === null) return;
 
 		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
 		const usage = variableUsageSyntax(item.label);

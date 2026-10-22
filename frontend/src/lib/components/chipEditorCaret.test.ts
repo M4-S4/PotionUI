@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ChipData } from '$lib/types/segments';
-import { getCaretCharOffset, placeCaretAtCharOffset } from './chipEditorCaret';
-import { extractContentFromDOM } from './chipEditorDom';
+import { getCaretCharOffset, placeCaretAtCharOffset, triggerCharOffset } from './chipEditorCaret';
+import { collectTextNodeSpans, extractContentFromDOM } from './chipEditorDom';
+import { ENTER_SHAPES, ENTER_SHAPE_CHIPS } from '../../../tests/component/fixtures/chipEditorEnterShapes';
 
 function makeChip(overrides: Partial<ChipData> = {}): ChipData {
 	return {
@@ -388,3 +389,97 @@ describe('a caret anchored on an Enter-created block element', () => {
 	});
 });
 
+
+describe('caret offsets across the shapes the browser produces after Enter', () => {
+	function mountShape(html: string) {
+		const editor = document.createElement('div');
+		editor.innerHTML = html;
+		document.body.appendChild(editor);
+		return withCleanup({ editor }).editor;
+	}
+
+	function rangeAt(node: Node, offset: number) {
+		const range = document.createRange();
+		range.setStart(node, offset);
+		range.collapse(true);
+		return range;
+	}
+
+	it.each(ENTER_SHAPES)('maps every caret position in $name to its place in the value', ({ html }) => {
+		const editor = mountShape(html);
+		for (const span of collectTextNodeSpans(editor, ENTER_SHAPE_CHIPS)) {
+			for (let offset = 0; offset <= span.node.length; offset++) {
+				expect(getCaretCharOffset(editor, ENTER_SHAPE_CHIPS, rangeAt(span.node, offset))).toBe(span.start + offset);
+			}
+		}
+	});
+
+	it.each(ENTER_SHAPES)('round-trips every offset of $name outside its chip', ({ html }) => {
+		const editor = mountShape(html);
+		const { value } = extractContentFromDOM(editor, ENTER_SHAPE_CHIPS);
+		const chipStart = value.indexOf('#cat');
+		for (let offset = 0; offset <= value.length; offset++) {
+			if (chipStart >= 0 && offset >= chipStart && offset < chipStart + 4) continue;
+			placeCaretAtCharOffset(editor, ENTER_SHAPE_CHIPS, offset);
+			expect(getCaretCharOffset(editor, ENTER_SHAPE_CHIPS)).toBe(offset);
+		}
+	});
+
+	it('puts the caret on the empty line of a placeholder block', () => {
+		const editor = mountShape('a<div><br></div><div>b</div>');
+		const blank = editor.children[0];
+		placeCaretAtCharOffset(editor, {}, 2);
+		const range = window.getSelection()!.getRangeAt(0);
+		expect(range.startContainer).toBe(blank);
+		expect(range.startOffset).toBe(0);
+	});
+
+	it('counts the break before a caret anchored on a block that follows text', () => {
+		const editor = mountShape('a<div><br></div>');
+		setCaret(editor.children[0], 0);
+		expect(getCaretCharOffset(editor, {})).toBe(2);
+	});
+
+	it('counts a text-then-block break in a caret anchored on the editor element', () => {
+		const editor = mountShape('a<div>b</div>');
+		setCaret(editor, 2);
+		expect(getCaretCharOffset(editor, {})).toBe(3);
+		setCaret(editor, 1);
+		expect(getCaretCharOffset(editor, {})).toBe(1);
+	});
+});
+
+describe('triggerCharOffset', () => {
+	it('is null without an editor, a node, or a node inside the editor', () => {
+		const editor = document.createElement('div');
+		const inside = document.createTextNode('abc');
+		editor.appendChild(inside);
+		document.body.appendChild(editor);
+		cleanup.push(editor);
+		const outside = document.createTextNode('xyz');
+		expect(triggerCharOffset(null, {}, inside, 1)).toBeNull();
+		expect(triggerCharOffset(editor, {}, null, 1)).toBeNull();
+		expect(triggerCharOffset(editor, {}, outside, 1)).toBeNull();
+		expect(triggerCharOffset(editor, {}, inside, -1)).toBeNull();
+	});
+
+	it('clamps an offset past the end of the node instead of throwing', () => {
+		const editor = document.createElement('div');
+		const inside = document.createTextNode('abc');
+		editor.appendChild(inside);
+		document.body.appendChild(editor);
+		cleanup.push(editor);
+		expect(triggerCharOffset(editor, {}, inside, 9)).toBe(3);
+	});
+
+	it('places a trigger typed on a later line after the break that precedes that line', () => {
+		const editor = document.createElement('div');
+		editor.innerHTML = 'line one<div>line two</div><div>line three$</div>';
+		document.body.appendChild(editor);
+		cleanup.push(editor);
+		const { value } = extractContentFromDOM(editor, {});
+		const node = editor.children[1].firstChild as Text;
+		const offset = triggerCharOffset(editor, {}, node, node.length - 1)!;
+		expect(value.slice(offset, offset + 1)).toBe('$');
+	});
+});

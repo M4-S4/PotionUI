@@ -233,9 +233,7 @@ test.describe('prompt conditions', () => {
 		await page.keyboard.type('!');
 		const request = await generateAndCapture(page);
 		const positive: string = request.prompts[0].positive;
-		expect(positive).toContain('line three<<if $age > 0>>grey hair<<end>>!');
-		expect(positive.indexOf('line one')).toBeLessThan(positive.indexOf('line two'));
-		expect(positive.indexOf('line two')).toBeLessThan(positive.indexOf('line three'));
+		expect(positive).toContain('line one\nline two\nline three<<if $age > 0>>grey hair<<end>>!');
 	});
 
 	test('cancelling the typed << editor keeps the literal text and a third < does not reopen it', async ({ page }) => {

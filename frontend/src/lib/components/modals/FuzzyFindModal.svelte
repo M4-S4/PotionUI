@@ -21,6 +21,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge, Kbd } from '$lib/components/ui';
 	import portal from '$lib/actions/portal';
+	import { stepIndex } from '$lib/utils/listNavigation';
 	import overlayLayer from '$lib/actions/overlayLayer';
 
 	export let isOpen: boolean = false;
@@ -124,11 +125,11 @@
 			}
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			selectedIndex = (selectedIndex + 1) % filteredItems.length;
+			selectedIndex = stepIndex(selectedIndex, 1, filteredItems.length);
 			scrollToSelected();
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			selectedIndex = selectedIndex === 0 ? filteredItems.length - 1 : selectedIndex - 1;
+			selectedIndex = stepIndex(selectedIndex, -1, filteredItems.length);
 			scrollToSelected();
 		} else if (e.key === 'Home' && filteredItems.length > 0) {
 			e.preventDefault();
@@ -169,11 +170,11 @@
 			}
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault();
-			selectedIndex = (selectedIndex + 1) % filteredItems.length;
+			selectedIndex = stepIndex(selectedIndex, 1, filteredItems.length);
 			scrollToSelected();
 		} else if (e.key === 'ArrowUp') {
 			e.preventDefault();
-			selectedIndex = selectedIndex === 0 ? filteredItems.length - 1 : selectedIndex - 1;
+			selectedIndex = stepIndex(selectedIndex, -1, filteredItems.length);
 			scrollToSelected();
 		} else if (e.key === 'Home' && filteredItems.length > 0) {
 			e.preventDefault();

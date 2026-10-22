@@ -122,8 +122,23 @@ export function atomicDeletionTarget(
 	return null;
 }
 
+function endsLine(node: Node): boolean {
+	if (node.nodeType === Node.TEXT_NODE) return (node.textContent || '').endsWith('\n');
+	const tag = (node as HTMLElement).tagName;
+	return tag === 'DIV' || tag === 'BR';
+}
+
 export function endsWithLineBreak(el: HTMLElement): boolean {
 	return el.tagName === 'DIV' && el.nextSibling !== null;
+}
+
+export function startsWithLineBreak(el: HTMLElement): boolean {
+	return el.tagName === 'DIV' && el.previousSibling !== null && !endsLine(el.previousSibling);
+}
+
+export function breakElementLength(el: HTMLElement): number {
+	const parent = el.parentNode as HTMLElement | null;
+	return parent?.tagName === 'DIV' && parent.childNodes.length === 1 ? 0 : 1;
 }
 
 export function chipContainerSpan(
@@ -156,8 +171,9 @@ export function chipContainerSpan(
 			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 			} else if (el.tagName === 'BR') {
-				offset += 1;
+				offset += breakElementLength(el);
 			} else {
+				if (startsWithLineBreak(el)) offset += 1;
 				for (const child of Array.from(node.childNodes)) {
 					if (walk(child)) return true;
 				}
@@ -202,8 +218,9 @@ export function resourceContainerSpan(
 			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 			} else if (el.tagName === 'BR') {
-				offset += 1;
+				offset += breakElementLength(el);
 			} else {
+				if (startsWithLineBreak(el)) offset += 1;
 				for (const child of Array.from(node.childNodes)) {
 					if (walk(child)) return true;
 				}
@@ -253,13 +270,14 @@ export function extractContentFromDOM(
 					extractedChips[chipId] = chips[chipId];
 				}
 			} else if (el.tagName === 'BR') {
-				textContent += '\n';
+				textContent += '\n'.repeat(breakElementLength(el));
 			} else {
-				// Walk children
+				if (startsWithLineBreak(el)) {
+					textContent += '\n';
+				}
 				for (const child of Array.from(node.childNodes)) {
 					walkNode(child);
 				}
-				// Add newline after block elements
 				if (endsWithLineBreak(el)) {
 					textContent += '\n';
 				}
@@ -303,8 +321,9 @@ export function collectTextNodeSpans(
 			} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
 				offset += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
 			} else if (el.tagName === 'BR') {
-				offset += 1;
+				offset += breakElementLength(el);
 			} else {
+				if (startsWithLineBreak(el)) offset += 1;
 				for (const child of Array.from(node.childNodes)) walk(child);
 				if (endsWithLineBreak(el)) offset += 1;
 			}

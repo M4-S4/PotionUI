@@ -13,6 +13,7 @@ import {
 	atomicDeletionTarget,
 	rangeOutsideAtomics
 } from './chipEditorDom';
+import { ENTER_SHAPES, ENTER_SHAPE_CHIPS } from '../../../tests/component/fixtures/chipEditorEnterShapes';
 
 function makeChip(overrides: Partial<ChipData> = {}): ChipData {
 	return {
@@ -517,5 +518,48 @@ describe('atomicDeletionTarget', () => {
 		const { editor, before } = buildEditor();
 		expect(atomicDeletionTarget(null, before, 0, 'forward')).toBeNull();
 		expect(atomicDeletionTarget(editor, null, 0, 'forward')).toBeNull();
+	});
+});
+
+describe('lines the browser lays out after Enter', () => {
+	function editorFor(html: string) {
+		const editor = document.createElement('div');
+		editor.innerHTML = html;
+		return editor;
+	}
+
+	it.each(ENTER_SHAPES)('extracts $name as one line of the value per laid-out line', ({ html, value, lines }) => {
+		const extracted = extractContentFromDOM(editorFor(html), ENTER_SHAPE_CHIPS).value;
+		expect(extracted).toBe(value);
+		expect(extracted.split('\n')).toHaveLength(lines);
+	});
+
+	it.each(ENTER_SHAPES)('spans every text node of $name at its place in the value', ({ html }) => {
+		const editor = editorFor(html);
+		const { value } = extractContentFromDOM(editor, ENTER_SHAPE_CHIPS);
+		for (const span of collectTextNodeSpans(editor, ENTER_SHAPE_CHIPS)) {
+			expect(value.slice(span.start, span.end)).toBe(span.node.textContent);
+		}
+	});
+
+	it.each(ENTER_SHAPES.filter((shape) => shape.html.includes('data-chip-id')))(
+		'finds the chip container of $name at its place in the value',
+		({ html, value }) => {
+			const editor = editorFor(html);
+			const container = editor.querySelector<HTMLElement>('[data-chip-id]')!;
+			const start = value.indexOf('#cat');
+			expect(chipContainerSpan(editor, ENTER_SHAPE_CHIPS, container)).toEqual({ start, end: start + 4 });
+		}
+	);
+
+	it('finds a resource container after a first line that sits outside any block', () => {
+		const editor = editorFor('line one<div>line two</div><span data-resource-marker="@[references:a.png]"></span>');
+		const container = editor.querySelector<HTMLElement>('[data-resource-marker]')!;
+		const { value } = extractContentFromDOM(editor, {});
+		expect(value).toBe('line one\nline two\n@[references:a.png]');
+		expect(resourceContainerSpan(editor, {}, container)).toEqual({
+			start: value.indexOf('@['),
+			end: value.length
+		});
 	});
 });
