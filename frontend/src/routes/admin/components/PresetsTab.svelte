@@ -36,6 +36,14 @@
 	import PresetFiltersPopover from './presets/PresetFiltersPopover.svelte';
 	import { PRESET_LIBRARY_SECTIONS, type PresetLibrarySection } from './presets/presetLibrarySections';
 	import {
+		DEFAULT_PRESET_DETAIL_TAB,
+		PRESET_DETAIL_TAB_PARAM,
+		presetDetailTabsFor,
+		resolvePresetDetailTab,
+		restorePresetDetailTab,
+		type PresetDetailTab
+	} from './presets/presetDetailTabs';
+	import {
 		PRESET_SORT_OPTIONS,
 		applyPresetFilters,
 		presetEngineCounts,
@@ -48,19 +56,18 @@
 	import { Badge, Button, EmptyState, Spinner, Alert, IconButton } from '$lib/components/ui';
 	import type { PresetInfo, PresetConfigurationEntry, PresetRecipeLink } from '$lib/types/api';
 
-	type DetailTab = 'overview' | 'access' | 'configuration' | 'form' | 'requirements';
-
 	let presets = $state<PresetInfo[]>([]);
 	let loading = $state(true);
 	let refreshing = $state(false);
 	let loadError = $state('');
-	let detailTab = $state<DetailTab>('overview');
+	let detailTab = $state<PresetDetailTab>(DEFAULT_PRESET_DETAIL_TAB);
 	let presetDetail = $state<PresetInfo | null>(null);
 	let detailLoading = $state(false);
 	let detailError = $state('');
 	let mutatingPresetId = $state<string | null>(null);
 	let mediaModalOpen = $state(false);
 	let presetConfigEntries = $state<PresetConfigurationEntry[]>([]);
+	let configEntriesSettled = $state(true);
 	let lastViewId: string | null = null;
 	let detailRequestVersion = 0;
 	let headerOverflowOpen = $state(false);
@@ -109,6 +116,8 @@
 			: null
 	);
 	const requirementsBadge = $derived(presetRequirementsBadge(activePreset?.requirements_summary));
+	const detailTabs = $derived(activePreset ? presetDetailTabsFor(activePreset, presetConfigEntries.length > 0) : []);
+	const effectiveTab = $derived(resolvePresetDetailTab(detailTabs, detailTab));
 	const headerChips = $derived(
 		activePreset
 			? [
@@ -132,7 +141,7 @@
 	onDestroy(() => recipeSession.dispose());
 
 	function startRecipe(recipe: PresetRecipeLink) {
-		detailTab = 'overview';
+		selectDetailTab(DEFAULT_PRESET_DETAIL_TAB);
 		void recipeSession.start(recipe.id);
 	}
 
@@ -153,7 +162,9 @@
 		if (viewId === untrack(() => lastViewId)) return;
 		lastViewId = viewId;
 		untrack(() => {
-			detailTab = 'overview';
+			const opened = presets.find((preset) => preset.id === viewId);
+			detailTab = restorePresetDetailTab($page.url.searchParams.get(PRESET_DETAIL_TAB_PARAM));
+			configEntriesSettled = !opened?.installed;
 			recipeSession.reset();
 			presetDetail = null;
 			detailError = '';
@@ -164,29 +175,16 @@
 			formDirtyCount = 0;
 			if (viewId) {
 				loadPresetDetail(viewId);
-				if (presets.find((preset) => preset.id === viewId)?.installed) loadPresetConfigEntries(viewId);
+				if (opened?.installed) loadPresetConfigEntries(viewId);
 			}
 		});
 	});
 
-	function detailTabsFor(preset: PresetInfo) {
-		const tabs: { id: DetailTab; label: string; icon: string; count?: number }[] = [
-			{ id: 'overview', label: 'Overview', icon: 'info' },
-			{
-				id: 'access',
-				label: 'Access',
-				icon: 'group',
-				count: preset.installed ? (preset.assignment_count || 0) + (preset.group_count || 0) : undefined
-			}
-		];
-		if (preset.installed && presetConfigEntries.length) {
-			tabs.push({ id: 'configuration', label: 'Configuration', icon: 'sliders' });
-		}
-		if (preset.installed) tabs.push({ id: 'form', label: 'Form', icon: 'document' });
-		const missing = preset.requirements_summary?.missing ?? 0;
-		tabs.push({ id: 'requirements', label: 'Requirements', icon: 'check', count: missing > 0 ? missing : undefined });
-		return tabs;
-	}
+	$effect(() => {
+		if (!activePreset || !viewId || detailTab === effectiveTab) return;
+		if (detailTab === 'configuration' && !configEntriesSettled) return;
+		untrack(() => selectDetailTab(DEFAULT_PRESET_DETAIL_TAB));
+	});
 
 	function responseError(response: { message?: string } | null | undefined, fallback: string) {
 		return response?.message || fallback;
@@ -219,6 +217,8 @@
 			}
 		} catch (error) {
 			logger.error('Failed to load preset configuration entries:', error);
+		} finally {
+			if (id === viewId) configEntriesSettled = true;
 		}
 	}
 
@@ -242,18 +242,27 @@
 		}
 	}
 
-	function buildUrl(overrides: { section?: PresetLibrarySection; id?: string | null; filters?: PresetFilters } = {}): string {
+	function buildUrl(
+		overrides: { section?: PresetLibrarySection; id?: string | null; filters?: PresetFilters; view?: PresetDetailTab } = {}
+	): string {
 		const params = presetFilters.toSearchParams(overrides.filters ?? filters);
 		params.set('tab', 'presets');
 		const nextSection = overrides.section ?? section;
 		if (nextSection !== 'all') params.set('section', nextSection);
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		if (id) params.set('id', id);
+		const view = overrides.view ?? (overrides.id === undefined ? detailTab : DEFAULT_PRESET_DETAIL_TAB);
+		if (id && view !== DEFAULT_PRESET_DETAIL_TAB) params.set(PRESET_DETAIL_TAB_PARAM, view);
 		return hrefWithQuery($page.url.pathname, params);
 	}
 
 	const urlState = createUrlState({ href: buildUrl });
 	onDestroy(urlState.cancel);
+
+	function selectDetailTab(tab: PresetDetailTab) {
+		detailTab = tab;
+		if (viewId) void urlState.replace({ view: tab });
+	}
 
 	function updateFilters(next: PresetFilters) {
 		urlState.debounced({ filters: next });
@@ -291,7 +300,7 @@
 			invalidatePresets();
 			await loadPresets(true);
 			if (viewId === preset.id) {
-				detailTab = 'access';
+				selectDetailTab('access');
 				loadPresetConfigEntries(preset.id);
 			}
 		} catch (error) {
@@ -323,7 +332,7 @@
 				throw new Error(responseError(response, 'The preset could not be uninstalled'));
 			}
 			toasts.success(`${preset.name} uninstalled`);
-			detailTab = 'overview';
+			selectDetailTab(DEFAULT_PRESET_DETAIL_TAB);
 			invalidatePresets();
 			await loadPresets(true);
 		} catch (error) {
@@ -483,13 +492,13 @@
 				</DetailHeader>
 
 				<DetailTabs
-					tabs={detailTabsFor(activePreset)}
-					active={detailTab}
-					onSelect={(id) => (detailTab = id as DetailTab)}
+					tabs={detailTabs}
+					active={effectiveTab}
+					onSelect={(id) => selectDetailTab(id as PresetDetailTab)}
 					ariaLabel="Preset details"
 				/>
 
-				{#if detailTab === 'overview'}
+				{#if effectiveTab === 'overview'}
 					<DetailBody>
 						<DetailLayout>
 							{#snippet lead()}
@@ -586,7 +595,7 @@
 									{#if requirementsBadge}
 										<div class="flex items-center justify-between gap-2">
 											<Badge variant={requirementsBadge.variant} size="sm">{requirementsBadge.label}</Badge>
-											<Button variant="ghost" size="xs" onclick={() => (detailTab = 'requirements')}>View</Button>
+											<Button variant="ghost" size="xs" onclick={() => selectDetailTab('requirements')}>View</Button>
 										</div>
 									{:else}
 										<p class="text-sm text-fg-muted">Not checked yet.</p>
@@ -601,7 +610,7 @@
 							{/snippet}
 						</DetailLayout>
 					</DetailBody>
-				{:else if detailTab === 'configuration'}
+				{:else if effectiveTab === 'configuration'}
 					<DetailBody>
 						<DetailLayout>
 							{#snippet main()}
@@ -623,7 +632,7 @@
 						onSave={() => configurationTabRef?.save()}
 						onDiscard={() => configurationTabRef?.discard()}
 					/>
-				{:else if detailTab === 'form'}
+				{:else if effectiveTab === 'form'}
 					<DetailBody>
 						<DetailLayout>
 							{#snippet main()}
@@ -644,7 +653,7 @@
 						onSave={() => formTabRef?.save()}
 						onDiscard={() => formTabRef?.discard()}
 					/>
-				{:else if detailTab === 'requirements'}
+				{:else if effectiveTab === 'requirements'}
 					<DetailBody>
 						<DetailLayout>
 							{#snippet main()}

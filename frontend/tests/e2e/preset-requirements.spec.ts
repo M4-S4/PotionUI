@@ -95,6 +95,18 @@ modes:
 		const recheck = page.getByRole('button', { name: 'Re-check requirements' });
 		await recheck.click();
 		await expect(page.getByText("This preset can't run here: 1 missing.")).toBeVisible({ timeout: 10000 });
+
+		await expect(page).toHaveURL(/[?&]id=/);
+		await expect(page).toHaveURL(/view=requirements/);
+		await page.reload();
+		await expect(page.locator('nav[aria-label="Preset details"] [aria-current="page"]')).toHaveText(/Requirements/, {
+			timeout: 15000
+		});
+		await expect(page.getByText("This preset can't run here: 1 missing.")).toBeVisible({ timeout: 10000 });
+
+		await page.locator('nav[aria-label="Preset details"]').getByRole('button', { name: 'Overview' }).click();
+		await expect(page).not.toHaveURL(/view=/);
+		await expect(page).toHaveURL(/[?&]id=/);
 	} finally {
 		rmSync(presetDir, { recursive: true, force: true });
 	}
