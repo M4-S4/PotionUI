@@ -89,6 +89,28 @@ FAMILY_LAYOUTS: dict[str, tuple[dict[str, tuple[int, ...]], dict[str, tuple[int,
             "final_layer.linear.weight": (16, 8),
         },
     ),
+    "moss_image": (
+        {
+            "layers.0.proj.qkv.weight": (24, 8),
+            "layers.0.proj.o.weight": (8, 8),
+            "layers.0.proj.ffn_up_gate.weight": (32, 8),
+            "layers.0.proj.ffn_down.weight": (8, 16),
+        },
+        {
+            "video_embedder.weight": (8, 16),
+            "video_embedder.bias": (8,),
+            "text_embedder.proj.weight": (8, 12),
+            "text_embedder.blocks.0.qkv.weight": (24, 8),
+            "time_embedding.0.weight": (8, 4),
+            "time_embedding.2.weight": (8, 8),
+            "shared_block_modulation.weight": (48, 8),
+            "layers.0.norm1.weight": (8,),
+            "layers.0.q_norm.weight": (4,),
+            "final_norm_video.weight": (8,),
+            "final_linear_video.weight": (16, 8),
+            "video_head_modulation.weight": (16, 8),
+        },
+    ),
     "ltx": (
         {
             "transformer_blocks.0.attn1.to_q.weight": (8, 8),

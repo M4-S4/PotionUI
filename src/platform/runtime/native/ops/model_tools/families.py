@@ -36,7 +36,7 @@ UNET_FAMILY_KEEP: dict[str, tuple[str, ...]] = {
     "flux": DIT_IO_KEEP,
     "flux3": DIT_IO_KEEP,
     "krea2": DIT_IO_KEEP,
-    "moss_image": DIT_IO_KEEP,
+    "moss_image": DIT_IO_KEEP + (r"^final_linear",),
     "anima": DIT_IO_KEEP + (r"^llm_adapter\.",),
     "qwen_image": DIT_IO_KEEP + (r"^time_text_embed", r"^norm_out"),
     "qwen_image21": DIT_IO_KEEP + (r"^time_text_embed", r"^norm_out"),
