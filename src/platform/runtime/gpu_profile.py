@@ -29,12 +29,13 @@ GENERATION_LABELS = {
     GENERATION_NONE: "no GPU",
 }
 
-_FAST_EVERYWHERE = ("bf16", "fp16", "int8")
+_FAST_EVERYWHERE = ("bf16", "fp16")
 _FAST_EXTRA = {
     GENERATION_ADA: ("fp8",),
     GENERATION_HOPPER: ("fp8",),
-    GENERATION_BLACKWELL: ("fp8", "nvfp4"),
+    GENERATION_BLACKWELL: ("fp8",),
 }
+_NVFP4_FAST_MIN_CAPABILITY = (12, 0)
 _SUPPORTED_ONLY_ON = {"nvfp4": (GENERATION_BLACKWELL,)}
 
 
@@ -97,10 +98,13 @@ def generation_for_capability(capability: Optional[Tuple[int, int]]) -> str:
     return GENERATION_OTHER
 
 
-def fast_precisions_for(generation: str) -> Tuple[str, ...]:
+def fast_precisions_for(generation: str, capability: Optional[Tuple[int, int]]) -> Tuple[str, ...]:
     if generation == GENERATION_NONE:
         return ()
-    return _FAST_EVERYWHERE + _FAST_EXTRA.get(generation, ())
+    fast = _FAST_EVERYWHERE + _FAST_EXTRA.get(generation, ())
+    if generation == GENERATION_BLACKWELL and capability and tuple(capability) >= _NVFP4_FAST_MIN_CAPABILITY:
+        fast += ("nvfp4",)
+    return fast
 
 
 def build_gpu_profile(
@@ -119,7 +123,7 @@ def build_gpu_profile(
         name=name,
         vram_gb=round(float(vram_gb), 1),
         compute_capability=tuple(capability) if capability else None,
-        fast_precisions=fast_precisions_for(generation),
+        fast_precisions=fast_precisions_for(generation, capability),
     )
 
 

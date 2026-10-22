@@ -31,11 +31,26 @@ def test_generation_for_capability(capability, generation):
 
 
 def test_fast_precisions_per_generation():
-    assert set(fast_precisions_for("ampere")) == {"bf16", "fp16", "int8"}
-    assert set(fast_precisions_for("ada")) == {"bf16", "fp16", "int8", "fp8"}
-    assert set(fast_precisions_for("hopper")) == {"bf16", "fp16", "int8", "fp8"}
-    assert set(fast_precisions_for("blackwell")) == {"bf16", "fp16", "int8", "fp8", "nvfp4"}
-    assert fast_precisions_for("none") == ()
+    assert set(fast_precisions_for("ampere", (8, 6))) == {"bf16", "fp16"}
+    assert set(fast_precisions_for("ada", (8, 9))) == {"bf16", "fp16", "fp8"}
+    assert set(fast_precisions_for("hopper", (9, 0))) == {"bf16", "fp16", "fp8"}
+    assert set(fast_precisions_for("blackwell", (12, 0))) == {"bf16", "fp16", "fp8", "nvfp4"}
+    assert fast_precisions_for("none", None) == ()
+    assert not build_gpu_profile((8, 6), 24).is_fast("int8")
+
+
+def test_other_vendors_get_no_accelerated_quantized_precisions():
+    profile = build_gpu_profile((12, 0), 24, vendor_is_nvidia=False)
+    assert profile.generation == "other"
+    assert profile.fast_precisions == ("bf16", "fp16")
+
+
+@pytest.mark.parametrize("capability,nvfp4_fast", [((10, 0), False), ((11, 0), False), ((12, 0), True)])
+def test_nvfp4_is_fast_only_from_sm120(capability, nvfp4_fast):
+    profile = build_gpu_profile(capability, 32)
+    assert profile.generation == "blackwell"
+    assert profile.is_fast("nvfp4") is nvfp4_fast
+    assert profile.is_fast("fp8")
 
 
 def test_nvfp4_is_supported_only_on_blackwell():
@@ -53,7 +68,7 @@ def test_profile_dict_shape():
         "name": "NVIDIA GeForce RTX 4090",
         "vram_gb": 24.0,
         "compute_capability": "8.9",
-        "fast_precisions": ["bf16", "fp16", "int8", "fp8"],
+        "fast_precisions": ["bf16", "fp16", "fp8"],
     }
     assert profile.vram_class_gb == 24
 

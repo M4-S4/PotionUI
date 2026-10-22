@@ -902,8 +902,9 @@ such as "Balanced"), `precision` (`bf16`, `fp16`, `fp8`, `int8` or `nvfp4`), `up
 from `ampere`, `ada`, `hopper`, `blackwell`, `other`). Exactly one variant is marked
 `default: true`; it is used when no GPU is detected. `artifacts.plan` picks the first
 variant (in file order, so list the best quality first) whose rules match the detected
-GPU and whose precision that GPU can run, and falls back to the smallest one that runs
-fast there. A variant already on disk always wins. The owner can override the pick per
+GPU and whose precision that GPU can run, and falls back to the smallest one the recipe
+recommends for that GPU generation at any VRAM (the smallest one it can run when none
+targets the generation). A variant already on disk always wins. The owner can override the pick per
 slot when approving the download. `python scripts/hf_variants.py <repo> <glob>...
 --default <id>` prints ready-to-paste `variants:` YAML for a Hugging Face repo.
 

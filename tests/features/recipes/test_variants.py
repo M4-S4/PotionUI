@@ -21,7 +21,7 @@ from src.platform.runtime.gpu_profile import GpuProfile, build_gpu_profile
 GB = 1024 ** 3
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-CAPABILITIES = {"ampere": (8, 6), "ada": (8, 9), "blackwell": (12, 0), "hopper": (9, 0)}
+CAPABILITIES = {"ampere": (8, 6), "ada": (8, 9), "blackwell": (12, 0), "hopper": (9, 0), "other": (7, 5)}
 
 
 def _gpu(generation, vram_gb):
@@ -103,12 +103,28 @@ def test_reason_names_the_vram_when_a_rule_fits():
     assert choice.reason == "Fits your 24 GB"
 
 
-def test_nothing_fits_falls_back_to_the_smallest_fast_variant_and_says_it_offloads():
+def test_nothing_fits_falls_back_to_the_smallest_variant_for_the_generation_and_says_it_offloads():
     ada = choose_variant(_dit(), _gpu("ada", 16))
     assert ada.variant_id == "dit_fp8"
     assert "offload" in ada.reason and "16 GB" in ada.reason
-    ampere = choose_variant(_dit(), _gpu("ampere", 12))
-    assert ampere.variant_id == "dit_int8"
+    for generation in ("ampere", "other"):
+        choice = choose_variant(_dit(), _gpu(generation, 12))
+        assert choice.variant_id == "dit_int8"
+        assert "offload" in choice.reason
+
+
+def test_fallback_uses_every_supported_variant_when_none_targets_the_generation():
+    only_for_ada = RecipeArtifact(
+        id="y",
+        kind="diffusion_model",
+        model_type="diffusion_model",
+        filename="a.safetensors",
+        variants=(
+            _variant("ada_fp8", "fp8", 12, [RecipeVariantRule(min_vram_gb=20, generations=("ada",))], default=True),
+            _variant("hopper_bf16", "bf16", 24, [RecipeVariantRule(generations=("hopper",))]),
+        ),
+    )
+    assert choose_variant(only_for_ada, _gpu("ampere", 12)).variant_id == "ada_fp8"
 
 
 def test_no_gpu_uses_the_recipe_default():
