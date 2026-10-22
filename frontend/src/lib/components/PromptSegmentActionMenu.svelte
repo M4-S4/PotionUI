@@ -13,10 +13,11 @@
 	export let pinnedIds: Set<string> = new Set();
 	export let hasPromptSyntax = false;
 	export let hasPromptResources = false;
+	export let hasConditions = true;
 
 	const dispatch = createEventDispatcher<{ run: string; togglePin: string }>();
 
-	$: actions = segmentMenuActions(segment, { index, total, segmentDisabled, hasPromptSyntax, hasPromptResources });
+	$: actions = segmentMenuActions(segment, { index, total, segmentDisabled, hasPromptSyntax, hasPromptResources, hasConditions });
 	$: byId = new Map(actions.map((action) => [action.id, action]));
 	$: groups = SEGMENT_ACTION_GROUPS.map((ids) => ids.map((id) => byId.get(id)).filter(Boolean) as SegmentAction[]).filter(
 		(group) => group.length > 0

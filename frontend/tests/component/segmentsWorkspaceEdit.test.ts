@@ -22,6 +22,8 @@ const { api } = await import('$lib/services/api/index');
 const page = (await import('$app/stores')).page as unknown as PageStore;
 const { default: SegmentsWorkspace } = await import('../../src/routes/prompts/sections/SegmentsWorkspace.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const { activeTab, tabsStore } = await import('$lib/stores/tabs');
+const { get } = await import('svelte/store');
 
 const chipData: ChipData = {
 	id: 'chip-1',
@@ -120,5 +122,20 @@ describe('segments workspace edit view', () => {
 		const chip = mounted.target.querySelector('[data-chip-id="chip-1"]');
 		expect(chip).toBeTruthy();
 		expect(chip?.textContent).toContain('Golden hour');
+	});
+
+	it('renders composer chips and lists the active tab variables', async () => {
+		tabsStore.updateTab(get(activeTab).id, {
+			variables: { mood: { type: 'choice', mode: 'shuffle', pinnedIndex: null, options: ['calm', 'tense'] } }
+		});
+		mounted = mountWorkspace();
+		await settle();
+
+		expect(mounted.target.querySelector('.segment-composer .segment-content [data-chip-id="chip-1"].chip')).not.toBeNull();
+		const rows = Array.from(mounted.target.querySelectorAll('[data-testid="variables-list"] li')).map((row) =>
+			row.textContent?.replace(/\s+/g, ' ').trim()
+		);
+		expect(rows).toEqual(['$mood shuffle · 2 options']);
+		tabsStore.updateTab(get(activeTab).id, { variables: {} });
 	});
 });

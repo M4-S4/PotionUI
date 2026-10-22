@@ -24,6 +24,7 @@
 		segmentDisplayName
 	} from '$lib/utils/segmentFooter';
 	import { segmentMenuActions } from '$lib/utils/segmentActions';
+	import { conditionsAvailable } from '$lib/utils/conditionAccess';
 	import { promptSegmentActionPins } from '$lib/stores/promptSegmentActionPins';
 	import Icon from '$lib/components/Icon.svelte';
 
@@ -116,12 +117,14 @@
 	$: suffixText = segment.suffix || '';
 	$: hasAffix = !!prefixText || !!suffixText;
 	$: hasBody = !!segment.content && segment.content.trim().length > 0;
+	$: hasConditions = conditionsAvailable(variables, onVariableDefChange);
 	$: menuActions = segmentMenuActions(segment, {
 		index,
 		total,
 		segmentDisabled,
 		hasPromptSyntax: promptSyntax.length > 0,
-		hasPromptResources: promptResources.length > 0
+		hasPromptResources: promptResources.length > 0,
+		hasConditions
 	});
 	$: pinnedIds = new Set($promptSegmentActionPins.ids);
 	$: pinnedActions = menuActions.filter((action) => pinnedIds.has(action.id));
@@ -448,6 +451,7 @@
 							{pinnedIds}
 							hasPromptSyntax={promptSyntax.length > 0}
 							hasPromptResources={promptResources.length > 0}
+							{hasConditions}
 							on:run={(e) => runAction(e.detail)}
 							on:togglePin={(e) => togglePin(e.detail)}
 						/>

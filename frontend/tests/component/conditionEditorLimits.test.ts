@@ -4,6 +4,7 @@ import { flushSync, mount, tick, unmount } from 'svelte';
 import { writable } from 'svelte/store';
 import { MAX_BRANCHES, MAX_TESTS } from '$lib/utils/promptConditions';
 import type { VariablesMap } from '$lib/utils/variableDefs';
+import { requireConditionModal } from './helpers/typing';
 
 const { default: ConditionChip } = await import('$lib/components/ConditionChip.svelte');
 
@@ -35,7 +36,7 @@ async function openModal(raw: string) {
 	target.querySelector('.chip-main')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 	await tick();
 	await tick();
-	return document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="condition-modal-title"]')!;
+	return requireConditionModal();
 }
 
 const hasButton = (root: ParentNode, text: string) =>

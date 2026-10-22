@@ -292,6 +292,24 @@ export function numberSummary(def: NumberVariableDef): string {
 	return def.mode === 'per-image' ? `${numberRangeLabel(def)} \u00b7 per image` : numberRangeLabel(def);
 }
 
+export interface VariableSummaryRow {
+	name: string;
+	kind: string;
+}
+
+export function variableSummaryRows(variables: VariablesMap): VariableSummaryRow[] {
+	return Object.entries(variables).map(([name, stored]) => {
+		const def = normalizeVariableDef(stored);
+		const kind =
+			def.type === 'choice'
+				? `${def.mode} \u00b7 ${def.options.length} option${def.options.length === 1 ? '' : 's'}`
+				: def.type === 'number'
+					? numberSummary(def)
+					: 'text';
+		return { name, kind };
+	});
+}
+
 export interface NumberTrackRange {
 	from: number;
 	to: number;

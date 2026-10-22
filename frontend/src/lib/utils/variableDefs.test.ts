@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+	variableSummaryRows,
 	normalizeVariableDef,
 	createTextVariable,
 	createChoiceVariable,
@@ -749,5 +750,26 @@ describe('usagesShareRoll', () => {
 		expect(usagesShareRoll('a', { a: moods({ linked: true }) })).toBe(true);
 		expect(usagesShareRoll('a', { a: moods({ mode: 'pin', pinnedIndex: 0 }) })).toBe(true);
 		expect(usagesShareRoll('a', { a: createTextVariable('x') })).toBe(true);
+	});
+});
+
+describe('variableSummaryRows', () => {
+	it('summarises each variable type', () => {
+		const rows = variableSummaryRows({
+			mood: { type: 'choice', mode: 'pin', pinnedIndex: 0, options: ['calm', 'tense', 'wild'] },
+			subject: createTextVariable('a keeper'),
+			age: { type: 'number', mode: 'shuffle', min: 18, max: 80, step: 1, value: 34 }
+		});
+		expect(rows).toEqual([
+			{ name: 'mood', kind: 'pin \u00b7 3 options' },
+			{ name: 'subject', kind: 'text' },
+			{ name: 'age', kind: '18\u201380' }
+		]);
+	});
+
+	it('singularises one option', () => {
+		expect(variableSummaryRows({ mood: { type: 'choice', mode: 'shuffle', pinnedIndex: null, options: ['calm'] } })).toEqual([
+			{ name: 'mood', kind: 'shuffle \u00b7 1 option' }
+		]);
 	});
 });

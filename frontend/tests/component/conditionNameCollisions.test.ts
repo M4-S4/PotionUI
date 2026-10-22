@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import { writable } from 'svelte/store';
 import type { VariablesMap } from '$lib/utils/variableDefs';
+import { conditionModal } from './helpers/typing';
 
 const { default: ConditionChip } = await import('$lib/components/ConditionChip.svelte');
 
@@ -51,7 +52,7 @@ async function openFor(raw: string, variables: VariablesMap) {
 	await tick();
 	await tick();
 	window.removeEventListener('error', onError);
-	return document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="condition-modal-title"]');
+	return conditionModal();
 }
 
 describe('condition editor with similar variable names', () => {

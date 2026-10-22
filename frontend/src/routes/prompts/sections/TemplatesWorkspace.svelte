@@ -32,6 +32,7 @@
 		toRichSegment
 	} from '$lib/utils/richSegments';
 	import { tabsStore, activeTab } from '$lib/stores/tabs';
+	import { libraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 
@@ -399,6 +400,7 @@
 				onDelete={() => activeTemplate && void removeTemplate(activeTemplate, true)}
 				onDuplicate={() => activeTemplate && void duplicate(activeTemplate, true)}
 				onApply={applyFromDetail}
+				tabVariables={$libraryTabVariables}
 			/>
 		{/if}
 	{:else}

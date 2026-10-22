@@ -4,6 +4,7 @@ import type { VariablesMap } from '$lib/utils/variableDefs';
 import { getCaretCharOffset } from '$lib/components/chipEditorCaret';
 import { registerDismissLayer, resetLayerStackForTests } from '$lib/actions/layerStack';
 import dismiss from '$lib/actions/dismiss';
+import { conditionModal as modal, setCaret, typeChar } from './helpers/typing';
 
 const { default: InlineChipEditor } = await import('$lib/components/InlineChipEditor.svelte');
 const { createClassComponent } = await import('svelte/legacy');
@@ -55,37 +56,6 @@ async function settle() {
 	await tick();
 	await tick();
 }
-
-function setCaret(node: Node, offset: number) {
-	const range = document.createRange();
-	range.setStart(node, offset);
-	range.collapse(true);
-	const selection = window.getSelection()!;
-	selection.removeAllRanges();
-	selection.addRange(range);
-	document.dispatchEvent(new Event('selectionchange'));
-}
-
-function typeChar(editor: HTMLElement, character: string, init: InputEventInit = {}, origin: HTMLElement = editor) {
-	const selection = window.getSelection()!;
-	const range = selection.getRangeAt(0);
-	let node = range.startContainer;
-	let offset = range.startOffset;
-	if (node.nodeType !== Node.TEXT_NODE) {
-		const fresh = document.createTextNode('');
-		node.insertBefore(fresh, node.childNodes[offset] ?? null);
-		node = fresh;
-		offset = 0;
-	}
-	const text = node as Text;
-	text.data = text.data.slice(0, offset) + character + text.data.slice(offset);
-	setCaret(text, offset + character.length);
-	origin.dispatchEvent(
-		new InputEvent('input', { bubbles: true, inputType: 'insertText', data: character, isComposing: false, ...init })
-	);
-}
-
-const modal = () => document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="condition-modal-title"]');
 
 const caretOffset = (editor: HTMLElement) => getCaretCharOffset(editor, {});
 

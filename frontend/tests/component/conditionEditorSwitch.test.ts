@@ -4,6 +4,7 @@ import { flushSync, mount, tick, unmount } from 'svelte';
 import { writable } from 'svelte/store';
 import { MAX_STRING_CHARS } from '$lib/utils/promptConditions';
 import type { VariablesMap } from '$lib/utils/variableDefs';
+import { requireConditionModal as modal } from './helpers/typing';
 
 const { default: ConditionChip } = await import('$lib/components/ConditionChip.svelte');
 
@@ -41,7 +42,6 @@ function setup(raw: string) {
 	return { changes };
 }
 
-const modal = () => document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="condition-modal-title"]')!;
 const branches = () => Array.from(modal().querySelectorAll<HTMLElement>('[data-testid="condition-branch"]'));
 const problems = () =>
 	Array.from(modal().querySelectorAll<HTMLElement>('[data-testid="condition-problem"]')).map((el) => el.textContent?.trim());

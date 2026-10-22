@@ -28,10 +28,11 @@ export interface SegmentActionContext {
 	segmentDisabled: boolean;
 	hasPromptSyntax?: boolean;
 	hasPromptResources?: boolean;
+	hasConditions?: boolean;
 }
 
 export function segmentMenuActions(segment: Segment, context: SegmentActionContext): SegmentAction[] {
-	const { index, total, segmentDisabled, hasPromptSyntax = false, hasPromptResources = false } = context;
+	const { index, total, segmentDisabled, hasPromptSyntax = false, hasPromptResources = false, hasConditions = true } = context;
 	const footer = segmentFooterActions(segment);
 	const byId = (id: SegmentFooterActionId): SegmentAction => {
 		const action = footer.find((a) => a.id === id);
@@ -49,9 +50,12 @@ export function segmentMenuActions(segment: Segment, context: SegmentActionConte
 		byId('toggleDisabled'),
 		{ id: 'insertPhrasebook', label: 'Insert a phrasebook value…', glyph: '#', glyphClass: 'phrasebook', disabled: segmentDisabled },
 		{ id: 'insertVariable', label: 'Insert a variable…', glyph: '$', glyphClass: 'variable', disabled: segmentDisabled },
-		{ id: 'insertChoice', label: 'Insert a choice group', glyph: '{}', glyphClass: 'choice', disabled: segmentDisabled },
-		{ id: 'insertCondition', label: 'Insert a condition…', glyph: 'if', glyphClass: 'condition', disabled: segmentDisabled }
+		{ id: 'insertChoice', label: 'Insert a choice group', glyph: '{}', glyphClass: 'choice', disabled: segmentDisabled }
 	];
+
+	if (hasConditions) {
+		actions.push({ id: 'insertCondition', label: 'Insert a condition…', glyph: 'if', glyphClass: 'condition', disabled: segmentDisabled });
+	}
 
 	if (hasPromptResources) {
 		actions.push({ id: 'insertResource', label: 'Insert a reference…', glyph: '@', glyphClass: 'resource', disabled: segmentDisabled });

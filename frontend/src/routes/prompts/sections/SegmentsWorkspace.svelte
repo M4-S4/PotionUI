@@ -14,6 +14,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { tabsStore, activeTab } from '$lib/stores/tabs';
+	import { libraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
@@ -530,6 +531,7 @@
 			onDelete={deleteFromDetail}
 			onDuplicate={duplicateFromDetail}
 			onInsert={insertFromDetail}
+			tabVariables={$libraryTabVariables}
 		/>
 	{:else}
 		<div class="flex h-full flex-col overflow-hidden">

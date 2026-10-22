@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { flushSync, tick } from 'svelte';
 import type { VariablesMap } from '$lib/utils/variableDefs';
+import { conditionModal, setCaret } from './helpers/typing';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -69,16 +70,6 @@ async function settle() {
 	await tick();
 }
 
-function setCaret(node: Node, offset: number) {
-	const range = document.createRange();
-	range.setStart(node, offset);
-	range.collapse(true);
-	const selection = window.getSelection()!;
-	selection.removeAllRanges();
-	selection.addRange(range);
-	document.dispatchEvent(new Event('selectionchange'));
-}
-
 async function insertFromMenu(target: HTMLElement) {
 	const trigger = Array.from(target.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
 		(b.getAttribute('aria-label') ?? '').startsWith('More actions for')
@@ -92,8 +83,6 @@ async function insertFromMenu(target: HTMLElement) {
 	item.click();
 	await settle();
 }
-
-const conditionModal = () => document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="condition-modal-title"]');
 
 async function saveModalWithText(text: string) {
 	const dialog = conditionModal()!;

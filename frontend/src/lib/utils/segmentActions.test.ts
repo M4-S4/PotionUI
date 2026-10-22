@@ -23,6 +23,21 @@ describe('segmentMenuActions', () => {
 		);
 	});
 
+	it('drops the condition insert when conditions are unavailable and keeps the other inserts', () => {
+		const ids = segmentMenuActions(segment(), {
+			index: 0,
+			total: 2,
+			segmentDisabled: false,
+			hasConditions: false,
+			hasPromptSyntax: true,
+			hasPromptResources: true
+		}).map((a) => a.id);
+		expect(ids).not.toContain('insertCondition');
+		expect(ids).toEqual(
+			expect.arrayContaining(['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertResource', 'insertSyntax'])
+		);
+	});
+
 	it('never includes remove — Delete stays outside the menu', () => {
 		const ids = segmentMenuActions(segment(), { index: 0, total: 2, segmentDisabled: false }).map(
 			(a) => a.id

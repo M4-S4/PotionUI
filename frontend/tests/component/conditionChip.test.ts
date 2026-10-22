@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { flushSync, mount, tick, unmount } from 'svelte';
 import { writable } from 'svelte/store';
 import type { VariableRoll, VariablesMap } from '$lib/utils/variableDefs';
+import { conditionModal as modal } from './helpers/typing';
 
 const { default: ConditionChip } = await import('$lib/components/ConditionChip.svelte');
 
@@ -45,7 +46,6 @@ function setup(raw = RAW, vars: VariablesMap = variables, rolls: Record<string, 
 	return { context, changes, removed };
 }
 
-const modal = () => document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="condition-modal-title"]');
 const popover = modal;
 
 async function openModal() {

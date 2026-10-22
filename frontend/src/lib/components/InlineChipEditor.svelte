@@ -18,6 +18,7 @@
 	import { writable } from 'svelte/store';
 	import { conditionTagWarnings, countConditionBlocks, defaultConditionRaw, isConditionRaw } from '$lib/utils/conditionTags';
 	import { CONDITION_TRIGGER, detectConditionTrigger, isTypedCharacter } from '$lib/utils/conditionTrigger';
+	import { conditionsAvailable } from '$lib/utils/conditionAccess';
 	import { topDismissLayer } from '$lib/actions/layerStack';
 	import VariableUsageChip from './VariableUsageChip.svelte';
 	import PromptResourceChip from './PromptResourceChip.svelte';
@@ -1563,13 +1564,9 @@
 		pendingOpenCondition = null;
 	}
 
-	function conditionsAvailable(): boolean {
-		return !isDisabled && (onVariableDefChange !== undefined || Object.keys(variables).length > 0);
-	}
-
 	function openTypedCondition(event: Event) {
 		if (!editorRef || event.target !== editorRef || !isTypedCharacter(event, '<')) return;
-		if (!conditionsAvailable()) return;
+		if (isDisabled || !conditionsAvailable(variables, onVariableDefChange)) return;
 		const top = topDismissLayer();
 		if (top && !top.node.contains(editorRef)) return;
 		const selection = window.getSelection();
