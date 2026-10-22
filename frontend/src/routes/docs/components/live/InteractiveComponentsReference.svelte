@@ -226,7 +226,10 @@
 		code={`<SessionControl\n  {session}\n  {actions}\n/>`}
 	>
 		<div class="flex w-full flex-wrap items-center gap-3">
-			<SessionControl session={demoSessionPanel} actions={demoSessionActions} />
+			<div class="ctx-step flex">
+				<span id="docs-session-control-label" class="ctx-label whitespace-nowrap text-fg-subtle">Session</span>
+				<SessionControl session={demoSessionPanel} actions={demoSessionActions} labelId="docs-session-control-label" />
+			</div>
 			<Button variant="secondary" size="xs" onclick={() => (demoSessionDirty = true)}>Simulate edit</Button>
 		</div>
 	</ComponentExample>

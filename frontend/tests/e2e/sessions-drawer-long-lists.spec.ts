@@ -58,7 +58,7 @@ async function scrollMetrics(locator: Locator) {
 }
 
 async function openDrawer(page: Page): Promise<Locator> {
-	await page.locator('button[aria-label="Session"]').first().click();
+	await page.getByTestId('session-trigger').first().click();
 	const drawer = page.getByRole('dialog', { name: 'Sessions' });
 	await expect(drawer).toBeVisible({ timeout: 10000 });
 	return drawer;
@@ -133,7 +133,7 @@ test('the sessions drawer stays inside the viewport and scrolls a long list and 
 
 	await drawer.locator('[data-session-row]', { hasText: LONG_NAME }).first().click();
 	await expect(drawer).toBeHidden({ timeout: 10000 });
-	await expect(page.locator('button[aria-label="Session"]').first()).toContainText(LONG_NAME, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger').first()).toContainText(LONG_NAME, { timeout: 10000 });
 
 	drawer = await openDrawer(page);
 	await expect(drawer.locator('[data-session-row][aria-current="true"]')).toContainText(LONG_NAME, { timeout: 10000 });
@@ -156,7 +156,7 @@ test('the sessions drawer stays inside the viewport and scrolls a long list and 
 	await expect(drawer.locator('[data-session-row]').first()).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(drawer).toBeHidden();
-	await expect(page.locator('button[aria-label="Session"]').first()).toBeFocused();
+	await expect(page.getByTestId('session-trigger').first()).toBeFocused();
 
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.getByRole('button', { name: 'Open preset and session' }).click();
@@ -207,7 +207,7 @@ test('the sessions dropdown spans the form column and steps through versions wit
 		await page.reload();
 		await page.waitForLoadState('networkidle');
 
-		const trigger = page.locator('button[aria-label="Session"]').first();
+		const trigger = page.getByTestId('session-trigger').first();
 		await trigger.click();
 		let drawer = page.getByRole('dialog', { name: 'Sessions' });
 		await expect(drawer).toBeVisible({ timeout: 10000 });

@@ -272,7 +272,7 @@ test.describe('Formulas drawer', () => {
 		const sessions = page.getByRole('dialog', { name: 'Sessions' });
 		await button.click();
 		await expect(formulas).toBeVisible();
-		await page.locator('button[aria-label="Session"]').first().evaluate((el) => (el as HTMLElement).click());
+		await page.getByTestId('session-trigger').first().evaluate((el) => (el as HTMLElement).click());
 		await expect(sessions).toBeVisible();
 		await expect(formulas).toHaveCount(0);
 		await button.evaluate((el) => (el as HTMLElement).click());

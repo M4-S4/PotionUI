@@ -2,6 +2,7 @@
 @import './lib/styles/chat-concept.css';
 @import './lib/styles/segment-composer.css';
 @import './lib/styles/generation-panel.css';
+@import './lib/styles/context-select.css';
 
 @tailwind base;
 @tailwind components;

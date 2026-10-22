@@ -52,7 +52,7 @@ test('New workspace warns and discards on a dirty, never-saved tab', async ({ pa
 
 	// Clicking "New workspace" on a pristine app (single default tab, nothing
 	// picked or typed) must wipe with no modal at all.
-	const newWorkspaceButton = page.getByRole('button', { name: 'New workspace' });
+	const newWorkspaceButton = page.getByRole('button', { name: 'New workspace', exact: true });
 	await expect(newWorkspaceButton).toBeVisible({ timeout: 10000 });
 	await newWorkspaceButton.click();
 	await expect(page.getByRole('heading', { name: 'Unsaved changes' })).not.toBeVisible();
@@ -153,7 +153,7 @@ test('New workspace "Save & create new" saves a dirty existing session before wi
 	await typeIntoSegment(page, 'Positive segments', 0, ' Gulls circle the empty pier.');
 	await expect(page.getByRole('button', { name: 'Save session' })).toBeVisible({ timeout: 10000 });
 
-	const newWorkspaceButton = page.getByRole('button', { name: 'New workspace' });
+	const newWorkspaceButton = page.getByRole('button', { name: 'New workspace', exact: true });
 	await newWorkspaceButton.click();
 
 	const modalTitle = page.getByRole('heading', { name: 'Unsaved changes' });

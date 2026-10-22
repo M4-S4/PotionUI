@@ -58,6 +58,7 @@
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
 	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
 	import { pressFloatingForm, pressFloatingWorkbench } from '$lib/generation/floatingOverlays';
+	import { contextToolsAvailable } from '$lib/generation/contextTools';
 	let generationPanelRef: GenerationPanel | undefined;
 	import { normalizeFileType } from '$lib/utils/fileType';
 	import { galleryTotal } from '$lib/components/workbench/workbenchGallery';
@@ -918,6 +919,7 @@
 			requestCloseTab(activeTabId);
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
+			if (!contextToolsAvailable(currentTab)) return;
 			const patch = toggleFormPane(activeTabId, !!currentTab.leftPanelCollapsed);
 			if (patch) tabsStore.updateTab(activeTabId, patch);
 		});
@@ -928,9 +930,11 @@
 			generationPanelRef?.toggleDrawer('lastGenerations');
 		});
 		keybindingsStore.registerHandler('toggle_floating_form', () => {
+			if (!contextToolsAvailable(currentTab)) return;
 			tabsStore.updateTab(activeTabId, pressFloatingForm(currentTab));
 		});
 		keybindingsStore.registerHandler('toggle_floating_workbench', () => {
+			if (!contextToolsAvailable(currentTab)) return;
 			tabsStore.updateTab(activeTabId, pressFloatingWorkbench(currentTab));
 		});
 

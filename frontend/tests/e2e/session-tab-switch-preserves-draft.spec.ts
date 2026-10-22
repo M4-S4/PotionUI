@@ -54,7 +54,7 @@ test('editing a segment after loading a session survives switching tabs and back
 	await page.getByPlaceholder('Enter session name').fill(sessionName);
 	await clickDialogSaveAndAwaitResponse(page);
 
-	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger')).toContainText(sessionName, { timeout: 10000 });
 	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 10000 });
 	const firstTab = page.locator('button.book-tab', { hasText: 'Generation 1' });
 	await expect(firstTab).not.toContainText('unsaved changes');
@@ -131,7 +131,7 @@ test('loading an existing session on a second tab, then editing it, survives swi
 	const sessionName = `E2E Load Round Trip ${Date.now()}`;
 	await page.getByPlaceholder('Enter session name').fill(sessionName);
 	await clickDialogSaveAndAwaitResponse(page);
-	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger')).toContainText(sessionName, { timeout: 10000 });
 
 	// Tab 2: a fresh tab, same preset, load the session through the picker
 	// (not save-as-new).
@@ -141,12 +141,12 @@ test('loading an existing session on a second tab, then editing it, survives swi
 	await pickPreset(page, imagePreset.name);
 	await expect(mainList).toBeVisible({ timeout: 20000 });
 
-	await page.getByRole('button', { name: 'Session', exact: true }).click();
+	await page.getByTestId('session-trigger').click();
 	await page.locator('[data-session-row]', { hasText: sessionName }).click();
 
 	// Confirm the load actually applied before touching anything.
 	await expect(mainList).toContainText('A quiet harbor at dawn.', { timeout: 10000 });
-	await expect(page.getByRole('button', { name: 'Session', exact: true })).toContainText(sessionName, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger')).toContainText(sessionName, { timeout: 10000 });
 	await expect(page.getByRole('button', { name: 'Session saved' })).toBeVisible({ timeout: 10000 });
 
 	// Edit after the load - dirty against the just-loaded baseline, never

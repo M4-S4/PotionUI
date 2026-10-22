@@ -36,7 +36,7 @@ test('Enter in the session name input saves the session', async ({ page }) => {
 	await input.fill(name);
 	await input.press('Enter');
 	await expect(modal).toBeHidden({ timeout: 10000 });
-	await expect(page.locator('button[aria-label="Session"]')).toContainText(name, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger')).toContainText(name, { timeout: 10000 });
 	await expect(page.locator('.book-tab')).toHaveCount(2);
 	await screenshot(page, JOURNEY, '00-saved-with-enter');
 });

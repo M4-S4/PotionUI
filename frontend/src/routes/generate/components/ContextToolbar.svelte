@@ -21,6 +21,7 @@
 	import { presetModeOptions, type PresetModeChoice } from '$lib/utils/presetModeOptions';
 	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import { resolveVariant, sortVariants } from '$lib/utils/variants';
+	import { contextToolsAvailable } from '$lib/generation/contextTools';
 
 	const TOOL_CAP = 3;
 	const TOOLS_BREAKPOINT = 944;
@@ -94,7 +95,8 @@
 	let showMode = $derived(hasPreset && modeOptions.length > 1);
 	let showVariant = $derived(hasPreset && variantOptions.length > 1);
 	let showSession = $derived(hasPreset && !!tab.selectedMode);
-	let stepsKey = $derived([showMode, showVariant, showSession].join('|'));
+	let showTools = $derived(contextToolsAvailable(tab));
+	let disclosureKey = $derived([showTools, showMode, showVariant, showSession].join('|'));
 
 	let advanced = $derived($formAudienceStore === 'advanced');
 	let threePanes = $derived(tab.layoutMode === 'three');
@@ -166,7 +168,7 @@
 	let shownTools = $derived(tools.slice(0, fit.visible));
 	let foldedTools = $derived(tools.slice(fit.visible));
 	let foldedActive = $derived(foldedTools.some((tool) => tool.pressed));
-	let labelClass = $derived(fit.compact ? 'sr-only' : 'whitespace-nowrap text-sm text-fg-subtle');
+	let labelClass = $derived(fit.compact ? 'sr-only' : 'ctx-label whitespace-nowrap text-fg-subtle');
 	let stepPad = $derived(fit.compact ? 'px-2.5' : 'px-4');
 	let capClass = $derived(fit.squeeze === 2 ? 'max-w-[96px]' : fit.squeeze === 1 ? 'max-w-[160px]' : '');
 
@@ -177,16 +179,14 @@
 			selectedVariant,
 			session.currentSession?.name,
 			session.sessionControlsEnabled,
-			stepsKey,
+			disclosureKey,
 			presetInfo?.name,
 			...tools.map((tool) => tool.text)
 		].join('|')
 	);
 
 	function controlClass(open: boolean): string {
-		return `flex h-8 min-w-0 items-center gap-1.5 rounded px-2.5 text-left text-fg transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-			open ? 'bg-line-hover' : 'bg-surface-3 hover:bg-line-hover'
-		}`;
+		return `ctx-select flex min-w-0 items-center text-left text-fg disabled:cursor-not-allowed disabled:opacity-50 ${open ? 'is-open' : ''}`;
 	}
 
 	function toolClass(pressed: boolean | undefined): string {
@@ -231,7 +231,7 @@
 	});
 
 	$effect(() => {
-		void stepsKey;
+		void disclosureKey;
 		if (!barEl || typeof ResizeObserver === 'undefined') return;
 		const observer = new ResizeObserver(() => void refit());
 		observer.observe(barEl);
@@ -274,7 +274,7 @@
 		aria-label="Generation context"
 		data-testid="context-zone"
 	>
-		<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-context-step>
+		<div class="ctx-step flex flex-shrink-0 {stepPad}" data-context-step>
 			<span id="{uid}-preset" class={labelClass} data-context-label>Preset</span>
 			<div class="flex min-w-0" data-testid="preset-header-picker">
 				<PresetPicker
@@ -290,7 +290,7 @@
 						<Tooltip text={picker.currentPreset?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
 							<button
 								type="button"
-								class="{controlClass(picker.expanded)} {capClass || 'max-w-[240px]'} border border-transparent text-md font-semibold"
+								class="{controlClass(picker.expanded)} {capClass || 'min-w-[132px] max-w-[240px]'} text-md font-semibold"
 								class:preset-picker-cta={!picker.currentPreset && !picker.loading}
 								aria-haspopup="dialog"
 								aria-expanded={picker.expanded}
@@ -299,19 +299,21 @@
 								data-testid="preset-picker-trigger"
 								onclick={picker.openPicker}
 							>
-								{#if picker.loading}
-									<Spinner size="sm" />
-								{:else if picker.currentPreset}
-									<PresetThumbnail
-										presetId={picker.currentPreset.id}
-										presetName={picker.currentPreset.name}
-										cover={picker.currentPreset.media?.cover}
-										category={picker.currentPreset.category}
-										size="w-[22px] h-[22px]"
-										zoom={false}
-									/>
-								{/if}
-								<span id="{uid}-preset-value" class="min-w-0 truncate">{picker.currentPreset?.name || 'Choose a preset'}</span>
+								<span class="ctx-valuerow">
+									{#if picker.loading}
+										<Spinner size="sm" />
+									{:else if picker.currentPreset}
+										<PresetThumbnail
+											presetId={picker.currentPreset.id}
+											presetName={picker.currentPreset.name}
+											cover={picker.currentPreset.media?.cover}
+											category={picker.currentPreset.category}
+											size="w-[18px] h-[18px]"
+											zoom={false}
+										/>
+									{/if}
+									<span id="{uid}-preset-value" class="min-w-0 truncate">{picker.currentPreset?.name || 'Choose a preset'}</span>
+								</span>
 								<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {picker.expanded ? 'rotate-180' : ''}" />
 							</button>
 						</Tooltip>
@@ -322,7 +324,7 @@
 
 		{#if showMode}
 			{@render cut()}
-			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-header-mode" data-context-step>
+			<div class="ctx-step flex flex-shrink-0 {stepPad}" data-testid="preset-header-mode" data-context-step>
 				<span id="{uid}-mode" class={labelClass} data-context-label>Mode</span>
 				<CustomSelect
 					value={tab.selectedMode ?? ''}
@@ -336,7 +338,7 @@
 						<Tooltip text={select.selected?.label ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
 							<button
 								type="button"
-								class="{controlClass(select.open)} {capClass || 'max-w-[240px]'} text-base font-medium"
+								class="{controlClass(select.open)} {capClass || 'min-w-[132px] max-w-[240px]'} text-base font-medium"
 								aria-haspopup="listbox"
 								aria-expanded={select.open}
 								aria-labelledby="{uid}-mode {uid}-mode-value"
@@ -344,13 +346,15 @@
 								onclick={select.toggle}
 								onkeydown={select.keydown}
 							>
-								{#if select.selected?.icon}
-									<Icon name={select.selected.icon} className="h-3.5 w-3.5 flex-shrink-0 text-fg-muted" />
-								{/if}
-								<span id="{uid}-mode-value" class="min-w-0 truncate">{select.selected?.label ?? 'Choose a mode'}</span>
-								{#if select.selected?.marker}
-									<span class="-ml-1 flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{select.selected.marker}</span>
-								{/if}
+								<span class="ctx-valuerow">
+									{#if select.selected?.icon}
+										<Icon name={select.selected.icon} className="h-3.5 w-3.5 flex-shrink-0 text-fg-muted" />
+									{/if}
+									<span id="{uid}-mode-value" class="min-w-0 truncate">{select.selected?.label ?? 'Choose a mode'}</span>
+									{#if select.selected?.marker}
+										<span class="-ml-1 flex-shrink-0 font-mono text-sm text-fg-subtle" aria-hidden="true">{select.selected.marker}</span>
+									{/if}
+								</span>
 								<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {select.open ? 'rotate-180' : ''}" />
 							</button>
 						</Tooltip>
@@ -361,7 +365,7 @@
 
 		{#if showVariant}
 			{@render cut()}
-			<div class="flex flex-shrink-0 items-center gap-2 {stepPad}" data-testid="preset-variant-switch" data-context-step>
+			<div class="ctx-step flex flex-shrink-0 {stepPad}" data-testid="preset-variant-switch" data-context-step>
 				<span id="{uid}-variant" class={labelClass} data-context-label>Variant</span>
 				<CustomSelect
 					value={selectedVariant}
@@ -375,14 +379,16 @@
 						<Tooltip text={select.selected?.label ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0">
 							<button
 								type="button"
-								class="{controlClass(select.open)} {capClass || 'max-w-[200px]'} text-base font-medium"
+								class="{controlClass(select.open)} {capClass || 'min-w-[132px] max-w-[200px]'} text-base font-medium"
 								aria-haspopup="listbox"
 								aria-expanded={select.open}
 								aria-labelledby="{uid}-variant {uid}-variant-value"
 								onclick={select.toggle}
 								onkeydown={select.keydown}
 							>
-								<span id="{uid}-variant-value" class="min-w-0 truncate">{select.selected?.label ?? ''}</span>
+								<span class="ctx-valuerow">
+									<span id="{uid}-variant-value" class="min-w-0 truncate">{select.selected?.label ?? ''}</span>
+								</span>
 								<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {select.open ? 'rotate-180' : ''}" />
 							</button>
 						</Tooltip>
@@ -393,99 +399,101 @@
 
 		{#if showSession}
 			{@render cut()}
-			<div class="flex min-w-0 shrink items-center gap-2 {stepPad}" data-context-step>
-				<span class={labelClass} data-context-label>Session</span>
-				<SessionControl {session} {actions} {fieldLabels} compact={fit.compact} />
+			<div class="ctx-step flex min-w-0 shrink {stepPad}" data-context-step>
+				<span id="{uid}-session" class={labelClass} data-context-label>Session</span>
+				<SessionControl {session} {actions} {fieldLabels} compact={fit.compact} labelId="{uid}-session" />
 			</div>
 		{/if}
 	</div>
 
 	<div class="min-w-0 flex-1" data-testid="context-gap"></div>
 
-	<div class="flex flex-shrink-0 items-center gap-1 px-2.5" role="group" aria-label="Generation tools" data-testid="context-tools">
-		<div bind:this={pinnedEl} class="pinned flex items-center">
-			<FormulasButton
-				{tab}
-				layout="rail"
-				presetName={presetInfo?.name ?? ''}
-				presetVersion={presetInfo?.version ?? ''}
-				modeLabel={currentModeLabel}
-				onApplied={onFormulaApplied}
-			/>
-			{@render divider()}
-		</div>
-
-		{#each shownTools as tool, index (tool.id)}
-			{#if index > 0 && tool.group !== shownTools[index - 1].group}
+	{#if showTools}
+		<div class="flex flex-shrink-0 items-center gap-1 px-2.5" role="group" aria-label="Generation tools" data-testid="context-tools">
+			<div bind:this={pinnedEl} class="pinned flex items-center">
+				<FormulasButton
+					{tab}
+					layout="rail"
+					presetName={presetInfo?.name ?? ''}
+					presetVersion={presetInfo?.version ?? ''}
+					modeLabel={currentModeLabel}
+					onApplied={onFormulaApplied}
+				/>
 				{@render divider()}
-			{/if}
-			<Tooltip text={tool.tip} kbd={tool.kbd} position="bottom" delay={300}>
-				<button
-					type="button"
-					class={toolClass(tool.pressed)}
-					aria-label={tool.name}
-					aria-pressed={tool.pressed === undefined ? undefined : tool.pressed}
-					data-context-tool={tool.id}
-					onclick={tool.toggle}
-				>
-					<Icon name={tool.icon} className="h-4 w-4 flex-shrink-0" />
-					<span>{tool.text}</span>
-				</button>
-			</Tooltip>
-		{/each}
+			</div>
 
-		{#if foldedTools.length}
-			{#if shownTools.length}
-				{@render divider()}
-			{/if}
-			<Menu label="More tools" width={260} align="right">
-				{#snippet trigger(menu)}
+			{#each shownTools as tool, index (tool.id)}
+				{#if index > 0 && tool.group !== shownTools[index - 1].group}
+					{@render divider()}
+				{/if}
+				<Tooltip text={tool.tip} kbd={tool.kbd} position="bottom" delay={300}>
 					<button
 						type="button"
-						class="relative flex h-8 flex-shrink-0 items-center gap-1.5 rounded border px-2.5 transition-colors {menu.open
-							? 'border-line-hover bg-surface-3 text-fg'
-							: 'border-line bg-surface-2 text-fg hover:border-line-hover hover:bg-surface-3'}"
-						aria-label="More tools"
-						aria-haspopup="menu"
-						aria-expanded={menu.open}
-						data-testid="context-tools-more"
-						onclick={menu.toggle}
+						class={toolClass(tool.pressed)}
+						aria-label={tool.name}
+						aria-pressed={tool.pressed === undefined ? undefined : tool.pressed}
+						data-context-tool={tool.id}
+						onclick={tool.toggle}
 					>
-						<Icon name="more" className="h-4 w-4" />
-						<span class="font-mono text-sm tabular-nums text-fg-subtle">{foldedTools.length}</span>
-						{#if foldedActive}
-							<span class="absolute right-[3px] top-[3px] h-1.5 w-1.5 rounded-full bg-signal" data-testid="context-tools-more-active"></span>
-						{/if}
+						<Icon name={tool.icon} className="h-4 w-4 flex-shrink-0" />
+						<span>{tool.text}</span>
 					</button>
-				{/snippet}
-				{#snippet children(menu)}
-					{#each foldedTools as tool (tool.id)}
+				</Tooltip>
+			{/each}
+
+			{#if foldedTools.length}
+				{#if shownTools.length}
+					{@render divider()}
+				{/if}
+				<Menu label="More tools" width={260} align="right">
+					{#snippet trigger(menu)}
 						<button
 							type="button"
-							role={tool.pressed === undefined ? 'menuitem' : 'menuitemcheckbox'}
-							aria-checked={tool.pressed === undefined ? undefined : tool.pressed}
-							class="flex h-9 w-full items-center gap-2.5 rounded px-2.5 text-left text-sm hover:bg-surface-3 focus-visible:bg-surface-3 focus-visible:outline-none {tool.pressed
-								? 'text-signal'
-								: 'text-fg'}"
-							aria-label={tool.name}
-							onclick={() => {
-								menu.close(true);
-								tool.toggle();
-							}}
+							class="relative flex h-8 flex-shrink-0 items-center gap-1.5 rounded border px-2.5 transition-colors {menu.open
+								? 'border-line-hover bg-surface-3 text-fg'
+								: 'border-line bg-surface-2 text-fg hover:border-line-hover hover:bg-surface-3'}"
+							aria-label="More tools"
+							aria-haspopup="menu"
+							aria-expanded={menu.open}
+							data-testid="context-tools-more"
+							onclick={menu.toggle}
 						>
-							<Icon name={tool.icon} className="h-4 w-4 flex-shrink-0" />
-							<span class="min-w-0 flex-1 truncate">{tool.label}</span>
-							{#if tool.kbd}
-								<Kbd keys={tool.kbd} />
-							{:else if tool.kbd == null && tool.label !== tool.text}
-								<span class="flex-shrink-0 font-mono text-sm text-fg-subtle">{tool.text}</span>
+							<Icon name="more" className="h-4 w-4" />
+							<span class="font-mono text-sm tabular-nums text-fg-subtle">{foldedTools.length}</span>
+							{#if foldedActive}
+								<span class="absolute right-[3px] top-[3px] h-1.5 w-1.5 rounded-full bg-signal" data-testid="context-tools-more-active"></span>
 							{/if}
 						</button>
-					{/each}
-				{/snippet}
-			</Menu>
-		{/if}
-	</div>
+					{/snippet}
+					{#snippet children(menu)}
+						{#each foldedTools as tool (tool.id)}
+							<button
+								type="button"
+								role={tool.pressed === undefined ? 'menuitem' : 'menuitemcheckbox'}
+								aria-checked={tool.pressed === undefined ? undefined : tool.pressed}
+								class="flex h-9 w-full items-center gap-2.5 rounded px-2.5 text-left text-sm hover:bg-surface-3 focus-visible:bg-surface-3 focus-visible:outline-none {tool.pressed
+									? 'text-signal'
+									: 'text-fg'}"
+								aria-label={tool.name}
+								onclick={() => {
+									menu.close(true);
+									tool.toggle();
+								}}
+							>
+								<Icon name={tool.icon} className="h-4 w-4 flex-shrink-0" />
+								<span class="min-w-0 flex-1 truncate">{tool.label}</span>
+								{#if tool.kbd}
+									<Kbd keys={tool.kbd} />
+								{:else if tool.kbd == null && tool.label !== tool.text}
+									<span class="flex-shrink-0 font-mono text-sm text-fg-subtle">{tool.text}</span>
+								{/if}
+							</button>
+						{/each}
+					{/snippet}
+				</Menu>
+			{/if}
+		</div>
+	{/if}
 </div>
 
 <style>

@@ -13,14 +13,18 @@
 		actions,
 		fieldLabels = {},
 		layout = 'segment',
-		compact = false
+		compact = false,
+		labelId = undefined
 	}: {
 		session: SessionPanelState;
 		actions: SessionPanelActions;
 		fieldLabels?: FieldLabels;
 		layout?: 'segment' | 'sheet';
 		compact?: boolean;
+		labelId?: string;
 	} = $props();
+
+	const uid = $props.id();
 
 	let open = $state(false);
 	let anchorEl = $state<HTMLElement>();
@@ -138,23 +142,25 @@
 {:else}
 	<div
 		bind:this={anchorEl}
-		class="flex h-8 {segmentWidth} shrink items-center gap-1.5"
+		class="ctx-seg flex {segmentWidth} shrink gap-1.5"
 		data-testid="context-session"
 	>
-		<Tooltip text={current?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex h-full min-w-0 flex-1">
+		<Tooltip text={current?.name ?? ''} truncateOnly position="bottom" delay={400} wrapperClass="flex min-w-0 flex-1">
 			<button
 				type="button"
-				class="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded px-2.5 text-left text-base font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 {open
-					? 'bg-line-hover'
-					: 'bg-surface-3 hover:bg-line-hover'}"
-				aria-label="Session"
+				class="ctx-select ctx-select-session flex min-w-0 flex-1 items-center text-left text-base font-medium disabled:cursor-not-allowed disabled:opacity-50 {open ? 'is-open' : ''}"
+				aria-label={labelId ? undefined : 'Session'}
+				aria-labelledby={labelId ? `${labelId} ${uid}-value` : undefined}
+				data-testid="session-trigger"
 				aria-haspopup="dialog"
 				aria-expanded={open}
 				disabled={!enabled}
 				onclick={toggle}
 			>
-				<span class="h-[7px] w-[7px] flex-shrink-0 rounded-full {dotClass}" aria-hidden="true"></span>
-				<span class="min-w-0 flex-1 truncate {current ? 'text-fg' : 'text-fg-muted'}">{label}</span>
+				<span class="ctx-valuerow">
+					<span class="h-[7px] w-[7px] flex-shrink-0 rounded-full {dotClass}" aria-hidden="true"></span>
+					<span id="{uid}-value" class="min-w-0 flex-1 truncate {current ? 'text-fg' : 'text-fg-muted'}">{label}</span>
+				</span>
 				<Icon name="chevron-down" className="h-[13px] w-[13px] flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-180' : ''}" />
 			</button>
 		</Tooltip>

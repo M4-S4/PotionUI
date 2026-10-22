@@ -56,17 +56,17 @@ function actions() {
 let instance: ReturnType<typeof mount> | undefined;
 let target: HTMLElement;
 
-function render(sessionOverrides: Record<string, unknown> = {}) {
+function render(sessionOverrides: Record<string, unknown> = {}, extraProps: Record<string, unknown> = {}) {
 	target = document.createElement('div');
 	document.body.appendChild(target);
 	const spies = actions();
-	instance = mount(SessionControl as never, { target, props: { session: state(sessionOverrides), actions: spies } });
+	instance = mount(SessionControl as never, { target, props: { session: state(sessionOverrides), actions: spies, ...extraProps } });
 	flushSync();
 	return spies;
 }
 
 function trigger(): HTMLButtonElement {
-	return target.querySelector<HTMLButtonElement>('button[aria-label="Session"]')!;
+	return target.querySelector<HTMLButtonElement>('[data-testid="session-trigger"]')!;
 }
 
 function saveSegment(): HTMLButtonElement {
@@ -191,6 +191,68 @@ describe('SessionControl trigger', () => {
 		pointerDown(outside);
 		await settle();
 		expect(dialog()).toBeNull();
+	});
+});
+
+describe('SessionControl select', () => {
+	it('is an unfilled select with a value row and no chip box', () => {
+		render();
+		const select = trigger();
+		expect(select.classList.contains('ctx-select')).toBe(true);
+		expect(select.classList.contains('ctx-select-session')).toBe(true);
+		expect(Array.from(select.classList).filter((token) => /^(hover:)?bg-|^rounded|^px-|^h-(8|full)$|^border/.test(token))).toEqual([]);
+		const row = select.querySelector('.ctx-valuerow')!;
+		expect(row.textContent).toContain('Neon alley');
+		expect(row.nextElementSibling!.tagName.toLowerCase()).toBe('svg');
+	});
+
+	it('is named by the visible label and the session name when a label is given, hiding nothing', () => {
+		const label = document.createElement('span');
+		label.id = 'session-label';
+		label.textContent = 'Session';
+		document.body.appendChild(label);
+		render({}, { labelId: 'session-label' });
+		const select = trigger();
+		const valueId = select.querySelector('.ctx-valuerow span:last-child')!.id;
+		expect(valueId).not.toBe('');
+		expect(select.getAttribute('aria-labelledby')).toBe(`session-label ${valueId}`);
+		expect(select.hasAttribute('aria-label')).toBe(false);
+		expect(`${label.textContent} ${document.getElementById(valueId)!.textContent}`).toBe('Session Neon alley');
+		label.remove();
+	});
+
+	it('falls back to a plain Session name when no label is given', () => {
+		render();
+		expect(trigger().getAttribute('aria-label')).toBe('Session');
+		expect(trigger().hasAttribute('aria-labelledby')).toBe(false);
+	});
+
+	it('marks itself open exactly while its dropdown is open', async () => {
+		render();
+		expect(trigger().classList.contains('is-open')).toBe(false);
+		trigger().click();
+		flushSync();
+		expect(trigger().getAttribute('aria-expanded')).toBe('true');
+		expect(trigger().classList.contains('is-open')).toBe(true);
+		expect(trigger().querySelector('svg')!.getAttribute('class')).toContain('rotate-180');
+	});
+
+	it('sits in a segment that lets the select, Save and Reload share the rule baseline', () => {
+		render({ hasUnsavedChanges: true });
+		const segment = target.querySelector<HTMLElement>('[data-testid="context-session"]')!;
+		expect(segment.classList.contains('ctx-seg')).toBe(true);
+		expect(segment.classList.contains('items-center')).toBe(false);
+		expect(segment.classList.contains('h-8')).toBe(false);
+		expect(segment.contains(saveSegment())).toBe(true);
+		expect(segment.contains(target.querySelector('[data-testid="session-reload"]'))).toBe(true);
+	});
+
+	it('keeps Save and Reload as buttons outside the select', () => {
+		render({ hasUnsavedChanges: true });
+		expect(trigger().contains(saveSegment())).toBe(false);
+		expect(saveSegment().classList.contains('bg-surface-3')).toBe(true);
+		expect(saveSegment().classList.contains('h-7')).toBe(true);
+		expect(target.querySelector('[data-testid="session-reload"]')!.classList.contains('ctx-select')).toBe(false);
 	});
 });
 

@@ -452,6 +452,57 @@ describe('ContextToolbar ribbon', () => {
 		expect(toolOrder()).not.toEqual(withoutModes);
 	});
 
+	it('has no tools zone until a preset is chosen, and keeps the bar one row tall', async () => {
+		tabsStore.updateTab(tabId, { selectedPreset: null, selectedMode: null });
+		await render({ availableModes: MODES });
+		expect(target.querySelector('[data-testid="context-tools"]')).toBeNull();
+		expect(target.querySelector('[data-testid="formulas-button"]')).toBeNull();
+		expect(target.querySelector('[data-context-tool]')).toBeNull();
+		expect(target.querySelector('[data-testid="context-tools-more"]')).toBeNull();
+		expect(Array.from(bar().children).map((child) => (child as HTMLElement).dataset.testid)).toEqual(['context-zone', 'context-gap']);
+		expect(bar().classList.contains('h-12')).toBe(true);
+	});
+
+	it('brings every tool in once a preset is chosen', async () => {
+		tabsStore.updateTab(tabId, { selectedPreset: null, selectedMode: null });
+		await render({ availableModes: MODES });
+		await updateTabAndSettle({ selectedPreset: 'krea2', selectedMode: 'txt2img' });
+		expect(target.querySelector('[data-testid="context-tools"]')).not.toBeNull();
+		expect(toolOrder()).toEqual(['formulas', 'fields', 'layout', 'more']);
+		expect(Array.from(bar().children).map((child) => (child as HTMLElement).dataset.testid)).toEqual(['context-zone', 'context-gap', 'context-tools']);
+	});
+
+	it('shows the tools as soon as a preset is chosen, before its mode is resolved', async () => {
+		tabsStore.updateTab(tabId, { selectedMode: null });
+		await render({ availableModes: MODES });
+		expect(zoneSequence()).toEqual(['preset', 'cut', 'mode']);
+		expect(target.querySelector('[data-testid="context-tools"]')).not.toBeNull();
+	});
+
+	it('takes the tools away again when the preset is cleared', async () => {
+		await render({ availableModes: MODES });
+		expect(target.querySelector('[data-testid="context-tools"]')).not.toBeNull();
+		await updateTabAndSettle({ selectedPreset: null, selectedMode: null });
+		expect(target.querySelector('[data-testid="context-tools"]')).toBeNull();
+	});
+
+	it('re-fits the tools when they appear instead of keeping a fold from before', async () => {
+		measure({ 'context-bar': { client: 1000, scroll: (el) => barContent(el) + 300 } });
+		tabsStore.updateTab(tabId, { selectedPreset: null, selectedMode: null });
+		await render({ availableModes: MODES });
+		expect(toolOrder()).toEqual([]);
+		await updateTabAndSettle({ selectedPreset: 'krea2', selectedMode: 'txt2img' });
+		expect(toolOrder()).toEqual(['formulas', 'fields', 'more']);
+	});
+
+	it('measures a bar without tools without touching missing elements', async () => {
+		measure({ 'context-bar': { client: 600, scroll: stagedContent } });
+		tabsStore.updateTab(tabId, { selectedPreset: null, selectedMode: null });
+		await render({ availableModes: MODES });
+		expect(target.querySelector('[data-testid="context-tools"]')).toBeNull();
+		expect(labels()).toEqual(['Preset']);
+	});
+
 	it('observes every visible step, including one that appears later', async () => {
 		await render({ availableModes: [] });
 		const stepEls = Array.from(zone().querySelectorAll('[data-context-step]'));
@@ -540,16 +591,17 @@ describe('ContextToolbar ribbon', () => {
 });
 
 describe('ContextToolbar control styles', () => {
-	it('draws context controls as ghost segments, Save as a filled pill and tools as bordered buttons', async () => {
+	it('draws the context selects without a fill, Save as a filled button and tools as bordered buttons', async () => {
 		await render({ session: sessionState({ hasUnsavedChanges: true }) });
 		const preset = target.querySelector('[data-testid="preset-picker-trigger"]') as HTMLElement;
 		const mode = target.querySelector('[data-testid="preset-header-mode"] button') as HTMLElement;
-		const session = target.querySelector('button[aria-label="Session"]') as HTMLElement;
+		const session = target.querySelector('[data-testid="session-trigger"]') as HTMLElement;
 		for (const control of [preset, mode, session]) {
-			expect(control.classList.contains('bg-surface-3')).toBe(true);
-			expect(control.classList.contains('hover:bg-line-hover')).toBe(true);
-			expect(control.classList.contains('border-line-strong')).toBe(false);
+			expect(control.classList.contains('ctx-select')).toBe(true);
+			expect(Array.from(control.classList).filter((token) => /^(hover:)?bg-|^rounded|^px-|^h-8$|^border/.test(token))).toEqual([]);
+			expect(control.classList.contains('is-open')).toBe(false);
 		}
+		expect(session.classList.contains('ctx-select-session')).toBe(true);
 		expect(preset.classList.contains('text-md')).toBe(true);
 		expect(preset.classList.contains('font-semibold')).toBe(true);
 		expect(mode.classList.contains('font-medium')).toBe(true);
@@ -557,20 +609,32 @@ describe('ContextToolbar control styles', () => {
 		await tick();
 		flushSync();
 		expect(mode.getAttribute('aria-expanded')).toBe('true');
-		expect(mode.classList.contains('bg-line-hover')).toBe(true);
-		expect(mode.classList.contains('bg-surface-3')).toBe(false);
+		expect(mode.classList.contains('is-open')).toBe(true);
+		expect(Array.from(mode.classList).filter((token) => token.startsWith('bg-'))).toEqual([]);
 		expect(mode.className).not.toMatch(/segment-open|shadow-|border-b|border-signal/);
 		expect(mode.querySelector('svg:last-child')!.getAttribute('class')).toContain('rotate-180');
 		session.click();
 		flushSync();
 		expect(session.getAttribute('aria-expanded')).toBe('true');
-		expect(session.classList.contains('bg-line-hover')).toBe(true);
+		expect(session.classList.contains('is-open')).toBe(true);
+		expect(Array.from(session.classList).filter((token) => token.startsWith('bg-'))).toEqual([]);
 		expect(session.className).not.toMatch(/segment-open|shadow-|border-signal/);
 		const save = saveButton();
 		expect(['h-7', 'rounded', 'bg-surface-3', 'text-accent', 'font-semibold'].every((token) => save.classList.contains(token))).toBe(true);
 		for (const tool of Array.from(target.querySelectorAll<HTMLElement>('[data-context-tool], [data-testid="formulas-button"], [data-testid="context-tools-more"]'))) {
 			expect(['h-8', 'border', 'border-line', 'bg-surface-2'].every((token) => tool.classList.contains(token)), tool.textContent ?? '').toBe(true);
 		}
+	});
+
+	it('marks the Preset select open only while its dropdown is', async () => {
+		await render({ session: sessionState() });
+		const preset = target.querySelector('[data-testid="preset-picker-trigger"]') as HTMLElement;
+		expect(preset.classList.contains('is-open')).toBe(false);
+		preset.click();
+		await tick();
+		flushSync();
+		expect(preset.getAttribute('aria-expanded')).toBe('true');
+		expect(preset.classList.contains('is-open')).toBe(true);
 	});
 
 	it('turns the Preset chevron with the same transition as Mode and Session while its dropdown is open', async () => {
@@ -603,25 +667,71 @@ describe('ContextToolbar control styles', () => {
 });
 
 describe('ContextToolbar context group', () => {
-	it('puts each label left of its control and names each control by its label and value', async () => {
+	it('puts each label above its control and names each control by its label and value', async () => {
 		await render();
 		expect(labels()).toEqual(['Preset', 'Mode', 'Session']);
 		for (const label of Array.from(bar().querySelectorAll<HTMLElement>('[data-context-label]'))) {
-			const control = label.nextElementSibling as HTMLElement;
-			expect(control.contains(label)).toBe(false);
-			expect(label.classList.contains('text-sm')).toBe(true);
-			expect(label.parentElement!.classList.contains('items-center')).toBe(true);
+			const step = label.parentElement!;
+			expect(step.classList.contains('ctx-step')).toBe(true);
+			expect(step.firstElementChild).toBe(label);
+			expect(label.nextElementSibling!.contains(label)).toBe(false);
+			expect(label.classList.contains('ctx-label')).toBe(true);
+			expect(label.classList.contains('text-fg-subtle')).toBe(true);
+			expect(step.classList.contains('items-center')).toBe(false);
 		}
 		const preset = target.querySelector('[data-testid="preset-picker-trigger"]') as HTMLElement;
 		expect(nameOf(preset)).toBe('Preset Krea-2');
-		expect(preset.classList.contains('h-8')).toBe(true);
+		expect(preset.classList.contains('ctx-select')).toBe(true);
 		const mode = target.querySelector('[data-testid="preset-header-mode"] button') as HTMLElement;
 		expect(nameOf(mode)).toBe('Mode Text to Image');
-		expect(mode.classList.contains('h-8')).toBe(true);
-		const session = target.querySelector('button[aria-label="Session"]') as HTMLElement;
+		expect(mode.classList.contains('ctx-select')).toBe(true);
+		const session = target.querySelector('[data-testid="session-trigger"]') as HTMLElement;
 		expect(session.textContent).toContain('Neon alley');
-		expect(target.querySelector('[data-testid="context-session"]')!.classList.contains('h-8')).toBe(true);
+		expect(nameOf(session)).toBe('Session Neon alley');
+		expect(session.hasAttribute('aria-label')).toBe(false);
+		const segment = target.querySelector('[data-testid="context-session"]')!;
+		expect(segment.classList.contains('ctx-seg')).toBe(true);
+		expect(segment.classList.contains('h-8')).toBe(false);
+		expect(segment.classList.contains('items-center')).toBe(false);
 		expect(target.querySelector('[data-testid="preset-variant-switch"]')).toBeNull();
+	});
+
+	it('gives the selects a 132px minimum only while they are not squeezed, so the fit can still cap them', async () => {
+		await render({ availableModes: VARIANT_MODES });
+		const selects = () => [
+			target.querySelector('[data-testid="preset-picker-trigger"]'),
+			target.querySelector('[data-testid="preset-header-mode"] button'),
+			target.querySelector('[data-testid="preset-variant-switch"] button')
+		] as HTMLElement[];
+		for (const select of selects()) expect(select.classList.contains('min-w-[132px]'), select.dataset.testid ?? 'select').toBe(true);
+		unmount(component!);
+		component = null;
+		target.remove();
+		measure({ 'context-bar': { client: 650, scroll: stagedContent } });
+		await render({ availableModes: VARIANT_MODES });
+		for (const select of selects()) {
+			expect(select.classList.contains('min-w-[132px]')).toBe(false);
+			expect(select.classList.contains('max-w-[160px]') || select.classList.contains('max-w-[96px]')).toBe(true);
+		}
+	});
+
+	it('gives the Variant select the same label above and rule as the others', async () => {
+		await render({ availableModes: VARIANT_MODES });
+		const variant = target.querySelector('[data-testid="preset-variant-switch"]') as HTMLElement;
+		const control = variant.querySelector('button') as HTMLElement;
+		expect(variant.classList.contains('ctx-step')).toBe(true);
+		expect(variant.firstElementChild!.classList.contains('ctx-label')).toBe(true);
+		expect(control.classList.contains('ctx-select')).toBe(true);
+		expect(Array.from(control.classList).filter((token) => token.startsWith('bg-'))).toEqual([]);
+	});
+
+	it('keeps the labels in the document but out of sight once the fit hides them', async () => {
+		measure({ 'context-bar': { client: 500, scroll: stagedContent } });
+		await render();
+		for (const label of Array.from(bar().querySelectorAll<HTMLElement>('[data-context-label]'))) {
+			expect(label.classList.contains('sr-only')).toBe(true);
+			expect(label.classList.contains('ctx-label')).toBe(false);
+		}
 	});
 
 	it('changes mode from the Mode control list', async () => {
@@ -658,7 +768,7 @@ describe('ContextToolbar context group', () => {
 		expect(nameOf(preset)).toBe('Preset Choose a preset');
 		expect(preset.getAttribute('aria-haspopup')).toBe('dialog');
 		expect(preset.classList.contains('preset-picker-cta')).toBe(true);
-		expect(target.querySelector('button[aria-label="Session"]')).toBeNull();
+		expect(target.querySelector('[data-testid="session-trigger"]')).toBeNull();
 	});
 });
 
@@ -832,6 +942,6 @@ describe('ContextToolbar below 1000px', () => {
 		expect(Array.from(bar().querySelectorAll('[data-context-label]')).every((label) => label.classList.contains('sr-only'))).toBe(true);
 		expect(nameOf(target.querySelector('[data-testid="preset-picker-trigger"]')!)).toBe('Preset Krea-2');
 		expect(nameOf(target.querySelector('[data-testid="preset-header-mode"] button')!)).toBe('Mode Text to Image');
-		expect(target.querySelector('button[aria-label="Session"]')).not.toBeNull();
+		expect(nameOf(target.querySelector('[data-testid="session-trigger"]')!)).toBe('Session Neon alley');
 	});
 });

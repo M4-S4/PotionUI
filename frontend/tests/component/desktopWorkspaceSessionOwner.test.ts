@@ -77,7 +77,7 @@ function mountWorkspace() {
 }
 
 function sessionSegment(target: HTMLElement) {
-	return target.querySelector('[data-testid="context-bar"] button[aria-label="Session"]');
+	return target.querySelector('[data-testid="context-bar"] [data-testid="session-trigger"]');
 }
 
 beforeEach(() => {
@@ -114,7 +114,7 @@ describe('Desktop workspace session owner', () => {
 		flushSync();
 		expect(sessionSegment(mounted.target)?.textContent).toContain('Owner session');
 		expect(mounted.target.querySelector('[data-testid="context-bar"] button[aria-label="Save session"]')).not.toBeNull();
-		expect(mounted.target.querySelector('[data-testid="generation-panels-root"] button[aria-label="Session"]')).toBeNull();
+		expect(mounted.target.querySelector('[data-testid="generation-panels-root"] [data-testid="session-trigger"]')).toBeNull();
 		expect(get(tabSessionDirty)[tabId]).toBe(true);
 	});
 
@@ -314,7 +314,7 @@ describe('Reload from last snapshot, while it runs and when it fails', () => {
 
 	it('returns focus to the session trigger after Confirm and after Cancel when started from the dropdown row', async () => {
 		const target = await mountDirty();
-		const trigger = () => target.querySelector<HTMLButtonElement>('[data-testid="context-bar"] button[aria-label="Session"]')!;
+		const trigger = () => target.querySelector<HTMLButtonElement>('[data-testid="context-bar"] [data-testid="session-trigger"]')!;
 
 		async function startFromRow() {
 			trigger().focus();

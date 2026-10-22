@@ -65,7 +65,7 @@ test('top section — tabs row cluster + relocated preset header', async ({ page
 	}
 
 	// 4. Open session panel (SessionPill's dropdown — same SessionControl panel).
-	const sessionTrigger = page.getByRole('button', { name: 'Session', exact: true });
+	const sessionTrigger = page.getByTestId('session-trigger');
 	await expect(sessionTrigger).toBeVisible();
 	await sessionTrigger.click();
 	await screenshot(page, JOURNEY, '04-session-panel-open');

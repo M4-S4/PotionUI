@@ -58,7 +58,7 @@ test('an unsaved session edit survives switching to another tab and back', async
 	await expect(saveAsModal).toBeHidden({ timeout: 10000 });
 
 	// The pill now reflects a saved, non-dirty session.
-	const sessionTrigger = page.locator('button[aria-label="Session"]');
+	const sessionTrigger = page.getByTestId('session-trigger');
 	await expect(sessionTrigger).toContainText(sessionName, { timeout: 10000 });
 	await expect(page.locator('button[aria-label="Save session"]')).toBeHidden();
 	await screenshot(page, JOURNEY, '00-session-saved');
