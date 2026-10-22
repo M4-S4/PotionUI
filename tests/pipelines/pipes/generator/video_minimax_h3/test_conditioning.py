@@ -15,14 +15,20 @@ from PIL import Image
 
 from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     KEYFRAME_ENCODE_SEED,
+    REFERENCE_IMAGE_MAX_PIXELS,
     REFERENCE_IMAGE_SHORT_EDGE,
+    ReferenceMedia,
     encode_continuation_condition,
     encode_keyframe_condition,
     fit_keyframe_to_canvas,
     normalize_reference_image,
+    normalize_references,
     prepare_reference_condition_rows,
 )
-from src.pipelines.pipes.generator.video_minimax_h3.geometry import frames_to_encode_for_continuation
+from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
+    CANVAS_MAX_PIXELS,
+    frames_to_encode_for_continuation,
+)
 from src.pipelines.pipes.generator.video_minimax_h3.schedule import KEYFRAME_NOISE_AUG
 
 LATENT_CHANNELS = 24
@@ -317,12 +323,64 @@ def test_reference_image_aspect_ratio_exactly_4_to_1_accepted():
     normalize_reference_image(image, canvas_multiple=32, short_edge=100)  # must not raise
 
 
-def test_reference_image_uses_no_upper_pixel_cap_unlike_fl2va_canvas():
-    # An extreme short edge upscale has no area cap to hit -- fl2va's target
-    # canvas is bounded by CANVAS_MAX_PIXELS, a ref2va reference is not.
+def test_reference_image_area_cap_is_twice_the_release_canvas():
+    assert REFERENCE_IMAGE_MAX_PIXELS == 2 * CANVAS_MAX_PIXELS
+
+
+def test_reference_image_is_uncapped_when_max_pixels_allows_it():
     image = Image.new("RGB", (32, 32))
-    fitted = normalize_reference_image(image, canvas_multiple=32, short_edge=4096)
+    fitted = normalize_reference_image(image, canvas_multiple=32, short_edge=4096, max_pixels=4096 * 4096)
     assert fitted.size == (4096, 4096)
+
+
+def _condition_tokens(size: tuple[int, int]) -> int:
+    return (size[0] // 16 // 2) * (size[1] // 16 // 2)
+
+
+@pytest.mark.parametrize(
+    ("source", "uncapped_size", "uncapped_tokens", "capped_size", "capped_tokens"),
+    [
+        ((1920, 1080), (3648, 2048), 7296, (1920, 1088), 2040),
+        ((4000, 3000), (2720, 2048), 5440, (1664, 1248), 2028),
+        ((512, 512), (2048, 2048), 4096, (1440, 1440), 2025),
+    ],
+)
+def test_reference_image_area_cap_cuts_condition_tokens(
+    source, uncapped_size, uncapped_tokens, capped_size, capped_tokens,
+):
+    image = Image.new("RGB", source)
+    uncapped = normalize_reference_image(image, canvas_multiple=32, max_pixels=10**9)
+    capped = normalize_reference_image(image, canvas_multiple=32)
+    assert (uncapped.size, _condition_tokens(uncapped.size)) == (uncapped_size, uncapped_tokens)
+    assert (capped.size, _condition_tokens(capped.size)) == (capped_size, capped_tokens)
+
+
+@pytest.mark.parametrize("source", [(1920, 1080), (1080, 1920), (4000, 3000), (512, 512), (400, 100), (1000, 333)])
+def test_capped_reference_image_keeps_aspect_and_patch_multiples(source):
+    capped = normalize_reference_image(Image.new("RGB", source), canvas_multiple=32)
+    uncapped = normalize_reference_image(Image.new("RGB", source), canvas_multiple=32, max_pixels=10**9)
+    width, height = capped.size
+    assert width % 32 == 0 and height % 32 == 0
+    assert abs((width / height) / (source[0] / source[1]) - 1) <= 16 / width + 16 / height
+    assert width * height <= REFERENCE_IMAGE_MAX_PIXELS + 32 * (width + height)
+    assert width <= uncapped.size[0] and height <= uncapped.size[1]
+
+
+def test_reference_image_below_the_cap_keeps_the_released_short_edge_fit():
+    fitted = normalize_reference_image(Image.new("RGB", (100, 200)), canvas_multiple=32, short_edge=256)
+    assert fitted.size == (256, 512)
+
+
+def test_reference_video_keeps_the_canvas_rule_while_images_are_capped():
+    normalized = normalize_references(
+        [
+            ReferenceMedia(kind="image", image=Image.new("RGB", (1920, 1080))),
+            ReferenceMedia(kind="video", frames=np.zeros((22, 1080, 1920, 3), dtype=np.uint8), fps=24.0),
+        ],
+        num_frames=22,
+    )
+    assert normalized[0].image.size == (1920, 1088)
+    assert np.asarray(normalized[1].frames).shape == (22, 768, 1344, 3)
 
 
 # -- ref2va reference condition rows: own-resolution encode + noise + pack ---
