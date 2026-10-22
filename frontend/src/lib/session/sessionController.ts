@@ -1468,11 +1468,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 				markApplied(command);
 				const version = response.data;
 				await applySessionModeData(sessionId, version.data, sessionMeta, { markSaved: false });
-				// Applying yields, and the panel can be closed and reopened across
-				// it. The restored data stays either way; what is scoped here is
-				// closing the panel and announcing it to whoever asked.
 				if (ownsDialog(command, restoreInFlight)) {
-					closeHistory();
 					deps.toasts.info(
 						`Loaded the save from ${timeAgo(version.created_at)} — Save to make it the latest.`
 					);

@@ -871,6 +871,27 @@ describe('createSessionController', () => {
 		expect(harness.toasts.info).toHaveBeenCalledTimes(1);
 	});
 
+	it('keeps the open history and its versions after restoring one of them', async () => {
+		await bootWithDirtySession();
+		harness.api.getSessionVersions.mockResolvedValue({ success: true, data: [version(2), version(1)] } as never);
+		harness.api.getSessionVersion.mockResolvedValue({
+			success: true,
+			data: { version: 2, created_at: '2026-01-01T00:00:00Z', data: { [MODE]: { prompt: 'old' } } }
+		} as never);
+
+		await controller.openHistory(SESSION_A);
+		await settle();
+		await controller.restoreVersion(SESSION_A, 2);
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.historySessionId).toBe(SESSION_A);
+		expect(state.historyVersions.map((entry) => entry.version_number)).toEqual([2, 1]);
+		expect(state.isHistoryLoading).toBe(false);
+		expect(state.isRestoringVersion).toBe(false);
+		expect(harness.toasts.info).toHaveBeenCalledTimes(1);
+	});
+
 	// A completion that also answers a dialog carries two separate rights: to
 	// close the dialog the view is showing, and to put down the busy flag it
 	// raised. The first belongs to the operation the view is still waiting on;
