@@ -1,7 +1,15 @@
 const DEFAULT_ITEMS = '[role="menuitem"]:not(:disabled), button:not(:disabled)';
 
+function isRendered(item: HTMLElement, root: HTMLElement): boolean {
+	for (let current: HTMLElement | null = item; current; current = current.parentElement) {
+		if (getComputedStyle(current).display === 'none') return false;
+		if (current === root) break;
+	}
+	return true;
+}
+
 export function menuItems(node: HTMLElement, selector: string = DEFAULT_ITEMS): HTMLElement[] {
-	return Array.from(node.querySelectorAll<HTMLElement>(selector));
+	return Array.from(node.querySelectorAll<HTMLElement>(selector)).filter((item) => isRendered(item, node));
 }
 
 export function focusFirstItem(node: HTMLElement, selector: string = DEFAULT_ITEMS): void {

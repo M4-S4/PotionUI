@@ -61,6 +61,37 @@ describe('ui/Menu', () => {
 		expect(document.activeElement).toBe(menuItems()[0]);
 	});
 
+	it('focuses the first item only once the menu is positioned and visible', async () => {
+		const styles: string[] = [];
+		const focus = HTMLElement.prototype.focus;
+		HTMLElement.prototype.focus = function (this: HTMLElement, ...args: Parameters<HTMLElement['focus']>) {
+			if (this.getAttribute('role') === 'menuitem') styles.push(this.closest('[role="menu"]')?.getAttribute('style') ?? '');
+			return focus.apply(this, args);
+		};
+		try {
+			await mountMenu();
+			await openMenu();
+		} finally {
+			HTMLElement.prototype.focus = focus;
+		}
+
+		expect(styles.length).toBeGreaterThan(0);
+		for (const style of styles) expect(style).not.toContain('visibility: hidden');
+		expect(document.activeElement).toBe(menuItems()[0]);
+	});
+
+	it('lands focus on the first enabled item when the trigger is activated from the keyboard', async () => {
+		await mountMenu();
+		const trigger = target.querySelector<HTMLButtonElement>('button[aria-label="More actions for X"]')!;
+		trigger.focus();
+		trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		trigger.click();
+		await settle();
+
+		expect(document.activeElement).toBe(menuItems().find((b) => !b.disabled));
+		expect(document.activeElement?.textContent).toContain('Rename');
+	});
+
 	it('moves focus with Arrow keys, wrapping and skipping disabled items', async () => {
 		await mountMenu();
 		await openMenu();

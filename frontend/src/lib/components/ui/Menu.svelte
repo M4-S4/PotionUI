@@ -108,7 +108,8 @@
 	$effect(() => {
 		if (!open || !menuEl || !position || focused) return;
 		focused = true;
-		focusFirstItem(menuEl);
+		const menu = menuEl;
+		void tick().then(() => focusFirstItem(menu));
 	});
 </script>
 
