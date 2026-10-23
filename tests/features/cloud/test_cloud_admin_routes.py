@@ -1,4 +1,5 @@
 import json
+import re
 from unittest.mock import Mock
 
 import pytest
@@ -188,13 +189,13 @@ async def test_refreshing_a_disabled_backend_is_a_409(cloud_env, container):
     assert response.json()["detail"]["error"] == "cloud_backend_inactive"
 
 
-PRICE_WORDS = ("pricing", "price", "usd", "cost", "0.04", "0.40")
+PRICE_PATTERNS = ("pricing", "price", "usd", "cost", r"(?<![\d.])0\.04(?!\d)", r"(?<![\d.])0\.40?(?!\d)")
 
 
 def assert_no_price(payload):
     text = json.dumps(payload, default=str).lower()
-    for word in PRICE_WORDS:
-        assert word not in text, word
+    for pattern in PRICE_PATTERNS:
+        assert not re.search(pattern, text), pattern
 
 
 async def test_the_picker_payload_for_users_carries_no_price(refreshed):
