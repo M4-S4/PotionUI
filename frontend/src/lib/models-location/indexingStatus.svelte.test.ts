@@ -3,6 +3,32 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IndexingDigests, IndexingStatus } from '$lib/services/api/models';
 import { digests } from '../../../tests/component/helpers/indexingFixtures';
 
+const socket = vi.hoisted(() => ({
+	statusListeners: new Set<(status: unknown) => void>(),
+	connectedListeners: new Set<() => void>(),
+	open: false,
+	connectAsync: vi.fn(async () => {})
+}));
+
+vi.mock('$lib/services/adminWebsocket', () => ({
+	adminWebSocket: {
+		onIndexingStatus: (listener: (status: unknown) => void) => {
+			socket.statusListeners.add(listener);
+			return () => socket.statusListeners.delete(listener);
+		},
+		onConnected: (listener: () => void) => {
+			socket.connectedListeners.add(listener);
+			return () => socket.connectedListeners.delete(listener);
+		},
+		isConnected: () => socket.open,
+		connectAsync: socket.connectAsync
+	}
+}));
+
+function push(status: IndexingStatus) {
+	socket.statusListeners.forEach((listener) => listener(status));
+}
+
 vi.mock('$lib/services/api', () => ({
 	api: {
 		getIndexingStatus: vi.fn(),
@@ -24,6 +50,9 @@ function withDigests(overrides: Partial<IndexingDigests> = {}): IndexingStatus {
 const SAVED = { success: true, data: { state: 'done' } };
 
 beforeEach(() => {
+	socket.statusListeners.clear();
+	socket.connectedListeners.clear();
+	socket.open = false;
 	vi.resetModules();
 	vi.useFakeTimers();
 });
@@ -34,7 +63,7 @@ afterEach(() => {
 });
 
 describe('indexingStatusStore', () => {
-	it('fetches once on first subscribe and does not poll while idle', async () => {
+	it('fetches once on first subscribe and never polls', async () => {
 		const { api } = await import('$lib/services/api');
 		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'idle' }));
 		const { indexingStatusStore } = await import('./indexingStatus.svelte');
@@ -51,83 +80,83 @@ describe('indexingStatusStore', () => {
 		unsubscribe();
 	});
 
-	it('polls every 2s while indexing and stops once the run finishes', async () => {
+	it('never polls while a run is in progress: pushed status updates replace the fetch', async () => {
 		const { api } = await import('$lib/services/api');
-		vi.mocked(api.getIndexingStatus)
-			.mockResolvedValueOnce(ok({ state: 'indexing', processed: 1, total: 10 }))
-			.mockResolvedValueOnce(ok({ state: 'indexing', processed: 2, total: 10 }))
-			.mockResolvedValueOnce(ok({ state: 'done', indexed: 10, found_on_disk: 10 }));
+		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'indexing', processed: 1, total: 10 }));
 		const { indexingStatusStore } = await import('./indexingStatus.svelte');
 
 		const unsubscribe = indexingStatusStore.subscribe();
 		await indexingStatusStore.refresh();
-		expect(indexingStatusStore.status?.state).toBe('indexing');
 
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(2);
+		push({ state: 'indexing', processed: 2, total: 10 });
 		expect(indexingStatusStore.status?.processed).toBe(2);
-
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(3);
+		push({ state: 'done', indexed: 10, found_on_disk: 10 });
 		expect(indexingStatusStore.status?.state).toBe('done');
 
 		await vi.advanceTimersByTimeAsync(10_000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(3);
-
+		expect(api.getIndexingStatus).toHaveBeenCalledTimes(1);
 		unsubscribe();
 	});
 
-	it('keeps polling while restart_pending even if the reported state looks terminal', async () => {
+	it('listens on the admin socket while subscribed and connects it when it is closed', async () => {
 		const { api } = await import('$lib/services/api');
-		vi.mocked(api.getIndexingStatus).mockResolvedValue(
-			ok({ state: 'done', indexed: 5, found_on_disk: 5, restart_pending: true })
-		);
+		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'idle' }));
+		const { indexingStatusStore } = await import('./indexingStatus.svelte');
+
+		const first = indexingStatusStore.subscribe();
+		const second = indexingStatusStore.subscribe();
+
+		expect(socket.statusListeners.size).toBe(1);
+		expect(socket.connectAsync).toHaveBeenCalledTimes(1);
+
+		first();
+		expect(socket.statusListeners.size).toBe(1);
+		second();
+		expect(socket.statusListeners.size).toBe(0);
+		expect(socket.connectedListeners.size).toBe(0);
+	});
+
+	it('does not reconnect a socket that is already open', async () => {
+		const { api } = await import('$lib/services/api');
+		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'idle' }));
+		socket.open = true;
 		const { indexingStatusStore } = await import('./indexingStatus.svelte');
 
 		const unsubscribe = indexingStatusStore.subscribe();
-		await indexingStatusStore.refresh();
 
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(2);
-
+		expect(socket.connectAsync).not.toHaveBeenCalled();
 		unsubscribe();
 	});
 
-	it('stops polling once the last subscriber unsubscribes', async () => {
+	it('ignores pushed status after the last subscriber left', async () => {
 		const { api } = await import('$lib/services/api');
-		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'indexing', processed: 0, total: 10 }));
+		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'idle' }));
 		const { indexingStatusStore } = await import('./indexingStatus.svelte');
-
 		const unsubscribe = indexingStatusStore.subscribe();
 		await indexingStatusStore.refresh();
 		unsubscribe();
 
-		await vi.advanceTimersByTimeAsync(10_000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(1);
+		push({ state: 'indexing' });
+
+		expect(indexingStatusStore.status?.state).toBe('idle');
 	});
 
-	it('a second subscriber reuses the running poller instead of fetching again immediately', async () => {
+	it('refetches when the socket (re)connects so a gap in pushes cannot leave stale progress', async () => {
 		const { api } = await import('$lib/services/api');
-		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'indexing', processed: 0, total: 10 }));
+		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'indexing', processed: 1, total: 10 }));
 		const { indexingStatusStore } = await import('./indexingStatus.svelte');
-
-		const unsubscribeA = indexingStatusStore.subscribe();
+		const unsubscribe = indexingStatusStore.subscribe();
 		await indexingStatusStore.refresh();
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(1);
+		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'done', indexed: 10 }));
 
-		const unsubscribeB = indexingStatusStore.subscribe();
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(1);
+		socket.connectedListeners.forEach((listener) => listener());
+		await vi.advanceTimersByTimeAsync(0);
 
-		unsubscribeA();
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(2);
-
-		unsubscribeB();
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(2);
+		expect(indexingStatusStore.status?.state).toBe('done');
+		unsubscribe();
 	});
 
-	it('notifyRunStarted seeds the status immediately and starts polling without waiting for a fetch', async () => {
+	it('notifyRunStarted seeds the status immediately without a fetch', async () => {
 		const { api } = await import('$lib/services/api');
 		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok({ state: 'indexing', processed: 5, total: 10 }));
 		const { indexingStatusStore } = await import('./indexingStatus.svelte');
@@ -137,60 +166,10 @@ describe('indexingStatusStore', () => {
 		vi.mocked(api.getIndexingStatus).mockClear();
 
 		indexingStatusStore.notifyRunStarted({ state: 'scanning' });
+
 		expect(indexingStatusStore.status?.state).toBe('scanning');
+		await vi.advanceTimersByTimeAsync(10_000);
 		expect(api.getIndexingStatus).not.toHaveBeenCalled();
-
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(1);
-
-		unsubscribe();
-	});
-
-	it('keeps polling while files are queued after the scan is done and stops when the queue drains', async () => {
-		const { api } = await import('$lib/services/api');
-		vi.mocked(api.getIndexingStatus)
-			.mockResolvedValueOnce(ok(withDigests({ queued: 2, pending_total: 2 })))
-			.mockResolvedValueOnce(ok(withDigests({ queued: 1, pending_total: 1 })))
-			.mockResolvedValue(ok(withDigests({ ready: 2 })));
-		const { indexingStatusStore } = await import('./indexingStatus.svelte');
-
-		const unsubscribe = indexingStatusStore.subscribe();
-		await indexingStatusStore.refresh();
-
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(2);
-		await vi.advanceTimersByTimeAsync(2000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(3);
-
-		await vi.advanceTimersByTimeAsync(10_000);
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(3);
-		unsubscribe();
-	});
-
-	it('does not poll while the user has paused the queue', async () => {
-		const { api } = await import('$lib/services/api');
-		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok(withDigests({ queued: 2, pending_total: 2, paused: true })));
-		const { indexingStatusStore } = await import('./indexingStatus.svelte');
-
-		const unsubscribe = indexingStatusStore.subscribe();
-		await indexingStatusStore.refresh();
-		await vi.advanceTimersByTimeAsync(10_000);
-
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(1);
-		unsubscribe();
-	});
-
-	it('keeps polling while a choice is awaited', async () => {
-		const { api } = await import('$lib/services/api');
-		const plan = { awaiting_choice: true, files: 30, bytes: 1, min_files: 20, min_bytes: 1 };
-		vi.mocked(api.getIndexingStatus).mockResolvedValue(ok(withDigests({ plan, pending_total: 30, deferred: 30 })));
-		const { indexingStatusStore } = await import('./indexingStatus.svelte');
-
-		const unsubscribe = indexingStatusStore.subscribe();
-		await indexingStatusStore.refresh();
-		await vi.advanceTimersByTimeAsync(4000);
-
-		expect(api.getIndexingStatus).toHaveBeenCalledTimes(3);
 		unsubscribe();
 	});
 

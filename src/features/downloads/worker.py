@@ -151,6 +151,7 @@ class DownloadWorker:
         self.active_downloads: Dict[str, asyncio.Task] = {}
         self.paused_downloads: set = set()
         self.cancelled_downloads: set = set()
+        self._streamed_digests: Dict[str, str] = {}
 
         # HTTP session
         self.session: Optional[aiohttp.ClientSession] = None
@@ -443,6 +444,7 @@ class DownloadWorker:
                 if download.checksum_sha256 and self.settings.verify_checksum and not is_remote:
                     if not await self._verify_checksum(download):
                         raise Exception("Checksum verification failed")
+                self._streamed_digests.pop(download_id, None)
 
                 # Update status to completed
                 self.repo.update_status(download_id, DownloadStatus.COMPLETED)
@@ -564,6 +566,7 @@ class DownloadWorker:
                 await self._refresh_group(download)
 
         finally:
+            self._streamed_digests.pop(download_id, None)
             # Remove from active downloads
             if download_id in self.active_downloads:
                 del self.active_downloads[download_id]
@@ -751,12 +754,20 @@ class DownloadWorker:
 
             # Download in chunks
             chunk_size = self.settings.chunk_size_kb * 1024
+            if response.status != 206:
+                resume_from = 0
+                download.downloaded_bytes = 0
             mode = 'ab' if resume_from > 0 else 'wb'
 
             downloaded = resume_from
             last_update = asyncio.get_event_loop().time()
             last_downloaded = downloaded
             speed = 0.0
+
+            hasher = hashlib.sha256()
+            hashed = 0
+            if resume_from > 0:
+                hashed = await asyncio.to_thread(self._hash_prefix, temp_path, hasher)
 
             with open(temp_path, mode) as f:
                 async for chunk in response.content.iter_chunked(chunk_size):
@@ -770,6 +781,8 @@ class DownloadWorker:
 
                     # Write chunk
                     f.write(chunk)
+                    hasher.update(chunk)
+                    hashed += len(chunk)
                     downloaded += len(chunk)
 
                     # Calculate speed and progress
@@ -805,6 +818,7 @@ class DownloadWorker:
         # when dest_path already exists (a re-download); replace() atomically
         # overwrites on both platforms, matching POSIX rename's behaviour.
         temp_path.replace(dest_path)
+        self._record_streamed_digest(download, dest_path, hasher.hexdigest(), hashed)
 
         # Final progress update
         self.repo.update_progress(download.id, 1.0, download.total_bytes or downloaded, speed)
@@ -1038,6 +1052,26 @@ class DownloadWorker:
                 )
 
     @staticmethod
+    def _hash_prefix(path: Path, hasher: Any) -> int:
+        total = 0
+        with open(path, 'rb') as handle:
+            while chunk := handle.read(4 * 1024 * 1024):
+                hasher.update(chunk)
+                total += len(chunk)
+        return total
+
+    def _record_streamed_digest(self, download: Download, dest_path: Path, digest: str, hashed: int) -> None:
+        try:
+            stat = os.stat(dest_path)
+        except OSError:
+            return
+        if stat.st_size != hashed:
+            return
+        if download.checksum_sha256:
+            self._streamed_digests[download.id] = digest
+        self._seed_hash_cache(str(dest_path), digest, stat.st_size, stat.st_mtime_ns)
+
+    @staticmethod
     def _seed_hash_cache(destination_path: str, digest: str, size: int, mtime_ns: int) -> None:
         try:
             from src.features.models.hash_cache_repository import model_hash_cache_repo
@@ -1069,6 +1103,16 @@ class DownloadWorker:
             return True
 
         logger.info(f"Verifying checksum for {download.filename}")
+
+        streamed = self._streamed_digests.pop(download.id, None)
+        if streamed is not None:
+            if streamed != download.checksum_sha256.lower():
+                logger.error(
+                    f"Checksum mismatch for {download.filename}: expected {download.checksum_sha256.lower()}, got {streamed}"
+                )
+                return False
+            logger.info(f"Checksum verified for {download.filename}")
+            return True
 
         try:
             pacing = self.verify_throttle() if self.verify_throttle is not None else None

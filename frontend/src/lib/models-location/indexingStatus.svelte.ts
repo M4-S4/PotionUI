@@ -1,6 +1,6 @@
 import { api } from '$lib/services/api';
 import { logger } from '$lib/utils/logger';
-import { createVisiblePoll } from '$lib/utils/visiblePoll';
+import { adminWebSocket } from '$lib/services/adminWebsocket';
 import { modelRootsErrorMessage } from '$lib/model-roots/errors';
 import type { APIResponse } from '$lib/types/api';
 import type {
@@ -8,9 +8,8 @@ import type {
 	IndexingLevel,
 	IndexingStatus
 } from '$lib/services/api/models';
-import { indexingDigests, indexingIsActive } from './indexingDisplay';
+import { indexingDigests } from './indexingDisplay';
 
-const POLL_INTERVAL_MS = 2000;
 const STALE_AFTER_MS = 5000;
 const SAVE_FAILED = 'The change could not be saved.';
 
@@ -25,20 +24,17 @@ class IndexingStatusStore {
 	pickRequested = $state(false);
 
 	private subscribers = 0;
-	private poll = createVisiblePoll(() => this.refresh(), POLL_INTERVAL_MS);
+	private detach: Array<() => void> = [];
 	private inFlight: Promise<void> | null = null;
 	private fetchedAt = 0;
 
 	subscribe(): () => void {
 		this.subscribers += 1;
-		if (this.subscribers === 1 || this.isStale()) {
-			void this.refresh();
-		} else if (indexingIsActive(this.status)) {
-			this.ensurePolling();
-		}
+		if (this.subscribers === 1) this.listen();
+		if (this.subscribers === 1 || this.isStale()) void this.refresh();
 		return () => {
 			this.subscribers = Math.max(0, this.subscribers - 1);
-			if (this.subscribers === 0) this.stopPolling();
+			if (this.subscribers === 0) this.unlisten();
 		};
 	}
 
@@ -140,19 +136,26 @@ class IndexingStatusStore {
 	private applyStatus(status: IndexingStatus): void {
 		this.status = status;
 		this.error = null;
-		if (this.subscribers > 0 && indexingIsActive(status)) {
-			this.ensurePolling();
-		} else {
-			this.stopPolling();
+	}
+
+	private listen(): void {
+		this.detach = [
+			adminWebSocket.onIndexingStatus((status) => {
+				this.fetchedAt = Date.now();
+				this.applyStatus(status);
+			}),
+			adminWebSocket.onConnected(() => void this.refresh())
+		];
+		if (!adminWebSocket.isConnected()) {
+			adminWebSocket.connectAsync().catch((e) => {
+				logger.warn('Indexing progress socket did not connect:', e);
+			});
 		}
 	}
 
-	private ensurePolling(): void {
-		this.poll.start();
-	}
-
-	private stopPolling(): void {
-		this.poll.stop();
+	private unlisten(): void {
+		this.detach.forEach((off) => off());
+		this.detach = [];
 	}
 }
 

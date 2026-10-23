@@ -202,6 +202,25 @@ class ModelLocationsRepository:
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def list_unsigned(self, limit: int, min_size: int, exclude: Iterable[str] = ()) -> List[Dict[str, Any]]:
+        with get_cursor() as cursor:
+            cursor.execute(
+                f"SELECT {_LOCATION_COLUMNS} FROM model_locations "
+                "WHERE status = 'present' AND sha256 IS NOT NULL AND quick_sig IS NULL AND size > ? "
+                "AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY size ASC, id ASC LIMIT ?",
+                (min_size, json.dumps(list(exclude)), limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def set_quick_sig(self, location_id: str, quick_sig: str, size: int, mtime_ns: int) -> bool:
+        with get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE model_locations SET quick_sig = ? WHERE id = ? AND quick_sig IS NULL "
+                "AND size = ? AND mtime_ns = ? AND status = 'present'",
+                (quick_sig, location_id, size, mtime_ns),
+            )
+            return cursor.rowcount > 0
+
     def get_by_id(self, location_id: str) -> Optional[Dict[str, Any]]:
         with get_cursor() as cursor:
             cursor.execute(

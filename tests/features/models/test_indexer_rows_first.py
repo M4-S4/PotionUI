@@ -526,7 +526,7 @@ class TestMovedFiles:
 
         result = h.index()
 
-        assert result["contested"] == 1
+        assert result["contested"] == 0
         with caplog.at_level("WARNING", logger="src.features.models.digests"):
             h.settle()
 
@@ -548,7 +548,7 @@ class TestMovedFiles:
 
         result = h.index()
 
-        assert result["contested"] == 1
+        assert result["contested"] == 0
         h.settle()
 
         assert [m.filename for m in _models()] == ["a.safetensors"]
@@ -566,7 +566,7 @@ class TestMovedFiles:
 
         result = h.index()
 
-        assert result["contested"] == 1
+        assert result["contested"] == 0
         h.settle()
 
         assert [m.filename for m in _models()] == ["a.safetensors"]
@@ -592,7 +592,7 @@ class TestMovedFiles:
 
         result = harness.index()
 
-        assert result["contested"] == 1
+        assert result["contested"] == 0
         harness.settle()
 
         assert len(_models()) == 1
@@ -601,6 +601,32 @@ class TestMovedFiles:
         assert _tag_ids(survivor.id) == {tag}
         present = [row for row in harness.locations(survivor) if row["status"] == "present"]
         assert [row["model_type"] for row in present] == ["vae"]
+
+    def test_a_moved_file_takes_over_the_digest_without_being_read(self, settled, monkeypatch):
+        h, path, model, tag, content = settled
+        reads = []
+        real = indexer_module.read_chunks
+        monkeypatch.setattr(indexer_module, "read_chunks", lambda *a, **k: reads.append(1) or real(*a, **k))
+        path.rename(path.with_name("b.safetensors"))
+
+        result = h.index()
+
+        assert (result["contested"], reads, h.queued()) == (0, [], [])
+        survivor = h.model("b.safetensors")
+        assert (survivor.id, survivor.sha256) == (model.id, _sha(content))
+
+    def test_a_moved_file_whose_mtime_changed_is_hashed_again(self, settled):
+        h, path, model, tag, content = settled
+        target = path.with_name("b.safetensors")
+        path.rename(target)
+        stat = target.stat()
+        os.utime(target, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+
+        result = h.index()
+
+        assert result["contested"] == 1
+        h.settle()
+        assert h.model("b.safetensors").id == model.id
 
     def test_a_renamed_file_is_hashed_once_and_not_again_on_the_next_pass(self, settled, monkeypatch):
         h, path, model, tag, content = settled
@@ -646,6 +672,7 @@ class TestAskingAboutAModelThatWasFoldedAway:
         h.settle()
         owner = h.model("a.safetensors")
         monkeypatch.setattr(h.scanner, "_size_twins", lambda *args, **kwargs: [])
+        monkeypatch.setattr(h.scanner, "_moved_from", lambda *args, **kwargs: None)
         path.rename(path.with_name("b.safetensors"))
         h.index()
         return h, owner, h.model("b.safetensors")
@@ -700,6 +727,7 @@ class TestADigestLandingOnAnOrphanedModel:
         owner = h.model("a.safetensors")
         tag = _tag(owner.id)
         monkeypatch.setattr(h.scanner, "_size_twins", lambda *args, **kwargs: [])
+        monkeypatch.setattr(h.scanner, "_moved_from", lambda *args, **kwargs: None)
         path.rename(path.with_name("b.safetensors"))
         result = h.index()
         assert result["contested"] == 0
@@ -730,6 +758,7 @@ class TestADigestLandingOnAnOrphanedModel:
         h.settle()
         taken = model_repo.create(Model(filename="b.safetensors", file_size=1, sha256="f" * 64, model_type="lora"))
         monkeypatch.setattr(h.scanner, "_size_twins", lambda *args, **kwargs: [])
+        monkeypatch.setattr(h.scanner, "_moved_from", lambda *args, **kwargs: None)
         target = h.home / "vae" / "b.safetensors"
         target.parent.mkdir(parents=True, exist_ok=True)
         old.rename(target)

@@ -6,6 +6,15 @@ const auth = writable<{ user: { account_type: 'USER' | 'ADMIN' } | null }>({ use
 
 vi.mock('$lib/stores/auth', () => ({ authStore: auth }));
 
+vi.mock('$lib/services/adminWebsocket', () => ({
+	adminWebSocket: {
+		onIndexingStatus: () => () => {},
+		onConnected: () => () => {},
+		isConnected: () => true,
+		connectAsync: async () => {}
+	}
+}));
+
 vi.mock('$lib/services/api', () => ({
 	api: {
 		getIndexingStatus: vi.fn(),

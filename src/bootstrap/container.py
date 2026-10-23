@@ -284,6 +284,7 @@ if TYPE_CHECKING:
     from src.features.notifications.repository import NotificationRepository
     from src.platform.websocket.download_connection_hub import DownloadConnectionHub
     from src.features.models.repository import ModelRepository
+    from src.features.models.progress_broadcast import IndexingProgressBroadcaster
     from src.features.tags.repository import TagRepository
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
@@ -354,6 +355,7 @@ class AppContainer:
     # Compute provisioning
     provisioned_compute_repository: "ProvisionedComputeRepository"
     compute_status_monitor: "ComputeStatusMonitor"
+    indexing_progress_broadcaster: "IndexingProgressBroadcaster"
     provisioning_controller: "ProvisioningController"
 
     # LLM
@@ -1275,6 +1277,21 @@ def build_container() -> AppContainer:
     )
 
     backend_registry.bind_model_digests(model_index_manager.digests)
+
+    from src.features.models.progress_broadcast import IndexingProgressBroadcaster, indexing_is_active
+    from src.platform.websocket.admin_connection_hub import admin_connection_hub as _indexing_hub
+
+    indexing_progress_broadcaster = IndexingProgressBroadcaster(
+        status=model_index_manager.indexing.status,
+        probe=lambda: (
+            model_index_manager.indexing.state,
+            model_index_manager.digests.version,
+            model_index_manager.digests.pending_count(),
+            model_index_manager.digests.paused,
+        ),
+        is_active=indexing_is_active,
+        hub=_indexing_hub,
+    )
 
     model_roots_manager = ModelRootsManager(
         repository=model_root_repository,

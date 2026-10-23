@@ -20,7 +20,11 @@ vi.mock('$lib/services/admin-api', () => ({
 }));
 vi.mock('$lib/services/adminWebsocket', () => ({
 	adminWebSocket: {
-		onComputeStatus: () => () => {}
+		onComputeStatus: () => () => {},
+		onIndexingStatus: () => () => {},
+		onConnected: () => () => {},
+		isConnected: () => true,
+		connectAsync: async () => {}
 	}
 }));
 
