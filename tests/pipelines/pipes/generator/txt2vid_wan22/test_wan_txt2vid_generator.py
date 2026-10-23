@@ -1172,6 +1172,116 @@ def test_router_keeps_the_allocator_pool_when_nothing_was_evicted(monkeypatch):
     assert calls == []
 
 
+class _LoggedPlaceDiT(_PlaceDiT):
+    def __init__(self, tag, events, resident_gb=None, device="cpu"):
+        super().__init__(tag, est_gb=14.29)
+        self.events = events
+        self.device = device
+        if resident_gb is not None:
+            self._streamer = SimpleNamespace(active=True)
+            self.last_stream_plan = SimpleNamespace(resident_gb=resident_gb, streamed_gb=14.29 - resident_gb)
+
+    def offload(self):
+        super().offload()
+        self.events.append(f"offload {self.tag}")
+
+
+class _ParkablePlaceDiT(_LoggedPlaceDiT):
+    is_streaming = True
+
+    def __init__(self, tag, events, parks):
+        super().__init__(tag, events, resident_gb=5.79)
+        self.parks = parks
+
+    def park(self):
+        self.events.append(f"park {self.tag}")
+        return self.parks
+
+
+def _switch_experts(monkeypatch, high, events, host_ram_gb=62.7, parking=True):
+    def _free(device):
+        events.append("free")
+        return 10.0
+
+    _patch_placement(monkeypatch, free_gb=10.0)
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(_wan_mod, "logger", recorder)
+    monkeypatch.setattr(_wan_mod, "free_vram_gb", _free)
+    monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
+    monkeypatch.setattr(_wan_mod, "get_system_memory",
+                        lambda: SimpleNamespace(total_gb=host_ram_gb, available_gb=host_ram_gb / 2))
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "native_park_experts", parking)
+    low = _LoggedPlaceDiT("low", events)
+    shape = (1, 16, 5, 60, 104)
+    router = _ExpertRouter(high, low, boundary=0.875, device="cuda:0", latents_shape=shape)
+    router(torch.zeros(shape), torch.tensor([0.95]), {"context": torch.zeros(1, 2, 4)})
+    events.clear()
+    router(torch.zeros(shape), torch.tensor([0.5]), {"context": torch.zeros(1, 2, 4)})
+    return [line for line in recorder.infos if "parked" in line or "torn down" in line]
+
+
+def test_router_parks_the_outgoing_expert_instead_of_tearing_it_down(monkeypatch):
+    events = []
+    lines = _switch_experts(monkeypatch, _ParkablePlaceDiT("high", events, parks=True), events)
+
+    assert events[:2] == ["park high", "free"]
+    assert "offload high" not in events and "empty_cache" not in events
+    assert lines == ["[WAN PLACEMENT] high expert parked pinned: up to 28.58GB pinned with the next expert, "
+                     "limit 37.62GB"]
+
+
+def test_router_tears_the_outgoing_expert_down_when_it_cannot_be_parked(monkeypatch):
+    events = []
+    lines = _switch_experts(monkeypatch, _ParkablePlaceDiT("high", events, parks=False), events)
+
+    assert events[:3] == ["park high", "offload high", "free"]
+    assert lines == ["[WAN PLACEMENT] high expert torn down: free host RAM would fall under the streaming reserve"]
+
+
+def test_router_never_parks_when_both_experts_would_pin_over_sixty_percent_of_host_ram(monkeypatch):
+    events = []
+    lines = _switch_experts(monkeypatch, _ParkablePlaceDiT("high", events, parks=True), events, host_ram_gb=46.0)
+
+    assert events[:2] == ["offload high", "free"]
+    assert lines == ["[WAN PLACEMENT] high expert torn down: up to 28.58GB pinned with the next expert, "
+                     "over 27.60GB (60% of host RAM)"]
+
+
+def test_router_never_parks_when_parking_is_off(monkeypatch):
+    events = []
+    lines = _switch_experts(monkeypatch, _ParkablePlaceDiT("high", events, parks=True), events, parking=False)
+
+    assert events[:2] == ["offload high", "free"]
+    assert lines == ["[WAN PLACEMENT] high expert torn down: parking is off (native_park_experts)"]
+
+
+def test_router_tears_down_an_expert_that_was_not_streamed(monkeypatch):
+    events = []
+    lines = _switch_experts(monkeypatch, _LoggedPlaceDiT("high", events, device="cuda:0"), events)
+
+    assert events[:2] == ["offload high", "free"]
+    assert "empty_cache" not in events
+    assert lines == []
+
+
+@patch("src.pipelines.pipes.generator.txt2vid_wan22.main.encode_frames_to_mp4", lambda frames, path, fps: path)
+@patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise", lambda mf, latents, c, u, **k: latents)
+def test_generate_one_hands_the_last_resident_experts_pool_back_before_the_vae_decode(monkeypatch):
+    events = []
+    pipe = _pipe(device="cpu", preview=False, resolution="64x64", frames=5)
+    ctx = pipe.build_context(_pipe_input())
+    ctx.extra.router.active = _ParkablePlaceDiT("low", events, parks=True)
+    monkeypatch.setattr(_wan_mod.torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(_wan_mod.torch.cuda, "empty_cache", lambda: events.append("empty_cache"))
+    monkeypatch.setattr(_wan_mod, "_decode_video",
+                        lambda c, latent: events.append("decode") or np.zeros((1, 64, 64, 3), dtype=np.uint8))
+
+    pipe.generate_one(ctx, index=0, seed=1, progress=_FakeProgress())
+
+    assert events == ["offload low", "empty_cache", "decode"]
+
+
 def test_router_stream_driver_oom_falls_back_to_zero_budget(monkeypatch):
     _patch_placement(monkeypatch, free_gb=30.0)
 

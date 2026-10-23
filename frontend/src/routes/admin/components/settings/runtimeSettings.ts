@@ -153,6 +153,20 @@ export const RUNTIME_SETTINGS: RuntimeSettingDescriptor[] = [
 		defaultValue: false
 	},
 	{
+		key: 'native_park_experts',
+		applies: 'live',
+		group: 'memory',
+		scope: 'backend',
+		kind: 'bool',
+		label: 'Keep the idle expert pinned',
+		description:
+			'Wan 2.2 14B samples with two experts. When the first one streams from RAM, it stays page-locked while the second one runs, so the next generation places it again in under a second.',
+		guidance:
+			'Saves about 10 s per Wan 14B generation. Turn it off if the host runs short of RAM: the idle expert then holds up to its full size in page-locked memory.',
+		defaultLabel: 'On',
+		defaultValue: true
+	},
+	{
 		key: 'native_fp8_quantize',
 		applies: 'next_load',
 		group: 'memory',

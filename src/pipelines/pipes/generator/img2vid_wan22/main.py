@@ -394,8 +394,7 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
             traceback.clear_frames(exc.__traceback__)
             raise
         finally:
-            if c.forward.router.active is not None:
-                c.forward.router.active.offload()
+            c.forward.router.offload_active()
 
         frames = _decode_video(c, latent)
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name

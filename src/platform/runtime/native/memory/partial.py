@@ -329,6 +329,7 @@ class ModuleStreamer:
         # releasing back to the OS (the co-tenant-OOM degrade pins ~the whole DiT).
         self._streamed_bytes = 0
         self._pinned = False
+        self._parked = False
         # Prefetch toggle: ``None`` -> read ``$NATIVE_STREAM_PREFETCH`` (default off);
         # an explicit bool overrides (used by tests). ``_prefetcher`` is only built
         # when streaming on a real CUDA device with the toggle on.
@@ -402,6 +403,7 @@ class ModuleStreamer:
         streamed_ids = {id_ for id_ in map(_module_id_by_name(self.root), plan.streamed_names)}
         can_pin = pin and torch.cuda.is_available()
         self._remove_stagers()
+        self._parked = False
         self._streamed = []
         self._pinned = can_pin
         streamed_bytes = 0
@@ -536,6 +538,9 @@ class ModuleStreamer:
                     pending_bytes = 0
         if drain and pending_bytes:
             self._release_vacated_pinned(pending_bytes)
+        self._finish_teardown()
+
+    def _finish_teardown(self) -> None:
         for module in self._streamed:
             # Revert both flags to their namespace class defaults (e.g.
             # comfy_cast_weights False for plain bf16) so a later fully-resident
@@ -545,6 +550,45 @@ class ModuleStreamer:
                 del module.stream_non_blocking
         self._streamed = []
         self._active = False
+
+    @property
+    def parked(self) -> bool:
+        return self._parked
+
+    @property
+    def parked_gb(self) -> float:
+        return _module_total_bytes(self.root) / _BYTES_PER_GB if self._parked else 0.0
+
+    def park(self) -> bool:
+        if not self._active or not self._pinned:
+            return False
+        self._teardown_prefetch()
+        self._remove_stagers()
+        try:
+            for module in self.root.modules():
+                _park_own_tensors(module)
+        except PinnedMemoryUnavailableError as exc:
+            _note_pin_fallback(exc)
+            for module in self.root.modules():
+                _move_own_tensors(module, "cpu", pin=False)
+                _unpin_own_buffers(module)
+            self._finish_teardown()
+            return False
+        _release_idle_vram()
+        self._finish_teardown()
+        self._parked = True
+        return True
+
+    def unpark(self) -> None:
+        if not self._parked:
+            return
+        for module in self.root.modules():
+            _move_own_tensors(module, "cpu", pin=False)
+            _unpin_own_buffers(module)
+        self._parked = False
+
+    def forget_parked(self) -> None:
+        self._parked = False
 
     def _release_vacated_pinned(self, drained_bytes: int) -> None:
         """Return the pinned blocks the teardown sweep has vacated so far.
@@ -854,6 +898,19 @@ def _unpin_own_buffers(module: nn.Module) -> None:
         plain = torch.empty_like(buf, pin_memory=False)
         plain.copy_(buf)
         module._buffers[name] = plain
+
+
+def _park_own_tensors(module: nn.Module) -> None:
+    for p in module.parameters(recurse=False):
+        data = p.data
+        if data.device.type != "cpu":
+            data = data.to("cpu")
+        if not data.is_pinned():
+            data = _pin(data)
+        p.data = data
+    for name, buf in list(module._buffers.items()):
+        if buf is not None and buf.device.type != "cpu":
+            module._buffers[name] = buf.to("cpu")
 
 
 def _move_own_tensors(module: nn.Module, device: str | torch.device, *, pin: bool) -> None:
