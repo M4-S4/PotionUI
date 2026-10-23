@@ -55,6 +55,8 @@ export interface CancelRetirementTabsStore extends Readable<{ tabs: Tab[]; activ
 	updateTab(tabId: string, updates: Partial<Tab>): void;
 }
 
+export const LATE_CANCEL_NOTICE_WINDOW_MS = 120_000;
+
 export interface CancelRetirementDeps {
 	tabsStore: CancelRetirementTabsStore;
 	/** The page's unified `unsubscribeGeneration` -- releases subscription
@@ -109,7 +111,9 @@ export function applyConfirmedCancellations(
 						isGenerating: false,
 						currentGeneration: null,
 						currentProgress: null,
-						...(cancelNotice ? { cancelNotice } : {})
+						...(cancelNotice
+							? { cancelNotice }
+							: { cancelledGenerationId: tab.activeGenerationId })
 					}
 				: {})
 		}
@@ -162,9 +166,22 @@ export function retireConfirmedCancellations(
 		// Re-read: the Director-link removal above (when it happened) can
 		// itself be what makes this id fully unclaimed.
 		const latestTabs = get(deps.tabsStore).tabs;
+		if (latestTabs.some((tab) => tab.generation.cancelledGenerationId === generationId)) {
+			setTimeout(() => releaseLateNoticeHold(generationId, deps), LATE_CANCEL_NOTICE_WINDOW_MS);
+			continue;
+		}
 		const stillClaimed = latestTabs.some((tab) => tabClaimedGenerationIds(tab).has(generationId));
 		if (!stillClaimed) {
 			retireGeneration(generationId, deps.unsubscribe);
 		}
 	}
+}
+
+function releaseLateNoticeHold(generationId: string, deps: CancelRetirementDeps): void {
+	for (const tab of get(deps.tabsStore).tabs) {
+		if (tab.generation.cancelledGenerationId !== generationId) continue;
+		deps.tabsStore.updateTab(tab.id, { generation: { ...tab.generation, cancelledGenerationId: null } });
+	}
+	const stillClaimed = get(deps.tabsStore).tabs.some((tab) => tabClaimedGenerationIds(tab).has(generationId));
+	if (!stillClaimed) retireGeneration(generationId, deps.unsubscribe);
 }
