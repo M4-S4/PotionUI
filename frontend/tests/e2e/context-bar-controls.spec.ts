@@ -21,6 +21,10 @@ async function box(locator: Locator) {
 	return found!;
 }
 
+async function layoutHeight(locator: Locator): Promise<number> {
+	return locator.evaluate((el) => (el as HTMLElement).offsetHeight);
+}
+
 async function fillOf(locator: Locator): Promise<string> {
 	return locator.evaluate((el) => getComputedStyle(el).backgroundColor);
 }
@@ -74,9 +78,7 @@ test('a modal header is 56px tall on desktop', async ({ page }) => {
 	await page.locator('button[aria-label="Save as a new session"]').click();
 	const dialog = page.getByRole('dialog', { name: 'Save New Session' });
 	await expect(dialog).toBeVisible();
-	const header = await box(dialog.locator(':scope > div').first());
-	expect(header.height).toBeCloseTo(56, 0);
-	const close = await box(dialog.getByRole('button', { name: 'Close modal' }));
-	expect(close.height).toBeCloseTo(32, 0);
+	expect(await layoutHeight(dialog.locator(':scope > div').first())).toBe(56);
+	expect(await layoutHeight(dialog.getByRole('button', { name: 'Close modal' }))).toBe(32);
 	await screenshot(page, JOURNEY, '03-modal-header');
 });
