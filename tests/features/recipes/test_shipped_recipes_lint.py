@@ -8,7 +8,12 @@ recipe whose smoke generates video declares `smoke.timeout_seconds`, is named
 with its cold smoke time in `VIDEO_SMOKES_MEASURED_WITHIN_THE_DEFAULT` when one
 and a half times that time fits the default, or waits for a measure in
 `VIDEO_SMOKES_AWAITING_A_MEASURE` with its reason. The recipes whose smoke
-needs more than the default are pinned in `LONG_SMOKES`."""
+needs more than the default are pinned in `LONG_SMOKES`.
+
+A smoke that runs on a Video Director document (every preset mode that shows
+the Director with a `t2v` sub-mode) takes its clip length from that document's
+duration, the shortest the preset allows, so a `frames` or `duration` field in
+its `smoke.form` would never be read: such a field is a lint failure here."""
 
 from pathlib import Path
 
@@ -18,6 +23,7 @@ import yaml
 
 from scripts import recipe_lint
 from src.features.recipes.catalog import plugin_recipe_roots
+from src.features.recipes.executors._fixture_form import fixture_video_director_capabilities
 from src.features.recipes.schema import DEFAULT_SMOKE_TIMEOUT_SECONDS, parse_recipe
 from src.platform.plugins.loader import PluginLoader
 
@@ -73,6 +79,13 @@ def smokes(manifests):
 
 def _is_video(smoke, preset_index):
     return smoke.mode == "video" or preset_index[smoke.preset_id].category == "video"
+
+
+def _runs_on_a_director_document(smoke, preset_index):
+    return fixture_video_director_capabilities(preset_index[smoke.preset_id], smoke.mode) is not None
+
+
+CLIP_LENGTH_FIELDS = {"frames", "duration", "num_frames"}
 
 
 def _video_smokes_on_the_default(smokes, preset_index):
@@ -131,3 +144,17 @@ def test_a_measured_smoke_keeps_the_default_only_with_half_its_time_to_spare(smo
 
 def test_the_smokes_known_to_run_past_five_minutes_are_seen_as_video_smokes(smokes, preset_index):
     assert all(_is_video(smokes[recipe_id][0], preset_index) for recipe_id in LONG_SMOKES)
+
+
+def test_a_smoke_on_a_director_document_sets_no_clip_length_in_its_form(smokes, preset_index):
+    director_smokes = {
+        recipe_id for recipe_id, (smoke, _) in smokes.items() if _runs_on_a_director_document(smoke, preset_index)
+    }
+    assert {"minimax-h3-starter", "minimax-h3-fast-starter"} <= director_smokes
+
+    dead_fields = {
+        recipe_id: sorted(CLIP_LENGTH_FIELDS & set((smokes[recipe_id][0].form or {}).keys()))
+        for recipe_id in director_smokes
+    }
+
+    assert {recipe_id: fields for recipe_id, fields in dead_fields.items() if fields} == {}
