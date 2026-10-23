@@ -27,6 +27,7 @@ PLUGINS = REPO_ROOT / "content" / "plugins" / "marketplace"
 
 LONG_SMOKES = {
     "ltx25-starter": 600,
+    "minimax-h3-fast-starter": 400,
     "vp-wan22-14b-i2v": 600,
     "vp-wan22-14b-lightning-12gb": 600,
     "wan22-starter": 600,
@@ -34,8 +35,7 @@ LONG_SMOKES = {
 
 VIDEO_SMOKES_AWAITING_A_MEASURE = {
     "ltx2-starter": "smoke duration on 12 GB unmeasured; LTX-2.3 22B ran out of GPU memory there (docs/user/hardware-requirements.md)",
-    "minimax-h3-fast-starter": "smoke duration on 12 GB unmeasured; the plugin's 12 GB preset needs 6 min 11 s for a 5 s clip (docs/user/hardware-requirements.md)",
-    "minimax-h3-starter": "smoke duration on 12 GB unmeasured; the plugin's 12 GB preset needs 9 min 48 s for a 5 s clip (docs/user/hardware-requirements.md)",
+    "minimax-h3-starter": "smoke duration on 12 GB unmeasured: its fp8 DiT (21 GB) is not on the measuring host; minimax-h3-fast-starter took 265 s for the same 1 s smoke",
 }
 
 VIDEO_SMOKES_MEASURED_WITHIN_THE_DEFAULT = {
