@@ -49,7 +49,7 @@ def _build(root: Path, cwd: Path, *args: str) -> subprocess.CompletedProcess:
 def _dist_files(marketplace: Path) -> dict[str, Path]:
     return {
         str(path.relative_to(marketplace)): path
-        for path in marketplace.glob("*/frontend/dist/*")
+        for path in marketplace.glob("*/frontend/dist/**/*")
         if path.is_file()
     }
 
