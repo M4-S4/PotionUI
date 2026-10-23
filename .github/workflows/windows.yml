@@ -368,7 +368,7 @@ jobs:
         working-directory: frontend
         env:
           E2E_BUILD_DIR: ${{ github.workspace }}\frontend\.e2e-build
-        run: node ../scripts/build-frontend-lowercase-drive.mjs npm run build
+        run: node ../tests/ci/build-frontend-lowercase-drive.mjs npm run build
 
       - name: Upload frontend build
         uses: actions/upload-artifact@v4
