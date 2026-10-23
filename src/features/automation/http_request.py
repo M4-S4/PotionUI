@@ -287,7 +287,7 @@ async def execute(
     hops = 0
     while True:
         validate_url(url, spec.allow_private_targets)
-        remaining = deadline - clock()
+        remaining = min(timeout_s, deadline - clock())
         if remaining <= 0:
             raise HttpRequestError(f"Timed out after {timeout_s:g}s.")
         prepared = PreparedRequest(method, url, headers, payload, remaining, spec.allow_private_targets)

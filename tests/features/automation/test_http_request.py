@@ -141,7 +141,7 @@ async def test_post_is_never_retried():
 @pytest.mark.asyncio
 async def test_timeout_is_capped_and_passed_to_the_transport():
     stub = StubTransport(json_response({}))
-    await execute(RequestSpec("GET", "https://x.example.com", timeout_s=9999), stub)
+    await execute(RequestSpec("GET", "https://x.example.com", timeout_s=9999), stub, clock=lambda: 262073.55512919227)
     assert stub.calls[0].timeout_s <= hr.MAX_TIMEOUT_S
 
 
