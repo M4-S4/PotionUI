@@ -244,14 +244,26 @@ def _resolve_model_fields(
         form_data[name] = make_model_ref(model.id)
 
 
-def _fixture_video_director(
-    preset_template, mode: str, form_data: Dict[str, Any], prompt: Optional[str]
-) -> Optional[Dict[str, Any]]:
+def fixture_video_director_capabilities(preset_template, mode: str) -> Optional[Dict[str, Any]]:
+    """The Video Director capabilities a fixture document for `mode` is built
+    from, or `None` when the mode shows no Director with a `t2v` sub-mode.
+    When a document is built, its `settings.duration` is what the preset's
+    pipeline reads for the clip length, so a `frames`/`duration` field in a
+    recipe's `smoke.form` is never read (`test_shipped_recipes_lint.py`)."""
     capabilities = (getattr(preset_template, "vars", None) or {}).get("video_director") or {}
     if mode not in (capabilities.get("preset_modes") or []):
         return None
     capabilities = apply_preset_mode_overlay(capabilities, mode)
     if "t2v" not in (capabilities.get("modes") or {}):
+        return None
+    return capabilities
+
+
+def _fixture_video_director(
+    preset_template, mode: str, form_data: Dict[str, Any], prompt: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    capabilities = fixture_video_director_capabilities(preset_template, mode)
+    if capabilities is None:
         return None
     limits = capabilities.get("limits") or {}
     durations = allowed_durations(limits)

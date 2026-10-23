@@ -22,10 +22,12 @@ condition rows stay clean (`t = 1.0`).
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from src.pipelines.pipes._shared.media.video_encode import AudioTrack
 
@@ -36,6 +38,45 @@ AUDIO_CHANNELS = 2
 # The audio VAE's own rate (`vae.config.sampling_rate`); anything else has to
 # be resampled onto it before encoding.
 AUDIO_SAMPLE_RATE = 32000
+
+RESAMPLE_LOWPASS_FILTER_WIDTH = 6
+RESAMPLE_ROLLOFF = 0.99
+
+
+def resample_waveform(waveform: Tensor, *, sample_rate: int, target_sample_rate: int) -> Tensor:
+    """`(channels, samples)` at `sample_rate` -> `(channels, ceil(samples *
+    target / source))` at `target_sample_rate`, by a polyphase windowed-sinc
+    interpolation in plain torch: the rates are reduced by their gcd, one
+    Hann-windowed sinc kernel is built per output phase, and a strided
+    `conv1d` applies them all in a single pass. The kernel (6 zero crossings,
+    0.99 rolloff) is the one `torchaudio.functional.resample` builds, so the
+    output is the reference's within float rounding, without the dependency.
+    """
+    waveform = torch.as_tensor(waveform)
+    if sample_rate == target_sample_rate:
+        return waveform
+    if sample_rate <= 0 or target_sample_rate <= 0:
+        raise ValueError(f"sample rates must be positive, got {sample_rate} -> {target_sample_rate}")
+    divisor = math.gcd(int(sample_rate), int(target_sample_rate))
+    source = int(sample_rate) // divisor
+    target = int(target_sample_rate) // divisor
+    dtype = waveform.dtype if waveform.is_floating_point() else torch.float32
+    device = waveform.device
+
+    base_freq = min(source, target) * RESAMPLE_ROLLOFF
+    width = math.ceil(RESAMPLE_LOWPASS_FILTER_WIDTH * source / base_freq)
+    idx = torch.arange(-width, width + source, dtype=dtype, device=device)[None, None] / source
+    t = torch.arange(0, -target, -1, dtype=dtype, device=device)[:, None, None] / target + idx
+    t = (t * base_freq).clamp_(-RESAMPLE_LOWPASS_FILTER_WIDTH, RESAMPLE_LOWPASS_FILTER_WIDTH)
+    window = torch.cos(t * math.pi / RESAMPLE_LOWPASS_FILTER_WIDTH / 2) ** 2
+    t = t * math.pi
+    kernel = torch.where(t == 0, torch.ones_like(t), t.sin() / t) * window * (base_freq / source)
+
+    channels, length = waveform.shape
+    padded = F.pad(waveform.to(dtype), (width, width + source))
+    resampled = F.conv1d(padded[:, None], kernel, stride=source)
+    resampled = resampled.transpose(1, 2).reshape(channels, -1)
+    return resampled[:, : math.ceil(target * length / source)]
 
 
 def unpack_audio_rows(rows: Tensor, *, num_audio_latents: int, audio_channels: int = AUDIO_CHANNELS) -> Tensor:
@@ -73,9 +114,9 @@ def normalize_condition_waveform(
 
     Truncation is applied at the SOURCE rate and the resample is a single pass
     afterwards, which is the order the reference uses; a mono waveform is
-    upmixed by repeating its channel. Resampling needs `torchaudio` (the
-    reference's only resampler too) -- pass a waveform already at
-    `target_sample_rate` to do without it.
+    upmixed by repeating its channel. Any source rate is accepted: the
+    resample is :func:`resample_waveform`'s own windowed sinc, the same
+    kernel the reference gets from `torchaudio`, which is not needed here.
     """
     waveform = torch.as_tensor(waveform)
     if waveform.ndim != 2 or waveform.shape[0] not in (1, audio_channels):
@@ -88,17 +129,7 @@ def normalize_condition_waveform(
         waveform = waveform[:, : int(max_duration * sample_rate)]
     if waveform.shape[0] != audio_channels:
         waveform = waveform.expand(audio_channels, -1).contiguous()
-    if sample_rate == target_sample_rate:
-        return waveform
-
-    try:
-        import torchaudio
-    except ImportError as error:
-        raise ImportError(
-            f"Resampling a MiniMax-H3 condition soundtrack from {sample_rate} Hz to {target_sample_rate} Hz "
-            "needs `torchaudio`. Pass a waveform already at the audio VAE's sample rate to do without it."
-        ) from error
-    return torchaudio.transforms.Resample(sample_rate, target_sample_rate)(waveform)
+    return resample_waveform(waveform, sample_rate=sample_rate, target_sample_rate=target_sample_rate)
 
 
 def _fit_condition_latents(latents: Tensor, num_condition_audio_latents: int) -> Tensor:
