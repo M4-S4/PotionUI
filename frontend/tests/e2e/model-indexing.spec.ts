@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, screenshot, fulfillJson } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
 
 const JOURNEY = 'model-indexing';
 
@@ -188,6 +188,7 @@ function rootsOverview(status: Json): Json {
 async function installMocks(page: Page, initial: Json): Promise<Mock> {
 	const mock: Mock = { status: initial, settings: [], digestRequests: [], pendingQueries: [], pauses: 0, resumes: 0 };
 	const d = () => mock.status.digests as Json;
+	const socket = await mockAdminSocket(page, () => mock.status);
 
 	await page.route('**/api/models/roots', (route) => {
 		if (route.request().method() !== 'GET') return route.continue();
@@ -212,21 +213,25 @@ async function installMocks(page: Page, initial: Json): Promise<Mock> {
 					d().policy = body.policy;
 					d().plan = { ...d().plan, awaiting_choice: false };
 				}
+				await socket.pushIndexingStatus(mock.status);
 				return fulfillJson(route, { success: true, data: { level: d().level, policy: d().policy } });
 			}
 			if (path === '/api/models/indexing/pause' && method === 'POST') {
 				mock.pauses += 1;
 				d().paused = true;
+				await socket.pushIndexingStatus(mock.status);
 				return fulfillJson(route, { success: true, data: mock.status });
 			}
 			if (path === '/api/models/indexing/resume' && method === 'POST') {
 				mock.resumes += 1;
 				d().paused = false;
+				await socket.pushIndexingStatus(mock.status);
 				return fulfillJson(route, { success: true, data: mock.status });
 			}
 			if (path === '/api/models/indexing/digests' && method === 'POST') {
 				mock.digestRequests.push(request.postDataJSON() as Json);
 				d().plan = { ...d().plan, awaiting_choice: false };
+				await socket.pushIndexingStatus(mock.status);
 				return fulfillJson(route, { success: true, data: mock.status });
 			}
 			if (path === '/api/models/indexing/pending' && method === 'GET') {

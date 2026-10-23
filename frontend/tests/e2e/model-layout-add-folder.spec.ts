@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot, fulfillJson } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
 
 const JOURNEY = 'model-layout-add-folder';
 
@@ -129,6 +129,7 @@ async function setup(
 	await page.route('**/api/models/indexing/status', (route) =>
 		fulfillJson(route, { success: true, data: { state: 'idle' } })
 	);
+	await mockAdminSocket(page, () => ({ state: 'idle' }));
 	return { detects, creates };
 }
 
