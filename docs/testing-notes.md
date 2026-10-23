@@ -128,8 +128,11 @@ What it proves:
   layering, setup/recipes suites, preset lint budget).
 - `frontend` — `npm run check`, `test:unit`, `test:component`, `build`, then
   `build:plugins` with the same check as the Linux `plugin-dist` job (a
-  changed or uncommitted `frontend/dist/` file fails): a plugin bundle that
-  builds differently on Windows is drift, not noise.
+  changed or uncommitted `frontend/dist/` file fails the step): a plugin
+  bundle that builds differently on Windows is drift, not noise. The step does
+  not fail the job (`continue-on-error`); when it fails, the job prints the
+  dist diff and uploads the Windows-built dists as the `plugin-dist-windows`
+  artifact (kept 7 days). The Linux `plugin-dist` job is the blocking check.
 - `e2e` — the HTTP journeys (`tests/e2e/journeys/run.py`) and the Playwright
   UI journeys (`tests/e2e/ui/run.py`, Chromium) against a throwaway backend.
   Linux CI does not run these; Windows is the only place they run unattended.
@@ -142,7 +145,10 @@ Every native command in this workflow runs under `shell: cmd`, never `pwsh`:
 pwsh's `$ErrorActionPreference = 'stop'` turns a native process's first
 stderr line into a step failure, and console-signal quirks kill a pwsh step
 silently. Long outputs go to a log file and are `type`d back so a killed
-step still uploads what it had.
+step still uploads what it had. The one exception is the `rest` shard's
+Chocolatey ffmpeg install, a pwsh loop that reads `$LASTEXITCODE` itself and
+retries up to four times, 30, 60 and 90 s apart, because the community feed
+sometimes answers 504.
 
 What it does **not** prove:
 
