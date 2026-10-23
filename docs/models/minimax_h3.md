@@ -178,7 +178,7 @@ The DiT alone is a 20B-parameter pruned checkpoint or a 33B full checkpoint (per
 - **Text-to-video figures** of the 12 GB presets, MiniMax-H3-Fast included (time, engine VRAM peak, process RAM and the container RAM limits they ran under), are in [Hardware Requirements](../user/hardware-requirements.md).
 - **Checkpoint.** The measurements use the pruned 20B DiT only.
 - **Recipe smoke.** The recipe smoke for the plugin's H3 recipes was removed: a run exceeds the 300 s default timeout of a smoke.
-- **Known behaviour.** A run that fails leaves no `generation_stats` row, and cancelling a run does not interrupt the sampling step in progress.
+- **Known behaviour.** A run that fails leaves no `generation_stats` row. Cancelling a run stops the DiT before its next block (the two blocks of the text refiner are not checked), so a cancelled run no longer waits for the end of a step that can last minutes when the DiT spills into shared memory; it still waits for the DiT's teardown.
 
 The weights carry a territorial license restriction, so read it before downloading them: the MiniMax H3 Community License excludes the European Union, the United Kingdom, the United States and the Republic of Korea, outputs included (see "Limitations" above). It is a warning about where the weights and their outputs may be used, not a technical limit.
 
