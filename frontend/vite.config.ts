@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
-import { enterCanonicalCwd } from './canonicalCwd';
+import { rerunFromCanonicalCwd } from './canonicalCwd';
 
-enterCanonicalCwd();
+rerunFromCanonicalCwd();
 
 const { sveltekit } = await import('@sveltejs/kit/vite');
 
