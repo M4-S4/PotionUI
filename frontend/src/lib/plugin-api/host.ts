@@ -10,6 +10,7 @@
  * `plugin-api/componentRegistry.ts` (`initGlobalRegistry`) - that file now
  * only owns the mountable-component map (`registerComponent`/`getRegistry`).
  */
+import { get } from 'svelte/store';
 import * as formReactions from '$lib/form/reactions';
 import { getRegistry, type MountableComponentRegistry } from '$lib/plugin-api/componentRegistry';
 import { registerHostUiComponents } from '$lib/plugin-api/hostUi';
@@ -29,6 +30,16 @@ import { isEditableTarget, isTypingInField } from '$lib/utils/editableTarget';
 import { prepareRequestFromSession } from '$lib/generation/prepareRequest';
 import { createHostFetchApi, type PluginHostFetchApi } from './hostApi';
 import { createImageEditorApi, type PluginImageEditorApi } from '$lib/components/imageEditor/registries';
+import { chatPanelStore, isChatPanelOpen, type ChatPrefillOptions } from '$lib/stores/chatPanel';
+import { holdKeyboard, releaseKeyboardHold } from '$lib/services/keyboard';
+import {
+	createGenerationSocket,
+	type MessageHandler,
+	type WebSocketMessage,
+	type WebSocketService
+} from '$lib/services/websocket';
+import { registerIcon } from '$lib/utils/IconLibrary';
+import { logger } from '$lib/utils/logger';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -79,11 +90,49 @@ export interface PluginChatApi {
 	 */
 	declareMode: typeof declareMode;
 	/**
-	 * Run `handler` with the result of an approved/confirmed tool call named
-	 * `toolName`, before any core hardcoded handling for that tool (which is
-	 * skipped once a handler is registered). Returns an unregister function.
+	 * Run `handler` with the JSON result of a tool call named `toolName`,
+	 * whether the user approved it or it ran without approval, before any
+	 * core hardcoded handling for that tool (which is skipped once a handler
+	 * is registered). Each result is delivered once. Returns an unregister
+	 * function.
 	 */
 	onToolApplied: typeof onToolApplied;
+	open(): void;
+	close(): void;
+	toggle(): void;
+	isOpen(): boolean;
+	/**
+	 * Put `text` in the chat composer without sending it, opening the panel
+	 * and focusing the composer. A draft the user already typed is kept
+	 * unless `replace` is set.
+	 */
+	prefill(text: string, options?: ChatPrefillOptions): void;
+	/**
+	 * Send `text` as the user's message in the page's chat mode, opening the
+	 * panel. Resolves once the message is on its way; rejects when the chat
+	 * is unavailable or still answering.
+	 */
+	send(text: string): Promise<void>;
+}
+
+export interface PluginKeyboardApi {
+	suppress(): () => void;
+	resume(): void;
+}
+
+export type GenerationEventType =
+	| 'generation_status'
+	| 'generation_complete'
+	| 'generation_error'
+	| 'generation_cancelled';
+
+export type GenerationEvent = WebSocketMessage & { type: GenerationEventType };
+
+export type GenerationEventHandler = (event: GenerationEvent) => void;
+
+export interface PluginGenerationApi {
+	prepareRequest: typeof prepareRequestFromSession;
+	subscribe(generationId: string, handler: GenerationEventHandler): () => void;
 }
 
 export interface PluginRendererEntry {
@@ -114,12 +163,14 @@ export interface PotionUIHostApi {
 	/** User notification surface: local toasts and persisted notifications. */
 	notifications: PluginNotificationsApi;
 	api: PluginHostFetchApi;
-	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
+	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling, panel and composer. */
 	chat: PluginChatApi;
+	keyboard: PluginKeyboardApi;
 	layers: PluginLayersApi;
 	input: PluginInputApi;
-	generation: { prepareRequest: typeof prepareRequestFromSession };
+	generation: PluginGenerationApi;
 	imageEditor: PluginImageEditorApi;
+	registerIcon: typeof registerIcon;
 }
 
 const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning'];
@@ -127,6 +178,79 @@ const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning
 function toToastType(level: string): ToastType {
 	return (TOAST_LEVELS as readonly string[]).includes(level) ? (level as ToastType) : 'info';
 }
+
+const GENERATION_EVENT_TYPES: ReadonlySet<string> = new Set<GenerationEventType>([
+	'generation_status',
+	'generation_complete',
+	'generation_error',
+	'generation_cancelled'
+]);
+
+function isGenerationEvent(message: WebSocketMessage): message is GenerationEvent {
+	return GENERATION_EVENT_TYPES.has(message.type);
+}
+
+interface GenerationSubscription {
+	handlers: Set<GenerationEventHandler>;
+	listener: MessageHandler;
+}
+
+export function createGenerationEvents(
+	createSocket: () => WebSocketService = createGenerationSocket
+): Pick<PluginGenerationApi, 'subscribe'> {
+	let socket: WebSocketService | null = null;
+	const subscriptions = new Map<string, GenerationSubscription>();
+
+	function connectedSocket(): WebSocketService {
+		socket ??= createSocket();
+		socket.connect();
+		return socket;
+	}
+
+	function subscriptionFor(generationId: string): GenerationSubscription {
+		const existing = subscriptions.get(generationId);
+		if (existing) return existing;
+		const handlers = new Set<GenerationEventHandler>();
+		const listener: MessageHandler = (message) => {
+			if (!isGenerationEvent(message)) return;
+			for (const handler of [...handlers]) {
+				try {
+					handler(message);
+				} catch (error) {
+					logger.error('Plugin generation handler failed:', error);
+				}
+			}
+		};
+		const subscription = { handlers, listener };
+		subscriptions.set(generationId, subscription);
+		connectedSocket().subscribe(generationId, listener);
+		return subscription;
+	}
+
+	return {
+		subscribe(generationId, handler) {
+			if (typeof generationId !== 'string' || !generationId || typeof handler !== 'function') return () => {};
+			const subscription = subscriptionFor(generationId);
+			const entry: GenerationEventHandler = (event) => handler(event);
+			subscription.handlers.add(entry);
+			let active = true;
+			return () => {
+				if (!active) return;
+				active = false;
+				subscription.handlers.delete(entry);
+				if (subscription.handlers.size > 0) return;
+				subscriptions.delete(generationId);
+				socket?.unsubscribe(generationId);
+				if (subscriptions.size === 0) {
+					socket?.disconnect();
+					socket = null;
+				}
+			};
+		}
+	};
+}
+
+const generationEvents = createGenerationEvents();
 
 /**
  * Assemble `window.__potionui`. Idempotent - safe to call more than once
@@ -186,7 +310,17 @@ export function initHostApi(): void {
 		chat: {
 			provideContext,
 			declareMode,
-			onToolApplied
+			onToolApplied,
+			open: () => chatPanelStore.open(),
+			close: () => chatPanelStore.close(),
+			toggle: () => chatPanelStore.toggle(),
+			isOpen: () => get(isChatPanelOpen),
+			prefill: (text, options) => chatPanelStore.prefill(text, options),
+			send: (text) => chatPanelStore.send(text)
+		},
+		keyboard: {
+			suppress: () => holdKeyboard(),
+			resume: () => releaseKeyboardHold()
 		},
 		layers: {
 			overlayLayer,
@@ -198,9 +332,11 @@ export function initHostApi(): void {
 			isEditableTarget
 		},
 		generation: {
-			prepareRequest: prepareRequestFromSession
+			prepareRequest: prepareRequestFromSession,
+			subscribe: generationEvents.subscribe
 		},
-		imageEditor: createImageEditorApi()
+		imageEditor: createImageEditorApi(),
+		registerIcon
 	};
 
 	w.__potionui = host;
