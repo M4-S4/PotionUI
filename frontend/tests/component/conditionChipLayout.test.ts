@@ -12,6 +12,7 @@ const variables: VariablesMap = {
 };
 
 const CHAIN = 'portrait, <<if $age > 65>>grey hair<<else if $age > 40>>brown hair<<else>>dark<<end>>, soft light';
+const CHOICE = 'portrait, {glowing|shimmering}, <<if $age > 65>>grey hair<<end>>';
 
 function selectorsOf(rule: Rule): string[] {
 	const parent = rule.parent;
@@ -59,12 +60,12 @@ afterEach(() => {
 	style.remove();
 });
 
-function mountSegment() {
+function mountSegment(value = CHAIN) {
 	const composer = document.body.appendChild(document.createElement('div'));
 	composer.className = 'segment-composer';
 	const content = composer.appendChild(document.createElement('div'));
 	content.className = 'segment-content';
-	mountComponent(InlineChipEditor as never, { value: CHAIN, chips: {}, variant: 'segment-composer', borderless: true, variables }, { target: content });
+	mountComponent(InlineChipEditor as never, { value, chips: {}, variant: 'segment-composer', borderless: true, variables }, { target: content });
 	return composer;
 }
 
@@ -88,5 +89,25 @@ describe('segment composer condition chip layout', () => {
 		const computed = getComputedStyle(badge);
 		expect(computed.flexShrink).toBe('0');
 		expect(computed.flexGrow).toBe('0');
+	});
+});
+
+describe('segment composer choice group chip mark', () => {
+	it('sizes to its braces instead of the fixed 16px box they overflow', () => {
+		const mark = mountSegment(CHOICE).querySelector<HTMLElement>('.choice-chip .chip-mark')!;
+		expect(mark.textContent).toBe('{ }');
+		const computed = getComputedStyle(mark);
+		expect(computed.width).toBe('auto');
+		expect(computed.minWidth).toBe('16px');
+		expect(computed.paddingLeft).toBe('2px');
+		expect(computed.paddingRight).toBe('2px');
+	});
+
+	it('leaves the condition chip mark at its 16px box', () => {
+		const mark = mountSegment(CHOICE).querySelector<HTMLElement>('.condition-chip .chip-mark')!;
+		expect(mark.textContent).toBe('if');
+		const computed = getComputedStyle(mark);
+		expect(computed.width).toBe('16px');
+		expect(computed.minWidth).not.toBe('16px');
 	});
 });

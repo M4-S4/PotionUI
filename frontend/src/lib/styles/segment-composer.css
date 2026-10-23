@@ -991,6 +991,11 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 	height: 16px;
 	font-size: 12px;
 }
+.segment-content .inline-chip-editor .choice-chip .chip-mark {
+	width: auto;
+	min-width: 16px;
+	padding: 0 2px;
+}
 .segment-content .inline-chip-editor .chip-label {
 	font-size: 12px;
 }
