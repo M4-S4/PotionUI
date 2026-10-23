@@ -145,7 +145,10 @@ Every native command in this workflow runs under `shell: cmd`, never `pwsh`:
 pwsh's `$ErrorActionPreference = 'stop'` turns a native process's first
 stderr line into a step failure, and console-signal quirks kill a pwsh step
 silently. Long outputs go to a log file and are `type`d back so a killed
-step still uploads what it had.
+step still uploads what it had. The one exception is the `rest` shard's
+Chocolatey ffmpeg install, a pwsh loop that reads `$LASTEXITCODE` itself and
+retries up to four times, 30, 60 and 90 s apart, because the community feed
+sometimes answers 504.
 
 What it does **not** prove:
 
