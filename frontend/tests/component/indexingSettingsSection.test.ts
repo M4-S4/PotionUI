@@ -2,6 +2,15 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
 import { AWAITING, GIB, MIB, RUNNING, status } from './helpers/indexingFixtures';
 
+vi.mock('$lib/services/adminWebsocket', () => ({
+	adminWebSocket: {
+		onIndexingStatus: () => () => {},
+		onConnected: () => () => {},
+		isConnected: () => true,
+		connectAsync: async () => {}
+	}
+}));
+
 vi.mock('$lib/services/api', () => ({
 	api: {
 		getIndexingStatus: vi.fn(),

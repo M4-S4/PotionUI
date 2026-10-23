@@ -12,6 +12,7 @@ import { logger } from '$lib/utils/logger';
 import type { BaseWebSocketMessage } from './BaseWebSocket';
 import { StatefulWebSocket, type ConnectionState } from './StatefulWebSocket';
 import type { ProvisionedCompute } from '$lib/services/admin-api';
+import type { IndexingStatus } from '$lib/services/api/models';
 
 export type { ConnectionState };
 
@@ -33,10 +34,14 @@ export interface ComputeStatusMessage {
 
 type PipeInstallCallback = (status: PipeInstallStatus) => void;
 type ComputeStatusCallback = (status: ComputeStatusMessage) => void;
+type IndexingStatusCallback = (status: IndexingStatus) => void;
+type ConnectedCallback = () => void;
 
 class AdminWebSocketService extends StatefulWebSocket {
 	private pipeInstallCallbacks: Set<PipeInstallCallback> = new Set();
 	private computeStatusCallbacks: Set<ComputeStatusCallback> = new Set();
+	private indexingStatusCallbacks: Set<IndexingStatusCallback> = new Set();
+	private connectedCallbacks: Set<ConnectedCallback> = new Set();
 
 	constructor() {
 		super(adminConnectionState, 'admin');
@@ -49,6 +54,9 @@ class AdminWebSocketService extends StatefulWebSocket {
 	protected override onMessage(message: BaseWebSocketMessage): void {
 		switch (message.type) {
 			case 'connection_established':
+				this.connectedCallbacks.forEach((cb) => cb());
+				break;
+
 			case 'heartbeat':
 			case 'pong':
 				break;
@@ -67,6 +75,10 @@ class AdminWebSocketService extends StatefulWebSocket {
 				this.computeStatusCallbacks.forEach((cb) => cb({ row: message.row as ProvisionedCompute }));
 				break;
 
+			case 'indexing_status':
+				this.indexingStatusCallbacks.forEach((cb) => cb(message.status as IndexingStatus));
+				break;
+
 			default:
 				logger.debug('Unknown admin message type:', message.type);
 		}
@@ -80,6 +92,16 @@ class AdminWebSocketService extends StatefulWebSocket {
 	onComputeStatus(callback: ComputeStatusCallback): () => void {
 		this.computeStatusCallbacks.add(callback);
 		return () => this.computeStatusCallbacks.delete(callback);
+	}
+
+	onIndexingStatus(callback: IndexingStatusCallback): () => void {
+		this.indexingStatusCallbacks.add(callback);
+		return () => this.indexingStatusCallbacks.delete(callback);
+	}
+
+	onConnected(callback: ConnectedCallback): () => void {
+		this.connectedCallbacks.add(callback);
+		return () => this.connectedCallbacks.delete(callback);
 	}
 }
 

@@ -11,6 +11,7 @@ from typing import Any, Optional
 from src.features.plugins.dto import PluginResponse
 from src.features.plugins.mappers import plugin_to_response
 from src.features.plugins.repository import PluginRepository
+from src.features.providers.registry import reset_provider_registry
 from src.platform.http.errors import NotFoundError
 from src.platform.plugins.registry import PluginRegistry
 from src.platform.plugins.hooks import hooks_registry
@@ -172,6 +173,7 @@ def enable_plugin(
     registry.run_boot_hook(plugin_id)
     registry.run_ready_hook(plugin_id)
 
+    reset_provider_registry()
     _rescan_presets_and_pipes(
         preset_loader, pipe_catalog, recipe_catalog, f"enabling plugin '{plugin_id}'", model_layout_catalog
     )
@@ -219,6 +221,7 @@ def disable_plugin(
         raise ValueError("Failed to disable plugin in database")
 
     logger.info(f"Disabled plugin: {plugin_id}")
+    reset_provider_registry()
     _rescan_presets_and_pipes(
         preset_loader, pipe_catalog, recipe_catalog, f"disabling plugin '{plugin_id}'", model_layout_catalog
     )

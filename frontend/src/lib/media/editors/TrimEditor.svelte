@@ -320,6 +320,7 @@
 		<div
 			bind:this={railElement}
 			role="presentation"
+			data-testid="trim-rail"
 			class="relative mx-1.5 h-14"
 			on:pointerdown={scrub}
 		>

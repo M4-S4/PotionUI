@@ -419,15 +419,33 @@ digest lands; nothing about generation waits for a digest.
 | Same name as an existing model but a different size | A `conflict` location straight away; different size proves different bytes |
 | Another file of exactly the same size exists, present or missing with a known digest | The **twin gate**: a quick signature (head, tail and 14 windows, about 3 MiB) is compared; a different signature proves the files differ, so the row is created; an equal signature only makes the file a **candidate**: it is held in memory, hashed together with its twin, and then decided by the same rules as a hashed file (duplicate of an existing model: skipped; same name in another folder: an extra location; otherwise a new model) |
 
+A renamed or moved large file whose size and mtime equal a missing location's, and whose quick
+signature equals that location's stored signature, is recognised as that file: it takes the stored
+digest and is not read in full or queued. An ambiguous match (several missing locations with
+different digests) falls back to the candidate path below.
+
 A held-back candidate is not a row yet; the indexing status reports it in `digests.duplicate_checks`.
-A renamed or moved large file is such a candidate: its old location is already missing and still
-holds the digest, so the new file is hashed once and joins the original model with its tags,
+A renamed or moved large file whose mtime changed is such a candidate: its old location is already
+missing and still holds the digest, so the new file is hashed once and joins the original model with its tags,
 collections and provider info. As a safety net, when a background digest lands on a model that
 has a single location and another model with that digest has no present copy, the new model is
 folded into the original: the original takes the new filename and every row that pointed at the
 new model (tags, collections, assignments, provider info, generation links, previews, availability)
 is moved to it in the same transaction. The fold is refused when the original's type already
 uses that filename.
+Locations that were digested before quick signatures existed get theirs filled in by the pool
+whenever it is otherwise idle (nothing queued or running, not paused, no generation running); the
+reads are paced like any other background read and skipped for files that changed.
+
+Downloads made by the download queue are hashed with SHA-256 while they stream (a resumed download
+first hashes the part it already has) and the digest is recorded in `model_hash_cache` under the
+final size and mtime, so the scan that indexes the file takes it as ready without reading it again.
+The same digest verifies a checksum when the download has one.
+
+Indexing progress is pushed to administrators over `/ws/admin` as `indexing_status` frames carrying
+the same payload as `GET /api/models/indexing/status`; the UI no longer polls. A frame is sent only
+when the payload changed, about once a second while work runs and nothing while it is idle.
+
 Header-typed files get their type from a header read during the scan; the stored verdict (family,
 whether a transformer can be extracted) is keyed by digest and is written when the digest lands.
 

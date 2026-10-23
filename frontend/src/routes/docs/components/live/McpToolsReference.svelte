@@ -10,7 +10,7 @@
 		type McpToolEntry
 	} from './mcpToolsReference';
 
-	let expanded: Record<string, boolean> = {};
+	let expanded = $state<Record<string, boolean>>({});
 	let governance = $state<McpGovernance>({});
 
 	function toggle(name: string) {

@@ -9,6 +9,7 @@
 </script>
 
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import SegmentModal, { type SegmentModalTone } from './modals/SegmentModal.svelte';
 	import Icon from './Icon.svelte';
 	import MediaThumb from './media/MediaThumb.svelte';
@@ -81,10 +82,10 @@
 		onClose: () => void;
 	} = $props();
 
-	let query = $state(initialQuery);
+	let query = $state(untrack(() => initialQuery));
 	let matchMode = $state<TextMatchMode>('contains');
-	let selectedId = $state<string | null>(initialSelectedId);
-	let pendingShuffle = $state(initialShuffle);
+	let selectedId = $state<string | null>(untrack(() => initialSelectedId));
+	let pendingShuffle = $state(untrack(() => initialShuffle));
 	let previewOpen = $state(false);
 	let previewIndex = $state(0);
 	let previewPaneRef = $state<HTMLDivElement | null>(null);

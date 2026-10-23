@@ -42,7 +42,7 @@
 	} = $props();
 
 	const sizeClasses: Record<Size, string> = {
-		xs: 'px-2.5 py-1 text-xs font-medium',
+		xs: 'px-2 py-1 text-sm font-medium',
 		sm: 'px-3 py-1.5 text-sm font-medium',
 		md: 'px-4 py-2 text-base font-medium',
 		lg: 'h-11 px-4 text-md font-semibold'

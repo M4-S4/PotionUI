@@ -121,6 +121,7 @@ from src.features.generation.status_tracker import GenerationStatusTracker
 from src.platform.settings.repository import SettingRepository
 from src.features.llm.repository import LLMRepository
 from src.features.plugins.repository import PluginRepository
+from src.features.plugins import operations as plugin_operations
 from src.features.plugins.operations import refresh_known_plugin_hooks
 from src.features.users.repository import UserRepository
 from src.features.phrasebook.repository import (
@@ -284,6 +285,7 @@ if TYPE_CHECKING:
     from src.features.notifications.repository import NotificationRepository
     from src.platform.websocket.download_connection_hub import DownloadConnectionHub
     from src.features.models.repository import ModelRepository
+    from src.features.models.progress_broadcast import IndexingProgressBroadcaster
     from src.features.tags.repository import TagRepository
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
@@ -354,6 +356,7 @@ class AppContainer:
     # Compute provisioning
     provisioned_compute_repository: "ProvisionedComputeRepository"
     compute_status_monitor: "ComputeStatusMonitor"
+    indexing_progress_broadcaster: "IndexingProgressBroadcaster"
     provisioning_controller: "ProvisioningController"
 
     # LLM
@@ -1276,6 +1279,21 @@ def build_container() -> AppContainer:
 
     backend_registry.bind_model_digests(model_index_manager.digests)
 
+    from src.features.models.progress_broadcast import IndexingProgressBroadcaster, indexing_is_active
+    from src.platform.websocket.admin_connection_hub import admin_connection_hub as _indexing_hub
+
+    indexing_progress_broadcaster = IndexingProgressBroadcaster(
+        status=model_index_manager.indexing.status,
+        probe=lambda: (
+            model_index_manager.indexing.state,
+            model_index_manager.digests.version,
+            model_index_manager.digests.pending_count(),
+            model_index_manager.digests.paused,
+        ),
+        is_active=indexing_is_active,
+        hub=_indexing_hub,
+    )
+
     model_roots_manager = ModelRootsManager(
         repository=model_root_repository,
         resolver=model_roots,
@@ -1554,6 +1572,15 @@ def build_container() -> AppContainer:
     _recipe_executors = build_default_executor_registry(
         recipe_catalog=recipe_catalog,
         plugin_registry=plugin_registry,
+        enable_plugin=functools.partial(
+            plugin_operations.enable_plugin,
+            plugin_repository,
+            plugin_registry,
+            preset_loader=preset_template_loader,
+            pipe_catalog=pipe_catalog,
+            recipe_catalog=recipe_catalog,
+            model_layout_catalog=model_layout_catalog,
+        ),
         backend_registry=backend_registry,
         preset_collaborators=preset_collaborators,
         user_repository=user_repository,

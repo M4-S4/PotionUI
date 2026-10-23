@@ -27,6 +27,7 @@ entirely is not resolvable deterministically - `get_download_url` raises
 """
 
 import logging
+import os
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urljoin
 
@@ -57,6 +58,13 @@ _TYPE_FILTER_MAP = {
 }
 
 
+DEFAULT_ENDPOINT = "https://huggingface.co"
+
+
+def _endpoint() -> str:
+    return (os.environ.get("HF_ENDPOINT") or DEFAULT_ENDPOINT).rstrip("/")
+
+
 class HuggingFaceProvider(HttpMarketplaceProvider):
     """
     HuggingFace Hub marketplace provider.
@@ -70,10 +78,19 @@ class HuggingFaceProvider(HttpMarketplaceProvider):
     - Hash-based model lookup (`get_model_by_hash` always returns None)
     """
 
-    BASE_URL = "https://huggingface.co"
-    API_URL = "https://huggingface.co/api"
     DOWNLOAD_HOST = "huggingface.co"
     DEFAULT_RATE_LIMIT_DELAY = 0.5
+
+    @property
+    def BASE_URL(self) -> str:
+        return _endpoint()
+
+    @property
+    def API_URL(self) -> str:
+        return f"{_endpoint()}/api"
+
+    def matches_download_url(self, url: str) -> bool:
+        return self.DOWNLOAD_HOST in url or url.startswith(_endpoint() + "/")
 
     def get_metadata(self) -> ProviderMetadata:
         """Get HuggingFace provider metadata."""
@@ -113,7 +130,7 @@ class HuggingFaceProvider(HttpMarketplaceProvider):
         # Each path segment is quoted independently so "/" in the filepath
         # (subdirectories inside the repo) is preserved.
         quoted_file = "/".join(quote(part) for part in filepath.split("/"))
-        return f"{HuggingFaceProvider.BASE_URL}/{repo}/resolve/{revision}/{quoted_file}"
+        return f"{_endpoint()}/{repo}/resolve/{revision}/{quoted_file}"
 
     # === Capability: HASH_LOOKUP (unsupported) ===
 

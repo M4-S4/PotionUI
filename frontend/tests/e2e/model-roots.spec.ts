@@ -1,5 +1,5 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot, fulfillJson } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson, mockAdminSocket } from './helpers';
 
 const JOURNEY = 'model-roots';
 
@@ -91,6 +91,7 @@ async function mockIndexingStatus(page: Page, status: Record<string, unknown> = 
 	await page.route('**/api/models/indexing/status', (route) =>
 		fulfillJson(route, { success: true, data: status })
 	);
+	await mockAdminSocket(page, () => status);
 }
 
 async function mockReadiness(page: Page) {

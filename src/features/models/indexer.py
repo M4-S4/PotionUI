@@ -407,6 +407,9 @@ class ModelScanner:
         signatures: SignatureCache,
         queue_priority: Optional[int],
     ) -> IndexOutcome:
+        moved = self._moved_from(found, signatures)
+        if moved is not None:
+            return self._finish_with_digest(found, filename, moved['sha256'], None, moved['quick_sig'])
         resolution, header_error = self._pending_resolution(found)
         twins = self._size_twins(found, pass_twins, signatures)
         gate = evaluate(signatures.of(found.abs_path, found.size) if twins else None, twins)
@@ -424,6 +427,21 @@ class ModelScanner:
         if header_error is not None:
             outcome = replace(outcome, header_error=header_error)
         return outcome
+
+    def _moved_from(self, found: FoundFile, signatures: SignatureCache) -> Optional[Dict[str, Any]]:
+        candidates = [
+            row for row in self.locations.list_missing_digested_by_size(found.size)
+            if row['mtime_ns'] == found.mtime_ns and row.get('quick_sig')
+        ]
+        if not candidates:
+            return None
+        signature = signatures.of(found.abs_path, found.size)
+        if signature is None:
+            return None
+        matching = [row for row in candidates if row['quick_sig'] == signature]
+        if not matching or len({row['sha256'] for row in matching}) != 1:
+            return None
+        return matching[0]
 
     def _pending_resolution(self, found: FoundFile) -> Tuple[Any, Optional[str]]:
         verdict = None

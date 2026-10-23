@@ -458,6 +458,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         # disabled) within one interval, not on the next admin click.
         container.compute_status_monitor.start()
 
+        container.indexing_progress_broadcaster.start()
+
         # Retention passes for the stores nothing else bounds: the scratch
         # folder, run reports and chat call traces. First pass shortly after
         # startup so a fresh instance is not competing with boot work.
@@ -478,6 +480,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         container.organize_manager.shutdown()
         await container.content_safety.stop()
         await container.compute_status_monitor.stop()
+        await container.indexing_progress_broadcaster.stop()
         await container.download_queue.stop()
         await automation_runtime.stop_all()
         container.generation_history_facade.shutdown()

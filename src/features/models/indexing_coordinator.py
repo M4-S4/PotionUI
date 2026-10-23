@@ -124,6 +124,10 @@ class ModelIndexingCoordinator:
         self._pins_awaiting_contest: Dict[str, Any] = {}
         self.scanner.contested_listener = self._on_contested_resolved
 
+    @property
+    def state(self) -> str:
+        return self._state
+
     def status(self) -> Dict[str, Any]:
         with self._lock:
             snapshot = {

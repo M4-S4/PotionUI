@@ -15,7 +15,17 @@ from src.features.models.digest_queue_repository import (
     PRIORITY_TWIN,
     DigestQueueRepository,
 )
-from src.features.models.file_digest import DigestCancelled, FileDigest, digest_file
+from src.features.models.file_digest import (
+    HEAD_BYTES,
+    INLINE_HASH_LIMIT,
+    TAIL_BYTES,
+    WINDOW_BYTES,
+    WINDOW_COUNT,
+    DigestCancelled,
+    FileDigest,
+    digest_file,
+    quick_signature,
+)
 from src.features.models.hash_cache_repository import model_hash_cache_repo
 from src.features.models.indexing_governor import PROFILES, IndexingGovernor, IndexingProfile
 from src.features.models.locations_repository import (
@@ -63,6 +73,7 @@ HASH_CANDIDATE_MODES = (
 MAX_PACED_CANDIDATES = 2
 PACED_WAIT_SECONDS = 900.0
 PACED_POLL_SECONDS = 0.25
+SIGNATURE_READ_BYTES = HEAD_BYTES + TAIL_BYTES + WINDOW_COUNT * WINDOW_BYTES
 
 
 class ThroughputMeter:
@@ -229,6 +240,8 @@ class DigestManager:
         self._version = 0
         self._paused = self._read_paused()
         self._policy = POLICY_UNSET
+        self._backfill_lock = threading.Lock()
+        self._unsignable: Set[str] = set()
 
     @property
     def paused(self) -> bool:
@@ -462,12 +475,56 @@ class DigestManager:
                 logger.exception("The digest queue could not be read")
                 job = None
             if job is None:
+                if self._backfill_next_signature():
+                    continue
                 with self._cv:
                     if worker.stop.is_set():
                         break
                     self._cv.wait(self._idle_poll_seconds)
                 continue
             self._run_job(job, worker)
+
+    def _backfill_next_signature(self) -> bool:
+        throttle = self.governor.throttle
+        if self._paused or throttle.holding() or not self._backfill_lock.acquire(blocking=False):
+            return False
+        try:
+            with self._cv:
+                if self._inflight or self._closing:
+                    return False
+            rows = self._locations.list_unsigned(1, INLINE_HASH_LIMIT, self._unsignable)
+            if not rows:
+                return False
+            row = rows[0]
+            path = self._path_for(row)
+            if path is None:
+                self._unsignable.add(row["id"])
+                return True
+            try:
+                before = os.stat(path)
+            except OSError:
+                self._unsignable.add(row["id"])
+                return True
+            if before.st_size != row["size"] or before.st_mtime_ns != row["mtime_ns"] or not path.is_file():
+                self._unsignable.add(row["id"])
+                return True
+            if not throttle.wait(SIGNATURE_READ_BYTES, lambda: self._paused or self._closing):
+                return False
+            signature = quick_signature(str(path), before.st_size)
+            try:
+                after = os.stat(path)
+            except OSError:
+                after = None
+            if signature is None or after is None or (after.st_size, after.st_mtime_ns) != (
+                before.st_size, before.st_mtime_ns
+            ):
+                self._unsignable.add(row["id"])
+                return True
+            with self._write_lock:
+                self._locations.set_quick_sig(row["id"], signature, before.st_size, before.st_mtime_ns)
+            return True
+        finally:
+            self._backfill_lock.release()
 
     def _run_job(self, job: _Job, worker: Optional[_Worker]) -> None:
         try:

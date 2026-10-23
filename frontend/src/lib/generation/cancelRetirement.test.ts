@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // jsdom is needed only for the real-WebSocketService fixtures below.
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
 import { dispatchGenerationMessage } from '$lib/stores/generation';
@@ -13,7 +13,11 @@ import {
 	resetGenerationOutputsRetirementForTests
 } from '$lib/generation/messages/generationOutputs';
 import type { DirectorRunState } from '$lib/types/tabs';
-import { retireConfirmedCancellations, applyConfirmedCancellations } from './cancelRetirement';
+import {
+	retireConfirmedCancellations,
+	applyConfirmedCancellations,
+	LATE_CANCEL_NOTICE_WINDOW_MS
+} from './cancelRetirement';
 
 function defaultTabId(): string {
 	return get(tabsStore).tabs[0].id;
@@ -450,5 +454,73 @@ describe('applyConfirmedCancellations', () => {
 		applyConfirmedCancellations(tabsStore, tabId, []);
 
 		expect(currentTab(tabId)).toEqual(before);
+	});
+});
+
+describe('a cancel notice that settles after the cancel response', () => {
+	const NOTICE = 'Stopped waiting.';
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		tabsStore.reset();
+		resetGenerationOutputsRetirementForTests();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	function cancelRunning(tabId: string, notice: string | null) {
+		const { ws, unsubscribe } = makeOwner();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-late',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-late', generation_id: 'gen-late', status: 'running' }
+			}
+		});
+		ensureSubscribed(ws, 'gen-late', () => ws.subscribe('gen-late', () => {}));
+		applyConfirmedCancellations(tabsStore, tabId, ['gen-late'], notice);
+		retireConfirmedCancellations(['gen-late'], { tabsStore, unsubscribe });
+		return { ws, unsubscribe };
+	}
+
+	it('stays subscribed and shows the notice delivered on the late completion', () => {
+		const tabId = defaultTabId();
+		const { ws, unsubscribe } = cancelRunning(tabId, null);
+
+		expect(listenerCount(ws, 'gen-late')).toBe(1);
+
+		vi.advanceTimersByTime(5_000);
+		dispatchGenerationMessage(
+			{ type: 'generation_complete', generation_id: 'gen-late', data: { status: 'cancelled', cancel_notice: NOTICE } } as any,
+			{ unsubscribe }
+		);
+
+		expect(currentTab(tabId).generation.cancelNotice).toBe(NOTICE);
+		expect(listenerCount(ws, 'gen-late')).toBe(0);
+		expect(isGenerationOutputsRetired('gen-late')).toBe(true);
+	});
+
+	it('releases the subscription once the window passes without a notice', () => {
+		const tabId = defaultTabId();
+		const { ws } = cancelRunning(tabId, null);
+
+		vi.advanceTimersByTime(LATE_CANCEL_NOTICE_WINDOW_MS - 1);
+		expect(listenerCount(ws, 'gen-late')).toBe(1);
+
+		vi.advanceTimersByTime(1);
+		expect(listenerCount(ws, 'gen-late')).toBe(0);
+		expect(currentTab(tabId).generation.cancelledGenerationId).toBeNull();
+		expect(isGenerationOutputsRetired('gen-late')).toBe(true);
+	});
+
+	it('retires immediately when the response already carried the notice', () => {
+		const tabId = defaultTabId();
+		const { ws } = cancelRunning(tabId, NOTICE);
+
+		expect(listenerCount(ws, 'gen-late')).toBe(0);
+		expect(currentTab(tabId).generation.cancelNotice).toBe(NOTICE);
 	});
 });
