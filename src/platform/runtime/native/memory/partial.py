@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Iterator, Sequence
+from typing import Iterable, Iterator, Sequence
 
 import torch
 import torch.nn as nn
@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 _warned_prefetch_setup_failed = False
 _warned_prefetch_failed = False
 _warned_arena_failed = False
+_warned_pin_fallback = False
 
 _BYTES_PER_GB = 1024 ** 3
 
@@ -67,6 +68,11 @@ _BYTES_PER_GB = 1024 ** 3
 # ``_PINNED_RELEASE_FLOOR_GB``: pools smaller than this are worth keeping warm,
 # so they are also not worth draining incrementally.
 _TEARDOWN_RELEASE_CHUNK_GB = 2.0
+
+
+class PinnedMemoryUnavailableError(RuntimeError):
+    """``Tensor.pin_memory()`` failed: the host could not page-lock the allocation."""
+
 
 def stream_prefetch_enabled() -> bool:
     return bool(runtime_flag("native_stream_prefetch"))
@@ -93,6 +99,11 @@ def _cuda_stream_ctx(stream):
     return torch.cuda.stream(stream)
 
 
+def _release_idle_vram() -> None:
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def _register_forward_hook_always(module: nn.Module, hook):
     """``register_forward_hook`` with ``always_call=True`` when the torch build
     supports it, so a restore hook still fires if the wrapped forward raises
@@ -116,6 +127,32 @@ def _record_stream_on(tensor: torch.Tensor, stream) -> None:
     rec = getattr(tensor, "record_stream", None)
     if callable(rec):
         rec(stream)
+
+
+def _pin(data: torch.Tensor) -> torch.Tensor:
+    """Page-lock ``data`` and count it; ``PinnedMemoryUnavailableError`` if the host refuses."""
+    try:
+        pinned = data.pin_memory()
+    except Exception as exc:
+        raise PinnedMemoryUnavailableError(
+            f"pin_memory() failed for {data.numel() * data.element_size()} bytes ({type(exc).__name__}: {exc})"
+        ) from exc
+    add_pinned_bytes(caching_host_block_bytes(pinned.numel() * pinned.element_size()))
+    return pinned
+
+
+def _note_pin_fallback(exc: BaseException) -> None:
+    global _warned_pin_fallback
+    if _warned_pin_fallback:
+        logger.info("pinned host memory unavailable (%s); placing without page-locked copies", exc)
+        return
+    _warned_pin_fallback = True
+    logger.warning(
+        "pinned host memory unavailable (%s); streaming from pageable host memory with synchronous "
+        "host-to-device copies, slower than pinned streaming (page-locked memory can be capped, "
+        "e.g. under WSL2 or Docker Desktop)",
+        exc,
+    )
 
 
 def _own_tensor_bytes(module: nn.Module) -> int:
@@ -253,6 +290,7 @@ class ModuleStreamer:
         self.root = root
         self._streamed: list[nn.Module] = []
         self._active = False
+        self._device: str | torch.device = "cpu"
         # OWN-tensor bytes of the streamed leaves and whether they were actually
         # page-locked (``can_pin``). The engine reads ``pinned_gb`` after teardown
         # to decide whether the vacated pinned pool is large enough to be worth
@@ -260,6 +298,7 @@ class ModuleStreamer:
         self._streamed_bytes = 0
         self._pinned = False
         self._pinned_bytes = 0
+        self._parked = False
         self._arenas: list[PinnedArena] = []
         # Prefetch toggle: ``None`` -> read ``$NATIVE_STREAM_PREFETCH`` (default off);
         # an explicit bool overrides (used by tests). ``_prefetcher`` is only built
@@ -301,14 +340,47 @@ class ModuleStreamer:
         pin: bool = True,
         non_blocking: bool = True,
     ) -> None:
-        """Place ``root`` for ``plan`` on ``device`` (streamed leaves stay pinned/CPU)."""
+        """Place ``root`` for ``plan`` on ``device`` (streamed leaves stay pinned/CPU).
+
+        A page-lock failure repeats the placement unpinned with synchronous
+        copies; any other failure rolls it back.
+        """
+        try:
+            self._place(device, plan, pin=pin, non_blocking=non_blocking)
+            return
+        except PinnedMemoryUnavailableError as exc:
+            _note_pin_fallback(exc)
+        except BaseException:
+            self._abort_placement()
+            raise
+        pinned_before_failure = sum(_own_tensor_bytes(m) for m in self._streamed)
+        try:
+            self._place(device, plan, pin=False, non_blocking=False)
+        except BaseException:
+            self._abort_placement()
+            raise
+        if pinned_before_failure:
+            self._release_vacated_pinned(pinned_before_failure)
+
+    def _place(
+        self,
+        device: str | torch.device,
+        plan: PartialResidencyPlan,
+        *,
+        pin: bool,
+        non_blocking: bool,
+    ) -> None:
         streamed_ids = {id_ for id_ in map(_module_id_by_name(self.root), plan.streamed_names)}
         can_pin = pin and torch.cuda.is_available()
+        self._parked = False
+        self._device = device
         self._streamed = []
         streamed_bytes = 0
         modules = list(self.root.named_modules())
         if can_pin:
             self._pin_into_arena([m for _, m in modules if id(m) in streamed_ids], device)
+        else:
+            self._drop_arenas()
         self._pinned = can_pin
         self._active = True
 
@@ -334,7 +406,7 @@ class ModuleStreamer:
         for arena in self._arenas:
             arena.release_unused()
         self._arenas = [arena for arena in self._arenas if arena.registered_segments]
-        self._pinned_bytes = self._pinned_footprint() if can_pin else 0
+        self._pinned_bytes = self._pinned_footprint(self._streamed) if can_pin else 0
         get_profiler().mark(
             "streamer.apply", streamed_gb=self.streamed_gb, pinned_gb=self.pinned_gb,
             arena_segments=sum(arena.registered_segments for arena in self._arenas),
@@ -345,6 +417,24 @@ class ModuleStreamer:
             "(pin=%s, non_blocking=%s, prefetch=%s)",
             len(self._streamed), device, can_pin, non_blocking, self._prefetcher is not None,
         )
+
+    def _abort_placement(self) -> None:
+        self._streamed_bytes = sum(_own_tensor_bytes(m) for m in self._streamed)
+        self._active = True
+        try:
+            self.teardown()
+        except Exception:
+            logger.debug("streamer: placement rollback failed", exc_info=True)
+            self._active = False
+
+    def _drop_arenas(self) -> None:
+        if not self._arenas:
+            return
+        for module in self.root.modules():
+            _unpin_from_arenas(module, self._arenas)
+        for arena in self._arenas:
+            arena.release()
+        self._arenas = []
 
     def _arena_owning(self, data: torch.Tensor) -> PinnedArena | None:
         return next((arena for arena in self._arenas if arena.owns(data)), None)
@@ -378,15 +468,14 @@ class ModuleStreamer:
     def _arena_bytes(self) -> int:
         return sum(arena.pinned_bytes for arena in self._arenas)
 
-    def _pinned_footprint(self) -> int:
+    def _pinned_footprint(self, modules: Iterable[nn.Module]) -> int:
         total = self._arena_bytes()
         seen: set[int] = set()
-        for module in self._streamed:
-            for p in module.parameters(recurse=False):
-                data = p.data
-                if id(p) in seen or data.device.type != "cpu" or self._arena_owning(data) is not None:
+        for module in modules:
+            for data in [p.data for p in module.parameters(recurse=False)]:
+                if data.data_ptr() in seen or data.device.type != "cpu" or self._arena_owning(data) is not None:
                     continue
-                seen.add(id(p))
+                seen.add(data.data_ptr())
                 if data.is_pinned():
                     total += caching_host_block_bytes(data.numel() * data.element_size())
         return total
@@ -445,6 +534,8 @@ class ModuleStreamer:
         # Remove prefetch hooks + restore any swapped weights BEFORE moving tensors,
         # so the CPU move sees the pinned originals (not a transient GPU staged copy).
         self._teardown_prefetch()
+        if self._pinned:
+            _release_idle_vram()
         legacy_pinned_bytes = self._pinned_bytes - self._arena_bytes()
         drain = self._pinned and legacy_pinned_bytes >= _TEARDOWN_RELEASE_CHUNK_GB * _BYTES_PER_GB
         streamed_ids = {id(m) for m in self._streamed}
@@ -462,6 +553,9 @@ class ModuleStreamer:
         for arena in self._arenas:
             arena.release()
         self._arenas = []
+        self._finish_teardown()
+
+    def _finish_teardown(self) -> None:
         for module in self._streamed:
             # Revert both flags to their namespace class defaults (e.g.
             # comfy_cast_weights False for plain bf16) so a later fully-resident
@@ -471,6 +565,56 @@ class ModuleStreamer:
                 del module.stream_non_blocking
         self._streamed = []
         self._active = False
+
+    @property
+    def parked(self) -> bool:
+        return self._parked
+
+    @property
+    def parked_gb(self) -> float:
+        return self._pinned_bytes / _BYTES_PER_GB if self._parked else 0.0
+
+    def park(self) -> bool:
+        if not self._active or not self._pinned:
+            return False
+        self._teardown_prefetch()
+        modules = list(self.root.modules())
+        try:
+            self._pin_into_arena(modules, self._device)
+            for module in modules:
+                _park_own_tensors(module, self._arenas)
+        except PinnedMemoryUnavailableError as exc:
+            _note_pin_fallback(exc)
+            self._unpin_all()
+            self._finish_teardown()
+            return False
+        _release_idle_vram()
+        self._finish_teardown()
+        self._pinned_bytes = self._pinned_footprint(modules)
+        self._parked = True
+        return True
+
+    def unpark(self) -> None:
+        if not self._parked:
+            return
+        self._unpin_all()
+        self._parked = False
+
+    def forget_parked(self) -> None:
+        for arena in self._arenas:
+            arena.release()
+        self._arenas = []
+        self._pinned_bytes = 0
+        self._parked = False
+
+    def _unpin_all(self) -> None:
+        for module in self.root.modules():
+            _unpin_from_arenas(module, self._arenas)
+            _move_own_tensors(module, "cpu", pin=False)
+        for arena in self._arenas:
+            arena.release()
+        self._arenas = []
+        self._pinned_bytes = 0
 
     def _release_vacated_pinned(self, drained_bytes: int) -> None:
         """Return the pinned blocks the teardown sweep has vacated so far.
@@ -701,6 +845,21 @@ def _module_id_by_name(root: nn.Module):
     return lambda name: lookup.get(name, 0)
 
 
+def _park_own_tensors(module: nn.Module, arenas: Sequence[PinnedArena]) -> None:
+    for p in module.parameters(recurse=False):
+        data = p.data
+        if any(arena.owns(data) for arena in arenas):
+            continue
+        if data.device.type != "cpu":
+            data = data.to("cpu")
+        if not data.is_pinned():
+            data = _pin(data)
+        p.data = data
+    for name, buf in list(module._buffers.items()):
+        if buf is not None and buf.device.type != "cpu":
+            module._buffers[name] = buf.to("cpu")
+
+
 def _unpin_from_arenas(module: nn.Module, arenas: list[PinnedArena]) -> None:
     if not arenas:
         return
@@ -726,8 +885,7 @@ def _move_own_tensors(
             if pin and any(arena.owns(data) for arena in arenas):
                 continue
             if pin and data.device.type == "cpu" and not data.is_pinned():
-                data = data.pin_memory()
-                add_pinned_bytes(caching_host_block_bytes(data.numel() * data.element_size()))
+                data = _pin(data)
             elif data.device.type != "cpu":
                 data = data.to("cpu")
             elif not pin and data.is_pinned():
