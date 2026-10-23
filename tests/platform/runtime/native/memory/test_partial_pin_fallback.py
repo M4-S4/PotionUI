@@ -20,6 +20,7 @@ from src.platform.runtime.native.memory.partial import (
     PinnedMemoryUnavailableError,
     plan_residency_split,
 )
+from src.platform.runtime.native.memory.pinned_arena import caching_host_block_bytes
 
 from .._pin_fakes import FakePinning, hooks_in, streamed_flags_in
 from .test_partial_nvfp4 import _QuantTE, _tokens
@@ -36,6 +37,11 @@ def _streamed_leaves(m: _QuantTE):
     return [m.nv_in, m.int8, m.fp8, m.plain, m.norm, m.nv_out]
 
 
+def _pinned_bytes(m: _QuantTE) -> int:
+    tensors = list(m.parameters()) + list(m.buffers())
+    return sum(caching_host_block_bytes(t.numel() * t.element_size()) for t in tensors if t.is_pinned())
+
+
 def _forward(m: _QuantTE) -> torch.Tensor:
     with torch.inference_mode():
         return m(_tokens())
@@ -45,10 +51,10 @@ def _fail_once_at(monkeypatch, target, error: BaseException, *, when_pinning: bo
     real = partial._move_own_tensors
     pending = [error]
 
-    def wrapper(module, device, *, pin: bool):
+    def wrapper(module, device, *, pin: bool, **kwargs):
         if module is target and pin is when_pinning and pending:
             raise pending.pop()
-        return real(module, device, pin=pin)
+        return real(module, device, pin=pin, **kwargs)
 
     monkeypatch.setattr(partial, "_move_own_tensors", wrapper)
 
@@ -143,7 +149,8 @@ def test_pinning_that_succeeds_is_untouched(monkeypatch, caplog):
 
     assert fake.pins == fake.attempts > 0
     assert len(fake.counted) == fake.pins
-    assert streamer.pinned_gb == plan.streamed_bytes / GB
+    assert 0 < _pinned_bytes(m) <= plan.streamed_bytes
+    assert streamer.pinned_gb == _pinned_bytes(m) / GB
     assert [leaf.stream_non_blocking for leaf in _streamed_leaves(m)] == [True] * 6
     assert fake.pool_releases == 0
     assert not [r for r in caplog.records if r.name == partial.logger.name and "pinned host memory" in r.getMessage()]

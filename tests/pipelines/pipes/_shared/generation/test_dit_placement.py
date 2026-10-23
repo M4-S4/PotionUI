@@ -2036,6 +2036,19 @@ def test_the_dequant_transient_is_a_flat_term_not_a_per_token_one():
         assert with_transient - without == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * 1.15, rel=1e-9)
 
 
+def test_the_dequant_transient_rides_on_top_of_a_chunked_ffn_phase():
+    dims = dict(inner_dim=_H3_INNER_DIM, ffn_dim=_H3_FFN_DIM)
+    for tokens in (19_284, 39_800):
+        rows = default_ffn_chunk_rows(tokens, _H3_HIDDEN_SIZE, _H3_FFN_DIM)
+        chunked = estimate_activation_reserve_gb(tokens, ffn_chunk_rows=rows, **dims)
+        with_transient = estimate_activation_reserve_gb(
+            tokens, ffn_chunk_rows=rows, dequant_transient_bytes=_H3_FC1_DEQUANT_BYTES, **dims,
+        )
+        assert rows
+        assert with_transient - chunked == pytest.approx(_H3_FC1_DEQUANT_BYTES / 1024 ** 3 * 1.15, rel=1e-9)
+        assert with_transient < estimate_activation_reserve_gb(tokens, **dims)
+
+
 def test_placement_charges_the_dits_own_dequant_transient():
     calls = []
     dit = SimpleNamespace(

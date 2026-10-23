@@ -29,6 +29,15 @@ embedding would not follow the activation to the GPU) — embeddings are small a
 always kept resident. Bare ``nn.Parameter`` tensors and non-ops modules are
 likewise never streamed and stay resident.
 
+**nvfp4 leaves** (``Nvfp4Linear``) hold their weight in buffers (``weight`` is
+``None``) and dequantise wherever those buffers live, so by default they count
+as fixed and stay resident. A caller that opts in (``stream_nvfp4=True``, the
+text encoder's partial residency) streams them too: their buffers stay pinned in
+CPU RAM and a forward pre-hook stages them onto the activation's device for the
+call (restored after it), so the dequant runs on the GPU from the 0.81 B/elem
+packed form instead of shipping a dequantised fp32 weight. Their bias, tiny,
+stays resident.
+
 The split is **estimate-driven and deterministic** (leaves in ``named_modules``
 order, greedy prefix resident) so it is unit-testable without a GPU.
 """
@@ -37,7 +46,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Iterator, Sequence
+from typing import Iterable, Iterator, Sequence
 
 import torch
 import torch.nn as nn
@@ -58,6 +67,7 @@ logger = logging.getLogger(__name__)
 _warned_prefetch_setup_failed = False
 _warned_prefetch_failed = False
 _warned_arena_failed = False
+_warned_pin_fallback = False
 
 _BYTES_PER_GB = 1024 ** 3
 
@@ -67,6 +77,11 @@ _BYTES_PER_GB = 1024 ** 3
 # ``_PINNED_RELEASE_FLOOR_GB``: pools smaller than this are worth keeping warm,
 # so they are also not worth draining incrementally.
 _TEARDOWN_RELEASE_CHUNK_GB = 2.0
+
+
+class PinnedMemoryUnavailableError(RuntimeError):
+    """``Tensor.pin_memory()`` failed: the host could not page-lock the allocation."""
+
 
 def stream_prefetch_enabled() -> bool:
     return bool(runtime_flag("native_stream_prefetch"))
@@ -91,6 +106,11 @@ def _current_cuda_stream(device=None):
 
 def _cuda_stream_ctx(stream):
     return torch.cuda.stream(stream)
+
+
+def _release_idle_vram() -> None:
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def _register_forward_hook_always(module: nn.Module, hook):
@@ -118,6 +138,38 @@ def _record_stream_on(tensor: torch.Tensor, stream) -> None:
         rec(stream)
 
 
+def _pin(data: torch.Tensor) -> torch.Tensor:
+    """Page-lock ``data`` and count it; ``PinnedMemoryUnavailableError`` if the host refuses."""
+    try:
+        pinned = data.pin_memory()
+    except Exception as exc:
+        raise PinnedMemoryUnavailableError(
+            f"pin_memory() failed for {data.numel() * data.element_size()} bytes ({type(exc).__name__}: {exc})"
+        ) from exc
+    add_pinned_bytes(caching_host_block_bytes(pinned.numel() * pinned.element_size()))
+    return pinned
+
+
+def _unpinned_copy(data: torch.Tensor) -> torch.Tensor:
+    plain = torch.empty_like(data, pin_memory=False)
+    plain.copy_(data)
+    return plain
+
+
+def _note_pin_fallback(exc: BaseException) -> None:
+    global _warned_pin_fallback
+    if _warned_pin_fallback:
+        logger.info("pinned host memory unavailable (%s); placing without page-locked copies", exc)
+        return
+    _warned_pin_fallback = True
+    logger.warning(
+        "pinned host memory unavailable (%s); streaming from pageable host memory with synchronous "
+        "host-to-device copies, slower than pinned streaming (page-locked memory can be capped, "
+        "e.g. under WSL2 or Docker Desktop)",
+        exc,
+    )
+
+
 def _own_tensor_bytes(module: nn.Module) -> int:
     """Bytes of a module's OWN params + buffers (not its children)."""
     total = 0
@@ -129,24 +181,37 @@ def _own_tensor_bytes(module: nn.Module) -> int:
     return total
 
 
-def is_streamable_leaf(module: nn.Module) -> bool:
+def is_nvfp4_leaf(module: nn.Module) -> bool:
+    """An ``Nvfp4Linear`` carrying loaded nvfp4 buffers (its ``weight`` is ``None``)."""
+    return (
+        isinstance(module, CastWeightBiasOp)
+        and not isinstance(module, nn.Embedding)
+        and bool(getattr(module, "_is_nvfp4", False))
+        and getattr(module, "nvfp4_packed", None) is not None
+    )
+
+
+def is_streamable_leaf(module: nn.Module, *, include_nvfp4: bool = False) -> bool:
     """A leaf whose forward streams its weight to ``input.device`` on demand.
 
     True for ops-namespace ``Linear`` / ``Conv`` / norm layers carrying a weight;
     False for ``Embedding`` (casts to ``self.weight.device``, not the activation's)
-    and for anything that is not a ``CastWeightBiasOp``.
+    and for anything that is not a ``CastWeightBiasOp``. ``include_nvfp4`` also
+    admits nvfp4 leaves (see the module docstring).
     """
     if not isinstance(module, CastWeightBiasOp):
         return False
     if isinstance(module, nn.Embedding):
         return False
-    return getattr(module, "weight", None) is not None
+    if getattr(module, "weight", None) is not None:
+        return True
+    return include_nvfp4 and is_nvfp4_leaf(module)
 
 
-def iter_streamable_leaves(root: nn.Module) -> Iterator[tuple[str, nn.Module]]:
+def iter_streamable_leaves(root: nn.Module, *, include_nvfp4: bool = False) -> Iterator[tuple[str, nn.Module]]:
     """Yield ``(qualified_name, module)`` for every streamable leaf, in order."""
     for name, module in root.named_modules():
-        if is_streamable_leaf(module):
+        if is_streamable_leaf(module, include_nvfp4=include_nvfp4):
             yield name, module
 
 
@@ -173,7 +238,9 @@ class PartialResidencyPlan:
         return not self.streamed_names
 
 
-def plan_residency_split(root: nn.Module, resident_budget_gb: float) -> PartialResidencyPlan:
+def plan_residency_split(
+    root: nn.Module, resident_budget_gb: float, *, stream_nvfp4: bool = False,
+) -> PartialResidencyPlan:
     """Greedily keep a prefix of streamable leaves resident within the budget.
 
     ``resident_budget_gb`` is the VRAM (in GB) available for *weights* — the
@@ -182,12 +249,13 @@ def plan_residency_split(root: nn.Module, resident_budget_gb: float) -> PartialR
     always resident and counted first (``fixed_bytes``); the remaining budget is
     spent on streamable leaves in ``named_modules`` order, and everything that
     doesn't fit streams. A non-positive / tiny budget streams every leaf (only
-    the fixed tensors stay resident).
+    the fixed tensors stay resident). ``stream_nvfp4`` makes nvfp4 leaves
+    streamable instead of fixed.
     """
     budget_bytes = max(0, int(resident_budget_gb * _BYTES_PER_GB))
 
     total_bytes = _module_total_bytes(root)
-    leaves = list(iter_streamable_leaves(root))
+    leaves = list(iter_streamable_leaves(root, include_nvfp4=stream_nvfp4))
     streamable_bytes = sum(_own_tensor_bytes(m) for _, m in leaves)
     fixed_bytes = total_bytes - streamable_bytes
 
@@ -249,10 +317,15 @@ class ModuleStreamer:
         *,
         prefetch: bool | None = None,
         prefetch_depth: int = 1,
+        stream_nvfp4: bool = False,
     ) -> None:
         self.root = root
         self._streamed: list[nn.Module] = []
         self._active = False
+        self._stream_nvfp4 = stream_nvfp4
+        self._staged_leaves: list[nn.Module] = []
+        self._stage_handles: list = []
+        self._device: str | torch.device = "cpu"
         # OWN-tensor bytes of the streamed leaves and whether they were actually
         # page-locked (``can_pin``). The engine reads ``pinned_gb`` after teardown
         # to decide whether the vacated pinned pool is large enough to be worth
@@ -260,6 +333,7 @@ class ModuleStreamer:
         self._streamed_bytes = 0
         self._pinned = False
         self._pinned_bytes = 0
+        self._parked = False
         self._arenas: list[PinnedArena] = []
         # Prefetch toggle: ``None`` -> read ``$NATIVE_STREAM_PREFETCH`` (default off);
         # an explicit bool overrides (used by tests). ``_prefetcher`` is only built
@@ -301,19 +375,62 @@ class ModuleStreamer:
         pin: bool = True,
         non_blocking: bool = True,
     ) -> None:
-        """Place ``root`` for ``plan`` on ``device`` (streamed leaves stay pinned/CPU)."""
+        """Place ``root`` for ``plan`` on ``device`` (streamed leaves stay pinned/CPU).
+
+        A page-lock failure repeats the placement unpinned with synchronous
+        copies; any other failure rolls it back.
+        """
+        try:
+            self._place(device, plan, pin=pin, non_blocking=non_blocking)
+            return
+        except PinnedMemoryUnavailableError as exc:
+            _note_pin_fallback(exc)
+        except BaseException:
+            self._abort_placement()
+            raise
+        pinned_before_failure = sum(_own_tensor_bytes(m) for m in self._streamed)
+        try:
+            self._place(device, plan, pin=False, non_blocking=False)
+        except BaseException:
+            self._abort_placement()
+            raise
+        if pinned_before_failure:
+            self._release_vacated_pinned(pinned_before_failure)
+
+    def _place(
+        self,
+        device: str | torch.device,
+        plan: PartialResidencyPlan,
+        *,
+        pin: bool,
+        non_blocking: bool,
+    ) -> None:
         streamed_ids = {id_ for id_ in map(_module_id_by_name(self.root), plan.streamed_names)}
         can_pin = pin and torch.cuda.is_available()
+        self._remove_stagers()
+        self._parked = False
+        self._device = device
         self._streamed = []
         streamed_bytes = 0
         modules = list(self.root.named_modules())
         if can_pin:
-            self._pin_into_arena([m for _, m in modules if id(m) in streamed_ids], device)
+            self._pin_into_arena(
+                [m for _, m in modules if id(m) in streamed_ids and not self._stages_buffers(m)], device,
+            )
+        else:
+            self._drop_arenas()
         self._pinned = can_pin
         self._active = True
 
         for name, module in modules:
-            if id(module) in streamed_ids:
+            if id(module) in streamed_ids and self._stages_buffers(module):
+                _place_streamed_nvfp4(module, device, pin=can_pin)
+                module.comfy_cast_weights = True
+                module.stream_non_blocking = non_blocking
+                self._streamed.append(module)
+                self._install_stager(module, non_blocking)
+                streamed_bytes += _own_tensor_bytes(module)
+            elif id(module) in streamed_ids:
                 # Streamed: keep weights on (pinned) CPU RAM; force the cast-on-
                 # forward path so each forward copies them to the activation device.
                 _move_own_tensors(module, "cpu", pin=can_pin, arenas=self._arenas)
@@ -334,7 +451,7 @@ class ModuleStreamer:
         for arena in self._arenas:
             arena.release_unused()
         self._arenas = [arena for arena in self._arenas if arena.registered_segments]
-        self._pinned_bytes = self._pinned_footprint() if can_pin else 0
+        self._pinned_bytes = self._pinned_footprint(self._streamed) if can_pin else 0
         get_profiler().mark(
             "streamer.apply", streamed_gb=self.streamed_gb, pinned_gb=self.pinned_gb,
             arena_segments=sum(arena.registered_segments for arena in self._arenas),
@@ -345,6 +462,27 @@ class ModuleStreamer:
             "(pin=%s, non_blocking=%s, prefetch=%s)",
             len(self._streamed), device, can_pin, non_blocking, self._prefetcher is not None,
         )
+
+    def _stages_buffers(self, module: nn.Module) -> bool:
+        return self._stream_nvfp4 and is_nvfp4_leaf(module)
+
+    def _abort_placement(self) -> None:
+        self._streamed_bytes = sum(_own_tensor_bytes(m) for m in self._streamed)
+        self._active = True
+        try:
+            self.teardown()
+        except Exception:
+            logger.debug("streamer: placement rollback failed", exc_info=True)
+            self._active = False
+
+    def _drop_arenas(self) -> None:
+        if not self._arenas:
+            return
+        for module in self.root.modules():
+            _unpin_from_arenas(module, self._arenas)
+        for arena in self._arenas:
+            arena.release()
+        self._arenas = []
 
     def _arena_owning(self, data: torch.Tensor) -> PinnedArena | None:
         return next((arena for arena in self._arenas if arena.owns(data)), None)
@@ -378,15 +516,16 @@ class ModuleStreamer:
     def _arena_bytes(self) -> int:
         return sum(arena.pinned_bytes for arena in self._arenas)
 
-    def _pinned_footprint(self) -> int:
+    def _pinned_footprint(self, modules: Iterable[nn.Module]) -> int:
         total = self._arena_bytes()
         seen: set[int] = set()
-        for module in self._streamed:
-            for p in module.parameters(recurse=False):
-                data = p.data
-                if id(p) in seen or data.device.type != "cpu" or self._arena_owning(data) is not None:
+        for module in modules:
+            tensors = [p.data for p in module.parameters(recurse=False)]
+            tensors += [b for b in module.buffers(recurse=False) if b is not None]
+            for data in tensors:
+                if data.data_ptr() in seen or data.device.type != "cpu" or self._arena_owning(data) is not None:
                     continue
-                seen.add(id(p))
+                seen.add(data.data_ptr())
                 if data.is_pinned():
                     total += caching_host_block_bytes(data.numel() * data.element_size())
         return total
@@ -421,6 +560,21 @@ class ModuleStreamer:
             self._prefetcher.teardown()
             self._prefetcher = None
 
+    def _install_stager(self, module: nn.Module, non_blocking: bool) -> None:
+        stager = _BufferStager(non_blocking)
+        self._stage_handles.append(module.register_forward_pre_hook(stager.stage))
+        self._stage_handles.append(_register_forward_hook_always(module, stager.restore))
+        self._staged_leaves.append(module)
+
+    def _remove_stagers(self) -> None:
+        for handle in self._stage_handles:
+            try:
+                handle.remove()
+            except Exception:  # pragma: no cover - hook handle removal is best-effort
+                logger.debug("streamer: stager hook removal failed", exc_info=True)
+        self._stage_handles = []
+        self._staged_leaves = []
+
     def teardown(self) -> None:
         """Move everything back to CPU and revert the streamed flags.
 
@@ -445,6 +599,10 @@ class ModuleStreamer:
         # Remove prefetch hooks + restore any swapped weights BEFORE moving tensors,
         # so the CPU move sees the pinned originals (not a transient GPU staged copy).
         self._teardown_prefetch()
+        staged_ids = {id(m) for m in self._staged_leaves}
+        self._remove_stagers()
+        if self._pinned:
+            _release_idle_vram()
         legacy_pinned_bytes = self._pinned_bytes - self._arena_bytes()
         drain = self._pinned and legacy_pinned_bytes >= _TEARDOWN_RELEASE_CHUNK_GB * _BYTES_PER_GB
         streamed_ids = {id(m) for m in self._streamed}
@@ -452,6 +610,8 @@ class ModuleStreamer:
         for module in self.root.modules():
             _unpin_from_arenas(module, self._arenas)
             _move_own_tensors(module, "cpu", pin=False)
+            if id(module) in staged_ids:
+                _unpin_own_buffers(module)
             if drain and id(module) in streamed_ids:
                 pending_bytes += _own_tensor_bytes(module)
                 if pending_bytes >= _TEARDOWN_RELEASE_CHUNK_GB * _BYTES_PER_GB:
@@ -462,6 +622,9 @@ class ModuleStreamer:
         for arena in self._arenas:
             arena.release()
         self._arenas = []
+        self._finish_teardown()
+
+    def _finish_teardown(self) -> None:
         for module in self._streamed:
             # Revert both flags to their namespace class defaults (e.g.
             # comfy_cast_weights False for plain bf16) so a later fully-resident
@@ -471,6 +634,58 @@ class ModuleStreamer:
                 del module.stream_non_blocking
         self._streamed = []
         self._active = False
+
+    @property
+    def parked(self) -> bool:
+        return self._parked
+
+    @property
+    def parked_gb(self) -> float:
+        return self._pinned_bytes / _BYTES_PER_GB if self._parked else 0.0
+
+    def park(self) -> bool:
+        if not self._active or not self._pinned:
+            return False
+        self._teardown_prefetch()
+        self._remove_stagers()
+        modules = list(self.root.modules())
+        try:
+            self._pin_into_arena(modules, self._device)
+            for module in modules:
+                _park_own_tensors(module, self._arenas)
+        except PinnedMemoryUnavailableError as exc:
+            _note_pin_fallback(exc)
+            self._unpin_all()
+            self._finish_teardown()
+            return False
+        _release_idle_vram()
+        self._finish_teardown()
+        self._pinned_bytes = self._pinned_footprint(modules)
+        self._parked = True
+        return True
+
+    def unpark(self) -> None:
+        if not self._parked:
+            return
+        self._unpin_all()
+        self._parked = False
+
+    def forget_parked(self) -> None:
+        for arena in self._arenas:
+            arena.release()
+        self._arenas = []
+        self._pinned_bytes = 0
+        self._parked = False
+
+    def _unpin_all(self) -> None:
+        for module in self.root.modules():
+            _unpin_from_arenas(module, self._arenas)
+            _move_own_tensors(module, "cpu", pin=False)
+            _unpin_own_buffers(module)
+        for arena in self._arenas:
+            arena.release()
+        self._arenas = []
+        self._pinned_bytes = 0
 
     def _release_vacated_pinned(self, drained_bytes: int) -> None:
         """Return the pinned blocks the teardown sweep has vacated so far.
@@ -701,6 +916,82 @@ def _module_id_by_name(root: nn.Module):
     return lambda name: lookup.get(name, 0)
 
 
+class _BufferStager:
+    """Forward hooks of one streamed nvfp4 leaf: stage its buffers onto the
+    activation's device before the call, put the pinned originals back after.
+
+    Only ``_buffers`` entries are swapped (never ``Parameter.data``), so the
+    swap is a plain dict assignment, valid under ``inference_mode`` and for any
+    device pair. A call without a positional tensor stages nothing; the layer
+    then dequantises where its buffers live, which is slow but still correct.
+    """
+
+    def __init__(self, non_blocking: bool) -> None:
+        self._non_blocking = non_blocking
+        self._saved: dict[str, torch.Tensor] = {}
+
+    def stage(self, module: nn.Module, args) -> None:
+        self._put_back(module)
+        x = args[0] if args else None
+        if not isinstance(x, torch.Tensor):
+            return
+        target = x.device
+        for name, buf in list(module._buffers.items()):
+            if buf is None or buf.device == target:
+                continue
+            self._saved[name] = buf
+            module._buffers[name] = _stage_copy(buf, target, non_blocking=self._non_blocking)
+
+    def restore(self, module: nn.Module, args, output) -> None:
+        self._put_back(module)
+
+    def _put_back(self, module: nn.Module) -> None:
+        for name, buf in self._saved.items():
+            module._buffers[name] = buf
+        self._saved = {}
+
+
+def _place_streamed_nvfp4(module: nn.Module, device: str | torch.device, *, pin: bool) -> None:
+    """Streamed nvfp4 leaf: buffers to (pinned) CPU RAM, its params (the bias) on ``device``."""
+    for p in module.parameters(recurse=False):
+        p.data = p.data.to(device)
+    placed: dict[str, torch.Tensor] = {}
+    for name, buf in list(module._buffers.items()):
+        if buf is None:
+            continue
+        data = buf if buf.device.type == "cpu" else buf.to("cpu")
+        if pin and not data.is_pinned():
+            data = _pin(data)
+        elif not pin and data.is_pinned():
+            data = _unpinned_copy(data)
+        placed[name] = data
+    module._buffers.update(placed)
+
+
+def _unpin_own_buffers(module: nn.Module) -> None:
+    """Replace every pinned CPU buffer of ``module`` with a plain copy, so the
+    page-locked pages a streamed nvfp4 leaf held are actually released."""
+    for name, buf in list(module._buffers.items()):
+        if buf is None or buf.device.type != "cpu" or not buf.is_pinned():
+            continue
+        module._buffers[name] = _unpinned_copy(buf)
+
+
+def _park_own_tensors(module: nn.Module, arenas: Sequence[PinnedArena]) -> None:
+    for p in module.parameters(recurse=False):
+        data = p.data
+        if any(arena.owns(data) for arena in arenas):
+            continue
+        if data.device.type != "cpu":
+            data = data.to("cpu")
+        if not data.is_pinned():
+            data = _pin(data)
+        p.data = data
+    for name, buf in list(module._buffers.items()):
+        if buf is not None and buf.device.type != "cpu":
+            module._buffers[name] = buf.to("cpu")
+
+
 def _unpin_from_arenas(module: nn.Module, arenas: list[PinnedArena]) -> None:
     if not arenas:
         return
@@ -726,8 +1017,7 @@ def _move_own_tensors(
             if pin and any(arena.owns(data) for arena in arenas):
                 continue
             if pin and data.device.type == "cpu" and not data.is_pinned():
-                data = data.pin_memory()
-                add_pinned_bytes(caching_host_block_bytes(data.numel() * data.element_size()))
+                data = _pin(data)
             elif data.device.type != "cpu":
                 data = data.to("cpu")
             elif not pin and data.is_pinned():
