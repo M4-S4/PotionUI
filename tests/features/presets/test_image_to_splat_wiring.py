@@ -25,7 +25,7 @@ def template():
     loader.load_presets()
     found = next((p for p in loader.presets if "marketplace/ImageToSplat" in str(p.path).replace("\\", "/")), None)
     if found is None:
-        pytest.skip("marketplace/ImageToSplat preset not present")
+        pytest.fail("marketplace/ImageToSplat preset not present")
     return found
 
 
