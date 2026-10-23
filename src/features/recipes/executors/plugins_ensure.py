@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List
+from typing import Any, Callable, List
 
 from src.features.recipes.executors.base import StepContext, StepResult
 from src.platform.plugins import PluginRegistry
@@ -18,8 +18,9 @@ class PluginsEnsureExecutor:
     plain-language pointer at Administration -> Plugins.
     """
 
-    def __init__(self, plugin_registry: PluginRegistry):
+    def __init__(self, plugin_registry: PluginRegistry, enable_plugin: Callable[[str], Any]):
         self.plugin_registry = plugin_registry
+        self.enable_plugin = enable_plugin
 
     def execute(self, context: StepContext) -> StepResult:
         plugin_ids: List[str] = list(context.step.params.get("plugin_ids") or [])
@@ -40,11 +41,13 @@ class PluginsEnsureExecutor:
                 already_enabled.append(plugin_id)
                 continue
 
-            if self.plugin_registry.enable_plugin(plugin_id):
-                enabled.append(plugin_id)
-            else:
-                error = self.plugin_registry.get_plugin_error(plugin_id) or "it failed to start"
+            try:
+                self.enable_plugin(plugin_id)
+            except Exception as e:
+                error = self.plugin_registry.get_plugin_error(plugin_id) or str(e) or "it failed to start"
                 problems.append(f"'{manifest.name}' could not be enabled ({error})")
+            else:
+                enabled.append(plugin_id)
 
         if problems:
             return StepResult.fail(

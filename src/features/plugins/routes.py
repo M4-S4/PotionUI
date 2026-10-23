@@ -17,11 +17,7 @@ from src.features.plugins import operations
 from src.features.plugins.operations import PluginManifestUnavailableError
 from src.features.plugins.repository import PluginRepository
 from src.platform.plugins.registry import PluginRegistry
-from src.features.providers.registry import (
-    ensure_providers_discovered,
-    refresh_provider_for_plugin,
-    reset_provider_registry,
-)
+from src.features.providers.registry import refresh_provider_for_plugin
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -165,12 +161,6 @@ class PluginController(BaseController):
         )
         return self.success_response(data=detail.model_dump())
 
-    async def _rediscover_providers(self) -> None:
-        try:
-            await ensure_providers_discovered()
-        except Exception as e:
-            self.logger.warning(f"Provider re-discovery after plugin toggle failed: {e}")
-
     @guarded(_refused("plugin_enable_failed"), Fail("plugin_enable_failed", "Failed to enable plugin", 500))
     async def enable_plugin(self, plugin_id: str) -> APIResponse:
         plugin = operations.enable_plugin(
@@ -182,9 +172,6 @@ class PluginController(BaseController):
             recipe_catalog=self.recipe_catalog,
             model_layout_catalog=self.model_layout_catalog,
         )
-
-        reset_provider_registry()
-        await self._rediscover_providers()
 
         return self.success_response(
             message=f"Plugin '{plugin.name}' enabled successfully"
@@ -201,9 +188,6 @@ class PluginController(BaseController):
             recipe_catalog=self.recipe_catalog,
             model_layout_catalog=self.model_layout_catalog,
         )
-
-        reset_provider_registry()
-        await self._rediscover_providers()
 
         return self.success_response(
             message=f"Plugin '{plugin.name}' disabled successfully"

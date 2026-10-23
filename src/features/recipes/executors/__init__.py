@@ -53,6 +53,7 @@ def build_default_executor_registry(
     *,
     recipe_catalog: RecipeCatalog,
     plugin_registry,
+    enable_plugin,
     backend_registry,
     preset_collaborators,
     user_repository,
@@ -85,7 +86,7 @@ def build_default_executor_registry(
         model_repository = ModelRepository()
 
     executors = {
-        "plugins.ensure": PluginsEnsureExecutor(plugin_registry),
+        "plugins.ensure": PluginsEnsureExecutor(plugin_registry, enable_plugin),
         "backend.ensure": BackendEnsureExecutor(backend_registry),
         "backend.detect": BackendDetectExecutor(backend_registry),
         "models.index": ModelsIndexExecutor(indexing_coordinator),

@@ -32,6 +32,14 @@ class FakePluginRegistry:
         return self.errors.get(plugin_id)
 
 
+def _executor(registry):
+    def enable(plugin_id):
+        if not registry.enable_plugin(plugin_id):
+            raise ValueError("Failed to enable plugin in registry")
+
+    return PluginsEnsureExecutor(registry, enable)
+
+
 def _context(plugin_ids):
     run = RecipeRun(id="r1", recipe_id="x", recipe_version=1, scope="instance", status=RecipeRunStatus.RUNNING, created_by="owner-1")
     recipe = Recipe(id="x", schema_version=1, version=1, name="X", engine="native")
@@ -40,7 +48,7 @@ def _context(plugin_ids):
 
 
 def test_no_plugin_ids_is_a_trivial_success():
-    executor = PluginsEnsureExecutor(FakePluginRegistry())
+    executor = _executor(FakePluginRegistry())
     result = executor.execute(_context([]))
     assert result.success is True
     assert result.safe_output == {"enabled": [], "already_enabled": []}
@@ -51,7 +59,7 @@ def test_already_enabled_plugin_is_reported_not_re_enabled():
         plugins={"downloader": SimpleNamespace(name="Model Downloader")},
         states={"downloader": PluginState.ENABLED},
     )
-    executor = PluginsEnsureExecutor(registry)
+    executor = _executor(registry)
 
     result = executor.execute(_context(["downloader"]))
 
@@ -65,7 +73,7 @@ def test_disabled_plugin_gets_enabled():
         plugins={"downloader": SimpleNamespace(name="Model Downloader")},
         states={"downloader": PluginState.DISABLED},
     )
-    executor = PluginsEnsureExecutor(registry)
+    executor = _executor(registry)
 
     result = executor.execute(_context(["downloader"]))
 
@@ -75,7 +83,7 @@ def test_disabled_plugin_gets_enabled():
 
 
 def test_missing_plugin_fails_with_human_readable_detail():
-    executor = PluginsEnsureExecutor(FakePluginRegistry())
+    executor = _executor(FakePluginRegistry())
 
     result = executor.execute(_context(["downloader"]))
 
@@ -92,9 +100,24 @@ def test_enable_failure_surfaces_plugin_error():
         enable_results={"downloader": False},
         errors={"downloader": "missing dependency: ffmpeg"},
     )
-    executor = PluginsEnsureExecutor(registry)
+    executor = _executor(registry)
 
     result = executor.execute(_context(["downloader"]))
 
     assert result.success is False
     assert "missing dependency: ffmpeg" in result.safe_error_detail
+
+
+def test_enable_exception_message_is_the_fallback_detail():
+    registry = FakePluginRegistry(
+        plugins={"downloader": SimpleNamespace(name="Model Downloader")},
+        states={"downloader": PluginState.DISABLED},
+    )
+
+    def enable(plugin_id):
+        raise RuntimeError("boom")
+
+    result = PluginsEnsureExecutor(registry, enable).execute(_context(["downloader"]))
+
+    assert result.success is False
+    assert "boom" in result.safe_error_detail

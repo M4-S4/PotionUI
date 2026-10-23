@@ -1233,3 +1233,22 @@ def test_delete_disabled_plugin_does_not_reload_model_layout_catalog(
         mock_plugin_repo, mock_plugin_registry, "test-plugin-1", model_layout_catalog=catalog,
     )
     catalog.reload.assert_not_called()
+
+
+@pytest.mark.parametrize("action", ["enable_plugin", "disable_plugin"])
+def test_toggle_resets_the_provider_registry(action, mock_plugin_repo, mock_plugin_registry, sample_plugin, monkeypatch):
+    from src.features.plugins.operations import lifecycle
+
+    resets = []
+    monkeypatch.setattr(lifecycle, "reset_provider_registry", lambda: resets.append(action))
+    mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
+    mock_plugin_repo.enable_plugin.return_value = True
+    mock_plugin_repo.disable_plugin.return_value = True
+    mock_plugin_registry.enable_plugin.return_value = True
+    mock_plugin_registry.disable_plugin.return_value = True
+    mock_plugin_registry.get_plugin_state.return_value = PluginState.ENABLED
+    mock_plugin_registry.get_plugin_error.return_value = None
+
+    getattr(operations, action)(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
+
+    assert resets == [action]

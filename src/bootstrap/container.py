@@ -121,6 +121,7 @@ from src.features.generation.status_tracker import GenerationStatusTracker
 from src.platform.settings.repository import SettingRepository
 from src.features.llm.repository import LLMRepository
 from src.features.plugins.repository import PluginRepository
+from src.features.plugins import operations as plugin_operations
 from src.features.plugins.operations import refresh_known_plugin_hooks
 from src.features.users.repository import UserRepository
 from src.features.phrasebook.repository import (
@@ -1571,6 +1572,15 @@ def build_container() -> AppContainer:
     _recipe_executors = build_default_executor_registry(
         recipe_catalog=recipe_catalog,
         plugin_registry=plugin_registry,
+        enable_plugin=functools.partial(
+            plugin_operations.enable_plugin,
+            plugin_repository,
+            plugin_registry,
+            preset_loader=preset_template_loader,
+            pipe_catalog=pipe_catalog,
+            recipe_catalog=recipe_catalog,
+            model_layout_catalog=model_layout_catalog,
+        ),
         backend_registry=backend_registry,
         preset_collaborators=preset_collaborators,
         user_repository=user_repository,
