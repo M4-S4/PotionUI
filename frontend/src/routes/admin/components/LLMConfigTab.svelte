@@ -84,7 +84,7 @@ Always be creative and helpful while staying focused on the image generation con
 
 	let configFormData = $state<LLMConfigFormData>(configFormFrom(null));
 	let editFormData = $state<LLMConfigFormData>(configFormFrom(null));
-	let editSnapshot = $state(JSON.stringify(editFormData));
+	let editSnapshot = $state(JSON.stringify(configFormFrom(null)));
 	let editSaving = $state(false);
 
 	const filteredConfigurations = $derived(applyLLMConfigFilters(configurations, filters));

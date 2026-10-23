@@ -62,6 +62,7 @@
 <div class={wrapperClass}>
 	<div
 		bind:this={triggerElement}
+		role="presentation"
 		on:mouseenter={handleMouseEnter}
 		on:mouseleave={hide}
 		on:focusin={handleFocusIn}

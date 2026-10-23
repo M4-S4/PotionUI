@@ -1,10 +1,11 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import ConditionBuilder from '../../../src/lib/components/organize/ConditionBuilder.svelte';
 	import type { RuleDraft } from '../../../src/lib/organize/draft';
 	import type { OrganizeCatalog } from '../../../src/lib/types/organize';
 
 	let { initial, catalog }: { initial: RuleDraft; catalog: OrganizeCatalog } = $props();
-	let draft = $state<RuleDraft>(initial);
+	let draft = $state<RuleDraft>(untrack(() => initial));
 </script>
 
 <ConditionBuilder bind:draft {catalog} />

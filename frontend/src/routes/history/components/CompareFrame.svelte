@@ -109,6 +109,7 @@
 	<div class="flex flex-col gap-2">
 		<div
 			bind:this={wipeFrameEl}
+			role="presentation"
 			class="relative {boxClass} rounded-lg overflow-hidden bg-black select-none {mode === 'wipe'
 				? 'cursor-ew-resize'
 				: ''}"
@@ -159,7 +160,7 @@
 			</span>
 
 			{#if mode === 'wipe'}
-				<div class="absolute inset-y-0 w-px bg-line-strong pointer-events-none" style="left: {value}%" />
+				<div class="absolute inset-y-0 w-px bg-line-strong pointer-events-none" style="left: {value}%"></div>
 				<div
 					class="wipe-handle absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center justify-center h-8 w-8 rounded-full bg-signal border-2 border-canvas shadow-floating cursor-ew-resize"
 					style="left: {value}%"
