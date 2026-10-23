@@ -5,7 +5,7 @@ export interface TooltipOptions {
 	text?: string | null;
 	position?: 'top' | 'bottom' | 'left' | 'right';
 	delay?: number;
-	kbd?: string;
+	kbd?: string | string[];
 	truncateOnly?: boolean;
 	wrap?: boolean;
 	focusSelf?: boolean;
@@ -24,6 +24,10 @@ function normalize(param: TooltipParam): TooltipOptions {
 export function isOverflowing(node: HTMLElement): boolean {
 	const cut = (el: Element) => el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight;
 	return cut(node) || Array.from(node.querySelectorAll(OVERFLOW_SELECTOR)).some(cut);
+}
+
+export function focusFollowsPointer(doc: Document = document): boolean {
+	return doc.documentElement.dataset.input === 'pointer';
 }
 
 export default function tooltip(node: HTMLElement, param: TooltipParam) {
@@ -80,6 +84,7 @@ export default function tooltip(node: HTMLElement, param: TooltipParam) {
 	const onEnter = () => schedule(options.delay ?? 200);
 	const onFocus = (e: FocusEvent) => {
 		if (options.focusSelf && e.target !== node) return;
+		if (focusFollowsPointer(node.ownerDocument)) return;
 		schedule(0);
 	};
 	const onKeydown = (e: KeyboardEvent) => {
