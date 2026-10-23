@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken } from './helpers';
+import { presetOption } from './presetPreamble';
 
 async function openAdvancedTab(page: Page) {
 	const tab = page.getByRole('tab', { name: 'Advanced', exact: true }).first();
@@ -29,8 +30,8 @@ async function openKrea2(page: Page) {
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset!.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset!.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	await openAdvancedTab(page);
 }
 

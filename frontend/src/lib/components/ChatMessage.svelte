@@ -1,14 +1,19 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
+	import delegatedTooltip from '$lib/actions/delegatedTooltip';
 	import { slide } from 'svelte/transition';
 	import {
 		processMarkdown,
 		processMarkdownWithActions,
 		injectToolCallChips,
 		truncateAtReplyContractMarker,
+		isPromptListAction,
 		type ToolAction,
 		type ToolCallSpan
 	} from '$lib/utils/markdown';
-	import type { ToolExecution, ResourceRef, TraceStep, ReplyContract } from '$lib/types/chat';
+	import { promptActionHeading } from '$lib/chat/promptActions';
+	import { promptActionUndos } from '$lib/stores/promptActionUndos';
+	import type { ToolExecution, ResourceRef, TraceStep, ReplyContract, ThinkingSegment } from '$lib/types/chat';
 	import { splitResourceTokens } from '$lib/utils/resourceTokens';
 	import { splitMarkerTokens } from '$lib/chat/previewTokens';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
@@ -16,11 +21,18 @@
 	import { buildVariableChipTooltips } from '$lib/utils/variableSnapshot';
 	import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 	import ChatBehaviorTrace from '$lib/components/chat/ChatBehaviorTrace.svelte';
+	import ChatThinkingBlock from '$lib/components/chat/ChatThinkingBlock.svelte';
 	import ChatActionCard from '$lib/components/chat/ChatActionCard.svelte';
+	import ConditionChip from '$lib/components/ConditionChip.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { readable } from 'svelte/store';
+	import { conditionTagProblems, splitConditionText } from '$lib/chat/conditionText';
 	import { actionExecutions, type ActionDecision, type ActionResolveOutcome } from '$lib/chat/actionCard';
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { appliedSegmentActions, isAppliedSegmentAction } from '$lib/stores/appliedSegmentActions';
+	import { removedSegmentActions, removedActionKey } from '$lib/stores/removedSegmentActions';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let role: 'user' | 'assistant' | 'system';
 	export let content: string;
@@ -34,6 +46,7 @@
 	export let isPartial: boolean = false;
 	export let toolExecutions: ToolExecution[] = [];
 	export let traceSteps: TraceStep[] = [];
+	export let thinking: ThinkingSegment[] = [];
 	export let sources: Array<{
 		source_type: string;
 		title: string;
@@ -63,6 +76,10 @@
 	// Optional tooltip clarifying where "Apply" writes to when that isn't the
 	// obvious flat segment list — e.g. Video Director's persistent Direction prompt.
 	export let applyActionHint: string | undefined = undefined;
+	export let onUndoAction: ((actionIndex: number) => void) | undefined = undefined;
+	export let listActionsDisabled: boolean = false;
+	export let batchPromptCount: number = 0;
+	export let segmentTextFor: ((action: ToolAction) => string | null) | undefined = undefined;
 	export let onPromptFeedback:
 		| ((data: { actionIndex: number; verdict: 'approved' | 'rejected'; reason?: string }) => void)
 		| undefined = undefined;
@@ -74,6 +91,7 @@
 	export let onAskRedo: ((index: number) => void) | undefined = undefined;
 
 	$: actionItems = actionExecutions(toolExecutions);
+	$: conditionContext = readable({ variables: variables ?? {}, rolls: variableRolls ?? {} });
 
 	// Deduplicate sources by (source_type, title)
 	$: uniqueSources = (() => {
@@ -123,6 +141,68 @@
 	$: appliedByIndex = markdownResult.actions.map((_, idx) =>
 		isAppliedSegmentAction($appliedSegmentActions, messageId, idx)
 	);
+
+	$: conditionProblemsByIndex = markdownResult.actions.map((action) =>
+		action.type === 'delete_segment' ? [] : conditionTagProblems(action.content)
+	);
+
+	$: removalByIndex = markdownResult.actions.map(
+		(_, idx) => $removedSegmentActions[removedActionKey(messageId, idx)]
+	);
+
+	$: promptUndoByIndex = markdownResult.actions.map((_, idx) => $promptActionUndos[removedActionKey(messageId, idx)]);
+
+	function promptActionNumber(index: number): number {
+		const undo = promptUndoByIndex[index];
+		return undo?.kind === 'add' ? undo.index + 1 : batchPromptCount + 1;
+	}
+
+	function promptActionBody(action: ToolAction): string {
+		const number = (action.promptIndex ?? 0) + 1;
+		if (action.type === 'select_prompt') return `Makes prompt ${number} the active prompt.`;
+		if (action.type === 'remove_prompt') return `Removes prompt ${number} and its segments.`;
+		if (action.type === 'rename_prompt') return `Renames prompt ${number} to "${action.name}".`;
+		return 'Adds an empty prompt.';
+	}
+
+	function actionHeading(action: ToolAction, index = 0): string {
+		if (isPromptListAction(action.type)) return promptActionHeading(action, promptActionNumber(index));
+		if (action.type === 'update_director_segment') return 'Director Segment';
+		if (action.type === 'add_segment') return action.list === 'negative' ? 'Add Negative Segment' : 'Add Segment';
+		if (action.type === 'delete_segment') return 'Delete Segment';
+		return 'Update Segment';
+	}
+
+	function actionPosition(action: ToolAction): string {
+		if (isPromptListAction(action.type)) return '';
+		const position = action.type === 'add_segment' || action.segmentIndex < 0 ? '' : ` #${action.segmentIndex + 1}`;
+		return action.promptIndex !== undefined ? `${position} · Prompt ${action.promptIndex + 1}` : position;
+	}
+
+	function actionTag(action: ToolAction): string {
+		if (action.type === 'add_segment' || action.type === 'add_prompt') return 'Suggested addition';
+		if (action.type === 'delete_segment' || action.type === 'remove_prompt') return 'Suggested removal';
+		if (action.type === 'select_prompt') return 'Suggested switch';
+		if (action.type === 'rename_prompt') return 'Suggested rename';
+		return 'Suggested change';
+	}
+
+	function isReapplicable(action: ToolAction): boolean {
+		return action.type !== 'add_segment' && action.type !== 'delete_segment' && !isPromptListAction(action.type);
+	}
+
+	function carriesPromptText(action: ToolAction): boolean {
+		return action.type !== 'delete_segment' && (!isPromptListAction(action.type) || action.content.trim().length > 0);
+	}
+
+	function applyLabel(action: ToolAction, applied: boolean): string {
+		if (action.type === 'add_segment' || action.type === 'add_prompt') return applied ? '✓ Added' : 'Add';
+		if (action.type === 'delete_segment') return applied ? '✓ Deleted' : 'Delete';
+		if (action.type === 'remove_prompt') return applied ? '✓ Removed' : 'Remove';
+		if (action.type === 'select_prompt') return applied ? '✓ Switched' : 'Switch';
+		if (action.type === 'rename_prompt') return applied ? '✓ Renamed' : 'Rename';
+		return applied ? '✓ Applied' : 'Apply';
+	}
 
 	function submitPromptFeedback(actionIndex: number, verdict: 'approved' | 'rejected', reason?: string) {
 		localPromptFeedback = { ...localPromptFeedback, [actionIndex]: { verdict, reason } };
@@ -231,7 +311,7 @@
 {#if role === 'user'}
 	<article class="message user-message">
 		<div class="user-bubble">
-			{#each splitResourceTokens(content) as part}{#if part.type === 'resource'}<span class="prompt-token" title={part.value}>@{resourceLabel(part.value)}</span>{:else}{part.value}{/if}{/each}
+			{#each splitResourceTokens(content) as part}{#if part.type === 'resource'}<span class="prompt-token" use:tooltip={part.value}>@{resourceLabel(part.value)}</span>{:else}{part.value}{/if}{/each}
 		</div>
 		{#if imageUrl}
 			<div class="user-attachment">
@@ -264,7 +344,8 @@
 					Stopped at the output limit; the reply may be incomplete.
 				</div>
 			{/if}
-			<div class="assistant-copy">
+			<ChatThinkingBlock segments={thinking} {isStreaming} />
+			<div class="assistant-copy" use:delegatedTooltip>
 				{@html renderedHtml}{#if isStreaming}<span class="inline-block w-2 h-4 ml-0.5 bg-signal animate-pulse rounded-sm"></span>{/if}
 
 				{#if replyContract?.improved?.length}
@@ -284,6 +365,8 @@
 					<ChatActionCard
 						execution={item.execution}
 						actionKey="{messageId || 'local'}:{item.index}"
+						variables={variables}
+						rolls={variableRolls}
 						locked={actionsLocked || !messageId}
 						externalError={actionErrors[`${messageId}:${item.index}`] ?? null}
 						onResolve={onResolveAction ? (decision) => onResolveAction!(item.index, decision) : undefined}
@@ -297,47 +380,59 @@
 					<div class="prompt-card">
 						<div class="prompt-card-head">
 							<div class="prompt-card-title">
-								<svg class="icon"><use href="#i-edit" /></svg>
-								<strong
-									>{action.type === 'update_director_segment' ? 'Director Segment' : 'Update Segment'} #{action.segmentIndex +
-										1}</strong
-								>
-								<span class="prompt-label">Suggested change</span>
+								<Icon name="chat-edit" className="icon" strokeWidth={1.8} />
+								<strong>{actionHeading(action, i)}{actionPosition(action)}</strong>
+								<span class="prompt-label">{actionTag(action)}</span>
 							</div>
 							<div class="flex flex-shrink-0 items-center gap-2">
-								{#if onPromptFeedback && sessionId && messageId}
+								{#if onPromptFeedback && sessionId && messageId && carriesPromptText(action)}
 									<button
 										type="button"
 										class="message-action"
 										class:active={feedback?.verdict === 'approved'}
 										disabled={!!feedback}
-										title="Good prompt"
+										use:tooltip={'Good prompt'}
 										aria-pressed={feedback?.verdict === 'approved'}
 										on:click={() => submitPromptFeedback(i, 'approved')}
+										aria-label="Good prompt"
 									>
-										<svg class="icon"><use href="#i-good" /></svg>
+										<Icon name="chat-good" className="icon" strokeWidth={1.8} />
 									</button>
 									<button
 										type="button"
 										class="message-action"
 										class:active={feedback?.verdict === 'rejected'}
 										disabled={!!feedback}
-										title="Bad prompt"
+										use:tooltip={'Bad prompt'}
 										aria-pressed={feedback?.verdict === 'rejected'}
 										on:click={() => toggleReasonPanel(i)}
+										aria-label="Bad prompt"
 									>
-										<svg class="icon"><use href="#i-bad" /></svg>
+										<Icon name="chat-bad" className="icon" strokeWidth={1.8} />
 									</button>
 								{/if}
 								{#if onApplyAction}
+									{#if applied && onUndoAction && ((action.type === 'delete_segment' && removalByIndex[i]) || promptUndoByIndex[i])}
+										<button
+											type="button"
+											class="undo-button"
+											data-testid="segment-action-undo"
+											on:click={() => onUndoAction?.(i)}
+										>
+											Undo
+										</button>
+									{/if}
 									<button
 										type="button"
-										class="apply-button"
+										class="apply-button {applied ? '' : 'disabled:opacity-50 disabled:cursor-not-allowed'}"
 										class:applied
-										title={applied ? 'Re-apply this variant' : applyActionHint}
-										on:click={() => onApplyAction?.(action, i)}
+										class:destructive={(action.type === 'delete_segment' || action.type === 'remove_prompt') && !applied}
+										data-testid="segment-action-apply"
+										disabled={conditionProblemsByIndex[i].length > 0 || (!isReapplicable(action) && (applied || listActionsDisabled))}
+										use:tooltip={applied ? (isReapplicable(action) ? 'Re-apply this variant' : undefined) : applyActionHint}
+										on:click={() => conditionProblemsByIndex[i].length === 0 && onApplyAction?.(action, i)}
 									>
-										{applied ? '✓ Applied' : 'Apply'}
+										{applyLabel(action, applied)}
 									</button>
 								{/if}
 							</div>
@@ -354,9 +449,25 @@
 								<button on:click={() => toggleReasonPanel(i)}>Cancel</button>
 							</div>
 						{/if}
+						{#if action.type === 'delete_segment'}
+							<div class="prompt-copy prompt-copy-removed" data-testid="segment-removed-text">
+								{removalByIndex[i]?.segment.content ?? segmentTextFor?.(action) ?? ''}
+							</div>
+						{:else if isPromptListAction(action.type) && !action.content.trim()}
+							<div class="prompt-copy prompt-copy-note" data-testid="prompt-action-note">{promptActionBody(action)}</div>
+						{:else}
 						<div class="prompt-copy">
-							{#each splitMarkerTokens(action.content) as token}{#if token.kind === 'phrasebook'}<span class="prompt-token" title="Phrasebook: {token.label}"><span class="prompt-token-mark">#</span>{token.label}</span>{:else if token.kind === 'variable'}<span class="prompt-token variable" title={variableChips[token.label] ?? `Variable: ${token.label}`}><span class="prompt-token-mark">$</span>{token.label}</span>{:else}{#each splitResourceTokenPreview(token.text, promptResources, resourceFormValues) as part}{#if part.kind === 'linked'}<span class="prompt-token resource" data-resource-token="linked"><span class="prompt-token-mark">@</span>{part.label}</span>{:else if part.kind === 'unresolved'}<span class="prompt-token-unresolved" data-resource-token="unresolved">{part.text}</span>{:else}{part.text}{/if}{/each}{/if}{/each}
+							{#each splitConditionText(action.content) as part, partIndex (partIndex)}{#if part.kind === 'condition'}{#key part.raw}<ConditionChip raw={part.raw} context={conditionContext} readonly checkVariables={variables !== undefined} />{/key}{:else}{#each splitMarkerTokens(part.text) as token}{#if token.kind === 'phrasebook'}<Tooltip text="Phrasebook: {token.label}" wrapperClass="inline-flex"><span class="prompt-token"><span class="prompt-token-mark">#</span>{token.label}</span></Tooltip>{:else if token.kind === 'variable'}<Tooltip text={variableChips[token.label] ?? `Variable: ${token.label}`} wrapperClass="inline-flex"><span class="prompt-token variable"><span class="prompt-token-mark">$</span>{token.label}</span></Tooltip>{:else}{#each splitResourceTokenPreview(token.text, promptResources, resourceFormValues) as part}{#if part.kind === 'linked'}<span class="prompt-token resource" data-resource-token="linked"><span class="prompt-token-mark">@</span>{part.label}</span>{:else if part.kind === 'unresolved'}<span class="prompt-token-unresolved" data-resource-token="unresolved">{part.text}</span>{:else}{part.text}{/if}{/each}{/if}{/each}{/if}{/each}
 						</div>
+						{/if}
+						{#if conditionProblemsByIndex[i].length}
+							<div class="prompt-resource-warning" role="alert" data-testid="condition-tag-problems">
+								<strong>Apply is off until the condition tags are fixed.</strong>
+								{#each conditionProblemsByIndex[i] as problem (problem.kind + problem.offset)}
+									<div>{problem.message}</div>
+								{/each}
+							</div>
+						{/if}
 						{#if promptResources.length}
 							{#each resourceTokenWarnings(action.content, { specs: promptResources, formValues: resourceFormValues, fieldLabels: resourceFieldLabels }) as warning (warning)}
 								<p class="prompt-resource-warning" data-resource-warning>{warning}</p>
@@ -370,7 +481,7 @@
 						{#each uniqueSources as source}
 							<div class="message-source-card">
 								<span class="message-source-badge">{source.source_type}</span>
-								<div class="message-source-title" title={source.title}>{source.title}</div>
+								<div class="message-source-title" use:tooltip={source.title}>{source.title}</div>
 								{#if source.subtitle}<div class="message-source-sub">{source.subtitle}</div>{/if}
 								{#if source.url}
 									<a href={source.url} target="_blank" rel="noopener noreferrer" class="message-source-sub"
@@ -384,8 +495,8 @@
 			</div>
 
 			<div class="message-actions">
-				<button type="button" class="message-action" title="Copy" aria-label="Copy response" on:click={copyResponse}>
-					<svg class="icon"><use href={responseCopied ? '#i-check' : '#i-copy'} /></svg>
+				<button type="button" class="message-action" use:tooltip={'Copy'} aria-label="Copy response" on:click={copyResponse}>
+					<Icon name={responseCopied ? 'chat-check' : 'chat-copy'} className="icon" strokeWidth={1.8} />
 				</button>
 				{#if modelTokensLine}
 					<span class="message-model">{modelTokensLine}</span>
@@ -403,7 +514,7 @@
 				<span class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-disabled"> · {formatTime(timestamp)}</span>
 			{/if}
 		</div>
-		<div class="{compact ? 'text-xs' : 'text-sm'} text-warning bg-warning/10 rounded-lg {compact ? 'px-3 py-2' : 'px-4 py-3'} border border-line leading-normal max-w-none">
+		<div class="{compact ? 'text-xs' : 'text-sm'} text-warning bg-warning/10 rounded-lg {compact ? 'px-3 py-2' : 'px-4 py-3'} border border-line leading-normal max-w-none" use:delegatedTooltip>
 			{@html processMarkdown(content, { variableChips })}
 		</div>
 	</div>

@@ -11,6 +11,7 @@
 // so the race is exercised through the actual reactivity graph rather than
 // through shouldHydrateSessionSelection in isolation.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -78,10 +79,6 @@ function mountPill(tabId: string) {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let mounted: ReturnType<typeof mountPill> | undefined;
 let tabId: string;
 
@@ -112,12 +109,12 @@ afterEach(() => {
 describe('SessionPill session-switch race', () => {
 	it('never re-fetches the session the user just switched away from', async () => {
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 
 		mounted.openSessionMenu();
-		await settle();
+		await settle(10);
 		mounted.clickSession(NEW_SESSION_ID);
-		await settle();
+		await settle(10);
 		mounted.confirmDiscard();
 
 		// Flush the microtask the optimistic assignment + in-flight fetch land
@@ -126,7 +123,7 @@ describe('SessionPill session-switch race', () => {
 		// local=NEW / store=OLD as a store-side change and fire off OLD.
 		await Promise.resolve();
 		await Promise.resolve();
-		await settle();
+		await settle(10);
 
 		const fetchedIds = vi.mocked(api.getSessionById).mock.calls.map((call) => call[0]);
 		expect(fetchedIds).not.toContain(OLD_SESSION_ID);

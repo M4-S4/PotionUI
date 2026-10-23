@@ -5,18 +5,19 @@ Handles per-user notification REST endpoints and the `/ws/notifications`
 real-time channel. Thin route handlers delegate to NotificationController;
 business logic lives in `src.features.notifications.operations`.
 """
+import asyncio
 import logging
 import uuid
 from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, Query, Depends, WebSocket, WebSocketDisconnect
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import soft_guarded
 from src.platform.security.current_user import get_current_active_user
 from src.features.notifications.dto import CreateNotificationRequest, UpdateNotificationPreferencesRequest
 from src.features.notifications import NotificationCollaborators
 from src.features.notifications import operations
-from src.platform.security.failure_text import failure_detail
-from src.platform.security.user import AccountType, User
+from src.platform.security.user import User
 from src.platform.websocket.notification_connection_hub import notification_connection_hub
 
 if TYPE_CHECKING:
@@ -38,6 +39,7 @@ class NotificationController(BaseController):
         self.collaborators = collaborators
         self.repository = collaborators.repository
 
+    @soft_guarded("list_notifications_failed", "Failed to list notifications", admin="user")
     async def list_notifications(
         self,
         user: User,
@@ -46,109 +48,80 @@ class NotificationController(BaseController):
         unread_only: bool = False
     ) -> APIResponse:
         """List the current user's notifications with unread count."""
-        try:
-            notifications = self.repository.list_for_user(
-                user.id, limit=limit, before_id=before, unread_only=unread_only
-            )
-            unread_count = self.repository.unread_count(user.id)
-            return self.success_response(data={
-                "notifications": [n.model_dump(mode="json") for n in notifications],
-                "unread_count": unread_count
-            })
-        except Exception as e:
-            self.logger.exception(f"Error listing notifications: {e}")
-            return self.error_api_response(error="list_notifications_failed", message="Failed to list notifications")
+        notifications = self.repository.list_for_user(
+            user.id, limit=limit, before_id=before, unread_only=unread_only
+        )
+        unread_count = self.repository.unread_count(user.id)
+        return self.success_response(data={
+            "notifications": [n.model_dump(mode="json") for n in notifications],
+            "unread_count": unread_count
+        })
 
+    @soft_guarded("create_notification_failed", "Failed to create notification", admin="user")
     async def create_notification(self, request: CreateNotificationRequest, user: User) -> APIResponse:
         """Create a notification on behalf of the current user (frontend-originated)."""
-        try:
-            notifications = operations.notify(
-                self.collaborators,
-                level=request.level,
-                title=request.title,
-                message=request.message,
-                category=request.category,
-                user_id=user.id,
-                source="frontend",
-                transient=request.transient,
-                show_toast=request.show_toast,
-                metadata=request.metadata,
-                type=request.type,
-            )
-            return self.success_response(data={
-                "notifications": [n.model_dump(mode="json") for n in notifications]
-            })
-        except ValueError as e:
-            return self.error_api_response(error="create_notification_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error creating notification: {e}")
-            return self.error_api_response(error="create_notification_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        notifications = operations.notify(
+            self.collaborators,
+            level=request.level,
+            title=request.title,
+            message=request.message,
+            category=request.category,
+            user_id=user.id,
+            source="frontend",
+            transient=request.transient,
+            show_toast=request.show_toast,
+            metadata=request.metadata,
+            type=request.type,
+        )
+        return self.success_response(data={
+            "notifications": [n.model_dump(mode="json") for n in notifications]
+        })
 
+    @soft_guarded("mark_all_read_failed", "Failed to mark all notifications read", admin="user")
     async def mark_all_read(self, user: User) -> APIResponse:
         """Mark all of the current user's notifications as read."""
-        try:
-            updated = operations.mark_all_read(self.collaborators, user.id)
-            return self.success_response(data={"updated": updated})
-        except Exception as e:
-            self.logger.error(f"Error marking all notifications read: {e}")
-            return self.error_api_response(error="mark_all_read_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        updated = operations.mark_all_read(self.collaborators, user.id)
+        return self.success_response(data={"updated": updated})
 
+    @soft_guarded("mark_read_failed", "Failed to mark notification read", admin="user")
     async def mark_read(self, notification_id: str, user: User) -> APIResponse:
         """Mark a single notification as read."""
-        try:
-            success = operations.mark_read(self.collaborators, notification_id, user.id)
-            if not success:
-                return self.error_api_response(
-                    error="notification_not_found", message="Notification not found"
-                )
-            return self.success_response(data={"id": notification_id})
-        except Exception as e:
-            self.logger.error(f"Error marking notification read: {e}")
-            return self.error_api_response(error="mark_read_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        success = operations.mark_read(self.collaborators, notification_id, user.id)
+        if not success:
+            return self.error_api_response(
+                error="notification_not_found", message="Notification not found"
+            )
+        return self.success_response(data={"id": notification_id})
 
+    @soft_guarded("delete_notification_failed", "Failed to delete notification", admin="user")
     async def delete_notification(self, notification_id: str, user: User) -> APIResponse:
         """Delete a single notification."""
-        try:
-            success = operations.delete(self.collaborators, notification_id, user.id)
-            if not success:
-                return self.error_api_response(
-                    error="notification_not_found", message="Notification not found"
-                )
-            return self.success_response(data={"id": notification_id})
-        except Exception as e:
-            self.logger.error(f"Error deleting notification: {e}")
-            return self.error_api_response(error="delete_notification_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        success = operations.delete(self.collaborators, notification_id, user.id)
+        if not success:
+            return self.error_api_response(
+                error="notification_not_found", message="Notification not found"
+            )
+        return self.success_response(data={"id": notification_id})
 
+    @soft_guarded("clear_notifications_failed", "Failed to clear notifications", admin="user")
     async def clear_notifications(self, user: User) -> APIResponse:
         """Delete all of the current user's notifications."""
-        try:
-            deleted = operations.clear(self.collaborators, user.id)
-            return self.success_response(data={"deleted": deleted})
-        except Exception as e:
-            self.logger.error(f"Error clearing notifications: {e}")
-            return self.error_api_response(error="clear_notifications_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        deleted = operations.clear(self.collaborators, user.id)
+        return self.success_response(data={"deleted": deleted})
 
+    @soft_guarded("get_notification_types_failed", "Failed to get notification types", admin="user")
     async def get_notification_types(self, user: User) -> APIResponse:
         """List all registered notification types with the user-effective enabled state, plus the sound toggle."""
-        try:
-            preferences = operations.get_preferences(self.collaborators, user.id)
-            return self.success_response(data=preferences)
-        except Exception as e:
-            self.logger.error(f"Error getting notification types: {e}")
-            return self.error_api_response(error="get_notification_types_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        preferences = operations.get_preferences(self.collaborators, user.id)
+        return self.success_response(data=preferences)
 
+    @soft_guarded("update_preferences_failed", "Failed to update preferences", admin="user")
     async def update_preferences(self, request: UpdateNotificationPreferencesRequest, user: User) -> APIResponse:
         """Partially update the current user's notification preferences (types and/or sound)."""
-        try:
-            preferences = operations.update_preferences(
-                self.collaborators, user.id, types=request.types, sound=request.sound, chat_sound=request.chat_sound
-            )
-            return self.success_response(data=preferences)
-        except ValueError as e:
-            return self.error_api_response(error="update_preferences_failed", message=str(e))
-        except Exception as e:
-            self.logger.error(f"Error updating notification preferences: {e}")
-            return self.error_api_response(error="update_preferences_failed", message=failure_detail(e, user.account_type == AccountType.ADMIN))
+        preferences = operations.update_preferences(
+            self.collaborators, user.id, types=request.types, sound=request.sound, chat_sound=request.chat_sound
+        )
+        return self.success_response(data=preferences)
 
 
 def build_router(container: "AppContainer") -> APIRouter:
@@ -255,10 +228,10 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             return
 
         client_id = str(uuid.uuid4())
-        await notification_connection_hub.connect(websocket, user.id, client_id)
+        await notification_connection_hub.connect(websocket, client_id, user.id)
 
         try:
-            unread_count = controller.repository.unread_count(user.id)
+            unread_count = await asyncio.to_thread(controller.repository.unread_count, user.id)
             await websocket.send_json({
                 "type": "connection_established",
                 "client_id": client_id,
@@ -274,6 +247,6 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         except Exception as e:
             logging.error(f"Notification WebSocket handler error for client {client_id}: {e}")
         finally:
-            notification_connection_hub.disconnect(user.id, client_id)
+            notification_connection_hub.disconnect(client_id)
 
     return ws_router

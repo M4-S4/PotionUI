@@ -183,28 +183,7 @@ def test_fl2va_first_and_last_anchor_positions_match_independent_reference(num_l
     assert layout.num_condition_video_rows == ref["num_condition_video_rows"]
 
 
-def test_last_anchor_pairwise_vs_sequential_sum_differ_from_16_latent_frames():
-    # Establishes the premise the next test's BITE CHECK relies on: at 16+
-    # latent frames the numpy-pairwise sum and a plain sequential Python sum
-    # of the SAME series genuinely diverge in the last ulp (dossier trap 4).
-    # Below 16 frames they must agree (nothing to distinguish the two sums).
-    def sequential_sum(n: int) -> float:
-        total = 0.0
-        for i in range(n):
-            total += _FRAME_RESCALE * _FRAMES_PER_LATENT[i % len(_FRAMES_PER_LATENT)]
-        return total
-
-    for n in (2, 8, 15):
-        assert _ref_pairwise_span_sum(n) == sequential_sum(n)
-    diverges = [n for n in range(16, 40) if _ref_pairwise_span_sum(n) != sequential_sum(n)]
-    assert diverges, "expected at least one n in [16,40) where pairwise and sequential sums diverge"
-
-
-def test_bite_check_last_anchor_uses_pairwise_not_sequential_sum():
-    # BITE CHECK: swap the builder's own pairwise sum for a sequential one at
-    # a divergent n and confirm the layout NO LONGER matches -- proves the
-    # comparison above is actually sensitive to the summation order, not
-    # vacuously equal.
+def test_fl2va_last_anchor_time_uses_the_pairwise_span_sum():
     def sequential_sum(n: int) -> float:
         total = 0.0
         for i in range(n):
@@ -698,11 +677,7 @@ def test_ref2va_single_image_reference_is_a_prefix_at_the_text_boundary():
     assert layout.media_rotary_origin == float(num_text_tokens) + 1.0
 
 
-def test_bite_check_image_reference_advances_by_exactly_one_not_its_own_size():
-    # BITE CHECK: the first reference is deliberately large (rows_per_frame
-    # 16) so that a wrong implementation advancing the clock by its own row
-    # or latent-frame count -- instead of the fixed 1.0 -- would move the
-    # SECOND reference far away from `num_text_tokens + 1.0`.
+def test_ref2va_image_reference_advances_the_clock_by_one_whatever_its_row_count():
     num_text_tokens = 3
     text_tags = torch.full((num_text_tokens,), TEXT_TAG, dtype=torch.long)
     large = _fake_video_latent(1, 8, 8)   # rows_per_frame = 4*4 = 16

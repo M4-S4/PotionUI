@@ -49,15 +49,13 @@ afterEach(() => {
 });
 
 describe('PromptPickerBrowseModal footer', () => {
-	it('renders one ConfirmFooter row with Cancel/Esc and Insert/Enter', () => {
+	it('renders the shared footer row with Cancel/Esc and Insert/Enter', () => {
 		mountModal({ initialSelectedId: 'v1' });
 
-		const footerRow = document.querySelector<HTMLElement>('.border-t.border-line > div');
+		const footerRow = document.querySelector<HTMLElement>('[data-segment-modal-footer]');
 		expect(footerRow).not.toBeNull();
 		expect(footerRow!.className).toContain('items-center');
-		expect(footerRow!.className).toContain('justify-between');
-		expect(footerRow!.className).toContain('px-6');
-		expect(footerRow!.className).toContain('py-4');
+		expect(footerRow!.querySelector('[data-segment-modal-end]')!.lastElementChild!.textContent).toContain('Insert');
 
 		expect(cancelButton()?.textContent).toContain('Esc');
 		expect(confirmButton()?.textContent).toContain('Insert');
@@ -117,12 +115,13 @@ describe('PromptPickerBrowseModal footer', () => {
 });
 
 describe('PromptPickerBrowseModal footer — phrasebook actions stay on one row', () => {
-	it('renders the left action group without a wrap class', () => {
+	it('keeps the left action group on one row on desktop and leads with Remove chip', () => {
 		mountModal({ footerLeft: 'phrasebook', initialSelectedId: 'v1', canShuffle: true });
 
 		const left = document.querySelector<HTMLElement>('.picker-footer-left');
 		expect(left).not.toBeNull();
-		expect(left!.className).not.toContain('flex-wrap');
+		expect(left!.className).not.toMatch(/(^|\s)flex-wrap(\s|$)/);
+		expect(left!.querySelector('button')!.getAttribute('aria-label')).toBe('Remove chip');
 	});
 
 	it('renders Fixed value / Auto-shuffle as a segmented control with aria-pressed', () => {

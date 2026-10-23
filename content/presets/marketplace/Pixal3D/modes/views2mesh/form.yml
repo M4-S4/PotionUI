@@ -23,4 +23,4 @@ fields:
         configuration:
           icon: "settings"
           icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/views2mesh/tabs/advanced.yml"
+        children: "{{ paths.preset }}/modes/img2mesh/tabs/advanced.yml"

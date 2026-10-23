@@ -6,7 +6,7 @@
 	import { ModelRootsState } from '$lib/model-roots/state.svelte';
 	import DetectRootForm from '$lib/model-roots/DetectRootForm.svelte';
 	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
-	import { indexingIsRunning, indexingIsVisible } from '$lib/models-location/indexingDisplay';
+	import { indexingDigests, indexingScanHasContent, setupModelsLine } from '$lib/models-location/indexingDisplay';
 	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
 	import type { ModelRoot } from '$lib/services/api/models';
 
@@ -16,6 +16,8 @@
 
 	let dismissed = $state(false);
 	let addedRoot = $state<ModelRoot | null>(null);
+
+	const modelsLine = $derived(setupModelsLine(indexingDigests(indexingStatusStore.status)));
 
 	$effect(() => {
 		const unsubscribe = untrack(() => indexingStatusStore.subscribe());
@@ -74,10 +76,8 @@
 				Change
 			</button>
 		</div>
-		{#if indexingIsRunning(indexingStatusStore.status)}
-			<p class="text-xs text-fg-subtle">
-				Model indexing continues in the background - you can go ahead and set up a recipe.
-			</p>
+		{#if modelsLine}
+			<p class="text-sm text-fg-subtle">{modelsLine}</p>
 		{/if}
 	</div>
 {:else}
@@ -109,10 +109,14 @@
 				onSecondary={skip}
 			/>
 
-			{#if indexingIsVisible(indexingStatusStore.status)}
+			{#if indexingScanHasContent(indexingStatusStore.status)}
 				<div class="mt-2 pt-3 border-t border-line">
 					<IndexingStatusPanel status={indexingStatusStore.status} />
 				</div>
+			{/if}
+
+			{#if modelsLine}
+				<p class="text-sm text-fg-subtle">{modelsLine}</p>
 			{/if}
 		{/if}
 	</Card>

@@ -25,7 +25,7 @@ class TestFilePathResolver:
         """Create mock preset loader."""
         loader = Mock()
         loader.preset_files_path = Path("/tmp/presets")
-        loader.presets = []
+        loader.get.return_value = None
         return loader
 
     @pytest.fixture
@@ -112,7 +112,7 @@ class TestFilePathResolver:
 
     def test_resolve_preset_file_not_found(self, resolver, mock_preset_loader):
         """Test resolve_preset_file raises when preset not found."""
-        mock_preset_loader.presets = []
+        mock_preset_loader.get.return_value = None
 
         with pytest.raises(ValueError, match="Preset not found"):
             resolver.resolve_preset_file("nonexistent_preset", "file.png")
@@ -136,7 +136,7 @@ class TestFilePathResolver:
         (preset_dir / 'preset.yml').touch()
 
         mock_preset.path = str(preset_dir)
-        mock_preset_loader.presets = [mock_preset]
+        mock_preset_loader.get.return_value = mock_preset
         return preset_dir
 
     def test_resolve_preset_file_valid(self, resolver, mock_preset_loader, temp_dir):

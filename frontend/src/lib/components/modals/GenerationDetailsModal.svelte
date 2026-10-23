@@ -1,12 +1,17 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
+	import { formatBytes } from '$lib/utils/format';
+	import { tagChips, saveGenerationTags } from '$lib/workbench/generationTags';
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 	import { loadPresetNameMap } from '$lib/stores/presetsCatalog';
 	import { resolveReusePresetLabel } from '$lib/utils/historyReuse';
-	import type { GenerationHistoryItem, Tag } from '$lib/types/history';
+	import { generationRunSummary, generationQueueLabel } from '$lib/utils/generationTime';
+	import type { GenerationHistoryItem } from '$lib/types/history';
 	import { api } from '$lib/services/api/index';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import portal from '$lib/actions/portal';
 	import BaseModal from './BaseModal.svelte';
@@ -92,13 +97,6 @@
 		}
 	}
 
-	function isTextEntryTarget(target: EventTarget | null): boolean {
-		const element = target as HTMLElement | null;
-		if (!element || typeof element.tagName !== 'string') return false;
-		if (element.isContentEditable) return true;
-		return ['input', 'textarea', 'select'].includes(element.tagName.toLowerCase());
-	}
-
 	// Generation data (will be loaded if only ID is provided)
 	let loadedGeneration: GenerationHistoryItem | null = null;
 	let currentFileIndex = initialFileIndex;
@@ -127,10 +125,7 @@
 
 	// Initialize tags from generation if provided (only once per generation)
 	$: if (generation?.tags && !tagsInitialized) {
-		selectedTags = generation.tags.map((tag: Tag) => ({
-			id: tag.id,
-			name: tag.name
-		}));
+		selectedTags = tagChips(generation.tags);
 		selectedTagIds = selectedTags.map(tag => tag.id);
 		tagsInitialized = true;
 	}
@@ -159,6 +154,8 @@
 	let selectedTags: Array<{ id: string; name: string }> = [];
 	let isSavingTags: boolean = false;
 
+	$: runSummary = activeGeneration ? generationRunSummary(activeGeneration) : null;
+	$: queueWait = activeGeneration ? generationQueueLabel(activeGeneration) : null;
 	// Structured prompt segments recorded with this generation (may be absent on
 	// old rows). Split by channel for display.
 	$: segments = activeGeneration?.segments ?? [];
@@ -310,12 +307,9 @@
 			const response = await api.getGenerationById(activeGenerationId, true);
 			if (response.success && response.data) {
 				loadedGeneration = response.data;
-				selectedTags = response.data.tags?.map((tag: Tag) => ({
-					id: tag.id,
-					name: tag.name
-				})) || [];
+				selectedTags = tagChips(response.data.tags);
 				selectedTagIds = selectedTags.map(tag => tag.id);
-				tagsInitialized = true; // Mark as initialized after loading
+				tagsInitialized = true;
 			}
 		} catch (error) {
 			logger.error('Failed to load generation:', error);
@@ -353,16 +347,12 @@
 		isSavingTags = true;
 
 		try {
-			const response = await api.updateGenerationTags(activeGenerationId, newTagIds);
-			if (response.success && response.data) {
+			const tags = await saveGenerationTags(activeGenerationId, newTagIds);
+			if (tags) {
 				selectedTagIds = newTagIds;
-				selectedTags = response.data.tags?.map((tag: Tag) => ({
-					id: tag.id,
-					name: tag.name
-				})) || [];
-				// Update the loaded generation's tags if needed
+				selectedTags = tagChips(tags);
 				if (loadedGeneration) {
-					loadedGeneration.tags = response.data.tags;
+					loadedGeneration.tags = tags;
 				}
 			}
 		} catch (error) {
@@ -442,13 +432,6 @@
 		];
 	}
 
-	function formatBytes(bytes?: number) {
-		if (!bytes) return 'Unknown';
-		if (bytes < 1024) return `${bytes} B`;
-		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-	}
-
 	function formatDate(dateString?: string) {
 		if (!dateString) return 'N/A';
 		return parseServerDate(dateString)?.toLocaleString() ?? 'N/A';
@@ -477,7 +460,7 @@
 		if (
 			onArrowKey &&
 			['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) &&
-			!isTextEntryTarget(event.target)
+			!isTypingInField(event)
 		) {
 			const claimed = onArrowKey(
 				event.key as 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown',
@@ -489,7 +472,7 @@
 			}
 		}
 		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-		if (isTextEntryTarget(event.target)) return;
+		if (isTypingInField(event)) return;
 
 		const direction: -1 | 1 = event.key === 'ArrowRight' ? 1 : -1;
 
@@ -649,7 +632,7 @@
 	</svelte:fragment>
 	<svelte:fragment slot="header">
 		{#if activeGeneration}
-			<code class="font-mono text-2xs text-fg-disabled flex-shrink-0">{shortGenerationId}</code>
+			<code class="font-mono text-2xs text-fg-disabled flex-shrink-0 hidden sm:inline">{shortGenerationId}</code>
 		{/if}
 		<div class="flex-1"></div>
 		{#if activeGeneration}
@@ -712,150 +695,21 @@
 	{:else if activeGeneration}
 		<div class="flex flex-col md:flex-row h-full min-h-0">
 			<!-- Left Side - Media -->
-			<div data-details-stage class="flex-1 bg-black relative group min-h-0 overflow-hidden">
+			<div class="group relative flex min-h-0 flex-1 flex-col">
+			<div data-details-stage class="relative min-h-0 flex-1 overflow-hidden bg-black">
 				{#if currentFile}
 					<!-- Navigation Arrows -->
 					{#if canGoPrev}
-						<button
-							class="absolute left-4 top-1/2 transform -translate-y-1/2 z-10 p-3 rounded bg-black/70 hover:bg-black/80 text-white transition-colors"
-							on:click={goToPreviousFile}
-							aria-label="Previous file"
-						>
-							<Icon name="chevron-left" className="w-6 h-6" />
-						</button>
+						<IconButton icon="chevron-left" label="Previous file" variant="overlay" onclick={goToPreviousFile} class="absolute left-4 top-1/2 -translate-y-1/2 z-10" />
 					{/if}
 
 					{#if canGoNext}
-						<button
-							class="absolute right-4 top-1/2 transform -translate-y-1/2 z-10 p-3 rounded bg-black/70 hover:bg-black/80 text-white transition-colors"
-							on:click={goToNextFile}
-							aria-label="Next file"
-						>
-							<Icon name="chevron-right" className="w-6 h-6" />
-						</button>
+						<IconButton icon="chevron-right" label="Next file" variant="overlay" onclick={goToNextFile} class="absolute right-4 top-1/2 -translate-y-1/2 z-10" />
 					{/if}
 
-					<!-- Action buttons - top-right corner, shown on hover -->
-					<div data-stage-toolbar class="absolute top-4 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap justify-end gap-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-						<!-- Favorite toggle -->
-						<div
-							class="bg-black/50 hover:bg-black/70 p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors flex items-center"
-						>
-							<FavoriteButton
-								active={activeGeneration.is_favorite}
-								tone="onMedia"
-								size="lg"
-								onToggle={handleFavoriteToggle}
-							/>
-						</div>
-
-						<!-- Tag icon button with dropdown -->
-						<TagSelector
-							{selectedTagIds}
-							on:change={handleTagsChange}
-							placeholder="Add tags..."
-							allowCreate={true}
-							compact={true}
-							iconOnly={true}
-						/>
-
-						<!-- Reuse button -->
-						{#if activeGeneration.preset_id}
-							<button
-								on:click={() => dispatch('reuse', activeGeneration)}
-								class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-								title="Reuse this generation's settings"
-							>
-								<Icon name="refresh" className="h-6 w-6" />
-							</button>
-						{/if}
-
-						<!-- Export bundle: a portable zip carrying files + reusable settings,
-						     distinct from the plain media "Download" button above -->
-						<button
-							on:click={handleExportBundle}
-							disabled={exportingBundle}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors disabled:opacity-50"
-							title="Export this generation as a portable bundle"
-						>
-							{#if exportingBundle}
-								<Spinner size="sm" />
-							{:else}
-								<Icon name="box" className="h-6 w-6" />
-							{/if}
-						</button>
-
-						<button
-							on:click={() => (showPublishModal = true)}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-							title="Publish to Inspirations"
-						>
-							<Icon name="lightbulb" className="h-6 w-6" />
-						</button>
-
-						<!-- Download button -->
-						<button
-							on:click={downloadCurrentFile}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-							title="Download"
-						>
-							<Icon name="download" className="h-6 w-6" />
-						</button>
-
-						<!-- Copy this file into the private library (a copy - the generation stays) -->
-						{#if canCopyToLibrary}
-							<button
-								on:click={handleCopyToLibrary}
-								disabled={copyingToLibrary}
-								class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors disabled:opacity-50"
-								title="Copy this file to your library (the generation stays in history)"
-							>
-								<Icon name="photo" className="h-6 w-6" />
-							</button>
-						{/if}
-
-						{#if canEditImage}
-							<Tooltip text="Edit this image" position="left">
-								<button
-									on:click={openImageEditor}
-									class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-									aria-label="Edit this image"
-								>
-									<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.brush} />
-									</svg>
-								</button>
-							</Tooltip>
-						{/if}
-
-						<!-- Open in new tab button -->
-						<button
-							on:click={openCurrentFileInTab}
-							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
-							title="Display in new tab"
-						>
-							<Icon name="external-link" className="h-6 w-6" />
-						</button>
-
-						<!-- Plugin actions slot -->
-						<PluginSlot
-							hookName="image.actions"
-							position="top-right"
-							context={{
-								generationId: activeGenerationId,
-								fileIndex: currentFileIndex,
-								filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
-								fileUrl: getImageUrl(currentFile),
-								fileType: currentFile.file_type
-							}}
-						/>
-					</div>
-
-					<!-- Top-left metadata overlay - shown on hover -->
-					<div class="absolute top-4 left-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+					<div class="absolute top-4 left-4 z-20 max-w-[calc(100%-2rem)] opacity-0 group-hover:opacity-100 transition-opacity duration-200">
 						<div class="flex flex-col gap-2">
-							<div class="flex items-center gap-2">
-								<!-- File counter -->
+							<div data-stage-meta class="flex flex-wrap items-center gap-2">
 								{#if mediaFiles.length > 1}
 									<div data-file-counter class="bg-black/70 backdrop-blur-sm text-white px-3 py-1.5 rounded text-sm font-medium shadow-lg">
 										<span class="font-mono tabular-nums">
@@ -864,21 +718,18 @@
 									</div>
 								{/if}
 
-								<!-- Resolution -->
 								{#if currentFile.width && currentFile.height}
 									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
 										{currentFile.width} × {currentFile.height}
 									</span>
 								{/if}
 
-								<!-- File size -->
 								{#if currentFile.file_size}
 									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs font-mono tabular-nums rounded shadow-lg">
 										{formatBytes(currentFile.file_size)}
 									</span>
 								{/if}
 
-								<!-- File format -->
 								{#if currentFile.file_type}
 									<span class="px-2 py-1 bg-black/50 backdrop-blur-sm text-white text-xs rounded shadow-lg uppercase">
 										{isVideoFile(currentFile) ? 'MP4' : isMeshFile(currentFile) ? resolveMeshFormat(currentFile).toUpperCase() : isSplatFile(currentFile) ? (resolveSplatFormat(currentFile) ?? 'splat').toUpperCase() : isAudioFile(currentFile) ? resolveAudioFormat(currentFile).toUpperCase() : 'PNG'}
@@ -886,7 +737,6 @@
 								{/if}
 							</div>
 
-							<!-- Selected tags display - shown on hover -->
 							{#if selectedTags.length > 0}
 								<div class="flex flex-wrap gap-1">
 									{#each selectedTags as tag}
@@ -899,8 +749,6 @@
 						</div>
 					</div>
 
-					<!-- Media Display -->
-					<!-- Absolutely filled so the media can never dictate the pane's size -->
 					{#if isVideoFile(currentFile)}
 						<video
 							src={getImageUrl(currentFile)}
@@ -945,6 +793,108 @@
 					{/if}
 				{:else}
 					<slot name="stageEmpty" />
+				{/if}
+			</div>
+				{#if currentFile}
+					<!-- Action buttons - top-right corner, shown on hover -->
+					<div data-stage-toolbar class="flex flex-nowrap items-center gap-2 overflow-x-auto border-t border-line bg-surface-1 px-3 py-2 max-sm:[&_button]:!p-2 max-sm:[&_svg]:!h-5 max-sm:[&_svg]:!w-5 max-sm:[&>*]:shrink-0 sm:absolute sm:right-4 sm:top-4 sm:z-20 sm:max-w-[calc(100%-2rem)] sm:flex-wrap sm:justify-end sm:overflow-visible sm:border-t-0 sm:bg-transparent sm:p-0 sm:opacity-0 sm:transition-opacity sm:duration-200 sm:group-hover:opacity-100">
+						<!-- Favorite toggle -->
+						<div
+							class="bg-black/50 hover:bg-black/70 p-3 max-sm:p-0 rounded-lg shadow-lg backdrop-blur-sm transition-colors flex items-center"
+						>
+							<FavoriteButton
+								active={activeGeneration.is_favorite}
+								tone="onMedia"
+								size="lg"
+								onToggle={handleFavoriteToggle}
+							/>
+						</div>
+
+						<!-- Tag icon button with dropdown -->
+						<TagSelector
+							{selectedTagIds}
+							on:change={handleTagsChange}
+							placeholder="Add tags..."
+							allowCreate={true}
+							compact={true}
+							iconOnly={true}
+						/>
+
+						<!-- Reuse button -->
+						{#if activeGeneration.preset_id}
+							<button
+								on:click={() => dispatch('reuse', activeGeneration)}
+								class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
+								use:tooltip={"Reuse this generation's settings"}
+								aria-label="Reuse this generation's settings"
+							>
+								<Icon name="refresh" className="h-6 w-6" />
+							</button>
+						{/if}
+
+						<!-- Export bundle: a portable zip carrying files + reusable settings,
+						     distinct from the plain media "Download" button above -->
+						<button
+							on:click={handleExportBundle}
+							aria-label="Export this generation as a portable bundle"
+							disabled={exportingBundle}
+							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors disabled:opacity-50"
+							use:tooltip={'Export this generation as a portable bundle'}
+						>
+							{#if exportingBundle}
+								<Spinner size="sm" />
+							{:else}
+								<Icon name="box" className="h-6 w-6" />
+							{/if}
+						</button>
+
+						<button
+							on:click={() => (showPublishModal = true)}
+							class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
+							use:tooltip={'Publish to Inspirations'}
+							aria-label="Publish to Inspirations"
+						>
+							<Icon name="lightbulb" className="h-6 w-6" />
+						</button>
+
+						<!-- Download button -->
+						<IconButton icon="download" label="Download" variant="overlay" onclick={downloadCurrentFile} />
+
+						<!-- Copy this file into the private library (a copy - the generation stays) -->
+						{#if canCopyToLibrary}
+							<IconButton icon="photo" label="Copy this file to your library (the generation stays in history)" variant="overlay" onclick={handleCopyToLibrary} disabled={copyingToLibrary} />
+						{/if}
+
+						{#if canEditImage}
+							<Tooltip text="Edit this image" position="left">
+								<button
+									on:click={openImageEditor}
+									class="bg-black/50 hover:bg-black/70 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors"
+									aria-label="Edit this image"
+								>
+									<svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={PAINT_ICONS.brush} />
+									</svg>
+								</button>
+							</Tooltip>
+						{/if}
+
+						<!-- Open in new tab button -->
+						<IconButton icon="external-link" label="Display in new tab" variant="overlay" onclick={openCurrentFileInTab} />
+
+						<!-- Plugin actions slot -->
+						<PluginSlot
+							hookName="image.actions"
+							position="top-right"
+							context={{
+								generationId: activeGenerationId,
+								fileIndex: currentFileIndex,
+								filename: currentFile.file_path.split('/').pop() || currentFile.file_path,
+								fileUrl: getImageUrl(currentFile),
+								fileType: currentFile.file_type
+							}}
+						/>
+					</div>
 				{/if}
 			</div>
 
@@ -998,6 +948,14 @@
 								<div class="flex items-center justify-between px-3 py-2">
 									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Completed</span>
 									<span class="font-mono text-xs tabular-nums text-fg">{formatDate(activeGeneration.completed_at)}</span>
+								</div>
+							{/if}
+							{#if runSummary}
+								<div class="flex items-center justify-between px-3 py-2" data-testid="detail-generation-time">
+									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Generation time</span>
+									<span class="font-mono text-xs tabular-nums text-fg">
+										{runSummary}{#if queueWait}<span class="text-fg-muted">{' · '}queued {queueWait}</span>{/if}
+									</span>
 								</div>
 							{/if}
 						</div>
@@ -1131,7 +1089,7 @@
 											<div class="flex flex-wrap gap-1 mt-1.5">
 												{#each seg.phrasebooks as ac}
 													<Badge variant="info" size="sm">
-														<span title={ac.category_path ? `${ac.category_path} → ${ac.value}` : ac.value}>
+														<span use:tooltip={ac.category_path ? `${ac.category_path} → ${ac.value}` : ac.value}>
 															{#if ac.category_path}
 																<span class="text-fg-subtle">{ac.category_path}</span>
 																<span class="text-fg-subtle mx-0.5">·</span>
@@ -1241,7 +1199,7 @@
 									<button
 										type="button"
 										class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-line hover:border-line-hover bg-surface-3 text-2xs text-fg-muted hover:text-fg transition-colors"
-										title="Filter history by “{st.tag}”"
+										use:tooltip={`Filter history by “${st.tag}”`}
 										on:click={() => handleSystemTagClick(st.tag)}
 									>
 										<span class="truncate max-w-[10rem]">{st.tag.replace(/_/g, ' ')}</span>
@@ -1296,7 +1254,7 @@
 										</div>
 										<div
 											class="font-mono tabular-nums text-xs font-semibold text-fg truncate"
-											title={typeof value === 'object' ? JSON.stringify(value) : String(value)}
+											use:tooltip={{ text: typeof value === 'object' ? JSON.stringify(value) : String(value), truncateOnly: true }}
 										>
 											{typeof value === 'object' ? JSON.stringify(value) : String(value)}
 										</div>

@@ -18,6 +18,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
+
 
 @dataclass
 class BatchOutcome:
@@ -99,7 +101,7 @@ class PhrasebookBatchOperation(ABC):
         raise NotImplementedError
 
 
-class DuplicatePhrasebookOperationError(ValueError):
+class DuplicatePhrasebookOperationError(DuplicateRegistrationError):
     """Raised when registering an operation id that is already registered."""
 
 
@@ -117,28 +119,12 @@ class PhrasebookBatchOperationDefinition:
     source: str = "core"
 
 
-class PhrasebookOperationRegistry:
+class PhrasebookOperationRegistry(SourcedRegistry[PhrasebookBatchOperationDefinition]):
     """Registry mapping operation id -> `PhrasebookBatchOperationDefinition`."""
 
-    def __init__(self):
-        self._by_id: Dict[str, PhrasebookBatchOperationDefinition] = {}
-
-    def register(self, definition: PhrasebookBatchOperationDefinition) -> None:
-        if definition.op_id in self._by_id:
-            raise DuplicatePhrasebookOperationError(
-                f"Phrasebook batch operation already registered: '{definition.op_id}'"
-            )
-        self._by_id[definition.op_id] = definition
-
-    def unregister_source(self, source: str) -> None:
-        for op_id in [op_id for op_id, defn in self._by_id.items() if defn.source == source]:
-            del self._by_id[op_id]
-
-    def get(self, op_id: str) -> Optional[PhrasebookBatchOperationDefinition]:
-        return self._by_id.get(op_id)
-
-    def all(self) -> List[PhrasebookBatchOperationDefinition]:
-        return list(self._by_id.values())
+    key_attr = "op_id"
+    label = "Phrasebook batch operation"
+    duplicate_error = DuplicatePhrasebookOperationError
 
     def frontend_manifest(self) -> List[Dict[str, Any]]:
         """Serialize the registry for `GET /api/phrasebook/batch-ops`."""

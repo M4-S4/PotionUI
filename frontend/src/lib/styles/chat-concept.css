@@ -31,7 +31,7 @@ button {
       color: inherit;
     }
 
-button:focus-visible, textarea:focus-visible, input:focus-visible {
+textarea:focus-visible, input:not([type='checkbox'], [type='radio'], [type='range']):focus-visible {
       outline: 2px solid rgb(var(--signal));
       outline-offset: 2px;
     }
@@ -125,7 +125,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       letter-spacing: -0.01em;
     }
 
-.tiny-button, .icon-button {
+.icon-button {
       border: 0;
       background: transparent;
       color: rgb(var(--fg-subtle));
@@ -134,19 +134,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       display: grid;
       place-items: center;
       transition: 120ms ease;
-    }
-
-.tiny-button {
-      width: 30px;
-      height: 30px;
-    }
-
-.icon-button {
       width: 34px;
       height: 34px;
     }
 
-.tiny-button:hover, .icon-button:hover {
+.icon-button:hover {
       color: rgb(var(--fg));
       background: rgb(var(--surface-3));
     }
@@ -919,15 +911,21 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
+      flex-wrap: wrap;
+      gap: 6px 10px;
       border-bottom: 1px solid rgb(var(--line));
     }
 
 .prompt-card-title {
       min-width: 0;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 8px;
+      gap: 4px 8px;
+    }
+
+.prompt-card-head > .flex-shrink-0 {
+      margin-left: auto;
     }
 
 .prompt-card-title .icon {
@@ -940,9 +938,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       color: rgb(var(--fg));
       font-size: 13px;
       font-weight: 600;
+      white-space: nowrap;
     }
 
 .prompt-label {
+      white-space: nowrap;
       padding: 2px 6px;
       border-radius: 4px;
       color: rgb(var(--signal));
@@ -976,6 +976,57 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       color: rgb(var(--success));
       background: color-mix(in srgb, rgb(var(--success)) 10%, transparent);
       border: 1px solid color-mix(in srgb, rgb(var(--success)) 35%, transparent);
+    }
+
+.apply-button.destructive {
+      color: rgb(var(--danger));
+      background: rgb(var(--danger) / 0.11);
+      border: 1px solid rgb(var(--danger) / 0.35);
+    }
+
+.apply-button:disabled {
+      transform: none;
+      filter: none;
+    }
+
+.apply-button.applied:disabled {
+      cursor: default;
+    }
+
+.prompt-copy .condition-chip,
+.action-copy .condition-chip {
+      max-width: 100%;
+      overflow: hidden;
+    }
+
+.prompt-copy .condition-chip > button,
+.action-copy .condition-chip > button {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+.undo-button {
+      height: 28px;
+      padding: 0 11px;
+      border: 1px solid rgb(var(--line-strong));
+      border-radius: 4px;
+      color: rgb(var(--fg-muted));
+      background: transparent;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: 140ms ease;
+    }
+
+.undo-button:hover {
+      color: rgb(var(--fg));
+      border-color: rgb(var(--line-hover));
+    }
+
+.prompt-copy-removed {
+      text-decoration: line-through;
+      text-decoration-color: rgb(var(--danger) / 0.6);
+      white-space: pre-wrap;
     }
 
 .prompt-copy {
@@ -1035,7 +1086,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       border-color: color-mix(in srgb, rgb(var(--signal)) 45%, rgb(var(--line-strong)));
     }
 
-.action-card:focus-visible {
+:where(html:not([data-input='pointer'])) & .action-card:focus-visible {
       box-shadow: 0 0 0 2px rgb(var(--signal) / 0.35);
     }
 
@@ -2594,8 +2645,45 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
 
 @media (max-width: 520px) {
   .chat-header {
-        padding-right: 8px;
-        gap: 4px;
+        height: auto;
+        flex: 0 0 auto;
+        flex-wrap: wrap;
+        padding: 8px;
+        gap: 6px 4px;
+      }
+  .header-actions {
+        flex: 1 0 100%;
+        min-width: 0;
+        justify-content: flex-end;
+      }
+  .header-actions > .relative {
+        min-width: 0;
+        flex: 0 1 auto;
+      }
+  .model-button {
+        max-width: 160px;
+        min-width: 0;
+        padding: 0 10px;
+      }
+  .model-button > span:not(.model-dot) {
+        display: block;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+  .model-button .model-dot, .model-button .chevron {
+        flex: none;
+      }
+  .mode-chip {
+        max-width: 100%;
+      }
+  .mode-chip span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+  .floating-menu {
+        top: 96px;
       }
   .header-actions .icon-button:nth-of-type(2), .header-divider {
         display: none;
@@ -2635,7 +2723,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
   .context-meter span, .mode-chip .lock {
         display: none;
       }
-  .context-meter, .mode-chip {
+  .context-meter {
         width: 32px;
         padding: 0;
         justify-content: center;

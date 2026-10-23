@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Dict
 
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.forms.hooks import FORM_HOOKS
 
 logger = logging.getLogger(__name__)
@@ -28,14 +28,11 @@ def validate_form_data(plugin_registry, form_schema: Dict[str, Any], form_data: 
         ValueError: If validation fails or operation is blocked
     """
     # Execute before hook
-    hook_data, blocked = execute_hook(plugin_registry,
+    hook_data = run_veto_hook(plugin_registry,
         FORM_HOOKS.before_validate,
-        {"form_schema": form_schema, "form_data": form_data}
+        {"form_schema": form_schema, "form_data": form_data},
+        "Validation blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Validation blocked")
-        logger.warning(f"Form validation blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     # Use potentially modified data from hook
     form_data = hook_data.get("form_data", form_data)

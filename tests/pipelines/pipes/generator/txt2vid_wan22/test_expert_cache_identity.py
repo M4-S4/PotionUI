@@ -6,7 +6,7 @@ import torch
 
 from src.pipelines.pipes.generator.chain_video_wan22.main import _ChainForward
 from src.pipelines.pipes.generator.img2vid_wan22.main import _I2VForward
-from src.pipelines.pipes.generator.txt2vid_wan22.main import _ExpertRouter
+from src.pipelines.pipes._shared.video.wan_experts import ExpertRouter
 
 
 class _Dit:
@@ -16,7 +16,7 @@ class _Dit:
 
 
 def _router(low=True, boundary=0.875):
-    return _ExpertRouter(_Dit(1), _Dit(2) if low else None, boundary, "cpu")
+    return ExpertRouter(_Dit(1), _Dit(2) if low else None, boundary, "cpu")
 
 
 def test_identity_follows_the_selected_expert():

@@ -11,33 +11,31 @@ can tell a first-party pipe from a plugin's.
 Whether a pipe's requirements are satisfied is `installer.py`'s question; the
 catalog only stores the answer as each pipe's `PipeStatus`.
 
-Two discovery tiers live side by side:
-
 - A *light scan* (`_ensure_light_discovered` / `_do_light_scan`) walks the
   filesystem layout (and plugin manifests) to learn each pipe's registry key
   and file location WITHOUT exec'ing any module. `get_pipe`/`get_pipe_status`/
   `get_pipe_source` use this tier, then import only the one module a caller
   actually asked for - the mechanism that keeps e.g. a txt2img generation from
   pulling in cv2/diffusers/transformers for pipes it never touches.
-- The original *eager* discovery (`discover_pipes` / `_do_discover_pipes`)
-  still imports every pipe up front. It backs `get_available_pipes()`, whose
-  one real caller (the offline preset test-suite runner) deliberately wants
-  every pipe's import to be attempted at boot so a broken import is logged
-  there instead of surfacing mid-generation as a confusing "not found".
 """
 
+import importlib
 import importlib.util
 import logging
 import os
 import sys
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Set, Type
 
 from src.pipelines.contracts import BasePipe, PipeStatus
 from src.pipelines.installer import requirements_satisfied
 
 logger = logging.getLogger(__name__)
+
+_CORE_PACKAGE = "src.pipelines.pipes"
+_CORE_PACKAGE_DIR = (Path(__file__).resolve().parent / "pipes")
 
 
 @dataclass(frozen=True)
@@ -64,13 +62,18 @@ class PipeCatalog:
         self._light_discovered = False
         self._light_lock = threading.Lock()
 
+    def _filesystem_module_name(self, base_path: str, source: str, *parts: str) -> str:
+        if source == "core" and Path(base_path).resolve() == _CORE_PACKAGE_DIR:
+            return ".".join((_CORE_PACKAGE, *parts, "main"))
+        return ".".join(("pipes", *parts))
+
     def _ensure_discovered(self):
         """Ensure pipes are discovered (lazy loading with thread safety)"""
         if not self._discovered:
             with self._lock:
                 # Double-check pattern for thread safety
                 if not self._discovered:
-                    self._do_discover_pipes()
+                    self._load_every_pipe()
                     self._discovered = True
 
     def _ensure_light_discovered(self):
@@ -135,22 +138,6 @@ class PipeCatalog:
         location = self._locations.get(name)
         return location.source if location else None
 
-    def _do_discover_pipes(self):
-        """Internal method to actually discover pipes"""
-        self.pipes.clear()
-        self.pipe_status.clear()
-        self.pipe_sources.clear()
-
-        # Discover core and custom pipes
-        self._discover_filesystem_pipes(self.core_pipes_path, "core")
-        self._discover_filesystem_pipes(self.custom_pipes_path, "custom")
-
-        # Discover plugin pipes if plugin registry is available
-        if self.plugin_registry is not None:
-            self._discover_plugin_pipes()
-
-        logger.info(f"Discovered {len(self.pipes)} pipes (including variants)")
-
     def _register(self, name: str, pipe_class: Type[BasePipe], source: str):
         """Record a discovered pipe under `name`, with its source and status."""
         self.pipes[name] = pipe_class
@@ -191,7 +178,7 @@ class PipeCatalog:
 
             main_file = os.path.join(pipe_path, "main.py")
             if os.path.exists(main_file):
-                module_name = f"pipes.{pipe_dir}"
+                module_name = self._filesystem_module_name(base_path, source, pipe_dir)
                 self._locations[pipe_dir] = _PipeLocation(main_file, module_name, source)
                 self.pipe_sources.setdefault(pipe_dir, source)
 
@@ -203,7 +190,7 @@ class PipeCatalog:
                 variant_main = os.path.join(variant_path, "main.py")
                 if os.path.exists(variant_main):
                     variant_name = f"{pipe_dir}/{variant_dir}"
-                    module_name = f"pipes.{pipe_dir}.{variant_dir}"
+                    module_name = self._filesystem_module_name(base_path, source, pipe_dir, variant_dir)
                     self._locations[variant_name] = _PipeLocation(variant_main, module_name, source)
                     self.pipe_sources.setdefault(variant_name, source)
 
@@ -254,76 +241,6 @@ class PipeCatalog:
             module_name = f"plugin_{plugin_id}.pipes.{pipe_path.name}"
             self._locations[register_as] = _PipeLocation(str(main_file), module_name, plugin_id)
             self.pipe_sources.setdefault(register_as, plugin_id)
-
-    def _discover_filesystem_pipes(self, base_path: str, source: str):
-        """
-        Discover pipes from a filesystem directory.
-
-        Args:
-            base_path: Path to scan for pipes
-            source: Source identifier ("core" or "custom")
-        """
-        if not os.path.exists(base_path):
-            return
-
-        # First, discover main pipes (those with main.py directly in pipe folder)
-        for pipe_dir in os.listdir(base_path):
-            pipe_path = os.path.join(base_path, pipe_dir)
-            if not os.path.isdir(pipe_path):
-                continue
-
-            main_file = os.path.join(pipe_path, "main.py")
-            if os.path.exists(main_file):
-                # This is a main pipe
-                module_name = f"pipes.{pipe_dir}"
-                pipe_class = self._load_pipe_module(main_file, module_name)
-                if pipe_class:
-                    self._register(pipe_class.name, pipe_class, source)
-
-            # Now check for variants (subdirectories with main.py)
-            for variant_dir in os.listdir(pipe_path):
-                variant_path = os.path.join(pipe_path, variant_dir)
-                if not os.path.isdir(variant_path):
-                    continue
-
-                variant_main = os.path.join(variant_path, "main.py")
-                if os.path.exists(variant_main):
-                    # This is a variant
-                    variant_name = f"{pipe_dir}/{variant_dir}"
-                    module_name = f"pipes.{pipe_dir}.{variant_dir}"
-                    pipe_class = self._load_pipe_module(variant_main, module_name)
-                    if pipe_class:
-                        # Override the pipe name to include variant
-                        self._register(variant_name, pipe_class, source)
-
-    def _discover_plugin_pipes(self):
-        """
-        Discover pipes from enabled plugins.
-
-        Supports two modes:
-        1. Manifest-declared pipes: Plugin manifest has a 'pipes' section specifying
-           which pipes to load and how to register them (with optional 'register_as' alias)
-        2. Auto-discovery: Scans backend/pipes/ directory and registers with prefixed names
-
-        Plugin pipes are tagged with their source plugin ID.
-        """
-        try:
-            # Get all enabled plugins
-            enabled_plugins = self.plugin_registry.get_enabled_plugins()
-
-            for plugin_manifest in enabled_plugins:
-                # Check if manifest declares pipes explicitly
-                manifest_pipes = getattr(plugin_manifest, 'pipes', None)
-
-                if manifest_pipes:
-                    # Use manifest-declared pipes
-                    self._load_manifest_declared_pipes(plugin_manifest, manifest_pipes)
-                else:
-                    # Fall back to auto-discovery
-                    self._auto_discover_plugin_pipes(plugin_manifest)
-
-        except Exception as e:
-            logger.error(f"Error discovering plugin pipes: {e}", exc_info=True)
 
     def _load_manifest_declared_pipes(self, plugin_manifest, manifest_pipes: list):
         """
@@ -436,9 +353,25 @@ class PipeCatalog:
                         logger.debug(f"Loaded variant pipe {prefixed_name} from plugin {plugin_id}")
 
     def discover_pipes(self):
-        """Auto-discover and load all available pipes"""
-        self._do_discover_pipes()
+        with self._light_lock:
+            self.pipes.clear()
+            self.pipe_status.clear()
+            self.pipe_sources.clear()
+            self._do_light_scan()
+            self._light_discovered = True
+        self._load_every_pipe()
         self._discovered = True
+
+    def _load_every_pipe(self):
+        self._ensure_light_discovered()
+        for name, location in list(self._locations.items()):
+            pipe_class = self.get_pipe(name)
+            if (pipe_class is not None and location.source in ("core", "custom")
+                    and "/" not in name and pipe_class.name != name):
+                with self._light_lock:
+                    if pipe_class.name not in self.pipes:
+                        self._register(pipe_class.name, pipe_class, location.source)
+        logger.info(f"Discovered {len(self.pipes)} pipes (including variants)")
 
     def rescan_plugin_pipes(self) -> None:
         """Refresh the plugin-contributed portion of the catalog after a
@@ -497,13 +430,16 @@ class PipeCatalog:
     def _load_pipe_module(self, path: str, module_name: str) -> Optional[Type[BasePipe]]:
         """Load a pipe module from file"""
         try:
-            spec = importlib.util.spec_from_file_location(module_name, path)
-            if spec is None or spec.loader is None:
-                return None
+            if module_name.startswith(_CORE_PACKAGE + "."):
+                module = importlib.import_module(module_name)
+            else:
+                spec = importlib.util.spec_from_file_location(module_name, path)
+                if spec is None or spec.loader is None:
+                    return None
 
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
+                module = importlib.util.module_from_spec(spec)
+                sys.modules[module_name] = module
+                spec.loader.exec_module(module)
 
             # Find the pipe class in the module. Only consider classes DEFINED
             # in this module (attr.__module__ check) — main.py files import

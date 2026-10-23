@@ -67,7 +67,7 @@
 
 	async function loadRemotes() {
 		remoteState = 'loading';
-		const result = await listRemoteBackends(api);
+		const result = await listRemoteBackends();
 		if (result.ok) {
 			remotes = result.data;
 			remoteState = 'ready';

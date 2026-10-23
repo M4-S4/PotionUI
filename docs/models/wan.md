@@ -102,7 +102,7 @@ Classic Wan i2v checkpoints (with or without the FLF `emb_pos` table) share `in_
 
 ## Hardware
 
-The 14B dual-expert pair keeps one **14B expert resident at a time** (`src/platform/runtime/model_lifecycle/memory_policy.py`'s `wan22 = 14.0` cost estimate) — two DiT files on disk, but only one loaded into VRAM per phase. **Historical peak (32 GB-card ceiling):** 15.2 GB for a short, low-resolution fp8 clip (33 frames, 832×480, 15 unipc steps) — a longer or higher-resolution clip will peak higher. That figure comes from a 32 GB card, where the engine places the experts fit-first; the 12 GB figures below are the ones to plan a smaller card with.
+The 14B dual-expert pair keeps one **14B expert resident at a time** — two DiT files on disk, but only one loaded into VRAM per phase. **Historical peak (32 GB-card ceiling):** 15.2 GB for a short, low-resolution fp8 clip (33 frames, 832×480, 15 unipc steps) — a longer or higher-resolution clip will peak higher. That figure comes from a 32 GB card, where the engine places the experts fit-first; the 12 GB figures below are the ones to plan a smaller card with.
 
 **Measured on a 12 GB card.** One RTX 4070 Ti (12 GB) under Docker Desktop on WSL2, backend `gpu_max_vram` 10, `text_encoder_placement` `auto`, with the engine told the real 12 GB ("whole card"), dual-expert 14B with fp8/int8 experts streamed, 832×480, 5 s. Neither run ran out of GPU memory.
 

@@ -1,7 +1,7 @@
 import type { UserGroup } from '$lib/services/admin-api';
 import { parseServerDate } from '$lib/utils/relativeTime';
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import type { SortOption } from '$lib/components/library/librarySection';
 
 export type GroupSortBy = 'name' | 'created';
 
@@ -22,7 +22,7 @@ export const GROUPS_SORT_OPTIONS: readonly SortOption<GroupSortBy>[] = [
 
 const FIELDS: readonly FilterFieldDescriptor<GroupsFilters>[] = [];
 
-const codec = createFilterCodec<GroupsFilters>({
+export const groupsFilters = createFilterCodec<GroupsFilters>({
 	defaults: DEFAULT_GROUPS_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name', 'created']
@@ -50,27 +50,11 @@ function toExternalParams(params: URLSearchParams): URLSearchParams {
 }
 
 export function groupsFiltersFromSearchParams(params: URLSearchParams): GroupsFilters {
-	return codec.fromSearchParams(toInternalParams(params));
+	return groupsFilters.fromSearchParams(toInternalParams(params));
 }
 
 export function groupsFiltersToSearchParams(filters: GroupsFilters): URLSearchParams {
-	return toExternalParams(codec.toSearchParams(filters));
-}
-
-export function groupsFilterChips(filters: GroupsFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearGroupsFilterChip(filters: GroupsFilters, key: string): GroupsFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllGroupsFilters(filters: GroupsFilters): GroupsFilters {
-	return codec.clearAll(filters);
-}
-
-export function groupsFilterActiveCount(filters: GroupsFilters): number {
-	return codec.activeCount(filters);
+	return toExternalParams(groupsFilters.toSearchParams(filters));
 }
 
 function groupTimestamp(group: UserGroup): number {

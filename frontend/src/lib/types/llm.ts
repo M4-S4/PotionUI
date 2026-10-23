@@ -14,6 +14,7 @@ export interface LLMConfig {
 	supports_vision?: boolean;
 	/** Extracts durable user facts from the transcript into memory notes. Default true. */
 	memory_reflection?: boolean;
+	show_thinking?: boolean;
 	is_default?: boolean;
 	provider_options?: OllamaOptions | OpenAIOptions | NativeOptions | Record<string, unknown>;
 }
@@ -28,7 +29,6 @@ export interface OllamaOptions {
 	num_thread?: number;           // Number of CPU threads to use
 
 	// Context
-	num_ctx?: number;              // Context window size (default: 2048)
 	num_batch?: number;            // Batch size for prompt processing
 	num_keep?: number;             // Tokens to keep from initial prompt
 
@@ -54,11 +54,7 @@ export interface OllamaOptions {
 	// Other
 	stop?: string[];               // Stop sequences
 
-	// Reasoning — a root request field, not one of the nested `options` above.
-	// null/omitted = automatic (off while native tool calls are on the wire,
-	// on otherwise); true/false or a named level ('low'|'medium'|'high', model
-	// support varies) always wins over that default, tool calls or not.
-	think?: boolean | 'low' | 'medium' | 'high' | null;
+	think?: boolean | 'low' | 'medium' | 'high';
 
 	// Tool calling
 	force_prompt_tools?: boolean;  // Inject tool schemas into system prompt instead of native tool calling (for models like Gemma 4 where native tools don't work)
@@ -115,6 +111,15 @@ export interface DiscoveredLLMModel {
 export interface LLMModelDiscovery {
 	supported: boolean;
 	models: DiscoveredLLMModel[];
+	error: string | null;
+}
+
+export interface LLMContextWindowDiscovery {
+	supported: boolean;
+	detected: number | null;
+	detected_kind: 'runtime' | 'trained' | null;
+	effective: number | null;
+	discovered_at: string | null;
 	error: string | null;
 }
 

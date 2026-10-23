@@ -92,12 +92,3 @@ def up():
         for name, target in _INDEXES:
             cursor.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
     print(f"Migration {_NAME}: organize tables created")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for name, _target in _INDEXES:
-            cursor.execute(f"DROP INDEX IF EXISTS {name}")
-        for table in _DROP_ORDER:
-            cursor.execute(f"DROP TABLE IF EXISTS {table}")
-    print(f"Migration {_NAME}: organize tables dropped")

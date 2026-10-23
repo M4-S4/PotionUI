@@ -194,37 +194,6 @@ class TestGenerationHooks:
         outputs = []
         manager.generate(pipes, lambda x: outputs.append(x), "test_gen_id")
 
-    def test_hook_modifies_outputs(self, mock_dependencies, plugin_registry):
-        """Test that hooks can modify pipe outputs"""
-        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
-
-        # Handler that modifies the output
-        def after_hook_handler(context: HookContext) -> HookContext:
-            context.data['outputs']['modified'] = True
-            context.data['outputs']['extra_data'] = 'added_by_hook'
-            return context
-
-        plugin_registry.hook_chain.register(
-            PIPE_HOOKS.after_execute,
-            "test_plugin",
-            after_hook_handler
-        )
-
-        mock_dependencies['pipe_catalog'].get_pipe.return_value = MockPipe
-
-        pipes = [
-            {
-                'name': 'mock_pipe',
-                'enabled': True,
-                'input': [],
-                'cache': [],
-                'config': {}
-            }
-        ]
-
-        outputs = []
-        manager.generate(pipes, lambda x: outputs.append(x), "test_gen_id")
-
         # The modified output should be available for subsequent pipes
         # (Note: This is verified through the internal pipe_outputs array in generate method)
 

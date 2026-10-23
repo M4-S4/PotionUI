@@ -503,12 +503,6 @@ class RunReportRecorder:
         self._discard_files(report)
         return deleted
 
-    def discard_generation_files(self, generation_id: str) -> int:
-        """Remove the storage a generation's report owns, for a caller that
-        is about to delete the generation itself (the row goes with it by
-        foreign-key cascade, the bytes do not)."""
-        return self._discard_files(self._repository.get(generation_id))
-
     def _discard_files(self, report: Optional[Dict[str, Any]]) -> int:
         if self._artifacts is None:
             return 0

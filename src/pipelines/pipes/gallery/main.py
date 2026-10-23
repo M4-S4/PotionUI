@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List
 
 from src.pipelines.outputs import (
     GalleryGenerationOutput,
@@ -20,10 +20,6 @@ from src.pipelines.contracts import (
 class GalleryPipe(BasePipe):
     name = "gallery"
     description = "Pipe that will output an gallery"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {}
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

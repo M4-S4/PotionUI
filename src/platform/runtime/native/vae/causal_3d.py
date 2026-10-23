@@ -178,24 +178,30 @@ class RMS_norm(nn.Module):
 class Resample(nn.Module):
     """``mode`` in {"downsample2d", "downsample3d", "upsample2d", "upsample3d"}."""
 
-    def __init__(self, dim: int, mode: str, *, operations: Any) -> None:
+    def __init__(
+        self, dim: int, mode: str, *, operations: Any, up_out: int | None = None, temporal_kernel: int = 3,
+    ) -> None:
         super().__init__()
         self.mode = mode
 
         if mode in ("upsample2d", "upsample3d"):
             self.resample = nn.Sequential(
                 nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest-exact"),
-                operations.Conv2d(dim, dim // 2, 3, padding=1),
+                operations.Conv2d(dim, dim // 2 if up_out is None else up_out, 3, padding=1),
             )
             if mode == "upsample3d":
-                self.time_conv = _causal_conv3d(dim, dim * 2, (3, 1, 1), padding=(1, 0, 0), operations=operations)
+                self.time_conv = _causal_conv3d(
+                    dim, dim * 2, (temporal_kernel, 1, 1), padding=(temporal_kernel // 2, 0, 0), operations=operations,
+                )
         elif mode in ("downsample2d", "downsample3d"):
             self.resample = nn.Sequential(
                 nn.ZeroPad2d((0, 1, 0, 1)),
                 operations.Conv2d(dim, dim, 3, stride=2),
             )
             if mode == "downsample3d":
-                self.time_conv = _causal_conv3d(dim, dim, (3, 1, 1), stride=(2, 1, 1), operations=operations)
+                self.time_conv = _causal_conv3d(
+                    dim, dim, (temporal_kernel, 1, 1), stride=(2, 1, 1), operations=operations,
+                )
         else:
             self.resample = nn.Identity()
 
@@ -314,14 +320,13 @@ class AttentionBlock(nn.Module):
         return identity + out
 
 
-def _run_container(
-    container: nn.Sequential, x: torch.Tensor, feat_cache: list | None, feat_idx: list[int],
-) -> torch.Tensor:
-    """Iterate a ``head``/``middle`` ``nn.Sequential`` manually (a causal conv
-    needs the extra ``cache_x`` argument a plain ``Sequential.forward`` can't
-    pass through)."""
+def _run_seq_with_cache(container: nn.Sequential, x: torch.Tensor, feat_cache, feat_idx, first_chunk: bool = False):
     for layer in container:
-        if _is_causal_conv3d(layer):
+        if getattr(layer, "cache_aware", False):
+            x = layer(x, feat_cache, feat_idx, first_chunk)
+        elif isinstance(layer, (ResidualBlock, Resample)):
+            x = layer(x, feat_cache, feat_idx) if feat_cache is not None else layer(x)
+        elif _is_causal_conv3d(layer):
             if feat_cache is None:
                 x = _conv3d_forward(layer, x)
                 continue
@@ -333,10 +338,6 @@ def _run_container(
             x = _conv3d_forward(layer, x, cache_x=prev)
             feat_cache[idx] = cache_x
             feat_idx[0] += 1
-        elif isinstance(layer, ResidualBlock):
-            x = layer(x, feat_cache, feat_idx) if feat_cache is not None else layer(x)
-        elif isinstance(layer, Resample):
-            x = layer(x, feat_cache, feat_idx) if feat_cache is not None else layer(x)
         else:
             x = layer(x)
     return x
@@ -393,9 +394,9 @@ class Encoder3d(nn.Module):
         else:
             x = _conv3d_forward(self.conv1, x)
 
-        x = _run_container(self.downsamples, x, feat_cache, feat_idx)
-        x = _run_container(self.middle, x, feat_cache, feat_idx)
-        x = _run_container(self.head, x, feat_cache, feat_idx)
+        x = _run_seq_with_cache(self.downsamples, x, feat_cache, feat_idx)
+        x = _run_seq_with_cache(self.middle, x, feat_cache, feat_idx)
+        x = _run_seq_with_cache(self.head, x, feat_cache, feat_idx)
         return x
 
 
@@ -452,9 +453,9 @@ class Decoder3d(nn.Module):
         else:
             x = _conv3d_forward(self.conv1, x)
 
-        x = _run_container(self.middle, x, feat_cache, feat_idx)
-        x = _run_container(self.upsamples, x, feat_cache, feat_idx)
-        x = _run_container(self.head, x, feat_cache, feat_idx)
+        x = _run_seq_with_cache(self.middle, x, feat_cache, feat_idx)
+        x = _run_seq_with_cache(self.upsamples, x, feat_cache, feat_idx)
+        x = _run_seq_with_cache(self.head, x, feat_cache, feat_idx)
         return x
 
 

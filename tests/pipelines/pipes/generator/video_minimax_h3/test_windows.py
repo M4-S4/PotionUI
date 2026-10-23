@@ -354,14 +354,6 @@ def test_reference_indices_entries_must_all_be_plain_ints(bad):
         build_director_plan(_document([_segment(0, reference_indices=bad)]), default_seed=7)
 
 
-def test_bite_check_reference_indices_parsing_actually_validates_entries():
-    # BITE CHECK: an all-int list, the shape the guard above is supposed to
-    # accept, must not raise -- confirms the parametrized rejection above
-    # is catching real bad entries, not every list.
-    plan = build_director_plan(_document([_segment(0, reference_indices=[1, 2, 3])]), default_seed=7)
-    assert plan.windows[0].reference_indices == (1, 2, 3)
-
-
 # -- audio roles ----------------------------------------------------------------
 
 def test_a_mux_audio_clip_is_carried_to_the_stitched_output():

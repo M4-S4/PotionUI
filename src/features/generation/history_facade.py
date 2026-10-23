@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 from src.platform.plugins import PluginRegistry
 from src.features.generation.repository import GenerationRepository
+from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.history_query import GenerationHistoryQuery
 from src.features.generation.history_archive import GenerationHistoryArchive
 from src.features.generation.history_executor import HistoryExecutor
@@ -116,55 +117,23 @@ class GenerationHistoryFacade:
 
     def get_history(
         self,
-        user_id: Optional[str] = None,
+        flt: Optional[HistoryFilter] = None,
+        *,
         limit: Optional[int] = 50,
         offset: int = 0,
-        status: Optional[str] = None,
-        created_from: Optional[str] = None,
-        created_to: Optional[str] = None,
-        completed_from: Optional[str] = None,
-        completed_to: Optional[str] = None,
-        tag_ids: Optional[List[str]] = None,
         include_tags: bool = True,
-        media_type: Optional[str] = None,
-        search: Optional[str] = None,
-        mode: Optional[str] = None,
-        preset_id: Optional[str] = None,
-        model_name: Optional[str] = None,
-        min_rating: Optional[int] = None,
-        favorites_only: bool = False,
-        collection_id: Optional[str] = None,
-        used_phrasebook_value_id: Optional[str] = None,
         sort_by: Optional[str] = None,
         sort_dir: Optional[str] = None,
-        system_tag: Optional[str] = None,
-        semantic_query: Optional[str] = None,
-        error_category: Optional[str] = None,
-        include_descendants: bool = True,
-        unsorted: bool = False,
         group_grids: bool = False,
-        grid_id: Optional[str] = None
+        **filters: Any,
     ) -> Dict[str, Any]:
         return self._query.get_history(
-            user_id, limit, offset, status, error_category, created_from, created_to,
-            completed_from, completed_to, tag_ids, include_tags, media_type,
-            search, mode, preset_id, model_name, min_rating, favorites_only,
-            collection_id, used_phrasebook_value_id, sort_by, sort_dir,
-            system_tag=system_tag, semantic_query=semantic_query,
-            include_descendants=include_descendants, unsorted=unsorted,
-            group_grids=group_grids, grid_id=grid_id,
+            flt, limit=limit, offset=offset, include_tags=include_tags,
+            sort_by=sort_by, sort_dir=sort_dir, group_grids=group_grids, **filters,
         )
 
-    async def get_history_async(self, **filters: Any) -> Dict[str, Any]:
-        """`get_history()` off the event loop, for async call sites.
-
-        Keyword-only on purpose: `get_history` owns the filter signature and
-        this must not become a third copy of it that drifts.
-
-        Raises:
-            HistoryExecutorSaturated: no capacity - nothing was queried.
-        """
-        return await self.executor.run(self.get_history, **filters)
+    async def get_history_async(self, flt: Optional[HistoryFilter] = None, **options: Any) -> Dict[str, Any]:
+        return await self.executor.run(self.get_history, flt, **options)
 
     def get_by_id(
         self,

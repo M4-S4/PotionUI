@@ -20,47 +20,12 @@ def generation_outputs():
     return MagicMock()
 
 
-class TestPipeInitialization:
-    def test_name(self, default_pipe):
-        assert default_pipe.name == "video_speed"
+class TestSpeedPercentBounds:
+    def test_speed_percent_is_an_int_between_10_and_100(self):
+        spec = next(s for s in VideoSpeedPipe.configuration() if s.name == "speed_percent")
 
-    def test_description(self, default_pipe):
-        assert "speed" in default_pipe.description.lower()
-
-    def test_default_config(self):
-        config = VideoSpeedPipe.get_default_config()
-        assert config["speed_percent"] == 50
-        assert config["keep_audio"] is True
-        assert config["output_format"] == "mp4"
-
-
-class TestSpecs:
-    def test_inputs(self):
-        inputs = VideoSpeedPipe.inputs()
-        assert len(inputs) == 1
-        assert inputs[0].name == "video"
-        assert inputs[0].io_type == IOType.VIDEO
-        assert inputs[0].is_array is True
-        assert inputs[0].required is True
-
-    def test_outputs(self):
-        outputs = VideoSpeedPipe.outputs()
-        assert len(outputs) == 1
-        assert outputs[0].name == "video"
-        assert outputs[0].io_type == IOType.VIDEO
-        assert outputs[0].is_array is True
-
-    def test_configuration(self):
-        configs = VideoSpeedPipe.configuration()
-        config_names = [c.name for c in configs]
-        assert "speed_percent" in config_names
-        assert "keep_audio" in config_names
-        assert "output_format" in config_names
-
-        speed_config = next(c for c in configs if c.name == "speed_percent")
-        assert speed_config.min_value == 10
-        assert speed_config.max_value == 100
-        assert speed_config.param_type == int
+        assert spec.param_type == int
+        assert (spec.min_value, spec.max_value) == (10, 100)
 
 
 class TestParseBool:
@@ -134,11 +99,11 @@ class TestAudioProbingIntegration:
         pipe = VideoSpeedPipe({"speed_percent": 50, "keep_audio": True, "output_format": "mp4"})
 
         monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.shutil.which", lambda _: None
+            "src.platform.util.video_transcode.shutil.which", lambda _: None
         )
         probe_run = MagicMock()
         monkeypatch.setattr(
-            "src.pipelines.pipes._shared.media.video_encode.subprocess.run", probe_run
+            "src.platform.util.video_stream.subprocess.run", probe_run
         )
         encode_run = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
         monkeypatch.setattr("src.pipelines.pipes.video_speed.main.subprocess.run", encode_run)

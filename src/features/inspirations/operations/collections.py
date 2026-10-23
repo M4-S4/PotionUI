@@ -1,6 +1,7 @@
 """Per-user inspiration collection operations."""
 from typing import Optional
 
+from src.platform.http.errors import InvalidInputError, NotFoundError
 from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.records import InspirationCollection
 
@@ -10,9 +11,9 @@ def create_collection(
 ) -> InspirationCollection:
     name = (name or "").strip()
     if not name:
-        raise ValueError("Collection name is required")
+        raise InvalidInputError("invalid_request", "Collection name is required")
     if parent_id and not collaborators.repository.get_collection(parent_id, user_id):
-        raise ValueError("Parent collection not found or access denied")
+        raise NotFoundError("not_found", "Parent collection not found or access denied")
     return collaborators.repository.create_collection(user_id, name, parent_id)
 
 
@@ -35,41 +36,41 @@ def update_collection(
             move would create a cycle.
     """
     if not collaborators.repository.get_collection(collection_id, user_id):
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("not_found", "Collection not found or access denied")
 
     if name is not None:
         name = name.strip()
         if not name:
-            raise ValueError("Collection name is required")
+            raise InvalidInputError("invalid_request", "Collection name is required")
         collaborators.repository.rename_collection(collection_id, user_id, name)
 
     if parent_id_set:
         if parent_id and not collaborators.repository.get_collection(parent_id, user_id):
-            raise ValueError("Parent collection not found or access denied")
+            raise NotFoundError("not_found", "Parent collection not found or access denied")
         if collaborators.repository.creates_cycle(collection_id, parent_id):
-            raise ValueError("Cannot move a collection into itself or one of its subfolders")
+            raise InvalidInputError("invalid_request", "Cannot move a collection into itself or one of its subfolders")
         collaborators.repository.move_collection(collection_id, user_id, parent_id)
 
     updated = collaborators.repository.get_collection(collection_id, user_id)
     if updated is None:
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("not_found", "Collection not found or access denied")
     return updated
 
 
 def delete_collection(collaborators: InspirationCollaborators, collection_id: str, user_id: str) -> None:
     if not collaborators.repository.delete_collection(collection_id, user_id):
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("not_found", "Collection not found or access denied")
 
 
 def add_item(collaborators: InspirationCollaborators, collection_id: str, user_id: str, inspiration_id: str) -> None:
     if not collaborators.repository.get_collection(collection_id, user_id):
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("not_found", "Collection not found or access denied")
     if not collaborators.repository.get_by_id(inspiration_id):
-        raise ValueError("Inspiration not found")
+        raise NotFoundError("not_found", "Inspiration not found")
     collaborators.repository.add_item(collection_id, inspiration_id)
 
 
 def remove_item(collaborators: InspirationCollaborators, collection_id: str, user_id: str, inspiration_id: str) -> None:
     if not collaborators.repository.get_collection(collection_id, user_id):
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("not_found", "Collection not found or access denied")
     collaborators.repository.remove_item(collection_id, inspiration_id)

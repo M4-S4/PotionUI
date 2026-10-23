@@ -32,13 +32,9 @@ class BflConfig(CloudBackendConfig):
         title="Timeout (seconds)",
         description="Longest a single picture may take before PotionUI stops waiting. BFL keeps a finished picture for 10 minutes.",
     )
-    send_user_hash: bool = Field(
-        default=False,
-        title="Send an anonymous user id",
-        description="Send an anonymous id per user so BFL can tell users apart without knowing who they are. It cannot be traced back to a person without this server's secret key.",
-    )
 
     engine_label: ClassVar[Optional[str]] = "Black Forest Labs"
+    accepts_user_hash: ClassVar[bool] = True
     api_key_source: ClassVar[str] = "Created at api.bfl.ai under API Keys."
 
     @field_validator("region")

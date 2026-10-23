@@ -18,27 +18,6 @@ from src.features.generation.hooks import GENERATION_HOOKS
 from src.platform.plugins.hooks import execute_hook
 
 
-class TestGenerationHistoryFacadeInit:
-    """Tests for GenerationHistoryFacade initialization."""
-
-    def test_init_with_all_dependencies(self):
-        """Should initialize with all required dependencies."""
-        mock_repo = Mock()
-        mock_file_service = Mock()
-        mock_plugins = Mock()
-
-        manager = GenerationHistoryFacade(
-            generation_repo=mock_repo,
-            file_service=mock_file_service,
-            plugin_registry=mock_plugins,
-            run_report_repository=Mock(),
-        )
-
-        assert manager.generation_repo is mock_repo
-        assert manager.file_service is mock_file_service
-        assert manager.plugins is mock_plugins
-
-
 class TestValidationHelpers:
     """Tests for validation helper methods."""
 
@@ -241,10 +220,10 @@ class TestGetHistory:
         )
 
         self.mock_repo.get_all.assert_called_once()
-        call_kwargs = self.mock_repo.get_all.call_args[1]
-        assert call_kwargs["status"] == "completed"
-        assert call_kwargs["created_from"] == "2024-01-01"
-        assert call_kwargs["tag_ids"] == ["tag-1"]
+        flt = self.mock_repo.get_all.call_args[0][0]
+        assert flt.status == "completed"
+        assert flt.created_from == "2024-01-01"
+        assert flt.tag_ids == ["tag-1"]
 
 
 class TestGetById:

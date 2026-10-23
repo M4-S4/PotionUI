@@ -1,30 +1,18 @@
 <script lang="ts">
-	import { iconPaths, getAllIconNames } from '$lib/utils/IconLibrary';
+	import tooltip from '$lib/actions/tooltip';
+	import { getAllIconNames, iconSvgMarkup } from '$lib/utils/IconLibrary';
 	import { Input } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { copyText } from '$lib/utils/clipboard';
 	import { toasts } from '$lib/stores/toast';
 
-	interface IconEntry {
-		name: string;
-		path: string;
-	}
-
 	let filterText = '';
 	let copiedIcon = '';
 	let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	const iconLibrary: IconEntry[] = getAllIconNames().map((name) => {
-		const path = iconPaths[name];
-		return {
-			name,
-			path: Array.isArray(path) ? path.join(' ') : path
-		};
-	});
+	const iconNames = getAllIconNames();
 
-	$: filteredIcons = iconLibrary.filter((icon) =>
-		icon.name.toLowerCase().includes(filterText.toLowerCase())
-	);
+	$: filteredIcons = iconNames.filter((name) => name.toLowerCase().includes(filterText.toLowerCase()));
 
 	async function copyToClipboard(text: string, iconName: string) {
 		const ok = await copyText(text);
@@ -39,11 +27,8 @@
 		}
 	}
 
-	function copyIconSVG(icon: IconEntry) {
-		const svg = `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-	<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${icon.path}" />
-</svg>`;
-		copyToClipboard(svg, icon.name);
+	function copyIconSVG(name: string) {
+		copyToClipboard(iconSvgMarkup(name), name);
 	}
 </script>
 
@@ -64,31 +49,19 @@
 {:else}
 	<div class="bg-surface-2 rounded-lg border border-line p-6 mb-4">
 		<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-			{#each filteredIcons as icon (icon.name)}
+			{#each filteredIcons as name (name)}
 				<div class="group relative">
 					<button
-						on:click={() => copyIconSVG(icon)}
+						on:click={() => copyIconSVG(name)}
 						class="w-full aspect-square flex flex-col items-center justify-center p-4 border border-line rounded-lg hover:border-line-hover hover:bg-surface-3 transition-all cursor-pointer"
-						title="Click to copy SVG code for {icon.name}"
+						use:tooltip={`Click to copy SVG code for ${name}`}
 					>
-						<svg
-							class="w-8 h-8 mb-2 text-fg-muted group-hover:text-fg"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d={icon.path}
-							/>
-						</svg>
+						<Icon name={name} className="w-8 h-8 mb-2 text-fg-muted group-hover:text-fg" />
 						<span class="text-2xs text-fg-muted group-hover:text-fg font-mono text-center break-all"
-							>{icon.name}</span
+							>{name}</span
 						>
 
-						{#if copiedIcon === icon.name}
+						{#if copiedIcon === name}
 							<div
 								class="absolute inset-0 flex items-center justify-center bg-success/10 border-2 border-success/50 rounded-lg"
 							>

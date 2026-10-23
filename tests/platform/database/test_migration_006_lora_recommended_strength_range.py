@@ -5,54 +5,16 @@ blob and the per-user `user_model_attributes` overlay - so both have to be widen
 or the picker reads one of them as "no recommendation".
 """
 
-import importlib.util
 import json
-import sys
-import tempfile
 import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+class TestMigration006LoraRecommendedStrengthRange(MigrationCase):
+    MIGRATION = "006_lora_recommended_strength_range"
 
-
-class TestMigration006LoraRecommendedStrengthRange(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        with self.db.get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE applied_migrations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    migration_name TEXT UNIQUE NOT NULL,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("006_lora_recommended_strength_range", self.db)
-
-        # Reproduce a pre-migration database: the slider definition as
-        # `seeding.py` first wrote it, a LoRA carrying a shared scalar, a second
-        # LoRA carrying an unrelated attribute that must survive untouched, and
-        # a user's own scalar override.
+    def pre_state(self):
         with self.db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -80,9 +42,6 @@ class TestMigration006LoraRecommendedStrengthRange(unittest.TestCase):
                 "INSERT INTO user_model_attributes (user_id, model_id, key, value) VALUES (?, ?, ?, ?)",
                 ("u1", "m1", "strength", json.dumps(0.65)),
             )
-
-    def tearDown(self):
-        Database._instance = None
 
     def _definition(self):
         with self.db.get_connection() as conn:

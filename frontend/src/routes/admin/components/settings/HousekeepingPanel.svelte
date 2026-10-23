@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import { parseServerDate } from '$lib/utils/relativeTime';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { HousekeepingOverview, HousekeepingRun } from '$lib/services/admin-api';
@@ -67,7 +67,7 @@
 			overview = response.data;
 		} catch (e: any) {
 			logger.error('Failed to load housekeeping settings:', e);
-			error = e.response?.data?.message || e.message || 'Failed to load housekeeping settings.';
+			error = getApiErrorMessage(e, 'Failed to load housekeeping settings.');
 		} finally {
 			loading = false;
 		}
@@ -102,7 +102,7 @@
 			}
 		} catch (e: any) {
 			const status = e?.response?.status;
-			const message = e.response?.data?.message || e.message || 'Failed to run housekeeping.';
+			const message = getApiErrorMessage(e, 'Failed to run housekeeping.');
 			toasts.error(message);
 			if (status === 409) await load();
 		} finally {
@@ -177,7 +177,7 @@
 				toasts.error(response.message ?? 'Failed to delete generations.');
 			}
 		} catch (e: any) {
-			toasts.error(e.response?.data?.message || e.message || 'Failed to delete generations.');
+			toasts.error(getApiErrorMessage(e, 'Failed to delete generations.'));
 		} finally {
 			genDeleting = false;
 		}

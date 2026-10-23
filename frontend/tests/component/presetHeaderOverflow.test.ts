@@ -3,6 +3,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { flushSync } from 'svelte';
 import type { Writable } from 'svelte/store';
 import type { PresetInfo } from '$lib/types/api';
+import { settle } from './helpers/settle';
+import { presetInfo } from './presetFixtures';
 
 type PageStore = Writable<{ url: URL }>;
 
@@ -25,23 +27,6 @@ vi.mock('$lib/services/admin-api', () => ({
 vi.mock('$lib/stores/confirm', () => ({
 	confirmDialog: vi.fn().mockResolvedValue(true)
 }));
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		},
-		invalidate: async () => {},
-		invalidateAll: async () => {},
-		preloadData: async () => {},
-		preloadCode: async () => {},
-		afterNavigate: () => {},
-		beforeNavigate: () => {},
-		pushState: () => {},
-		replaceState: () => {}
-	};
-});
 
 const api = await import('$lib/services/api/index');
 const adminApi = await import('$lib/services/admin-api');
@@ -50,18 +35,7 @@ const { default: PresetsTab } = await import('../../src/routes/admin/components/
 const { createClassComponent } = await import('svelte/legacy');
 
 function preset(overrides: Partial<PresetInfo> = {}): PresetInfo {
-	return {
-		id: 'krea2',
-		name: 'Krea-2',
-		version: '1.0.0',
-		description: '',
-		tags: [],
-		category: 'image',
-		engine: 'native',
-		installed: true,
-		recipes: [],
-		...overrides
-	};
+	return presetInfo({ installed: true, recipes: [], ...overrides });
 }
 
 function setUrl(search: string) {
@@ -79,10 +53,6 @@ function mount(component: unknown) {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let mounted: ReturnType<typeof mount> | undefined;

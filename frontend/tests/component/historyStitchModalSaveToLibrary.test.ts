@@ -123,7 +123,7 @@ async function mountModal() {
 	// neither needs to settle for the footer's Save button to be usable.
 	for (let i = 0; i < 8; i++) await Promise.resolve();
 	flushSync();
-	await new Promise((resolve) => setTimeout(resolve, 150));
+	await vi.advanceTimersByTimeAsync(150);
 	flushSync();
 }
 
@@ -134,6 +134,7 @@ function saveButton() {
 }
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	getGenerationImageURL.mockReturnValue('/api/generations/gen-1/files/a.png');
 	getClient.mockReturnValue({
 		get: vi.fn().mockResolvedValue({ data: new Blob(['img'], { type: 'image/png' }) })
@@ -150,6 +151,7 @@ afterEach(() => {
 	document.body.innerHTML = '';
 	vi.clearAllMocks();
 	get(toasts).forEach((t) => toasts.remove(t.id));
+	vi.useRealTimers();
 });
 
 describe('HistoryStitchModal - Save to Library', () => {
@@ -159,9 +161,9 @@ describe('HistoryStitchModal - Save to Library', () => {
 
 		expect(saveButton()).toBeTruthy();
 		saveButton()!.click();
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await vi.advanceTimersByTimeAsync(0);
 		flushSync();
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await vi.advanceTimersByTimeAsync(0);
 		flushSync();
 
 		expect(uploadLibraryMedia).toHaveBeenCalledTimes(1);
@@ -182,9 +184,9 @@ describe('HistoryStitchModal - Save to Library', () => {
 		await mountModal();
 
 		saveButton()!.click();
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await vi.advanceTimersByTimeAsync(0);
 		flushSync();
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		await vi.advanceTimersByTimeAsync(0);
 		flushSync();
 
 		expect(get(toasts).at(-1)?.type).toBe('error');

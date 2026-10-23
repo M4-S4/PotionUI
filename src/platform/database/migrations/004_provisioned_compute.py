@@ -36,9 +36,3 @@ def up():
             )
         """)
     print("Migration 004_provisioned_compute: created provisioned_compute table")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP TABLE IF EXISTS provisioned_compute")
-    print("Migration 004_provisioned_compute: dropped provisioned_compute table")

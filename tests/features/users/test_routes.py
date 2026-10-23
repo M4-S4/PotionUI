@@ -498,35 +498,5 @@ class TestUserController:
         assert exc_info.value.status_code == 404
 
     # Test Pydantic models
-    def test_user_create_model(self):
-        """Test UserCreate model validation"""
-        user_data = UserCreate(
-            username="testuser",
-            email="test@example.com",
-            password="password123",
-            account_type="USER"
-        )
-        assert user_data.username == "testuser"
-        assert user_data.email == "test@example.com"
-        assert user_data.account_type == "USER"
 
-    def test_user_update_model(self):
-        """Test UserUpdate model validation"""
-        user_data = UserUpdate(
-            username="updateduser",
-            email="updated@example.com"
-        )
-        assert user_data.username == "updateduser"
-        assert user_data.email == "updated@example.com"
-        assert user_data.password is None
 
-    def test_user_response_model(self):
-        """Test UserResponse model"""
-        response_data = UserResponse(
-            id="test-123",
-            username="testuser",
-            email="test@example.com",
-            account_type="USER"
-        )
-        assert response_data.id == "test-123"
-        assert response_data.username == "testuser"

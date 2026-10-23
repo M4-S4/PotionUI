@@ -235,5 +235,24 @@ class TestFairPolicyGeneral(unittest.TestCase):
         self.assertEqual(comfy_order, ["c1", "c2"])
 
 
+class TestFairPolicyWithUnkeyedJobs(unittest.TestCase):
+    def test_jobs_queued_without_a_model_key_are_all_served_in_rotation(self):
+        pending = [_item("a", "u1"), _item("b", "u1"), _item("c", "u2"), _item("d", "u2")]
+
+        order = _run(pending, SchedulingPolicy(name=FAIR), BackendSchedulingState())
+
+        self.assertEqual(order, ["a", "c", "b", "d"])
+
+    def test_unkeyed_job_is_not_starved_behind_a_loaded_model(self):
+        pending = [_item("a", "u1", model="X"), _item("b", "u1", model="X"), _item("n", "u2")]
+        policy = SchedulingPolicy(name=FAIR, max_consecutive_same_model=1)
+        state = BackendSchedulingState(loaded_model_key="X", consecutive_count=1)
+
+        order = _run(pending, policy, state)
+
+        self.assertEqual(order[0], "n")
+        self.assertEqual(sorted(order), ["a", "b", "n"])
+
+
 if __name__ == "__main__":
     unittest.main()

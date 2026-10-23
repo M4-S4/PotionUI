@@ -38,7 +38,7 @@ RUN mkdir -p /content/plugins \
 
 # --- Frontend build stage -------------------------------------------------
 # Node lives only here; the final image never gets a node runtime.
-FROM node:20-bookworm-slim AS frontend-builder
+FROM node:24-bookworm-slim AS frontend-builder
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./

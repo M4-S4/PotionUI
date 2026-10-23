@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { mount, unmount, flushSync, createRawSnippet } from 'svelte';
 
 const { default: DataTable } = await import('../../src/lib/components/table/DataTable.svelte');
@@ -17,6 +17,24 @@ const columns: DataTableColumn<any>[] = [
 	{ key: 'email', label: 'Email', width: '200px', accessor: (row: Row) => row.email },
 	{ key: 'internal', label: 'Internal', width: '80px', priority: 2 as const, accessor: () => 'secret' }
 ];
+
+let width = 0;
+const observers: { targets: Set<Element>; callback: (entries: unknown[]) => void }[] = [];
+globalThis.ResizeObserver = class {
+	targets = new Set<Element>();
+	constructor(public callback: (entries: unknown[]) => void) {
+		observers.push(this);
+	}
+	observe(el: Element) {
+		this.targets.add(el);
+	}
+	unobserve(el: Element) {
+		this.targets.delete(el);
+	}
+	disconnect() {
+		this.targets.clear();
+	}
+} as unknown as typeof ResizeObserver;
 
 let target: HTMLDivElement;
 let component: ReturnType<typeof mount> | null = null;
@@ -128,5 +146,85 @@ describe('DataTable', () => {
 		target.remove();
 		mountTable({ rows: [], emptyState, filteredEmptyState, isFiltered: true });
 		expect(target.textContent).toContain('No matches');
+	});
+
+	it('renders only the desktop rows when wide and invokes the card snippet for no row', () => {
+		const card = vi.fn(() => ({ render: () => `<span class="card-probe">card</span>`, setup: () => {} }));
+		mountTable({ card: createRawSnippet(card as any), forceNarrow: false });
+		expect(target.querySelectorAll('.dt-scroll > .dt-row:not(.dt-row--head)')).toHaveLength(2);
+		expect(target.querySelector('.dt-mobile')).toBeNull();
+		expect(target.querySelectorAll('.card-probe')).toHaveLength(0);
+	});
+
+	it('renders only one card per row and no grid rows or header when narrow', () => {
+		const card = createRawSnippet((row: () => Row) => ({ render: () => `<span class="card-probe">${row().name}</span>` }));
+		mountTable({ card, forceNarrow: true });
+		expect(target.querySelectorAll('.dt-mobile > div')).toHaveLength(2);
+		expect(target.querySelectorAll('.card-probe')).toHaveLength(2);
+		expect(target.querySelector('.dt-row')).toBeNull();
+	});
+});
+
+describe('DataTable measured width', () => {
+	const widthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth');
+
+	beforeEach(() => {
+		width = 0;
+		Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => width });
+	});
+
+	afterEach(() => {
+		if (widthDescriptor) Object.defineProperty(HTMLElement.prototype, 'clientWidth', widthDescriptor);
+	});
+
+	const card = createRawSnippet((row: () => Row) => ({ render: () => `<span class="card-probe">${row().name}</span>` }));
+
+	function resizeTo(next: number) {
+		width = next;
+		observers.forEach((o) => o.callback([...o.targets].map((el) => ({ target: el }))));
+		flushSync();
+	}
+
+	it('shows cards at exactly 640px and the grid at 641px', async () => {
+		width = 640;
+		mountTable({ card });
+		await Promise.resolve();
+		flushSync();
+		expect(target.querySelectorAll('.dt-mobile > div')).toHaveLength(2);
+		expect(target.querySelector('.dt-row')).toBeNull();
+
+		unmount(component!);
+		component = null;
+		target.remove();
+		width = 641;
+		mountTable({ card });
+		await Promise.resolve();
+		flushSync();
+		expect(target.querySelector('.dt-mobile')).toBeNull();
+		expect(target.querySelectorAll('.dt-row')).toHaveLength(3);
+	});
+
+	it('renders the desktop layout flagged as unmeasured while the width is 0', () => {
+		mountTable({ card });
+		expect(target.querySelector('.dt-root')!.hasAttribute('data-unmeasured')).toBe(true);
+		expect(target.querySelectorAll('.dt-row')).toHaveLength(3);
+		expect(target.querySelector('.dt-mobile')).toBeNull();
+	});
+
+	it('clears the unmeasured flag once a width is known and switches layout when the width changes', async () => {
+		width = 900;
+		mountTable({ card });
+		await Promise.resolve();
+		flushSync();
+		expect(target.querySelector('.dt-root')!.hasAttribute('data-unmeasured')).toBe(false);
+		expect(target.querySelector('.dt-mobile')).toBeNull();
+
+		resizeTo(500);
+		expect(target.querySelectorAll('.dt-mobile > div')).toHaveLength(2);
+		expect(target.querySelector('.dt-row')).toBeNull();
+
+		resizeTo(900);
+		expect(target.querySelector('.dt-mobile')).toBeNull();
+		expect(target.querySelectorAll('.dt-row')).toHaveLength(3);
 	});
 });

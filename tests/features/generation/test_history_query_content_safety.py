@@ -32,7 +32,7 @@ class ContentHistoryBase(HistoryTestBase):
         return gen
 
     def file_ids(self, query):
-        result = query.get_history(self.user_id, include_tags=False)
+        result = query.get_history(user_id=self.user_id, include_tags=False)
         return {
             gen["id"]: [f["id"] for f in gen["files"]] for gen in result["generations"]
         }
@@ -50,7 +50,7 @@ class TestRestrictedViewer(ContentHistoryBase):
         query = self.build_query()
         self.generation_with("new-gen", "new-file")
 
-        result = query.get_history(self.user_id, include_tags=False)
+        result = query.get_history(user_id=self.user_id, include_tags=False)
 
         placeholder = result["generations"][0]["files"][0]
         assert placeholder["content_state"] == "unrated"
@@ -64,7 +64,7 @@ class TestRestrictedViewer(ContentHistoryBase):
         with self.db.get_cursor() as cursor:
             cursor.execute("UPDATE files SET label = 'Guide: Pose' WHERE id = 'guide-file'")
 
-        result = query.get_history(self.user_id, include_tags=False)
+        result = query.get_history(user_id=self.user_id, include_tags=False)
 
         placeholder = result["generations"][0]["files"][0]
         assert placeholder["content_state"] == "unrated"
@@ -107,7 +107,7 @@ class TestOpenViewer(ContentHistoryBase):
         self.generation_with("bad-gen", "bad-file", 0.95)
         self.generation_with("new-gen", "new-file")
 
-        result = query.get_history(self.user_id, include_tags=False)
+        result = query.get_history(user_id=self.user_id, include_tags=False)
 
         files = {f["id"]: f for gen in result["generations"] for f in gen["files"]}
         assert files["bad-file"]["nsfw"] is True
@@ -119,7 +119,7 @@ class TestOpenViewer(ContentHistoryBase):
         query = self.build_query(mode="allowed", restricted=False)
         self.generation_with("bad-gen", "bad-file", 0.95)
 
-        file_dict = query.get_history(self.user_id, include_tags=False)["generations"][0]["files"][0]
+        file_dict = query.get_history(user_id=self.user_id, include_tags=False)["generations"][0]["files"][0]
 
         assert file_dict["nsfw"] is True
         assert file_dict["content_flagged"] is False
@@ -129,7 +129,7 @@ class TestOpenViewer(ContentHistoryBase):
         gen = self.create_test_generation("plain-gen", self.user_id)
         self._make_file("plain-file", gen)
 
-        file_dict = query.get_history(self.user_id, include_tags=False)["generations"][0]["files"][0]
+        file_dict = query.get_history(user_id=self.user_id, include_tags=False)["generations"][0]["files"][0]
 
         assert file_dict["content_flagged"] is False
 

@@ -399,26 +399,3 @@ class TestWebSocketHandler:
         
         # Should disconnect due to receive error
         handler.connection_hub.disconnect.assert_called_with(client_id)
-    
-    @pytest.mark.asyncio
-    async def test_heartbeat_task_cleanup(self, handler, mock_websocket, generation_statuses):
-        client_id = "test_client"
-        
-        handler.connection_hub.connect.return_value = True
-        mock_websocket.receive_text.side_effect = WebSocketDisconnect()
-        
-        # Mock the heartbeat task
-        async def mock_heartbeat_coroutine():
-            try:
-                while True:
-                    await asyncio.sleep(15)
-            except asyncio.CancelledError:
-                pass
-        
-        with patch('src.features.generation.websocket_handler.WebSocketHandler._send_heartbeat') as mock_heartbeat:
-            mock_heartbeat.return_value = mock_heartbeat_coroutine()
-            
-            await handler.handle_websocket(mock_websocket, client_id, generation_statuses)
-            
-            # Task cleanup is handled by the handler
-            pass

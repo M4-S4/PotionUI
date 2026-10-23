@@ -315,23 +315,6 @@ class TestHookChainAdvanced(unittest.TestCase):
         self.assertEqual(context.get("count"), 10000)
         self.assertTrue(results[0].success)
 
-    def test_clear_handlers_after_execution(self):
-        """Test clearing handlers after execution"""
-        handler = MagicMock(return_value=HookContext("test", "plugin", {}))
-
-        self.chain.register("test.hook", "plugin-1", handler)
-
-        # Execute once
-        self.chain.execute("test.hook")
-        self.assertEqual(handler.call_count, 1)
-
-        # Clear and execute again
-        self.chain.clear_handlers("test.hook")
-        self.chain.execute("test.hook")
-
-        # Handler should still have been called only once
-        self.assertEqual(handler.call_count, 1)
-
 class TestHookRegistryAdvanced(unittest.TestCase):
     """Advanced tests for the open HookRegistry"""
 

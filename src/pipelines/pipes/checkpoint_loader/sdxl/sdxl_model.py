@@ -7,7 +7,6 @@ from typing import Optional
 
 import torch
 
-from src.pipelines.pipes.generator.sdxl.pipeline import StableDiffusionXLKDiffusionPipeline
 from vendor.gpl.fooocus.patch import PatchSettings
 from src.pipelines.outputs import ImageGenerationOutput, ProgressGenerationOutput, GenerationOutput
 from src.platform.observability.logger import logger
@@ -23,16 +22,6 @@ from src.platform.runtime.device import log_memory_usage
 from src.pipelines.pipes.checkpoint_loader.sdxl.model_type_detector import SDXLModelTypeDetector, SDXLModelTypeInfo
 from src.pipelines.pipes.checkpoint_loader.sdxl.memory_strategy import apply_to_pipeline
 from src.platform.runtime.model_lifecycle.memory_policy import MemoryPolicy
-
-# Import standard diffusers for ControlNet support
-try:
-    from diffusers import StableDiffusionXLControlNetPipeline, ControlNetModel
-    from diffusers import MultiControlNetModel
-    DIFFUSERS_CONTROLNET_AVAILABLE = True
-except ImportError:
-    DIFFUSERS_CONTROLNET_AVAILABLE = False
-    logger.warning("[MODEL][SDXL] Standard diffusers ControlNet not available")
-
 
 # Vendored diffusers-format pipeline config (model_index.json + per-component
 # config.json + CLIP tokenizer vocab) for stabilityai/stable-diffusion-xl-base-1.0.
@@ -428,6 +417,8 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         # Create the pipeline. `config=` points at the vendored local pipeline
         # config directory so config resolution never touches the HF Hub (see
         # SDXL_BASE_PIPELINE_CONFIG above).
+        from src.pipelines.pipes.generator.sdxl.pipeline import StableDiffusionXLKDiffusionPipeline
+
         pipe = StableDiffusionXLKDiffusionPipeline.from_single_file(
             pretrained_model_link_or_path=self.config.get("path"),
             config=SDXL_BASE_PIPELINE_CONFIG,
@@ -518,8 +509,12 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
             mode: Generation mode (txt2img or img2img)
             force_reload: Whether to force reload the pipeline
         """
-        if not DIFFUSERS_CONTROLNET_AVAILABLE:
+        try:
+            from diffusers import MultiControlNetModel
+        except ImportError:
             raise ValueError("[MODEL][SDXL] ControlNet support requires standard diffusers library")
+
+        from src.pipelines.pipes.generator.sdxl.pipeline import StableDiffusionXLKDiffusionPipeline
 
         if not controlnet_data:
             logger.warning("[MODEL][SDXL] load_with_controlnet called with no controlnet data, falling back to standard load")

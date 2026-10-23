@@ -239,7 +239,3 @@ export async function listModelLayouts(): Promise<ModelLayoutSummary[]> {
 export function serverPathPlaceholder(pathStyle: 'windows' | 'posix' | undefined): string {
 	return pathStyle === 'windows' ? 'D:\\ComfyUI\\models' : '/mnt/storage/ComfyUI/models';
 }
-
-export function bindingLabel(binding: { model_type: string; folder: string }): string {
-	return binding.folder || binding.model_type;
-}

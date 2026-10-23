@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	import { onMount } from 'svelte';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
@@ -98,14 +99,7 @@
 		<Icon name="shield" className="w-4 h-4 text-signal flex-shrink-0" />
 		<h2 class="text-sm font-semibold text-fg">My Tools</h2>
 		<Tooltip text="Close" position="bottom" wrapperClass="inline-flex items-center ml-auto">
-			<button
-				type="button"
-				aria-label="Close"
-				class="p-1.5 text-fg-subtle hover:text-fg-muted hover:bg-surface-2 rounded transition-colors"
-				on:click={onClose}
-			>
-				<Icon name="close" className="w-4 h-4" />
-			</button>
+			<IconButton icon="close" label="Close" size="sm" onclick={onClose} />
 		</Tooltip>
 	</div>
 

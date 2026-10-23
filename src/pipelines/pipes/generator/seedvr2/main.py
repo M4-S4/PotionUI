@@ -22,7 +22,7 @@ from __future__ import annotations
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional
+from typing import Any, Iterable, Iterator, List, Optional
 
 import numpy as np
 import torch
@@ -60,6 +60,7 @@ from src.pipelines.pipes._shared.generation.native_generator import (
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes.generator.seedvr2.color_fix import color_correct
 from src.pipelines.pipes.generator.seedvr2.resize import CROP_MULTIPLE, prepare_input
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec, seed_config_spec
 
 SEEDVR2_TIMESTEP = 1000.0
 
@@ -656,31 +657,6 @@ class GeneratorSeedVR2Pipe(BasePipe):
     description = "Native SeedVR2 one-step restoration upscaler (no text encoder, no CFG, no denoise loop)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "scale": 2.0,
-            "target_short_side": 0,
-            "color_correction": "wavelet",
-            "latent_noise_scale": 0.0,
-            "input_noise_scale": 0.0,
-            "seed": -1,
-            "device": "cuda",
-            # Ceilings, not fixed sizes: the VAE encode/decode auto-tiles UNDER
-            # these by live free VRAM. Defaulted high (2048px) so a roomy card
-            # decodes/encodes a 1080p clip in 1-2 tiles instead of being pinned
-            # to a needless 2x2 split. Small cards are unaffected: the live-VRAM
-            # sizer + OOM ladder keep the actual tile well below this ceiling.
-            "tile_size": 2048,
-            "tile_overlap": 256,
-            # Video (temporal) knobs — ignored on the image path.
-            "batch_size": 0,
-            "temporal_overlap": 0,
-            "prepend_frames": 0,
-            "uniform_batch_size": True,
-            "keep_audio": True,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("scale", float, 2.0,
@@ -698,8 +674,8 @@ class GeneratorSeedVR2Pipe(BasePipe):
             PipeConfigSpec("input_noise_scale", float, 0.0,
                            "Small gaussian on the input pixels before encode (0 = off)",
                            required=False, min_value=0.0, max_value=1.0),
-            PipeConfigSpec("seed", int, -1, "Seed (-1 -> per-image random)", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            seed_config_spec("Seed (-1 -> per-image random)"),
+            device_config_spec(),
             # The engine's causal-3D decode auto-tiles by live free VRAM (with a
             # shrink-on-OOM net); image encode/decode size their own tile from VRAM
             # too. These act as a CEILING on top of that live-VRAM estimate for the

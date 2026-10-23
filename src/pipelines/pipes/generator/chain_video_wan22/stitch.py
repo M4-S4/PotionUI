@@ -39,13 +39,14 @@ tested without cv2 or ffmpeg.
 from __future__ import annotations
 
 import logging
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, List, Optional, Sequence, Union
 
 import numpy as np
+
+from src.platform.util.video_transcode import find_ffmpeg
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ def _can_stream_copy(segment_paths: List[PathLike], fps: float) -> bool:
     unprobeable segment (missing ffprobe, corrupt file) or a mismatch is
     treated as "can't tell it's safe", not "assume it's fine".
     """
-    if shutil.which("ffmpeg") is None:
+    if find_ffmpeg() is None:
         return False
 
     from src.pipelines.pipes._shared.media.video_encode import probe_source_fps
@@ -121,7 +122,7 @@ def _stream_copy_concat(segment_paths: List[PathLike], out_path: PathLike) -> bo
         list_path.write_text("\n".join(lines) + "\n")
 
         cmd = [
-            "ffmpeg", "-y",
+            find_ffmpeg() or "ffmpeg", "-y",
             "-f", "concat", "-safe", "0", "-i", str(list_path),
             "-c", "copy",
             str(out_path),

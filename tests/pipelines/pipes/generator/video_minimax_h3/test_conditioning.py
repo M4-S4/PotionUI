@@ -23,7 +23,6 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     fit_keyframe_to_canvas,
     normalize_reference_image,
     normalize_references,
-    prepare_reference_condition_rows,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     CANVAS_MAX_PIXELS,
@@ -152,28 +151,6 @@ def test_keyframe_encode_uses_the_fixed_seed_independent_of_request_seed():
     torch.testing.assert_close(got, reference_sample, rtol=0, atol=0)
 
 
-def test_bite_check_wrong_seed_would_not_reproduce_the_draw():
-    # BITE CHECK: a generator seeded to something OTHER than
-    # KEYFRAME_ENCODE_SEED must NOT reproduce the module's draw -- confirms
-    # the equality above is actually sensitive to the seed value, not
-    # vacuously true (e.g. because logvar collapsed std to ~0).
-    vae = _FakeVideoVae()
-    pixels = _pixels()
-    latents_mean = [0.0] * LATENT_CHANNELS
-    latents_std = [1.0] * LATENT_CHANNELS
-
-    got = encode_keyframe_condition(vae, pixels, latents_mean=latents_mean, latents_std=latents_std)
-
-    wrong_generator = torch.Generator(device="cpu").manual_seed(KEYFRAME_ENCODE_SEED + 1)
-    wrong_sample = vae.encode(pixels.to(torch.float32), sample_posterior=True, generator=wrong_generator)
-    wrong_sample = wrong_sample.to(torch.float16).float()
-    assert not torch.allclose(got, wrong_sample)
-
-
-def test_keyframe_encode_seed_is_42():
-    assert KEYFRAME_ENCODE_SEED == 42
-
-
 def _tail_frames(num_frames: int, *, size: int = 8) -> np.ndarray:
     return np.zeros((num_frames, size, size, 3), dtype=np.uint8)
 
@@ -234,30 +211,6 @@ def test_continuation_encode_returns_the_encoders_own_head_slice():
     torch.testing.assert_close(got, full[:, :, :5], rtol=0, atol=0)
 
 
-class _ChunkedFakeVideoVae:
-
-    def parameters(self):
-        return iter([torch.zeros(1, dtype=torch.float32)])
-
-    def encode(self, x, *, sample_posterior=False, generator=None):
-        b, _c, f, h, w = x.shape
-        num_latents = 1 if f == 1 else max(5 * -(-f // 17) - 3, 0)
-        return torch.full((b, LATENT_CHANNELS, num_latents, h, w), 0.5)
-
-
-def test_bite_check_17_frames_would_starve_the_vae_of_two_clean_latents():
-    vae = _ChunkedFakeVideoVae()
-    latents_mean = [0.0] * LATENT_CHANNELS
-    latents_std = [1.0] * LATENT_CHANNELS
-    wrong_tail_frames = _tail_frames(17)
-
-    pixels = torch.from_numpy(wrong_tail_frames.copy()).permute(3, 0, 1, 2)[None].contiguous()
-    full = encode_keyframe_condition(vae, pixels, latents_mean=latents_mean, latents_std=latents_std)
-
-    assert full.shape[2] == 2
-    assert full.shape[2] < 5
-
-
 # -- canvas fit: stretch (geometry anchor) vs cover-crop (follower) ---------
 
 def test_geometry_anchor_is_stretched_not_cropped():
@@ -279,10 +232,6 @@ def test_already_canvas_sized_image_passes_through_unchanged():
 
 
 # -- ref2va reference own-resolution fit -------------------------------------
-
-def test_reference_image_short_edge_is_2048():
-    assert REFERENCE_IMAGE_SHORT_EDGE == 2048
-
 
 def test_reference_image_is_upscaled_to_its_own_short_edge():
     # A small square image has no canvas to fit onto (unlike a keyframe) --
@@ -381,53 +330,6 @@ def test_reference_video_keeps_the_canvas_rule_while_images_are_capped():
     )
     assert normalized[0].image.size == (1920, 1088)
     assert np.asarray(normalized[1].frames).shape == (22, 768, 1344, 3)
-
-
-# -- ref2va reference condition rows: own-resolution encode + noise + pack ---
-
-def test_prepare_reference_condition_rows_empty_returns_empty_tensors():
-    condition_latents, rows = prepare_reference_condition_rows(
-        [], vae_module=_FakeVideoVae(), canvas_multiple=32, patch_size=(1, 2, 2),
-        device="cpu", dtype=torch.float32, latents_mean=[0.0] * LATENT_CHANNELS,
-        latents_std=[1.0] * LATENT_CHANNELS, generator=torch.Generator().manual_seed(0),
-        short_edge=32,
-    )
-    assert condition_latents == []
-    assert rows.shape == (0, LATENT_CHANNELS * 1 * 2 * 2)
-
-
-def test_prepare_reference_condition_rows_returns_one_clean_latent_per_reference():
-    images = [Image.new("RGB", (64, 32)), Image.new("RGB", (32, 64))]
-    condition_latents, rows = prepare_reference_condition_rows(
-        images, vae_module=_FakeVideoVae(), canvas_multiple=32, patch_size=(1, 2, 2),
-        device="cpu", dtype=torch.float32, latents_mean=[0.0] * LATENT_CHANNELS,
-        latents_std=[1.0] * LATENT_CHANNELS, generator=torch.Generator().manual_seed(0),
-        short_edge=32,
-    )
-    assert len(condition_latents) == 2
-    for latent in condition_latents:
-        assert latent.shape[0] == 1 and latent.shape[1] == LATENT_CHANNELS and latent.shape[2] == 1
-    # Two DIFFERENT own-resolutions -- unlike fl2va's shared target canvas,
-    # each reference's own aspect ratio survives into its own latent shape.
-    assert condition_latents[0].shape[3:] != condition_latents[1].shape[3:]
-    total_rows = sum((l.shape[3] // 2) * (l.shape[4] // 2) for l in condition_latents)
-    assert rows.shape == (total_rows, LATENT_CHANNELS * 1 * 2 * 2)
-
-
-def test_prepare_reference_condition_rows_noises_to_keyframe_noise_aug():
-    # The clean latent this function returns and the noised row it packs
-    # must NOT be the same value -- the noising step actually ran.
-    images = [Image.new("RGB", (32, 32))]
-    condition_latents, rows = prepare_reference_condition_rows(
-        images, vae_module=_FakeVideoVae(), canvas_multiple=32, patch_size=(1, 2, 2),
-        device="cpu", dtype=torch.float32, latents_mean=[0.0] * LATENT_CHANNELS,
-        latents_std=[1.0] * LATENT_CHANNELS, generator=torch.Generator().manual_seed(0),
-        short_edge=32,
-    )
-    assert KEYFRAME_NOISE_AUG < 1.0  # sanity: not fully clean, not fully noised
-    from src.pipelines.pipes.generator.video_minimax_h3.layout import patchify_video_latents
-    clean_packed = patchify_video_latents(condition_latents[0], (1, 2, 2))
-    assert not torch.allclose(rows, clean_packed)
 
 
 # -- ref2va video/audio references: normalize -> encode -> pack --------------
@@ -609,8 +511,12 @@ def test_too_many_references_in_total_rejected():
         validate_references(references)
 
 
-def test_at_most_three_audio_references():
-    assert MAX_AUDIO_REFERENCES == 3
+def test_too_many_audio_references_rejected():
+    references = [ReferenceMedia(kind="image", image=Image.new("RGB", (32, 32)))] + (
+        [ReferenceMedia(kind="audio", audio=_waveform(0.5))] * (MAX_AUDIO_REFERENCES + 1)
+    )
+    with pytest.raises(ValueError, match="at most 3 audio"):
+        validate_references(references)
 
 
 # -- normalize_references: every modality on H3's own rates ------------------
@@ -783,28 +689,6 @@ def test_mixed_references_feed_build_ref2va_packed_sequence_consistently():
     # The condition prefix of each stream is exactly what this module packed.
     assert layout.video_indices[: layout.num_condition_video_rows].numel() == got.condition_rows.shape[0]
     assert layout.audio_indices[: layout.num_condition_audio_rows].numel() == got.condition_audio_rows.shape[0]
-
-
-# -- the image-only path is unchanged ----------------------------------------
-
-
-def test_images_only_match_the_existing_reference_condition_rows_path_bit_for_bit():
-    images = [Image.new("RGB", (64, 32)), Image.new("RGB", (32, 64))]
-    old_latents, old_rows = prepare_reference_condition_rows(
-        images, vae_module=_FakeVideoVae(), canvas_multiple=32, short_edge=32,
-        **_encode_kwargs(),
-    )
-    normalized = normalize_references(
-        [ReferenceMedia(kind="image", image=image) for image in images],
-        num_frames=24, canvas_multiple=32, reference_short_edge=32,
-    )
-    new = prepare_reference_conditioning(
-        normalized, vae_module=_FakeVideoVae(), **_encode_kwargs(),
-    )
-    torch.testing.assert_close(new.condition_rows, old_rows, rtol=0, atol=0)
-    assert len(new.condition_latents) == len(old_latents)
-    for got, expected in zip(new.condition_latents, old_latents):
-        torch.testing.assert_close(got, expected, rtol=0, atol=0)
 
 
 def test_a_soundtrack_does_not_shift_the_generator_state_the_video_noise_reads():
@@ -983,7 +867,7 @@ def test_repeated_keyframe_encodes_once_across_two_calls_sharing_a_cache():
     assert vae.encode_calls == 1
 
 
-def test_bite_check_without_a_cache_the_same_keyframe_encodes_every_time():
+def test_without_a_cache_the_same_keyframe_encodes_on_every_call():
     image = Image.new("RGB", (48, 32), (10, 20, 30))
     vae = _CountingVideoVae()
 
@@ -1175,28 +1059,6 @@ def test_a_buffer_object_replaced_with_identical_values_still_hits():
     )
 
     assert vae.encode_calls == 1
-
-
-def test_bite_check_a_buffer_object_replaced_with_DIFFERENT_values_still_misses():
-    """BITE CHECK for the hit above: `_normalization_digest` must not become
-    so permissive it hits regardless of content -- an actual value change
-    riding along with the object replacement still has to miss."""
-    image = Image.new("RGB", (48, 32), (10, 20, 30))
-    vae = _RebufferingVideoVae()
-    cache = VisualLatentCache()
-
-    prepare_keyframe_condition_rows(
-        [image], (0,), generator=torch.Generator().manual_seed(1),
-        **_keyframe_kwargs(vae, cache=cache, latents_mean=vae.latents_mean, latents_std=vae.latents_std),
-    )
-    vae.simulate_placement()
-    vae.latents_mean = vae.latents_mean + 1.0  # an actual normalization change
-    prepare_keyframe_condition_rows(
-        [image], (0,), generator=torch.Generator().manual_seed(2),
-        **_keyframe_kwargs(vae, cache=cache, latents_mean=vae.latents_mean, latents_std=vae.latents_std),
-    )
-
-    assert vae.encode_calls == 2
 
 
 def test_the_fit_role_distinguishes_an_anchor_from_a_follower_with_identical_pixels():

@@ -33,8 +33,3 @@ export function setNodeCount(count: number): void {
 export function toggleNodeDetail(current: NodeDetail): void {
 	override.set(current === 'full' ? 'compact' : 'full');
 }
-
-/** Drop the manual choice and follow the node-count heuristic again. */
-export function resetNodeDetail(): void {
-	override.set(null);
-}

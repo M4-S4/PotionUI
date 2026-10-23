@@ -45,7 +45,7 @@ class TestPayloadDecoration(HistoryTestBase):
             ratings={"general": 0.1, "sensitive": 0.1, "questionable": 0.4, "explicit": 0.4},
         )
 
-        result = self.query.get_history(self.user_id, include_tags=False)
+        result = self.query.get_history(user_id=self.user_id, include_tags=False)
 
         files = result["generations"][0]["files"]
         assert [t["tag"] for t in files[0]["system_tags"]] == ["1girl"]
@@ -59,7 +59,7 @@ class TestPayloadDecoration(HistoryTestBase):
             ratings={"general": 0.9, "sensitive": 0.05, "questionable": 0.03, "explicit": 0.02},
         )
 
-        result = self.query.get_history(self.user_id, include_tags=False)
+        result = self.query.get_history(user_id=self.user_id, include_tags=False)
 
         assert result["generations"][0]["files"][0]["nsfw"] is False
 
@@ -80,7 +80,7 @@ class TestPayloadDecoration(HistoryTestBase):
             settings=settings,
         )
 
-        result = query.get_history(self.user_id, include_tags=False)
+        result = query.get_history(user_id=self.user_id, include_tags=False)
 
         assert result["generations"][0]["files"][0]["nsfw"] is True
         settings.get_setting.assert_called_with("media_nsfw_blur_threshold", 0.6)
@@ -89,7 +89,7 @@ class TestPayloadDecoration(HistoryTestBase):
         gen = self.create_test_generation("gen1", self.user_id)
         self._make_file("f1", gen)
 
-        result = self.query.get_history(self.user_id, include_tags=False)
+        result = self.query.get_history(user_id=self.user_id, include_tags=False)
 
         files = result["generations"][0]["files"]
         assert files[0]["system_tags"] == []
@@ -108,7 +108,7 @@ class TestPayloadDecoration(HistoryTestBase):
         self._make_file("f1", gen)
         query = GenerationHistoryQuery(self.generation_repo)
 
-        result = query.get_history(self.user_id, include_tags=False)
+        result = query.get_history(user_id=self.user_id, include_tags=False)
 
         assert result["generations"][0]["files"][0]["system_tags"] == []
 
@@ -119,7 +119,7 @@ class TestSystemTagFilter(HistoryTestBase):
         self._tagged_generation("gen2", "f2", [("landscape", 0.9)])
 
         result = self.query.get_history(
-            self.user_id, include_tags=False, system_tag="1girl"
+            user_id=self.user_id, include_tags=False, system_tag="1girl"
         )
 
         assert [g["id"] for g in result["generations"]] == ["gen1"]
@@ -129,7 +129,7 @@ class TestSystemTagFilter(HistoryTestBase):
         self._tagged_generation("gen1", "f1", [("1girl", 0.9)])
 
         result = self.query.get_history(
-            self.user_id, include_tags=False, system_tag="1GIRL"
+            user_id=self.user_id, include_tags=False, system_tag="1GIRL"
         )
 
         assert result["total"] == 1
@@ -141,7 +141,7 @@ class TestSystemTagFilter(HistoryTestBase):
         )
 
         result = self.query.get_history(
-            self.user_id, include_tags=False, system_tag="general"
+            user_id=self.user_id, include_tags=False, system_tag="general"
         )
 
         assert result["total"] == 0

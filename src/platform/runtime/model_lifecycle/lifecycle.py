@@ -30,7 +30,6 @@ import weakref
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
-from src.platform.runtime.model_lifecycle.memory_policy import MemoryPolicy
 from src.platform.runtime.system_memory import get_system_memory
 from src.platform.observability.profiling import get_profiler
 
@@ -919,15 +918,6 @@ class ModelLifecycle:
         # constantly, and dropping the pinned-host cache would force each to
         # re-pin its streamed leaves. Emptying that allocator is reserved for
         # invalidate(), where the user has explicitly asked for RAM back.
-
-    def memory_policy(self) -> MemoryPolicy:
-        vram_gb = 8.0
-        if self.gpu_monitor is not None:
-            try:
-                vram_gb = self.gpu_monitor.get_vram_budget()
-            except Exception as e:
-                logger.warning(f"[MODEL_LIFECYCLE] Could not get VRAM budget, defaulting to {vram_gb}GB: {e}")
-        return MemoryPolicy(vram_gb)
 
     def retain(self, key: str, fingerprint: str) -> bool:
         with self._lock:

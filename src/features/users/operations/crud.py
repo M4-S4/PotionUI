@@ -13,7 +13,7 @@ from src.features.users.hooks import USER_HOOKS
 from src.features.users.operations.avatar import delete_avatar_file
 from src.features.users.repository import UserRepository
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.security import PasswordHasher
 from src.platform.security.user import AccountType, User
 from src.platform.settings.settings import Settings
@@ -51,15 +51,12 @@ def create(
         raise ValueError("Invalid account type. Must be USER or ADMIN")
 
     # Execute before_create hook
-    hook_data, blocked = execute_hook(
+    hook_data = run_veto_hook(
         plugins,
         USER_HOOKS.before_create,
         {"username": username, "email": email, "account_type": account_type},
+        "User creation blocked by plugin",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "User creation blocked by plugin")
-        raise ValueError(reason)
 
     # Allow hooks to modify data
     username = hook_data.get("username", username)
@@ -143,13 +140,10 @@ def update(
         raise ValueError("No valid fields to update")
 
     # Execute before_update hook
-    hook_data, blocked = execute_hook(
-        plugins, USER_HOOKS.before_update, {"user_id": user_id, "updates": update_data}
+    run_veto_hook(
+        plugins, USER_HOOKS.before_update, {"user_id": user_id, "updates": update_data},
+        "User update blocked by plugin",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "User update blocked by plugin")
-        raise ValueError(reason)
 
     # Perform update
     updated_user = repository.update(user_id, **update_data)
@@ -184,13 +178,10 @@ def delete(
         raise ValueError("User not found")
 
     # Execute before_delete hook
-    hook_data, blocked = execute_hook(
-        plugins, USER_HOOKS.before_delete, {"user_id": user_id, "username": user.username}
+    run_veto_hook(
+        plugins, USER_HOOKS.before_delete, {"user_id": user_id, "username": user.username},
+        "User deletion blocked by plugin",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "User deletion blocked by plugin")
-        raise ValueError(reason)
 
     # Perform deletion
     success = repository.delete(user_id)

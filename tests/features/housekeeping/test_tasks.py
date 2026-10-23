@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from src.features.housekeeping.tasks import prune_tmp, scan_tmp
+from src.features.housekeeping.tasks import prune_tmp, refresh_database_statistics, scan_tmp
+from tests.fixtures.persistence_base import PersistenceTestBase
 
 DAY = 86400
 
@@ -142,3 +143,35 @@ class TestScanTmp:
         scan_tmp(str(tmp_path), 7)
 
         assert old.exists()
+
+
+class TestRefreshDatabaseStatistics(PersistenceTestBase):
+
+    def _generation_rows_seen(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT stat FROM sqlite_stat1 WHERE idx = 'idx_generations_user_created_id'"
+            )
+            row = cursor.fetchone()
+        return int(row[0].split()[0]) if row else 0
+
+    def test_counts_the_rows_written_since_the_last_pass(self):
+        self.create_test_user()
+        for i in range(4):
+            self.create_test_generation(generation_id=f"gen-{i}")
+
+        result = refresh_database_statistics()
+
+        assert result["errors"] == []
+        assert isinstance(result["duration_ms"], int)
+        assert self._generation_rows_seen() == 4
+
+    def test_a_failed_refresh_is_reported_not_raised(self):
+        def locked(database, *args):
+            raise RuntimeError("database is locked")
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr("src.features.housekeeping.tasks.refresh_statistics", locked)
+            result = refresh_database_statistics()
+
+        assert result["errors"] == ["database is locked"]

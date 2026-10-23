@@ -13,6 +13,8 @@ from typing import Any, Dict, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded, soft_guarded
+from src.platform.security.failure_text import failure_detail
 from src.platform.security.current_user import get_current_active_user
 from src.features.docs import operations
 from src.features.docs.operations import DocNotFoundError, DocForbiddenError, DocIsLiveError
@@ -43,71 +45,42 @@ class DocsController(BaseController):
         self.output_types_documenter = output_types_documenter
         self.mcp_tools_documenter = mcp_tools_documenter
 
+    @soft_guarded("docs_tree_failed", "Failed to build docs tree")
     async def get_tree(self, is_admin: bool) -> APIResponse:
         """Get the role-filtered documentation tree."""
-        try:
-            data = operations.build_tree(self.plugin_registry, self.base_docs_path, is_admin)
-            return self.success_response(data=data)
-        except Exception as e:
-            self.logger.error(f"Failed to build docs tree: {e}")
-            return self.error_api_response(
-                error="docs_tree_failed",
-                message=f"Failed to build docs tree: {str(e)}"
-            )
+        data = operations.build_tree(self.plugin_registry, self.base_docs_path, is_admin)
+        return self.success_response(data=data)
 
+    @guarded(
+        {
+            DocNotFoundError: Fail("doc_not_found", status=404),
+            DocForbiddenError: Fail("doc_forbidden", status=403),
+            DocIsLiveError: Fail("doc_is_live", status=400),
+        },
+        Fail("doc_content_failed", "Failed to get doc content", detail=failure_detail),
+    )
     async def get_content(self, doc_id: str, is_admin: bool) -> APIResponse:
         """Get the raw markdown content for a doc id."""
-        try:
-            data = operations.get_content(self.plugin_registry, self.base_docs_path, doc_id, is_admin)
-            return self.success_response(data=data)
-        except DocNotFoundError as e:
-            self.error_response(error="doc_not_found", message=str(e), status_code=404)
-        except DocForbiddenError as e:
-            self.error_response(error="doc_forbidden", message=str(e), status_code=403)
-        except DocIsLiveError as e:
-            self.error_response(error="doc_is_live", message=str(e), status_code=400)
-        except Exception as e:
-            self.logger.error(f"Failed to get doc content: {e}")
-            return self.error_api_response(
-                error="doc_content_failed",
-                message=f"Failed to get doc content: {str(e)}"
-            )
+        data = operations.get_content(self.plugin_registry, self.base_docs_path, doc_id, is_admin)
+        return self.success_response(data=data)
 
+    @soft_guarded("live_pipes_failed", "Failed to get live pipes reference")
     async def get_live_pipes(self) -> APIResponse:
         """Get the live pipe registry reference (name, description, inputs/outputs/config specs)."""
-        try:
-            data = self.pipes_documenter.generate_documentation()
-            return self.success_response(data=data)
-        except Exception as e:
-            self.logger.error(f"Failed to get live pipes reference: {e}")
-            return self.error_api_response(
-                error="live_pipes_failed",
-                message=f"Failed to get live pipes reference: {str(e)}"
-            )
+        data = self.pipes_documenter.generate_documentation()
+        return self.success_response(data=data)
 
+    @soft_guarded("live_output_types_failed", "Failed to get live output-types reference")
     async def get_live_output_types(self) -> APIResponse:
         """Get the live output-type registry reference."""
-        try:
-            data = self.output_types_documenter.generate_documentation()
-            return self.success_response(data=data)
-        except Exception as e:
-            self.logger.error(f"Failed to get live output-types reference: {e}")
-            return self.error_api_response(
-                error="live_output_types_failed",
-                message=f"Failed to get live output-types reference: {str(e)}"
-            )
+        data = self.output_types_documenter.generate_documentation()
+        return self.success_response(data=data)
 
+    @soft_guarded("live_mcp_tools_failed", "Failed to get live MCP tools reference")
     async def get_live_mcp_tools(self) -> APIResponse:
         """Get the live MCP tool-surface reference."""
-        try:
-            data = self.mcp_tools_documenter.generate_documentation()
-            return self.success_response(data=data)
-        except Exception as e:
-            self.logger.error(f"Failed to get live MCP tools reference: {e}")
-            return self.error_api_response(
-                error="live_mcp_tools_failed",
-                message=f"Failed to get live MCP tools reference: {str(e)}"
-            )
+        data = self.mcp_tools_documenter.generate_documentation()
+        return self.success_response(data=data)
 
 
 def _is_admin(user: User) -> bool:

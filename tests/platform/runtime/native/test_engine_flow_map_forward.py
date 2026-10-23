@@ -28,3 +28,17 @@ def test_make_forward_omits_the_flow_map_target_when_absent():
     model_forward, calls = _recording_forward()
     model_forward(torch.zeros(1), torch.zeros(1), {"context": torch.zeros(1)})
     assert "flow_map_target" not in calls[0]
+
+
+def test_make_forward_forwards_skip_layers_when_present():
+    model_forward, calls = _recording_forward()
+    skip = frozenset({22})
+    model_forward(torch.zeros(1), torch.zeros(1), {"context": torch.zeros(1), "skip_layers": skip})
+    assert calls[0]["skip_layers"] == skip
+
+
+def test_make_forward_omits_skip_layers_when_absent_or_empty():
+    model_forward, calls = _recording_forward()
+    model_forward(torch.zeros(1), torch.zeros(1), {"context": torch.zeros(1)})
+    model_forward(torch.zeros(1), torch.zeros(1), {"context": torch.zeros(1), "skip_layers": frozenset()})
+    assert all("skip_layers" not in call for call in calls)

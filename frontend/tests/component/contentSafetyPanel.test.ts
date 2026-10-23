@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	getContentSafetyStatus: vi.fn()
@@ -42,10 +43,6 @@ function statusPayload(overrides: Record<string, unknown> = {}) {
 			...overrides
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function mountPanel(settings: Record<string, unknown>) {
@@ -168,5 +165,49 @@ describe('ContentSafetyPanel', () => {
 		const text = panel.target.textContent ?? '';
 		expect(text).not.toMatch(/repo|ships|migration|backend/i);
 		panel.destroy();
+	});
+});
+
+describe('ContentSafetyPanel status polling', () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	async function mountWithFakeTimers() {
+		vi.useFakeTimers();
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const component = createClassComponent({
+			component: ContentSafetyPanel as never,
+			target,
+			props: { settings: { content_policy_nsfw: 'blur' }, onSettingChange: vi.fn() }
+		});
+		for (let i = 0; i < 6; i++) await vi.advanceTimersByTimeAsync(0);
+		return () => {
+			component.$destroy();
+			target.remove();
+		};
+	}
+
+	it('re-fetches the status every 5s while a backfill is running', async () => {
+		vi.mocked(adminApi.getContentSafetyStatus).mockResolvedValue(
+			statusPayload({ backfill: { total: 200, rated: 50, running: true } }) as never
+		);
+		const destroy = await mountWithFakeTimers();
+		expect(adminApi.getContentSafetyStatus).toHaveBeenCalledTimes(1);
+
+		await vi.advanceTimersByTimeAsync(5000);
+		expect(adminApi.getContentSafetyStatus).toHaveBeenCalledTimes(2);
+		destroy();
+	});
+
+	it('does not re-fetch while nothing is running', async () => {
+		vi.mocked(adminApi.getContentSafetyStatus).mockResolvedValue(statusPayload() as never);
+		const destroy = await mountWithFakeTimers();
+
+		await vi.advanceTimersByTimeAsync(20000);
+
+		expect(adminApi.getContentSafetyStatus).toHaveBeenCalledTimes(1);
+		destroy();
 	});
 });

@@ -91,13 +91,6 @@ def setup_function(_):
 
 # -- metadata --------------------------------------------------------------
 
-def test_name_inputs_outputs():
-    assert GeneratorFluxPipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorFluxPipe.inputs()}
-    assert inputs["conditioning"].io_type == IOType.CONDITIONING
-    assert inputs["model"].io_type == IOType.MODEL
-    assert GeneratorFluxPipe.outputs()[0].io_type == IOType.IMAGE
-
 
 def test_sampler_spec_has_no_hardcoded_choices():
     """A hardcoded `choices` list would reject any sampler a plugin registers
@@ -261,7 +254,6 @@ def test_output_image_list_matches_quantity():
     pipe = _make_pipe(quantity=3)
     result = pipe.process(_pipe_input(quantity=3, seeds=(1, 2, 3)), lambda o: None)
     assert len(result.output["image"]) == 3
-
 
 
 # -- schedule / schedule_options (flat sigma-schedule knobs) ---------------

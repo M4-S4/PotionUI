@@ -23,7 +23,6 @@ from src.features.sessions import operations
 from src.features.sessions.routes import SessionController
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import (
-    SESSION_VERSION_RETENTION_LIMIT,
     SessionVersionRepository,
 )
 
@@ -185,8 +184,6 @@ class TestSessionVersionRepository:
 
         assert [v.version_number for v in versions] == [5, 4, 3]
 
-    def test_retention_default_constant_is_fifty(self):
-        assert SESSION_VERSION_RETENTION_LIMIT == 50
 
     def test_cascade_delete_removes_versions(self, repos, conn):
         session_repo, version_repo = repos

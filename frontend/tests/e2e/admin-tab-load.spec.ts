@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
 
 const JOURNEY = 'admin-tab-load';
@@ -44,6 +44,11 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 
 	const errorState = page.getByText('Unable to load this admin tool.', { exact: true });
 	const nav = page.getByRole('main').locator('nav');
+	const openTab = async (link: Locator) => {
+		await link.click();
+		await expect(link).toHaveAttribute('aria-current', 'page');
+		await page.waitForLoadState('networkidle');
+	};
 
 	// Land on the default (settings) tab via a normal navigation, then click
 	// through the nav like a real user would - client-side routing, not a
@@ -52,14 +57,11 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 	await page.goto('/admin');
 	await expect(page.getByText('Unable to load this admin tool.')).toHaveCount(0);
 
-	await nav.getByRole('link', { name: 'Models', exact: true }).click();
-	await page.waitForTimeout(500);
-	await nav.getByRole('link', { name: 'Presets', exact: true }).click();
-	await page.waitForTimeout(500);
+	await openTab(nav.getByRole('link', { name: 'Models', exact: true }));
+	await openTab(nav.getByRole('link', { name: 'Presets', exact: true }));
 
 	// --- Stats tab ---
-	await nav.getByRole('link', { name: 'Stats' }).click();
-	await page.waitForTimeout(2000);
+	await openTab(nav.getByRole('link', { name: 'Stats' }));
 	await screenshot(page, JOURNEY, 'stats-tab');
 	console.log(`[${JOURNEY}] stats tab console errors:\n${consoleErrors.join('\n')}`);
 	console.log(`[${JOURNEY}] stats tab page errors:\n${pageErrors.join('\n')}`);
@@ -69,8 +71,7 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 	pageErrors.length = 0;
 
 	// --- Documentation tab ---
-	await nav.getByRole('link', { name: 'Documentation' }).click();
-	await page.waitForTimeout(2000);
+	await openTab(nav.getByRole('link', { name: 'Documentation' }));
 	await screenshot(page, JOURNEY, 'docs-tab');
 	console.log(`[${JOURNEY}] docs tab console errors:\n${consoleErrors.join('\n')}`);
 	console.log(`[${JOURNEY}] docs tab page errors:\n${pageErrors.join('\n')}`);
@@ -80,15 +81,13 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 	pageErrors.length = 0;
 
 	// --- System Settings tab (sectioned master-detail rebuild) ---
-	await nav.getByRole('link', { name: 'System Settings' }).click();
-	await page.waitForTimeout(1500);
+	await openTab(nav.getByRole('link', { name: 'System Settings' }));
 	await screenshot(page, JOURNEY, 'system-settings-tab');
 	console.log(`[${JOURNEY}] system settings tab console errors:\n${consoleErrors.join('\n')}`);
 	console.log(`[${JOURNEY}] system settings tab page errors:\n${pageErrors.join('\n')}`);
 	await expect(errorState, 'System Settings tab should not show the generic load-failure message').toHaveCount(0);
 
 	await page.getByRole('option', { name: 'Content Safety' }).click();
-	await page.waitForTimeout(500);
 	await expect(
 		page.getByRole('heading', { name: 'Content Safety', level: 3 }),
 		'Content Safety section should render its detail panel'
@@ -97,7 +96,6 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 	// Search & Tagging stacks three panels behind one rail row - assert two
 	// of them render to prove the stack, not just the first panel.
 	await page.getByRole('option', { name: 'Search & Tagging' }).click();
-	await page.waitForTimeout(500);
 	await expect(
 		page.getByRole('heading', { name: 'Prompt Search', level: 3 }),
 		'Search & Tagging section should render the Prompt Search panel'
@@ -110,12 +108,14 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 
 	// --- Reload straight onto each tab too (covers a fresh full navigation) ---
 	await page.goto('/admin?tab=stats');
-	await page.waitForTimeout(1500);
+	await expect(nav.getByRole('link', { name: 'Stats' })).toHaveAttribute('aria-current', 'page');
+	await page.waitForLoadState('networkidle');
 	await screenshot(page, JOURNEY, 'stats-tab-direct-load');
 	await expect(errorState, 'Stats tab (direct load) should not show the generic load-failure message').toHaveCount(0);
 
 	await page.goto('/admin?tab=docs');
-	await page.waitForTimeout(1500);
+	await expect(nav.getByRole('link', { name: 'Documentation' })).toHaveAttribute('aria-current', 'page');
+	await page.waitForLoadState('networkidle');
 	await screenshot(page, JOURNEY, 'docs-tab-direct-load');
 	await expect(errorState, 'Documentation tab (direct load) should not show the generic load-failure message').toHaveCount(0);
 
@@ -124,12 +124,12 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 	// a hard reload picking up whatever chunk manifest is live right now,
 	// then a client-side nav back to stats using the reloaded module graph).
 	await page.reload();
-	await page.waitForTimeout(1500);
+	await expect(nav.getByRole('link', { name: 'Documentation' })).toHaveAttribute('aria-current', 'page');
+	await page.waitForLoadState('networkidle');
 	await screenshot(page, JOURNEY, 'docs-tab-after-reload');
 	await expect(errorState, 'Documentation tab (after page.reload()) should not show the generic load-failure message').toHaveCount(0);
 
-	await nav.getByRole('link', { name: 'Stats' }).click();
-	await page.waitForTimeout(1500);
+	await openTab(nav.getByRole('link', { name: 'Stats' }));
 	await screenshot(page, JOURNEY, 'stats-tab-after-reload-nav');
 	await expect(errorState, 'Stats tab (SPA nav after reload) should not show the generic load-failure message').toHaveCount(0);
 

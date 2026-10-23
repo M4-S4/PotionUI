@@ -12,8 +12,9 @@
 		SegmentTemplate
 	} from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import { conditionReadersFor } from '$lib/utils/conditionTags';
 	import { segmentUsageNumbers } from '$lib/utils/variableUsageNumbering';
-	import { mergeVariables } from '$lib/utils/variablesTransfer';
+	import { libraryImportOutcome } from '$lib/utils/variablesTransfer';
 	import { toolbarFit } from '$lib/utils/toolbarFit';
 	import { toasts } from '$lib/stores/toast';
 	import { hydrateSegments } from '$lib/utils/chipParser';
@@ -38,12 +39,12 @@
 	import PromptSegment from './PromptSegment.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import { Button, IconButton } from '$lib/components/ui';
-	import SegmentComposerIconSprite from './SegmentComposerIconSprite.svelte';
 	import SegmentListApplyModal from './modals/SegmentListApplyModal.svelte';
 	import SavedSegmentSelectionModal from './modals/SavedSegmentSelectionModal.svelte';
 	import SaveSegmentModal from './modals/SaveSegmentModal.svelte';
 	import SavePromptModal from './modals/SavePromptModal.svelte';
 	import SegmentTemplateSaveModal from './modals/SegmentTemplateSaveModal.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	type ApplyTarget = 'main' | 'negative';
 
@@ -76,6 +77,7 @@
 	export let placeholder = 'Enter prompt content... (# for phrasebook)';
 	export let variables: VariablesMap = {};
 	export let variableRolls: Record<string, VariableRoll> = {};
+	$: conditionReaders = conditionReadersFor([...segments, ...(negativeSegments ?? [])].map((segment) => segment.content));
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	/** Applying a library Prompt that carries variables merges them into the
 	 *  tab's map (`mergeVariables(..., 'replace')`) and hands the result up here --
@@ -391,8 +393,10 @@
 			const imported = (detail.item as Prompt).variables;
 			const importedCount = imported ? Object.keys(imported).length : 0;
 			if (importedCount > 0 && onVariablesImport) {
-				onVariablesImport(mergeVariables(variables, imported as VariablesMap, 'replace'));
-				toasts.success(`Imported ${importedCount} variable${importedCount === 1 ? '' : 's'}`);
+				const outcome = libraryImportOutcome(variables, imported as VariablesMap);
+				onVariablesImport(outcome.variables);
+				toasts.success(outcome.successMessage);
+				if (outcome.warningMessage) toasts.warning(outcome.warningMessage);
 			}
 		}
 		showPromptApplyModal = false;
@@ -490,8 +494,6 @@
 <svelte:window on:pointerdown={handleOutsidePointerDown} on:keydown={handleOutsideKeydown} />
 
 <div class="prompt-editor segment-composer min-w-0" class:compact>
-	<SegmentComposerIconSprite />
-
 	{#snippet mainRail()}
 		<div class="segment-lane">
 		<div role="list" aria-label={mainLabel} class="segment-list">
@@ -505,6 +507,7 @@
 					{placeholder}
 					{variables}
 					{variableRolls}
+					{conditionReaders}
 					variableUsageNumbers={usageNumbering[index] || []}
 					{onVariableDefChange}
 					{onOpenVariableManager}
@@ -531,7 +534,7 @@
 		</div>
 
 		<button type="button" class="add-segment add-row" on:click={() => addSegment('main')}>
-			<svg class="icon"><use href="#i-plus" /></svg>
+			<Icon name="composer-plus" className="icon" strokeWidth={1.7} />
 			<span>Add segment</span>
 		</button>
 		</div>
@@ -559,6 +562,7 @@
 							variant="secondary"
 							icon={action.icon}
 							class={action.active ? 'text-sm styles-applied' : 'text-sm'}
+							ariaLabel={count > 0 ? `${action.label} (${count})` : action.label}
 							onclick={action.onclick}
 						>
 							<span class="toolbar-label">{action.label}</span>
@@ -601,7 +605,7 @@
 			<div class="menu-group">
 				{#each items as item (item.key)}
 					<button type="button" role="menuitem" class="menu-item" on:click={() => run(item.run)}>
-						<svg class="icon"><use href={`#i-${item.icon}`} /></svg>
+						<Icon name={`composer-${item.icon}`} className="icon" strokeWidth={1.7} />
 						<span>{item.label}</span>
 					</button>
 				{/each}
@@ -676,19 +680,19 @@
 								<div class="menu-group">
 									{#if showLibraryActions}
 										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openSavePrompt('main'))}>
-											<svg class="icon"><use href="#i-save" /></svg>
+											<Icon name="composer-save" className="icon" strokeWidth={1.7} />
 											<span>Save as Prompt</span>
 										</button>
 										{#if hasMainContent}
 											<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openSaveTemplate('main'))}>
-												<svg class="icon"><use href="#i-template" /></svg>
+												<Icon name="composer-template" className="icon" strokeWidth={1.7} />
 												<span>Save as Segment Template</span>
 											</button>
 										{/if}
 									{/if}
 									{#if hasMainContent}
 										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => handleCopyPrompt('main'))}>
-											<svg class="icon"><use href={copiedTarget === 'main' ? '#i-check' : '#i-copy'} /></svg>
+											<Icon name={copiedTarget === 'main' ? 'composer-check' : 'composer-copy'} className="icon" strokeWidth={1.7} />
 											<span>{copiedTarget === 'main' ? 'Copied' : 'Copy prompt'}</span>
 										</button>
 									{/if}
@@ -710,7 +714,7 @@
 							aria-expanded={resolvedOpen}
 							on:click={() => (resolvedOpen = !resolvedOpen)}
 						>
-							<svg class="icon"><use href="#i-chevron-down" /></svg>
+							<Icon name="composer-chevron-down" className="icon" strokeWidth={1.7} />
 							<span class="resolved-title">What the model receives</span>
 						</button>
 						<span class="resolved-stats font-mono tabular-nums">
@@ -759,6 +763,7 @@
 						placeholder="What should never appear… (# for phrasebook)"
 						{variables}
 						{variableRolls}
+						{conditionReaders}
 						variableUsageNumbers={usageNumbering[segments.length + index] || []}
 						{onVariableDefChange}
 						{onOpenVariableManager}
@@ -785,7 +790,7 @@
 			</div>
 
 			<button type="button" class="add-segment add-row" on:click={() => addSegment('negative')}>
-				<svg class="icon"><use href="#i-plus" /></svg>
+				<Icon name="composer-plus" className="icon" strokeWidth={1.7} />
 				<span>Add segment</span>
 			</button>
 			</div>
@@ -817,19 +822,19 @@
 									<div class="menu-group">
 										{#if showLibraryActions}
 											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openSavePrompt('negative'))}>
-												<svg class="icon"><use href="#i-save" /></svg>
+												<Icon name="composer-save" className="icon" strokeWidth={1.7} />
 												<span>Save as Prompt</span>
 											</button>
 											{#if hasNegativeContent}
 												<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openSaveTemplate('negative'))}>
-													<svg class="icon"><use href="#i-template" /></svg>
+													<Icon name="composer-template" className="icon" strokeWidth={1.7} />
 													<span>Save as Segment Template</span>
 												</button>
 											{/if}
 										{/if}
 										{#if hasNegativeContent}
 											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => handleCopyPrompt('negative'))}>
-												<svg class="icon"><use href={copiedTarget === 'negative' ? '#i-check' : '#i-copy'} /></svg>
+												<Icon name={copiedTarget === 'negative' ? 'composer-check' : 'composer-copy'} className="icon" strokeWidth={1.7} />
 												<span>{copiedTarget === 'negative' ? 'Copied' : 'Copy prompt'}</span>
 											</button>
 										{/if}

@@ -102,29 +102,29 @@ from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.ltx_latent_upsample import upsample_ltx_latent
 from src.pipelines.pipes.generator.dfr_video_ltx.anchors import bag_items, synthesize_anchor_bag
-from src.pipelines.pipes.generator.txt2vid_ltx.main import (
-    _LATENT_CHANNELS,
-    _SPATIAL_DOWNSCALE,
-    _TEMPORAL_DOWNSCALE,
-    _decode_video,
-    _snap_geometry,
+from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
+from src.pipelines.pipes._shared.video.frames import to_frames_tensor
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
+from src.pipelines.pipes._shared.video.ltx_common import (
+    decode_ltx_video,
     parse_explicit_sigmas,
-    release_idle_te,
+    snap_ltx_geometry,
 )
-from src.pipelines.pipes.generator.txt2vid_wan22.main import (
-    _attach_nag,
-    _emit_video_results,
-    _to_device,
+from src.pipelines.pipes._shared.video.ltx_constants import (
+    LTX_LATENT_CHANNELS,
+    LTX_SPATIAL_DOWNSCALE,
+    LTX_TEMPORAL_DOWNSCALE,
 )
+from src.pipelines.pipes._shared.video.video_common import emit_video_results, to_device
 from src.pipelines.pipes.generator.video_ltx.conditioning import (
+    pack_tokens,
     LTXMediaCondition,
-    PreparedConditioning,
-    _pack,
     merge_initial_latent_tokens,
     mix_initial_noise,
     prepare_ltx_conditions,
+    PreparedConditioning,
 )
-from src.pipelines.pipes.generator.video_ltx.main import _to_frames_tensor
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec, nag_config_specs
 
 Tensor = torch.Tensor
 
@@ -153,15 +153,6 @@ class _TileCtx:
     device: str
     dtype: torch.dtype
     audio_tokens: int = 0
-
-
-@dataclass
-class _DecodeShim:
-    """Adapter for ``txt2vid_ltx._decode_video``, which expects a ctx exposing
-    ``vae`` and ``device``."""
-
-    vae: Any
-    device: str
 
 
 def _resolve_pixel_frame(frame: Any, frames: int) -> int:
@@ -202,28 +193,6 @@ class GeneratorDfrLtxPipe(BasePipe):
     name = "generator"
     description = ("Native LTX-2.5 DFR temporal rounds: densify a finished video latent to 2x/4x "
                    "the frame rate with tiled, keyframe-anchored re-denoising")
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "rounds": 1,
-            "fps": 25.0,
-            "frames": 121,
-            "resolution": "768x512",
-            "round_sigmas": _DEFAULT_ROUND_SIGMAS,
-            "anchor_strength": 0.95,
-            "ancestral_eta": 0.5,
-            "cfg": 1.0,
-            "num_tiles_override": 0,
-            "max_tile_tokens": 0,
-            "reanchor_each_round": False,
-            "media_placements": [],
-            "decode": True,
-            "device": "cuda",
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -284,16 +253,9 @@ class GeneratorDfrLtxPipe(BasePipe):
             PipeConfigSpec("decode", bool, True,
                            "Decode to video; false emits the densified latent instead",
                            required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False,
-                           choices=["cuda", "cpu"]),
-            PipeConfigSpec("nag_scale", float, 1.0,
-                           "Normalized Attention Guidance scale (1.0 = off). The only channel by "
-                           "which the negative prompt reaches a cfg-1.0 round", required=False,
-                           min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back weight", required=False,
-                           min_value=0.0, max_value=1.0),
+            device_config_spec(),
+            *nag_config_specs("Normalized Attention Guidance scale (1.0 = off). The only channel by "
+                           "which the negative prompt reaches a cfg-1.0 round"),
         ]
 
     @classmethod
@@ -402,7 +364,7 @@ class GeneratorDfrLtxPipe(BasePipe):
         restore_dit_best_effort(bundle.dit, device)
 
         if videos:
-            _emit_video_results(generation_outputs, videos, used_seeds,
+            emit_video_results(generation_outputs, videos, used_seeds,
                                 resolution=getattr(self, "_resolution", None))
         return PipeOutput(output={
             "video": videos,
@@ -419,9 +381,9 @@ class GeneratorDfrLtxPipe(BasePipe):
     ) -> Optional[Tensor]:
         latent = latent.to(device=device, dtype=dtype)
         _, _, t_lat_in, h_lat, w_lat = latent.shape
-        width, height = w_lat * _SPATIAL_DOWNSCALE, h_lat * _SPATIAL_DOWNSCALE
+        width, height = w_lat * LTX_SPATIAL_DOWNSCALE, h_lat * LTX_SPATIAL_DOWNSCALE
         self._resolution = (width, height)
-        frames_in = (t_lat_in - 1) * _TEMPORAL_DOWNSCALE + 1
+        frames_in = (t_lat_in - 1) * LTX_TEMPORAL_DOWNSCALE + 1
         self._preflight(frames_in, width, height)
 
         if rounds == 0:
@@ -433,7 +395,7 @@ class GeneratorDfrLtxPipe(BasePipe):
             return latent
 
         canvas = plan_canvas(frames_in)
-        canvas_latents = (canvas.canvas_frames - 1) // _TEMPORAL_DOWNSCALE + 1
+        canvas_latents = (canvas.canvas_frames - 1) // LTX_TEMPORAL_DOWNSCALE + 1
         latent = _pad_latent_to_canvas(latent, canvas_latents)
         logger.info(
             "[%s] canvas: %d requested frames -> segment %d, %d canvas frames (+%d pad), "
@@ -499,7 +461,7 @@ class GeneratorDfrLtxPipe(BasePipe):
         return self._trim(latent, frames_in, rounds)
 
     def _preflight(self, frames_in: int, width: int, height: int) -> None:
-        if (frames_in - 1) % _TEMPORAL_DOWNSCALE != 0:
+        if (frames_in - 1) % LTX_TEMPORAL_DOWNSCALE != 0:
             raise ValueError(
                 f"generator/dfr_video_ltx: the incoming latent decodes to {frames_in} frames, "
                 f"which is not on the causal VAE's 1 + 8k grid")
@@ -509,7 +471,7 @@ class GeneratorDfrLtxPipe(BasePipe):
             # the frames comparison below): a preset carries the raw form
             # value (e.g. 720x480) while the stage that produced this latent
             # already snapped it onto the LTX grid (704x480).
-            want_w, want_h, _ = _snap_geometry(int(configured[0]), int(configured[1]), frames_in)
+            want_w, want_h, _ = snap_ltx_geometry(int(configured[0]), int(configured[1]), frames_in)
             if (want_w, want_h) != (width, height):
                 raise ValueError(
                     f"generator/dfr_video_ltx: the incoming latent is {width}x{height} but this "
@@ -521,7 +483,7 @@ class GeneratorDfrLtxPipe(BasePipe):
             # this fires on every ordinary render: a preset computes `frames`
             # as an unsnapped `duration * fps` (5.0 s at 24 fps -> 120) and the
             # stage that produced this latent already snapped it onto 1 + 8k.
-            _, _, snapped = _snap_geometry(width, height, configured_frames)
+            _, _, snapped = snap_ltx_geometry(width, height, configured_frames)
             if snapped != frames_in:
                 logger.warning(
                     "[%s] configured frames=%d (snaps to %d) but the incoming latent carries "
@@ -535,10 +497,8 @@ class GeneratorDfrLtxPipe(BasePipe):
         """Decode once, then VAE-encode each seam frame as a standalone
         one-frame clip. Slicing a mid-stream latent frame is NOT equivalent --
         see ``anchors.py``."""
-        shim = _DecodeShim(vae=bundle.vae, device=device)
-
         def decode(z: Tensor) -> np.ndarray:
-            return _decode_video(shim, z, seed)
+            return decode_ltx_video(bundle.vae, device, z, seed)
 
         def encode_frame(pixels: Tensor) -> Tensor:
             bundle.vae.move_to(device)
@@ -631,7 +591,7 @@ class GeneratorDfrLtxPipe(BasePipe):
 
         prepared = prepare_ltx_conditions(
             conditions, vae_encode, frames=local_frames, height=height, width=width,
-            device=device, dtype=dtype, latent_channels=_LATENT_CHANNELS)
+            device=device, dtype=dtype, latent_channels=LTX_LATENT_CHANNELS)
         bundle.vae.offload()
 
         # Seed the base token slice from the tile's own (upsampled) latent, the
@@ -640,7 +600,7 @@ class GeneratorDfrLtxPipe(BasePipe):
         # freshly encoded conditioning values instead; `clean` is left untouched
         # because both blend sites weight it by the mask, so its value at mask=0
         # positions is never read.
-        packed = _pack(tile_latent)
+        packed = pack_tokens(tile_latent)
         if packed.shape[1] != prepared.base_tokens:
             raise RuntimeError(
                 f"generator/dfr_video_ltx: tile {tile.index} packs {packed.shape[1]} base tokens "
@@ -656,7 +616,7 @@ class GeneratorDfrLtxPipe(BasePipe):
                        h_lat=h_lat, w_lat=w_lat, device=device, dtype=dtype)
         s_video = prepared.base_tokens + prepared.n_extra
         sigma0 = float(sigmas[0])
-        noise = torch.randn((1, s_video, _LATENT_CHANNELS), generator=init_gen,
+        noise = torch.randn((1, s_video, LTX_LATENT_CHANNELS), generator=init_gen,
                             device=device, dtype=dtype)
         x = mix_initial_noise(prepared, noise, sigma0)
 
@@ -668,9 +628,9 @@ class GeneratorDfrLtxPipe(BasePipe):
         )
         forward = ConditionedAVForward(bundle.dit.module, ctx)
 
-        cond = _to_device(cond_model.embeds, device, dtype)
-        uncond = _to_device(cond_model.n_embeds, device, dtype) if cond_model.n_embeds else None
-        cond = _attach_nag(cond, uncond, self.config)
+        cond = to_device(cond_model.embeds, device, dtype)
+        uncond = to_device(cond_model.n_embeds, device, dtype) if cond_model.n_embeds else None
+        cond = attach_nag(cond, uncond, self.config)
 
         # Tiles are positionally identical -- same resolution, same local frame
         # layout, same conditioning structure -- so a shared ancestral stream
@@ -720,7 +680,7 @@ class GeneratorDfrLtxPipe(BasePipe):
         scaled = [{**p, "frame": int(p["frame"]) * scale} for p in placements]
         for placement in tile_local_placements(tile, scaled):
             local = int(placement["frame"])
-            frames_tensor = _to_frames_tensor(images[int(placement["index"])])
+            frames_tensor = to_frames_tensor(images[int(placement["index"])])
             conditions.append(LTXMediaCondition(
                 frames=frames_tensor,
                 # local == 0 addresses the tile's own first latent frame (the
@@ -782,7 +742,7 @@ class GeneratorDfrLtxPipe(BasePipe):
         generated canvas is an error, never a pad.
         """
         target = round_output_frames(frames_in, rounds)
-        keep = (target - 1) // _TEMPORAL_DOWNSCALE + 1
+        keep = (target - 1) // LTX_TEMPORAL_DOWNSCALE + 1
         have = int(latent.shape[2])
         if keep > have:
             raise RuntimeError(
@@ -795,8 +755,7 @@ class GeneratorDfrLtxPipe(BasePipe):
 
     def _decode_and_mux(self, bundle, latent: Tensor, seed: int, device: str,
                         playback_fps: float, audio_track) -> str:
-        shim = _DecodeShim(vae=bundle.vae, device=device)
-        frames_np = _decode_video(shim, latent, seed)
+        frames_np = decode_ltx_video(bundle.vae, device, latent, seed)
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         # The N -> 2(N-1)+1 frame map leaves the picture a few tens of
         # milliseconds shorter than the base pass's audio; the muxer's

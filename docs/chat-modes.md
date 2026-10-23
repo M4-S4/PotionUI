@@ -5,7 +5,7 @@ one mode and keeps it for its whole life — the mode selector locks as soon as 
 conversation has messages. Each mode owns:
 
 - a **base system prompt** (may contain the `{{TOOL_HINTS}}` placeholder, substituted with
-  the hints of the session's allowed tools),
+  the hints the session's allowed tools declare; builtin tools declare none),
 - a **tool set** (its own tools plus all *global* tools),
 - optional **LLM option overrides** and a **context contributor** (see below).
 
@@ -17,6 +17,23 @@ The selection hierarchy in the chat header is **Provider + Model (LLM config) �
 (`DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE` in `src/features/chat/modes/builtin.py`; not
 an editable setting), and it includes all generation tools (form state, segments,
 prompt search, run generation, etc.). Memory tools are global and available in every mode.
+Saving, editing and deleting prompts belongs to the `prompts` mode, and tagging, rating
+and collections to the `history` mode; the generation chat does not load them.
+
+## What the model is sent before the user types
+
+Every turn starts with the mode's system prompt and the allowed tools' schemas. The system
+prompt carries only rules that span several tools: the order of work, the `<tool_action>`
+version tags, phrasebook marker grammar, the `${name}` variable rule, the memory policy and
+the reply format. What a single tool does and when to call it lives in that tool's schema
+`description`, which native tool calling, prompt-injected tools and MCP clients all see, so
+it is never restated in the prompt.
+
+`tests/features/chat/test_fixed_overhead.py` pins the size of system prompt plus tool schemas
+for each builtin mode and window tier (±3%) and checks that both are byte-identical across
+turns with the same tool set. A change that is meant to grow or shrink them re-pins that number;
+`tests/features/llm/tools/test_tool_prompt_budget.py` caps each builtin schema at 2,000
+characters unless it is on the allow-list there.
 
 ## Route resolution
 
@@ -46,6 +63,32 @@ session stores two **subtractive** fields: `tools_enabled` (the header's global 
 Tools panel). A tool the mode gains later — a restart with a new builtin, a plugin
 enabled — is offered automatically unless its name is in `disabled_tools`. Tools from
 other modes are never visible.
+
+### Tools by context window
+
+Each tool has a `context_group` (`core` by default). The session's context window decides
+which groups are sent up front:
+
+| Window | Sent up front |
+|---|---|
+| over 65,536 tokens | every group |
+| 24,576 to 65,536 tokens, or unknown | everything except `library` |
+| under 24,576 tokens | the mode's `core_groups` only |
+
+The builtin groups are `core`, `phrasebook_write` (phrasebook edits and value browsing by
+id), `memory_maintenance` (`read_memory`, `update_memory`, `delete_memory`), `director`
+(`set_prompt_relay_timeline`) and `library` (saved segments and prompts, uploads,
+collections, the model and preset catalogs, `start_generation`). A mode's `core_groups`
+are always sent: the Phrasebook mode keeps `phrasebook_write`, and the History, Models and
+Prompts modes keep `library`. Tools a mode names in `tool_names` are always sent too.
+
+Groups held back this way stay reachable. The model gets one extra tool, `use_tools`,
+whose `group` argument loads a group's schemas for the rest of the turn, including the
+continuation after an approval. Calling a held-back tool by name loads its group the same
+way. Governance, availability and the session's own toggles apply first, so a held-back
+tool is never one the session could not call. The next user message starts from the
+window's set again. The behavior trace records `tool_tier` and `tools_deferred`, and the
+per-turn reply-format reminder is left out on windows under 24,576 tokens.
 
 ## Tool approval
 

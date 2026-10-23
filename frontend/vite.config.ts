@@ -1,5 +1,9 @@
-import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vitest/config';
+import { rerunFromCanonicalCwd } from './canonicalCwd';
+
+rerunFromCanonicalCwd();
+
+const { sveltekit } = await import('@sveltejs/kit/vite');
 
 const backendPort = process.env.BACKEND_PORT || '26730';
 const frontendPort = parseInt(process.env.FRONTEND_PORT || '26731', 10);

@@ -22,7 +22,10 @@ from src.features.models.assignments import ModelAssignmentService
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.catalog import ModelCatalog
+from src.features.models.digest_queue_repository import DigestQueueRepository
+from src.features.models.digests import DigestManager
 from src.features.models.indexer import ModelScanner
+from src.features.models.indexing_governor import IndexingGovernor
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator, spawn_daemon_thread
 from src.features.models.jobs import ModelJobs
 from src.features.models.locator import ModelLocator
@@ -59,6 +62,7 @@ class ModelIndexCollaborators:
     jobs: ModelJobs
     locator: ModelLocator
     types: ModelTypeManager
+    digests: DigestManager
 
 
 def build_model_index_collaborators(
@@ -74,6 +78,7 @@ def build_model_index_collaborators(
     user_attribute_repository: Optional[UserModelAttributeRepository] = None,
     backend_registry: Optional["BackendRegistry"] = None,
     spawn: Callable[[Callable[[], None]], None] = spawn_daemon_thread,
+    generation_busy: Optional[Callable[[], bool]] = None,
 ) -> ModelIndexCollaborators:
     """Build the eight role objects and bundle them - the constructor logic
     the old `ModelIndexManager.__init__` owned."""
@@ -83,7 +88,8 @@ def build_model_index_collaborators(
         storage_driver=storage_driver,
         attribute_definition_repository=attribute_definition_repository,
     )
-    model_scanner = ModelScanner(model_roots)
+    governor = IndexingGovernor(settings.setting_repository, generation_busy=generation_busy)
+    model_scanner = ModelScanner(model_roots, governor=governor)
     locator = model_locator or ModelLocator(model_roots)
     native_availability_projector = NativeAvailabilityProjector(resolver=model_roots)
     types = ModelTypeManager(model_repository, model_scanner.types, model_scanner.recompute_types)
@@ -93,6 +99,16 @@ def build_model_index_collaborators(
         spawn=spawn,
         type_manager=types,
     )
+    digests = DigestManager(
+        DigestQueueRepository(),
+        governor,
+        model_scanner.location_path,
+        locations_write_lock=model_scanner.write_lock,
+        on_applied=indexing.on_digests_applied,
+        setting_repository=settings.setting_repository,
+    )
+    model_scanner.attach_digests(digests)
+    types.attach_digests(digests)
     return ModelIndexCollaborators(
         model_repo=model_repository,
         tag_repo=tag_repository,
@@ -108,6 +124,7 @@ def build_model_index_collaborators(
             model_repository, plugin_registry,
             metadata_editor=metadata,
             storage_driver=storage_driver,
+            digests=digests,
         ),
         assignments=ModelAssignmentService(model_repository, plugin_registry, access),
         jobs=ModelJobs(
@@ -116,4 +133,5 @@ def build_model_index_collaborators(
         ),
         locator=locator,
         types=types,
+        digests=digests,
     )

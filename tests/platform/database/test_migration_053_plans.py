@@ -1,37 +1,8 @@
-import importlib.util
-import sys
-import tempfile
-import unittest
-from pathlib import Path
-
-from src.platform.database.database import Database
-
-_MIGRATIONS = Path(__file__).resolve().parents[3] / "src" / "platform" / "database" / "migrations"
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration053Plans(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(temp.name) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("053_plans", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration053Plans(MigrationCase):
+    MIGRATION = "053_plans"
 
     def _query(self, sql, params=()):
         with self.db.get_cursor() as cursor:
@@ -58,15 +29,8 @@ class TestMigration053Plans(unittest.TestCase):
             "plans_contact_line": "Ask your admin for more.",
         })
 
-    def test_up_is_idempotent_and_down_removes_everything(self):
+    def test_up_is_idempotent(self):
         self.migration.up()
         self.migration.up()
 
         self.assertEqual(len(self._query("SELECT id FROM plans")), 1)
-        self.migration.down()
-
-        self.assertNotIn("plan_id", self._columns("users"))
-        self.assertNotIn("plan_id", self._columns("user_groups"))
-        tables = {row["name"] for row in self._query("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        self.assertFalse({"plans", "limit_events"} & tables)
-        self.assertEqual(self._query("SELECT key FROM settings WHERE key LIKE 'plans_%'"), [])

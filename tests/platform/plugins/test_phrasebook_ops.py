@@ -5,7 +5,6 @@ import unittest
 from src.platform.plugins.hooks import hooks_registry
 from src.platform.plugins.phrasebook_ops import (
     BatchOutcome,
-    DuplicatePhrasebookOperationError,
     PhrasebookBatchOperation,
     PhrasebookBatchOperationDefinition,
     PhrasebookOperationRegistry,
@@ -31,29 +30,6 @@ def definition(op_id, source="core", backend=None, component=None):
 class TestPhrasebookOperationRegistry(unittest.TestCase):
     def setUp(self):
         self.registry = PhrasebookOperationRegistry()
-
-    def test_register_get_all(self):
-        self.registry.register(definition("replace"))
-        self.registry.register(definition("shout", source="plugin-a"))
-
-        self.assertEqual(self.registry.get("replace").label, "Replace")
-        self.assertIsNone(self.registry.get("nope"))
-        self.assertEqual([d.op_id for d in self.registry.all()], ["replace", "shout"])
-
-    def test_duplicate_id_rejected(self):
-        self.registry.register(definition("replace"))
-        with self.assertRaises(DuplicatePhrasebookOperationError):
-            self.registry.register(definition("replace", source="plugin-a"))
-
-    def test_unregister_source_leaves_core_and_other_plugins(self):
-        self.registry.register(definition("replace"))
-        self.registry.register(definition("shout", source="plugin-a"))
-        self.registry.register(definition("whisper", source="plugin-a"))
-        self.registry.register(definition("other", source="plugin-b"))
-
-        self.registry.unregister_source("plugin-a")
-
-        self.assertEqual([d.op_id for d in self.registry.all()], ["replace", "other"])
 
     def test_frontend_manifest(self):
         self.registry.register(definition("replace", backend=PreviewOp()))

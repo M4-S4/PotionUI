@@ -16,18 +16,11 @@ from src.platform.security.current_user import get_current_active_user, get_curr
 from src.platform.security.user import AccountType, User
 from tests.fixtures.model_header_fixtures import tensor_specs, write_safetensors
 from tests.fixtures.model_index_fixtures import FLUX, LORA, SDXL_ALL_IN_ONE
+from tests.features.models.fakes import FakeIndexingCoordinator
 
 OTHER_LORA = tensor_specs({"lora_unet_a.lora_down.weight": (8, 4), "lora_unet_a.lora_up.weight": (4, 8)})
 
 CATALOG_DIR = "content/model-layouts"
-
-
-class _Coordinator:
-    def cancel_and_restart(self, trigger="location_change"):
-        return {"state": "idle"}
-
-    def status(self):
-        return {"state": "idle"}
 
 
 @pytest.fixture
@@ -39,12 +32,12 @@ def journey(mock_db, tmp_path):
         repository=repository,
         resolver=resolver,
         probe=probe,
-        indexing_coordinator=_Coordinator(),
+        indexing_coordinator=FakeIndexingCoordinator(),
         base_dir=tmp_path,
     )
     container = SimpleNamespace(
         model_roots_manager=manager,
-        model_index_manager=SimpleNamespace(indexing=_Coordinator()),
+        model_index_manager=SimpleNamespace(indexing=FakeIndexingCoordinator()),
         model_layout_catalog=ModelLayoutCatalog(CATALOG_DIR),
     )
     admin = User(id="a1", username="a", email="a@example.com", password_hash="h", account_type=AccountType.ADMIN)

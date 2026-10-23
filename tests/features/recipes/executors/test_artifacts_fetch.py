@@ -292,8 +292,8 @@ def test_auth_shaped_failure_gets_a_suggested_repair(monkeypatch):
             assert provider_id == "civitai"
             return type("M", (), {"name": "CivitAI", "website": "https://civitai.com"})()
 
-        def get_provider_settings_schema(self, provider_id):
-            return {"properties": {"api_key": {"format": "password"}}}
+        def get_provider_secret_keys(self, provider_id):
+            return ["api_key"]
 
         def get_provider_current_settings(self, provider_id):
             return {}

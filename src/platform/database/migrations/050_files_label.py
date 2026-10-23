@@ -9,7 +9,3 @@ def up():
             cursor.execute("ALTER TABLE files ADD COLUMN label TEXT")
 
     print("Migration 050_files_label: applied")
-
-
-def down():
-    print("Migration 050_files_label: no-op (SQLite keeps the added column)")

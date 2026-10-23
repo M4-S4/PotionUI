@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
 
 	export let currentContent: string;
@@ -13,7 +14,7 @@
 {#if hasContent}
 	<button
 		class="inline-flex items-center gap-1 px-2 py-1 text-xs text-fg-muted hover:text-fg hover:bg-surface-3 rounded transition-colors"
-		title="Open AI Chat"
+		use:tooltip={'Open AI Chat'}
 		on:click={handleClick}
 	>
 		<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

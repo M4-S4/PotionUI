@@ -332,7 +332,7 @@ def test_bundle_retention_across_generations_does_not_keep_dit_alive(monkeypatch
     unchanged +25GB) and PASSES after (checked directly against a pristine
     copy of the pre-fix ``bundle.py`` via ``git show HEAD:...`` - never via
     ``git stash``, which must not touch this multi-session working tree)."""
-    from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
+    from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
     manager = ModelLifecycle(gpu_monitor=None, settings=None)
@@ -340,7 +340,7 @@ def test_bundle_retention_across_generations_does_not_keep_dit_alive(monkeypatch
     dit_model = _acquire_dit(manager, None)
     te_model = NativeModel(kind="text_encoder", module=nn.Linear(8, 8), estimated_vram_gb=0.001, device="cpu")
     vae_model = NativeModel(kind="vae", module=nn.Linear(8, 8), estimated_vram_gb=0.001, device="cpu")
-    bundle = Krea2ModelBundle(dit=dit_model, te=te_model, vae=vae_model)
+    bundle = DitTeVaeBundle(dit=dit_model, te=te_model, vae=vae_model)
     # Only the bundle and the cache should matter from here on - drop the
     # local strong references the constructor call itself needed.
     del dit_model, te_model, vae_model
@@ -360,7 +360,7 @@ def test_bundle_retention_across_generations_does_not_keep_dit_alive(monkeypatch
     # alive on its own, so the cache's own eviction (sole remaining owner) was
     # free to unload it immediately, with no need to wait for anything.
     assert permanent_holder[0].dit is None, (
-        "Krea2ModelBundle still returns the evicted DiT via a permanently-"
+        "DitTeVaeBundle still returns the evicted DiT via a permanently-"
         "retained bundle instance - the bundle is holding a STRONG reference "
         "to a component the cache has already moved on from"
     )

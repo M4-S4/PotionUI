@@ -3,8 +3,9 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge } from '$lib/components/ui';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
+	import tooltip from '$lib/actions/tooltip';
 
-	type Size = 'md' | 'sm';
+	type Size = 'md' | 'sm' | 'nav';
 	type Role = 'option' | 'treeitem';
 	type ThumbSize = 'sm' | 'md' | 'lg';
 
@@ -108,8 +109,52 @@
 					: 'none'
 	);
 
-	let showChevronSlot = $derived(expandable || loading || depth > 0);
+	const NAV_INDENT = 21;
+	const canHover =
+		typeof window !== 'undefined' &&
+		typeof window.matchMedia === 'function' &&
+		window.matchMedia('(hover: hover)').matches;
+
+	let nav = $derived(size === 'nav');
+	let navTree = $derived(nav && role === 'treeitem');
+	let showChevronSlot = $derived(expandable || loading || (!nav && depth > 0) || navTree);
 	let indentPx = $derived(size === 'sm' ? depth * 12 + 2 : depth * 12);
+	let titleTooltip = $derived(
+		nav && title && canHover
+			? { text: title, truncateOnly: true, position: 'right' as const, wrap: true, focusSelf: true, delay: 300 }
+			: null
+	);
+
+	function sizeClasses(): string {
+		if (size === 'md') return 'px-4 py-2.5 text-sm border-b border-line/50 last:border-b-0';
+		if (size === 'sm') return 'h-7 px-2 rounded text-xs';
+		return `max-md:min-h-11 [@media(hover:none)]:min-h-11 rounded text-sm ${navTree ? 'min-h-9 gap-px pl-px' : 'min-h-[38px] px-2.5'}`;
+	}
+
+	function stateClasses(): string {
+		if (size === 'md') {
+			return selected ? 'border-l-2 border-l-signal' : 'border-l-2 border-l-transparent hover:bg-surface-2/50';
+		}
+		if (size === 'sm') return selected ? 'bg-signal/10 text-signal' : 'hover:bg-surface-3/40';
+		if (selected) {
+			return navTree
+				? 'bg-signal/10 text-signal before:absolute before:left-0 before:top-[9px] before:bottom-[9px] before:w-0.5 before:rounded-full before:bg-signal'
+				: 'bg-signal/10 text-signal';
+		}
+		return navTree
+			? 'text-fg hover:bg-surface-2 focus-within:bg-surface-2'
+			: 'text-fg-muted hover:bg-surface-2 hover:text-fg';
+	}
+
+	let countClass = $derived(selected && !navTree ? 'text-signal' : 'text-fg-muted');
+
+	function rowStyle(): string | undefined {
+		if (size === 'md' && selected) {
+			return 'background: linear-gradient(180deg, rgb(var(--signal) / 0.12), rgb(var(--signal) / 0.04));';
+		}
+		if (navTree && depth > 0) return `margin-left: ${depth * NAV_INDENT}px;`;
+		return undefined;
+	}
 
 	function handleToggleClick(e: MouseEvent) {
 		e.stopPropagation();
@@ -149,19 +194,11 @@
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
 	data-cover-host
-	class="pane-row group relative flex items-center {size === 'md'
-		? 'px-4 py-2.5 text-sm border-b border-line/50 last:border-b-0'
-		: 'h-7 px-2 rounded text-xs'} {disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} {size ===
-	'md'
-		? selected
-			? 'border-l-2 border-l-signal'
-			: 'border-l-2 border-l-transparent hover:bg-surface-2/50'
-		: selected
-			? 'bg-signal/10 text-signal'
-			: 'hover:bg-surface-3/40'} {className}"
-	style={size === 'md' && selected
-		? 'background: linear-gradient(180deg, rgb(var(--signal) / 0.12), rgb(var(--signal) / 0.04));'
-		: undefined}
+	class="pane-row group relative flex items-center {sizeClasses()} {disabled
+		? 'opacity-50 cursor-not-allowed'
+		: 'cursor-pointer'} {stateClasses()} {className}"
+	style={rowStyle()}
+	use:tooltip={titleTooltip}
 	data-pane-row
 	data-disabled={disabled ? '' : undefined}
 	{role}
@@ -172,7 +209,15 @@
 	onclick={handleClick}
 	onkeydown={handleKeydown}
 >
-	{#if depth > 0}
+	{#if navTree}
+		{#each { length: depth } as _, level}
+			<span
+				class="pointer-events-none absolute -top-px -bottom-px w-px bg-line-strong/65"
+				style="left: -{level * NAV_INDENT + 4}px"
+				aria-hidden="true"
+			></span>
+		{/each}
+	{:else if depth > 0}
 		<span class="flex-shrink-0" style="width: {indentPx}px" aria-hidden="true"></span>
 	{/if}
 
@@ -186,13 +231,15 @@
 		{:else if expandable}
 			<button
 				type="button"
-				class="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded hover:bg-line-hover/50 transition-colors"
-				aria-label={expanded ? 'Collapse' : 'Expand'}
+				class="flex-shrink-0 flex items-center justify-center rounded hover:bg-line-hover/50 transition-colors {nav
+					? 'w-[19px] h-[30px] text-fg-muted'
+					: 'w-5 h-5'}"
+				aria-label={nav ? `${expanded ? 'Collapse' : 'Expand'} ${title ?? ''}`.trim() : expanded ? 'Collapse' : 'Expand'}
 				onclick={handleToggleClick}
 				tabindex="-1"
 			>
 				<svg
-					class="transition-transform {expanded ? 'rotate-90' : ''} {size === 'sm' ? 'w-3 h-3' : 'w-3.5 h-3.5'}"
+					class="transition-transform {expanded ? 'rotate-90' : ''} {size === 'md' ? 'w-3.5 h-3.5' : 'w-3 h-3'}"
 					fill="none"
 					stroke="currentColor"
 					viewBox="0 0 24 24"
@@ -201,21 +248,22 @@
 				</svg>
 			</button>
 		{:else}
-			<span class="flex-shrink-0 w-5 h-5" aria-hidden="true"></span>
+			<span class="flex-shrink-0 {nav ? 'w-[19px] h-[30px]' : 'w-5 h-5'}" aria-hidden="true"></span>
 		{/if}
 	{/if}
 
 	{#if checkable}
-		<span class="relative inline-flex w-3.5 h-3.5 mr-1.5 flex-shrink-0">
+		<span class="relative inline-flex flex-shrink-0 {nav ? 'w-[15px] h-[15px] ml-[3px] mr-[7px]' : 'w-3.5 h-3.5 mr-1.5'}">
 			<input
 				type="checkbox"
 				class="peer absolute inset-0 opacity-0 cursor-pointer"
+				aria-label={nav && title ? `Select ${title}` : undefined}
 				{checked}
 				onclick={handleCheckClick}
 				onchange={handleCheckChange}
 			/>
 			<span
-				class="pointer-events-none absolute inset-0 rounded border border-line-hover bg-surface-2 transition-colors peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-canvas"
+				class="pointer-events-none absolute inset-0 rounded border border-line-hover bg-surface-2 transition-colors peer-checked:border-accent peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-signal peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-canvas"
 			></span>
 			<svg
 				class="pointer-events-none absolute inset-0 h-full w-full text-accent-contrast opacity-0 transition-opacity peer-checked:opacity-100"
@@ -236,14 +284,21 @@
 		<span class="flex-shrink-0 w-4 mr-1" aria-hidden="true"></span>
 	{/if}
 
-	<div class="flex items-center flex-1 min-w-0 gap-3">
+	<div class="flex items-center flex-1 min-w-0 {nav ? (navTree ? 'gap-2' : 'gap-2.5') : 'gap-3'}">
 		{#if leading}
 			{@render leading()}
 		{:else if leadingKind === 'icon'}
 			<span class="flex-shrink-0 {inactive ? 'opacity-50' : ''}">
 				<Icon
 					name={icon as string}
-					className="{size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4'} {selected ? 'text-signal' : 'text-fg-subtle'}"
+					className="{size === 'sm' ? 'w-3.5 h-3.5' : nav && !navTree ? 'w-[17px] h-[17px]' : 'w-4 h-4'} {selected
+						? 'text-signal'
+						: navTree
+							? 'text-fg-muted'
+							: nav
+								? ''
+								: 'text-fg-subtle'}"
+					strokeWidth={nav ? 1.75 : 2}
 				/>
 			</span>
 		{:else if leadingKind === 'dot'}
@@ -275,7 +330,7 @@
 			{:else}
 				<div class="flex items-center gap-1.5 min-w-0">
 					{#if title !== undefined}
-						<span class="truncate {size === 'sm' ? '' : 'font-medium text-fg'}">{title}</span>
+						<span class="truncate {size === 'md' ? 'font-medium text-fg' : ''}">{title}</span>
 					{/if}
 					{@render badges?.()}
 					{#if inactive && inactiveBadge}
@@ -292,13 +347,37 @@
 		</div>
 	</div>
 
-	{#if count !== undefined}
+	{#if nav}
+		{#if actions}
+			<div
+				class="ml-0.5 grid h-[30px] w-[34px] flex-shrink-0 place-items-center max-md:h-[38px] max-md:w-16 max-md:grid-cols-[1fr_32px] max-md:gap-[3px] [@media(hover:none)]:h-[38px] [@media(hover:none)]:w-16 [@media(hover:none)]:grid-cols-[1fr_32px] [@media(hover:none)]:gap-[3px]"
+			>
+				{#if count !== undefined}
+					<span
+						class="font-mono text-sm tabular-nums {countClass} {revealActions
+							? 'hidden max-md:inline [@media(hover:none)]:inline'
+							: 'group-hover:hidden group-focus-within:hidden max-md:!inline [@media(hover:none)]:!inline'}"
+						>{count}</span
+					>
+				{/if}
+				<div
+					class="items-center justify-center {revealActions
+						? 'flex'
+						: 'hidden group-hover:flex group-focus-within:flex max-md:flex [@media(hover:none)]:flex'}"
+				>
+					{@render actions()}
+				</div>
+			</div>
+		{:else if count !== undefined}
+			<span class="ml-2 flex-shrink-0 font-mono text-sm tabular-nums {countClass}">{count}</span>
+		{/if}
+	{:else if count !== undefined}
 		<span class="flex-shrink-0 ml-2 font-mono text-2xs tabular-nums text-fg-subtle">{count}</span>
 	{/if}
 
 	{@render trailing?.()}
 
-	{#if actions}
+	{#if actions && !nav}
 		<div
 			class="flex-shrink-0 flex items-center gap-1 ml-2 {revealActions
 				? 'opacity-100'
@@ -322,7 +401,7 @@
 		outline: none;
 	}
 
-	.pane-row:focus-visible {
-		box-shadow: inset 0 0 0 2px rgb(var(--accent) / 0.2);
+	:global(:where(html:not([data-input='pointer']))) .pane-row:focus-visible {
+		box-shadow: inset 0 0 0 2px rgb(var(--signal) / 0.2);
 	}
 </style>

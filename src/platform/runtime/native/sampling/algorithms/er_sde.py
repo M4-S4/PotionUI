@@ -72,19 +72,13 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled
+from ..hooks import StepLoop
+from ..noise import fresh_noise
 
 Tensor = torch.Tensor
 
 _ALPHA_FLOOR = 1e-4
 _INTEGRATION_POINTS = 200
-
-
-def _fresh_noise(x: Tensor, generator: torch.Generator | None) -> Tensor:
-    if generator is None:
-        return torch.randn_like(x)
-    return torch.randn(x.shape, generator=generator, device=x.device, dtype=x.dtype)
 
 
 def _default_scaler(lam: Tensor) -> Tensor:
@@ -145,20 +139,11 @@ def sample_er_sde(
     lambdas = sigmas_hp / alphas
     points = torch.arange(_INTEGRATION_POINTS, dtype=torch.float64, device=sigmas.device)
 
-    total_steps = len(sigmas) - 1
-    run_hooks(hooks, "on_start", total_steps)
-
-    s_in = x.new_ones((x.shape[0],))
-    old_x0 = None
-    old_dx0 = None
-    try:
-        for i in range(total_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=i)
-
-            sigma = sigmas[i]
-            sigma_next = sigmas[i + 1]
-
+    with StepLoop(sigmas, hooks, is_cancelled) as loop:
+        s_in = x.new_ones((x.shape[0],))
+        old_x0 = None
+        old_dx0 = None
+        for i, _, sigma, sigma_next in loop:
             v = guidance(model_fn, x, sigma * s_in, cond, uncond, i)
             x0 = x - sigma * v
 
@@ -194,12 +179,9 @@ def sample_er_sde(
                         sigmas_hp[i + 1] ** 2 - sigmas_hp[i] ** 2 * r_alpha**2 * r**2
                     ).clamp(min=0.0)
                     std = var.sqrt().nan_to_num(nan=0.0)
-                    x = x + _fresh_noise(x, generator) * std * s_noise
+                    x = x + fresh_noise(x, generator) * std * s_noise
 
             old_x0 = x0
-            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
-            run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0)
-    finally:
-        run_hooks(hooks, "on_end")
+            x = loop.finish_step(x, i, sigma, sigma_next, x0)
 
     return x

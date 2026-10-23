@@ -58,10 +58,12 @@ from ..base import NativeArchModule
 from .causal_3d import (
     AttentionBlock,
     ResidualBlock,
+    Resample,
     RMS_norm,
     _causal_conv3d,
     _conv3d_forward,
     _is_causal_conv3d,
+    _run_seq_with_cache,
 )
 
 logger = logging.getLogger(__name__)
@@ -130,80 +132,6 @@ def _unpatchify(x: torch.Tensor, patch_size: int = 2) -> torch.Tensor:
     return x.view(b, c, t, h * p, w * p)
 
 
-class Resample2(nn.Module):
-    """Wan 2.2's ``Resample``: unlike Wan 2.1's, ``upsample3d``'s spatial conv
-    keeps the channel count fixed (``dim -> dim``, not ``dim -> dim//2`` --
-    the channel change happens via the parallel ``DupUp3D`` shortcut instead)."""
-
-    def __init__(self, dim: int, mode: str, *, operations: Any, temporal_kernel: int = _TEMPORAL_KERNEL) -> None:
-        super().__init__()
-        self.mode = mode
-
-        if mode in ("upsample2d", "upsample3d"):
-            self.resample = nn.Sequential(
-                nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest-exact"),
-                operations.Conv2d(dim, dim, 3, padding=1),
-            )
-            if mode == "upsample3d":
-                t_pad = temporal_kernel // 2
-                self.time_conv = _causal_conv3d(
-                    dim, dim * 2, (temporal_kernel, 1, 1), padding=(t_pad, 0, 0), operations=operations,
-                )
-        elif mode in ("downsample2d", "downsample3d"):
-            self.resample = nn.Sequential(
-                nn.ZeroPad2d((0, 1, 0, 1)),
-                operations.Conv2d(dim, dim, 3, stride=2),
-            )
-            if mode == "downsample3d":
-                self.time_conv = _causal_conv3d(
-                    dim, dim, (temporal_kernel, 1, 1), stride=(2, 1, 1), operations=operations,
-                )
-        else:
-            self.resample = nn.Identity()
-
-    def forward(
-        self, x: torch.Tensor, feat_cache: list | None = None, feat_idx: list[int] = [0],  # noqa: B006 (ComfyUI parity)
-    ) -> torch.Tensor:
-        b, c, t, h, w = x.shape
-
-        if self.mode == "upsample3d" and feat_cache is not None:
-            idx = feat_idx[0]
-            if feat_cache[idx] is None:
-                feat_cache[idx] = "Rep"
-                feat_idx[0] += 1
-            else:
-                cache_x = x[:, :, -_CACHE_T:, :, :].clone()
-                prev = feat_cache[idx]
-                if cache_x.shape[2] < 2 and prev is not None and prev != "Rep":
-                    cache_x = torch.cat([prev[:, :, -1, :, :].unsqueeze(2).to(cache_x.device), cache_x], dim=2)
-                if cache_x.shape[2] < 2 and prev == "Rep":
-                    cache_x = torch.cat([torch.zeros_like(cache_x), cache_x], dim=2)
-                x = _conv3d_forward(self.time_conv, x) if prev == "Rep" else _conv3d_forward(self.time_conv, x, cache_x=prev)
-                feat_cache[idx] = cache_x
-                feat_idx[0] += 1
-
-                x = x.reshape(b, 2, c, t, h, w)
-                x = torch.stack((x[:, 0], x[:, 1]), dim=3)
-                x = x.reshape(b, c, t * 2, h, w)
-
-        t = x.shape[2]
-        x = x.permute(0, 2, 1, 3, 4).reshape(b * t, c, h, w)
-        x = self.resample(x)
-        x = x.reshape(b, t, x.shape[1], x.shape[2], x.shape[3]).permute(0, 2, 1, 3, 4)
-
-        if self.mode == "downsample3d" and feat_cache is not None:
-            idx = feat_idx[0]
-            if feat_cache[idx] is None:
-                feat_cache[idx] = x.clone()
-                feat_idx[0] += 1
-            else:
-                cache_x = x[:, :, -1:, :, :].clone()
-                x = _conv3d_forward(self.time_conv, torch.cat([feat_cache[idx][:, :, -1:, :, :], x], dim=2))
-                feat_cache[idx] = cache_x
-                feat_idx[0] += 1
-        return x
-
-
 class AvgDown3D(nn.Module):
     """Parameter-free average-pooling shortcut (space+time block-mean).
     No learned weights -- contributes no state-dict keys."""
@@ -250,6 +178,8 @@ class DupUp3D(nn.Module):
 
 
 class Down_ResidualBlock(nn.Module):
+    cache_aware = True
+
     def __init__(
         self, in_dim: int, out_dim: int, mult: int, *, temporal_downsample: bool, down_flag: bool, operations: Any,
         temporal_kernel: int = _TEMPORAL_KERNEL,
@@ -266,10 +196,12 @@ class Down_ResidualBlock(nn.Module):
             cur_in = out_dim
         if down_flag:
             mode = "downsample3d" if temporal_downsample else "downsample2d"
-            downsamples.append(Resample2(out_dim, mode, operations=operations, temporal_kernel=temporal_kernel))
+            downsamples.append(Resample(out_dim, mode, operations=operations, temporal_kernel=temporal_kernel))
         self.downsamples = nn.Sequential(*downsamples)
 
-    def forward(self, x: torch.Tensor, feat_cache: list | None, feat_idx: list[int]) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, feat_cache: list | None, feat_idx: list[int], first_chunk: bool = False,
+    ) -> torch.Tensor:
         x_copy = x
         h = x
         for layer in self.downsamples:
@@ -278,6 +210,8 @@ class Down_ResidualBlock(nn.Module):
 
 
 class Up_ResidualBlock(nn.Module):
+    cache_aware = True
+
     def __init__(
         self, in_dim: int, out_dim: int, mult: int, *, temporal_upsample: bool, up_flag: bool, operations: Any,
         temporal_kernel: int = _TEMPORAL_KERNEL,
@@ -295,7 +229,7 @@ class Up_ResidualBlock(nn.Module):
             cur_in = out_dim
         if up_flag:
             mode = "upsample3d" if temporal_upsample else "upsample2d"
-            upsamples.append(Resample2(out_dim, mode, operations=operations, temporal_kernel=temporal_kernel))
+            upsamples.append(Resample(out_dim, mode, operations=operations, up_out=out_dim, temporal_kernel=temporal_kernel))
         self.upsamples = nn.Sequential(*upsamples)
 
     def forward(
@@ -307,31 +241,6 @@ class Up_ResidualBlock(nn.Module):
         if self.avg_shortcut is not None:
             return x_main + self.avg_shortcut(x, first_chunk)
         return x_main
-
-
-def _run_seq_with_cache(container: nn.Sequential, x: torch.Tensor, feat_cache, feat_idx, first_chunk: bool = False):
-    for layer in container:
-        if isinstance(layer, (Down_ResidualBlock,)):
-            x = layer(x, feat_cache, feat_idx)
-        elif isinstance(layer, Up_ResidualBlock):
-            x = layer(x, feat_cache, feat_idx, first_chunk)
-        elif isinstance(layer, (ResidualBlock, Resample2)):
-            x = layer(x, feat_cache, feat_idx) if feat_cache is not None else layer(x)
-        elif _is_causal_conv3d(layer):
-            if feat_cache is None:
-                x = _conv3d_forward(layer, x)
-                continue
-            idx = feat_idx[0]
-            cache_x = x[:, :, -_CACHE_T:, :, :].clone()
-            prev = feat_cache[idx]
-            if cache_x.shape[2] < 2 and prev is not None:
-                cache_x = torch.cat([prev[:, :, -1, :, :].unsqueeze(2).to(cache_x.device), cache_x], dim=2)
-            x = _conv3d_forward(layer, x, cache_x=prev)
-            feat_cache[idx] = cache_x
-            feat_idx[0] += 1
-        else:
-            x = layer(x)
-    return x
 
 
 class Encoder3d(nn.Module):

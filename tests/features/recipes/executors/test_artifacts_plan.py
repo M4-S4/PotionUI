@@ -37,16 +37,15 @@ class FakeProviderRegistry:
     current settings."""
 
     def __init__(self, providers):
-        # providers: {provider_id: {"name", "website", "schema", "settings"}}
         self._providers = providers
 
     def get_provider_metadata(self, provider_id):
         info = self._providers.get(provider_id)
         return FakeProviderMetadata(info["name"], info["website"]) if info else None
 
-    def get_provider_settings_schema(self, provider_id):
+    def get_provider_secret_keys(self, provider_id):
         info = self._providers.get(provider_id)
-        return info["schema"] if info else None
+        return info["secret_keys"] if info else None
 
     def get_provider_current_settings(self, provider_id):
         info = self._providers.get(provider_id)
@@ -158,7 +157,7 @@ def test_consent_request_offers_a_credential_prompt_for_an_unconfigured_provider
             "civitai": {
                 "name": "CivitAI",
                 "website": "https://civitai.com",
-                "schema": {"properties": {"api_key": {"format": "password"}}},
+                "secret_keys": ["api_key"],
                 "settings": {},
             }
         }
@@ -189,7 +188,7 @@ def test_consent_request_omits_providers_when_already_configured():
             "civitai": {
                 "name": "CivitAI",
                 "website": "https://civitai.com",
-                "schema": {"properties": {"api_key": {"format": "password"}}},
+                "secret_keys": ["api_key"],
                 "settings": {"api_key": "already-set"},
             }
         }
@@ -219,7 +218,7 @@ def _huggingface_registry(configured=False):
             "huggingface": {
                 "name": "Hugging Face",
                 "website": "https://huggingface.co",
-                "schema": {"properties": {"api_key": {"format": "password"}}},
+                "secret_keys": ["api_key"],
                 "settings": {"api_key": "already-set"} if configured else {},
             }
         }

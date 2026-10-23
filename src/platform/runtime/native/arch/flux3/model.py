@@ -17,14 +17,15 @@ from .layers import Block, LastLayer, MLPEmbedder, Modulation, ModeModulation, r
 IMAGE_ROPE_SCALE = 0.5
 _FP8_DTYPES = (torch.float8_e4m3fn, torch.float8_e5m2)
 _SCALE_SUFFIX = ".weight_scale"
+_DROPPED_SUFFIX = ".comfy_attention.config"
 
 
 def convert_flux3_state_dict(sd: dict[str, Tensor]) -> dict[str, Tensor]:
-    out = dict(sd)
-    for key, scale in sd.items():
+    out = {key: value for key, value in sd.items() if not key.endswith(_DROPPED_SUFFIX)}
+    for key, scale in out.items():
         if not key.endswith(_SCALE_SUFFIX) or scale.ndim != 1:
             continue
-        weight = sd.get(key[: -len("_scale")])
+        weight = out.get(key[: -len("_scale")])
         if weight is not None and weight.dtype in _FP8_DTYPES and weight.shape[0] == scale.shape[0]:
             out[key] = scale.reshape(-1, 1)
     return out
@@ -53,7 +54,7 @@ class Flux3(NativeArchModule):
 
         def blocks(n: int) -> nn.ModuleList:
             return nn.ModuleList(
-                [Block(hidden, cfg.heads, cfg.mlp_hidden, operations, **kw) for _ in range(n)]
+                [Block(hidden, cfg.heads, cfg.mlp_hidden, operations, fused_qkv=cfg.fused_qkv, **kw) for _ in range(n)]
             )
 
         self.content_mode_blocks = nn.ModuleDict({m: blocks(cfg.depth) for m in image_modes})

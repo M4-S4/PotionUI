@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { parseGroupInner, serializeGroup, type ChoiceGroupSpec } from '$lib/utils/choiceGroups';
 	import Icon from './Icon.svelte';
 	import InlinePopoverChip from './InlinePopoverChip.svelte';
@@ -32,8 +33,8 @@
 
 	function applyOptions(next: ChoiceGroupSpec['options']) {
 		if (!spec) return;
-		const nextSpec: ChoiceGroupSpec = { ...spec, options: next };
-		onchange?.(serializeGroup(nextSpec));
+		raw = serializeGroup({ ...spec, options: next });
+		onchange?.(raw);
 	}
 
 	function updateOptionText(index: number, text: string) {
@@ -104,7 +105,7 @@
 						<input
 							value={option.weight ?? ''}
 							aria-label="Option weight"
-							title="Weight (default 1)"
+							use:tooltip={'Weight (default 1)'}
 							on:input={(e) => updateOptionWeight(index, e.currentTarget.value)}
 						/>
 						<input
@@ -113,14 +114,14 @@
 							placeholder="option text"
 							on:input={(e) => updateOptionText(index, e.currentTarget.value)}
 						/>
-						<button type="button" data-choice-remove title="Remove option" on:click={() => removeOption(index)}>
-							<svg class="icon"><use href="#i-trash" /></svg>
+						<button type="button" data-choice-remove use:tooltip={'Remove option'} on:click={() => removeOption(index)} aria-label="Remove option">
+							<Icon name="composer-trash" className="icon" strokeWidth={1.7} />
 						</button>
 					</div>
 				{/each}
 			</div>
 			<button type="button" class="small-button" style="margin-top: 8px" on:click={addOption}>
-				<svg class="icon"><use href="#i-plus" /></svg>
+				<Icon name="composer-plus" className="icon" strokeWidth={1.7} />
 				Add option
 			</button>
 			<p class="helper">Weights default to 1. The editor preserves advanced count and separator syntax when it already exists.</p>
@@ -134,7 +135,7 @@
 							class="input w-14 flex-shrink-0 py-1 text-center font-mono text-xs tabular-nums"
 							placeholder="1"
 							value={option.weight ?? ''}
-							title="Weight (default 1)"
+							use:tooltip={'Weight (default 1)'}
 							on:input={(e) => updateOptionWeight(index, e.currentTarget.value)}
 						/>
 						<input
@@ -168,7 +169,7 @@
 
 	{#snippet footer()}
 		{#if variant === 'segment-composer'}
-			<button type="button" class="small-button danger" on:click={() => onremove?.()}>Remove group</button>
+			<button type="button" class="small-button danger" on:click={() => onremove?.()}><Icon name="composer-trash" className="icon" strokeWidth={1.7} />Remove group</button>
 		{/if}
 	{/snippet}
 </InlinePopoverChip>

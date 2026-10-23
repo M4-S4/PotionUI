@@ -70,19 +70,6 @@ def generation_id(repos_on_test_db):
     return gen_id, user_id
 
 
-class TestAudioCanHandle:
-    def test_can_handle_audio_output(self, generation_id, settings, minimal_wav_file):
-        gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
-
-        assert handler.can_handle(AudioGenerationOutput(audio_path=minimal_wav_file)) is True
-
-    def test_can_handle_non_audio_output(self, generation_id, settings):
-        gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
-
-        assert handler.can_handle(ProgressGenerationOutput(state="test")) is False
-
 
 class TestAudioSavePath:
     """The handler writes a real audio file into storage and records it."""

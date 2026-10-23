@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -19,10 +20,6 @@ const { historyStore } = await import('$lib/stores/history');
 const { setModeLabels } = await import('$lib/utils/modeLabel.svelte');
 const { default: HistoryToolbar } = await import('../../src/routes/history/components/HistoryToolbar.svelte');
 const { createClassComponent } = await import('svelte/legacy');
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 function byText(selector: string, text: string) {
 	return Array.from(document.querySelectorAll<HTMLElement>(selector)).find((e) => e.textContent?.includes(text));
@@ -79,7 +76,7 @@ describe('History filters show plain mode names', () => {
 	it('shows the plain name on the active mode chip', async () => {
 		historyStore.setFilter('mode', 'img2video');
 		await settle();
-		const chip = document.querySelector<HTMLElement>('[title="Clear mode filter"]')!;
+		const chip = document.querySelector<HTMLElement>('button.border-dashed')!;
 		expect(chip.textContent?.trim()).toBe('Image to Video');
 	});
 });

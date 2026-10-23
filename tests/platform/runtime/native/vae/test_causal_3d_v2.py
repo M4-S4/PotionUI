@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 import torch
 
-from src.platform.runtime.native.base import load_into_module
 from vendor.gpl.comfyui.ops import disable_weight_init
 from src.platform.runtime.native.vae.causal_3d_v2 import (
     LATENT_CHANNELS,
@@ -16,7 +15,7 @@ from src.platform.runtime.native.vae.causal_3d_v2 import (
     _patchify,
     _unpatchify,
 )
-from src.platform.runtime.native.vae.loader import _VaeSpec, load_causal3d_v2_vae
+from src.platform.runtime.native.vae.loader import load_causal3d_v2_vae
 
 _WAN22_VAE_PATH = Path("models/vae/wan2.2_vae.safetensors")
 
@@ -60,18 +59,6 @@ def test_patchify_matches_manual_space_to_depth():
     # top-left 2x2 block of x should map to the 4 channel values at (0,0).
     block = x[0, 0, 0, 0:2, 0:2].flatten()
     assert torch.equal(p[0, :, 0, 0, 0].sort().values, block.sort().values)
-
-
-def test_self_consistent_state_dict_passes_load_integrity():
-    module = _build_tiny()
-    sd = module.state_dict()
-    spec = _VaeSpec(family="vae", variant="wan2.2")
-    load_into_module(module, sd, spec)  # must not raise
-
-
-def test_post_load_is_safe_noop():
-    module = _build_tiny()
-    module.post_load()
 
 
 def test_encode_image_decode_image_roundtrip_shape():

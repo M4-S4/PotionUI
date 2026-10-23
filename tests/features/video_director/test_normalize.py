@@ -150,18 +150,6 @@ def test_i2v_upload_shaped_path_falls_back_to_relative_path(storage_dir):
     assert out["media"][0]["media"]["path"] == str(storage_dir / "image.png")
 
 
-def test_i2v_wrong_role_rejected(storage_dir):
-    doc = _base_doc(
-        "i2v",
-        media=[{"id": "m-1", "role": "last", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
-                "media": {"relative_path": "image.png"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "i2v" in str(excinfo.value)
-    assert "'first'" in str(excinfo.value)
-
-
 def test_flf_happy_path(storage_dir):
     doc = _base_doc(
         "flf",
@@ -286,14 +274,6 @@ def test_lenient_reads_legacy_chain_mode_as_director(storage_dir):
     assert [s["sub_type"] for s in out["segments"]] == ["t2v", "chain"]
 
 
-def test_legacy_chain_mode_not_remapped_without_routing(storage_dir):
-    # Without a routed director mode there is nothing to leniently absorb into --
-    # a legacy `chain` doc is simply an unsupported mode.
-    doc = _base_doc("chain", segments=[{"id": "seg-1", "prompt": "a"}])
-    with pytest.raises(VideoDirectorValidationError):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
 def test_audio_without_capability_rejected(storage_dir):
     caps = copy.deepcopy(LTX_CAPS)
     caps["modes"]["director"]["audio"] = False
@@ -334,19 +314,6 @@ def test_per_segment_loras_without_capability_rejected(storage_dir):
     assert "loras" in str(excinfo.value)
 
 
-def test_director_overlap_detected_and_sorted(storage_dir):
-    doc = _base_doc(
-        "director",
-        segments=[
-            {"id": "seg-2", "prompt": "b", "start": 1.5, "end": 5.0},
-            {"id": "seg-1", "prompt": "a", "start": 0.0, "end": 2.0},
-        ],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "overlaps" in str(excinfo.value)
-
-
 def test_director_touching_edges_ok(storage_dir):
     doc = _base_doc(
         "director",
@@ -357,31 +324,6 @@ def test_director_touching_edges_ok(storage_dir):
     )
     out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
     assert [s["id"] for s in out["segments"]] == ["seg-1", "seg-2"]
-
-
-def test_flf_wrong_media_count_rejected(storage_dir):
-    doc = _base_doc(
-        "flf",
-        media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
-                "media": {"relative_path": "image.png"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "flf" in str(excinfo.value)
-
-
-def test_flf_wrong_roles_rejected(storage_dir):
-    doc = _base_doc(
-        "flf",
-        media=[
-            {"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
-             "media": {"relative_path": "image.png"}},
-            {"id": "m-2", "role": "keyframe", "segment_id": "seg-1", "at": 1.0, "strength": 1.0,
-             "media": {"relative_path": "image.png"}},
-        ],
-    )
-    with pytest.raises(VideoDirectorValidationError):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
 
 
 def test_director_chain_first_only_keyframe_rule(storage_dir):
@@ -401,46 +343,6 @@ def test_director_chain_first_only_keyframe_rule(storage_dir):
     )
     out = normalize_video_director(doc, WAN_CAPS, str(storage_dir))
     assert [s["sub_type"] for s in out["segments"]] == ["t2v", "i2v"]
-
-
-def test_director_chain_first_role_rejected_when_segment_explicitly_continues(storage_dir):
-    # The one way 'first' media on a non-first segment IS a dead knob: an
-    # EXPLICIT `sub_type: "chain"` override forces continuation regardless of
-    # attached media (derive_segment_sub_type: override always wins), so the
-    # start image would never be read by the generator. Rejected outright
-    # rather than silently ignored.
-    doc = _base_doc(
-        "director",
-        segments=[
-            {"id": "seg-1", "prompt": "a", "frames": 40},
-            {"id": "seg-2", "prompt": "b", "frames": 40, "sub_type": "chain"},
-        ],
-        media=[{"id": "m-1", "role": "first", "segment_id": "seg-2", "at": 0.0, "strength": 1.0,
-                "media": {"relative_path": "image.png"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, WAN_CAPS, str(storage_dir))
-    assert "seg-2" in str(excinfo.value)
-    assert "'first'" in str(excinfo.value)
-
-
-def test_director_chain_last_role_rejected_without_a_paired_first_on_the_same_segment(storage_dir):
-    # A trailing-only edge is a dead knob: the generator only ever reads
-    # `end_frames` on the 'flf' sub-type, which requires a leading image on
-    # the SAME segment (generator/chain_video_wan22/main.py). Wan declares
-    # `flf` at the document level (trailing_edge_allowed), but that alone
-    # doesn't make an unpaired 'last' meaningful -- rejected rather than
-    # silently dropped.
-    doc = _base_doc(
-        "director",
-        segments=[{"id": "seg-1", "prompt": "a", "frames": 40}],
-        media=[{"id": "m-1", "role": "last", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
-                "media": {"relative_path": "image.png"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, WAN_CAPS, str(storage_dir))
-    assert "seg-1" in str(excinfo.value)
-    assert "'flf'" in str(excinfo.value)
 
 
 def test_director_chain_last_role_allowed_when_paired_with_first_on_the_same_segment(storage_dir):
@@ -687,13 +589,6 @@ def test_director_chain_frames_exceeding_max_frames_per_segment_is_clamped(stora
     assert document["segments"][0]["frames"] == 81
 
 
-def test_director_chain_frames_below_one_rejected(storage_dir):
-    doc = _base_doc("director", segments=[{"id": "seg-1", "prompt": "a", "frames": 0}])
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, WAN_CAPS, str(storage_dir))
-    assert "positive int" in str(excinfo.value)
-
-
 def test_director_chain_declared_cap_overrides_the_wan_hard_cap(storage_dir):
     caps = {**WAN_CAPS, "modes": {"director": {**WAN_CAPS["modes"]["director"], "max_frames_per_segment": 345}}}
     doc = _base_doc("director", segments=[{"id": "seg-1", "prompt": "a", "frames": 345}])
@@ -708,17 +603,6 @@ def test_director_chain_steps_cfg_bounds(storage_dir):
     errors = excinfo.value.errors
     assert any("steps" in e for e in errors)
     assert any("cfg" in e for e in errors)
-
-
-def test_path_traversal_rejected(storage_dir):
-    doc = _base_doc(
-        "i2v",
-        media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
-                "media": {"relative_path": "../../etc/passwd"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "escapes" in str(excinfo.value)
 
 
 # -- segment routing (Wan `segment_routing` capability, director mode) -------
@@ -794,27 +678,6 @@ def test_routing_per_segment_override_forces_fresh_cut(storage_dir):
     assert (out["needs_t2v_set"], out["needs_i2v_set"]) == (True, True)
 
 
-def test_routing_invalid_override_rejected(storage_dir):
-    doc = _base_doc(
-        "director",
-        segments=[{"id": "seg-1", "prompt": "a", "frames": 40, "sub_type": "bogus"}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, WAN_CAPS, str(storage_dir))
-    assert "sub_type" in str(excinfo.value)
-
-
-def test_missing_file_rejected(storage_dir):
-    doc = _base_doc(
-        "i2v",
-        media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
-                "media": {"relative_path": "does-not-exist.png"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "does not exist" in str(excinfo.value)
-
-
 def test_absolute_existing_path_kept(storage_dir):
     absolute = str(storage_dir / "image.png")
     doc = _base_doc(
@@ -842,133 +705,51 @@ def test_unknown_top_level_key_round_trips(storage_dir):
     assert out["client_meta"] == {"editor_version": "1.2.3"}
 
 
-# -- shot provenance key -- optional {id, index, count, title?} -------------
+@pytest.mark.parametrize("key,value,expected", [
+    pytest.param("shot", None, None, id="shot_absent_is_absent"),
+    pytest.param(
+        "shot", {"id": "shot-1", "index": 0, "count": 3},
+        {"id": "shot-1", "index": 0, "count": 3}, id="shot_accepted_and_echoed",
+    ),
+    pytest.param(
+        "shot", {"id": "shot-2", "index": 1, "count": 3, "title": "Opening"},
+        {"id": "shot-2", "index": 1, "count": 3, "title": "Opening"}, id="shot_with_title_echoed",
+    ),
+    pytest.param("render", None, None, id="render_absent_is_absent"),
+    pytest.param("render", {"scope": "film"}, {"scope": "film", "shot_ids": []}, id="render_film_scope_echoed"),
+    pytest.param(
+        "render", {"scope": "shots", "shot_ids": ["seg-1"]},
+        {"scope": "shots", "shot_ids": ["seg-1"]}, id="render_shots_scope_echoed",
+    ),
+])
+def test_provenance_key_echo(storage_dir, key, value, expected):
+    overrides = {} if value is None else {key: value}
+    out = normalize_video_director(_base_doc("t2v", **overrides), LTX_CAPS, str(storage_dir))
+    if expected is None:
+        assert key not in out
+    else:
+        assert out[key] == expected
 
 
-def test_shot_absent_is_absent(storage_dir):
-    doc = _base_doc("t2v")
-    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "shot" not in out
-
-
-def test_shot_accepted_and_echoed(storage_dir):
-    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 0, "count": 3})
-    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert out["shot"] == {"id": "shot-1", "index": 0, "count": 3}
-
-
-def test_shot_with_title_echoed(storage_dir):
-    doc = _base_doc("t2v", shot={"id": "shot-2", "index": 1, "count": 3, "title": "Opening"})
-    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert out["shot"] == {"id": "shot-2", "index": 1, "count": 3, "title": "Opening"}
-
-
-def test_shot_not_an_object_rejected(storage_dir):
-    doc = _base_doc("t2v", shot="shot-1")
-    with pytest.raises(VideoDirectorValidationError):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_shot_missing_id_rejected(storage_dir):
-    doc = _base_doc("t2v", shot={"index": 0, "count": 1})
-    with pytest.raises(VideoDirectorValidationError, match="shot.id"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_shot_empty_id_rejected(storage_dir):
-    doc = _base_doc("t2v", shot={"id": "", "index": 0, "count": 1})
-    with pytest.raises(VideoDirectorValidationError, match="shot.id"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_shot_non_integer_index_rejected(storage_dir):
-    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 0.5, "count": 1})
-    with pytest.raises(VideoDirectorValidationError, match="shot.index"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_shot_index_out_of_range_rejected(storage_dir):
-    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 3, "count": 3})
-    with pytest.raises(VideoDirectorValidationError, match="0 <= index < count"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_shot_negative_index_rejected(storage_dir):
-    doc = _base_doc("t2v", shot={"id": "shot-1", "index": -1, "count": 3})
-    with pytest.raises(VideoDirectorValidationError, match="0 <= index < count"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_shot_non_string_title_rejected(storage_dir):
-    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 0, "count": 1, "title": 42})
-    with pytest.raises(VideoDirectorValidationError, match="shot.title"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_shot_unknown_key_rejected(storage_dir):
-    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 0, "count": 1, "bogus": True})
-    with pytest.raises(VideoDirectorValidationError, match="unknown keys"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-# -- render key -- optional {scope: "film"|"shots", shot_ids} ----------------
-# Purely a REQUEST for src.features.video_director.compile.compile_shot_plan
-# to act on afterward; this normalizer only validates the shape (scope enum,
-# shot_ids non-empty and naming real segments), it never touches
-# segments/media/audio to honour it.
-
-
-def test_render_absent_is_absent(storage_dir):
-    doc = _base_doc("t2v")
-    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "render" not in out
-
-
-def test_render_film_scope_echoed(storage_dir):
-    doc = _base_doc("t2v", render={"scope": "film"})
-    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert out["render"] == {"scope": "film", "shot_ids": []}
-
-
-def test_render_shots_scope_echoed(storage_dir):
-    doc = _base_doc("t2v", render={"scope": "shots", "shot_ids": ["seg-1"]})
-    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert out["render"] == {"scope": "shots", "shot_ids": ["seg-1"]}
-
-
-def test_render_not_an_object_rejected(storage_dir):
-    doc = _base_doc("t2v", render="shots")
-    with pytest.raises(VideoDirectorValidationError, match="render"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_render_invalid_scope_rejected(storage_dir):
-    doc = _base_doc("t2v", render={"scope": "bogus"})
-    with pytest.raises(VideoDirectorValidationError, match="render.scope"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_render_film_scope_with_shot_ids_rejected(storage_dir):
-    doc = _base_doc("t2v", render={"scope": "film", "shot_ids": ["seg-1"]})
-    with pytest.raises(VideoDirectorValidationError, match="render.shot_ids"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_render_shots_scope_empty_shot_ids_rejected(storage_dir):
-    doc = _base_doc("t2v", render={"scope": "shots", "shot_ids": []})
-    with pytest.raises(VideoDirectorValidationError, match="render.shot_ids"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_render_shots_scope_unknown_id_rejected(storage_dir):
-    doc = _base_doc("t2v", render={"scope": "shots", "shot_ids": ["nope"]})
-    with pytest.raises(VideoDirectorValidationError, match="unknown segment id"):
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-
-
-def test_render_unknown_key_rejected(storage_dir):
-    doc = _base_doc("t2v", render={"scope": "film", "bogus": True})
-    with pytest.raises(VideoDirectorValidationError, match="unknown keys"):
+@pytest.mark.parametrize("key,value,match", [
+    pytest.param("shot", "shot-1", None, id="shot_not_an_object_rejected"),
+    pytest.param("shot", {"index": 0, "count": 1}, "shot.id", id="shot_missing_id_rejected"),
+    pytest.param("shot", {"id": "", "index": 0, "count": 1}, "shot.id", id="shot_empty_id_rejected"),
+    pytest.param("shot", {"id": "shot-1", "index": 0.5, "count": 1}, "shot.index", id="shot_non_integer_index_rejected"),
+    pytest.param("shot", {"id": "shot-1", "index": 3, "count": 3}, "0 <= index < count", id="shot_index_out_of_range_rejected"),
+    pytest.param("shot", {"id": "shot-1", "index": -1, "count": 3}, "0 <= index < count", id="shot_negative_index_rejected"),
+    pytest.param("shot", {"id": "shot-1", "index": 0, "count": 1, "title": 42}, "shot.title", id="shot_non_string_title_rejected"),
+    pytest.param("shot", {"id": "shot-1", "index": 0, "count": 1, "bogus": True}, "unknown keys", id="shot_unknown_key_rejected"),
+    pytest.param("render", "shots", "render", id="render_not_an_object_rejected"),
+    pytest.param("render", {"scope": "bogus"}, "render.scope", id="render_invalid_scope_rejected"),
+    pytest.param("render", {"scope": "film", "shot_ids": ["seg-1"]}, "render.shot_ids", id="render_film_scope_with_shot_ids_rejected"),
+    pytest.param("render", {"scope": "shots", "shot_ids": []}, "render.shot_ids", id="render_shots_scope_empty_shot_ids_rejected"),
+    pytest.param("render", {"scope": "shots", "shot_ids": ["nope"]}, "unknown segment id", id="render_shots_scope_unknown_id_rejected"),
+    pytest.param("render", {"scope": "film", "bogus": True}, "unknown keys", id="render_unknown_key_rejected"),
+])
+def test_provenance_key_rejected(storage_dir, key, value, match):
+    doc = _base_doc("t2v", **{key: value})
+    with pytest.raises(VideoDirectorValidationError, match=match):
         normalize_video_director(doc, LTX_CAPS, str(storage_dir))
 
 
@@ -1002,65 +783,6 @@ def test_chain_keyframes_anywhere_admits_keyframe_media(storage_dir):
     assert out["media_placements"] == [
         {"source": "image", "index": 0, "frame": 96, "strength": 0.8, "role": "keyframe"},
     ]
-
-
-def test_chain_keyframes_anywhere_at_beyond_chain_total_rejected(storage_dir):
-    doc = _base_doc(
-        "director",
-        settings={"fps": 16, "duration": None, "resolution": "", "seed": 7},
-        segments=[
-            {"id": "seg-1", "prompt": "a", "frames": 81},
-            {"id": "seg-2", "prompt": "b", "frames": 49},
-        ],
-        media=[{"id": "kf-1", "role": "keyframe", "segment_id": None, "at": 9.0, "strength": 1.0,
-                "media": {"relative_path": "image.png", "type": "image"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, _wan_anywhere_caps(), str(storage_dir))
-    assert "at must be within [0, the chain's total duration]" in str(excinfo.value)
-
-
-def test_chain_keyframes_anywhere_respects_max_keyframes(storage_dir):
-    doc = _base_doc(
-        "director",
-        settings={"fps": 16, "duration": None, "resolution": "", "seed": 7},
-        segments=[{"id": "seg-1", "prompt": "a", "frames": 81}],
-        media=[
-            {"id": f"kf-{i}", "role": "keyframe", "segment_id": None, "at": 0.1 * i, "strength": 1.0,
-             "media": {"relative_path": "image.png", "type": "image"}}
-            for i in range(3)
-        ],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, _wan_anywhere_caps(max_keyframes=2), str(storage_dir))
-    assert "at most 2 keyframes are allowed, got 3" in str(excinfo.value)
-
-
-def test_chain_keyframes_rejected_without_the_anywhere_capability(storage_dir):
-    # WAN_CAPS declares keyframes: "first_only" -- the pre-existing rejection,
-    # message unchanged, is what a preset that never opts in still gets.
-    doc = _base_doc(
-        "director",
-        settings={"fps": 16, "duration": None, "resolution": "", "seed": 7},
-        segments=[{"id": "seg-1", "prompt": "a", "frames": 81}],
-        media=[{"id": "kf-1", "role": "keyframe", "segment_id": None, "at": 1.0, "strength": 1.0,
-                "media": {"relative_path": "image.png", "type": "image"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, WAN_CAPS, str(storage_dir))
-    assert "media[0]: keyframe media is only valid in a timeline director mode" in str(excinfo.value)
-
-
-def test_timeline_keyframe_window_message_unchanged(storage_dir):
-    doc = _base_doc(
-        "director",
-        segments=[{"id": "seg-1", "prompt": "a", "start": 0.0, "end": 5.0}],
-        media=[{"id": "kf-1", "role": "keyframe", "segment_id": None, "at": 9.0, "strength": 1.0,
-                "media": {"relative_path": "image.png", "type": "image"}}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "at must be within [0, settings.duration], got 9.0" in str(excinfo.value)
 
 
 # -- audio: capability-gated in either director style ------------------------
@@ -1682,34 +1404,6 @@ def test_continuation_disabled_derives_a_prompt_only_later_segment_as_a_hard_cut
     assert [s["sub_type"] for s in out["segments"]] == ["t2v", "t2v"]
 
 
-def test_continuation_disabled_rejects_an_explicit_chain_override(storage_dir):
-    doc = _base_doc(
-        "director",
-        settings={"fps": 24, "duration": None, "resolution": "", "seed": -1, "continuation": None},
-        segments=[
-            {"id": "seg-1", "prompt": "a", "frames": 81},
-            {"id": "seg-2", "prompt": "b", "frames": 81, "sub_type": "chain"},
-        ],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, CONTINUATION_DISABLED_CAPS, str(storage_dir))
-    assert "segments[1]" in str(excinfo.value)
-    assert "condition-row overlay" in str(excinfo.value)
-
-
-def test_continuation_disabled_rejects_a_settings_continuation_block(storage_dir):
-    doc = _base_doc(
-        "director",
-        settings={"fps": 24, "duration": None, "resolution": "", "seed": -1,
-                   "continuation": {"source": "tail_frames", "overlap_frames": 4, "stitch": True}},
-        segments=[{"id": "seg-1", "prompt": "a", "frames": 81}],
-    )
-    with pytest.raises(VideoDirectorValidationError) as excinfo:
-        normalize_video_director(doc, CONTINUATION_DISABLED_CAPS, str(storage_dir))
-    assert "settings.continuation" in str(excinfo.value)
-    assert "condition-row overlay" in str(excinfo.value)
-
-
 def test_continuation_absent_key_does_not_disable_chain_derivation(storage_dir):
     # Regression guard: WAN_CAPS's director mode never declares `continuation`
     # at all -- absence must NOT be treated as "explicitly null".
@@ -1776,3 +1470,187 @@ def test_mixed_field_audio_only_shot_is_an_error(storage_dir):
     with pytest.raises(VideoDirectorValidationError) as excinfo:
         _mixed_refs_director("a song @[references:t.wav]", storage_dir=storage_dir)
     assert "only audio references" in str(excinfo.value)
+
+
+REJECTED_DOCUMENTS = [
+    pytest.param(
+        lambda: _base_doc(
+            "i2v",
+            media=[{"id": "m-1", "role": "last", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
+                    "media": {"relative_path": "image.png"}}],
+        ),
+        LTX_CAPS, ("i2v", "'first'"), None,
+        id="i2v_wrong_role_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc("chain", segments=[{"id": "seg-1", "prompt": "a"}]),
+        LTX_CAPS, (), None,
+        id="legacy_chain_mode_not_remapped_without_routing",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            segments=[
+                {"id": "seg-2", "prompt": "b", "start": 1.5, "end": 5.0},
+                {"id": "seg-1", "prompt": "a", "start": 0.0, "end": 2.0},
+            ],
+        ),
+        LTX_CAPS, ("overlaps",), None,
+        id="director_overlap_detected_and_sorted",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "flf",
+            media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
+                    "media": {"relative_path": "image.png"}}],
+        ),
+        LTX_CAPS, ("flf",), None,
+        id="flf_wrong_media_count_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "flf",
+            media=[
+                {"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
+                 "media": {"relative_path": "image.png"}},
+                {"id": "m-2", "role": "keyframe", "segment_id": "seg-1", "at": 1.0, "strength": 1.0,
+                 "media": {"relative_path": "image.png"}},
+            ],
+        ),
+        LTX_CAPS, (), None,
+        id="flf_wrong_roles_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            segments=[
+                {"id": "seg-1", "prompt": "a", "frames": 40},
+                {"id": "seg-2", "prompt": "b", "frames": 40, "sub_type": "chain"},
+            ],
+            media=[{"id": "m-1", "role": "first", "segment_id": "seg-2", "at": 0.0, "strength": 1.0,
+                    "media": {"relative_path": "image.png"}}],
+        ),
+        WAN_CAPS, ("seg-2", "'first'"), None,
+        id="director_chain_first_role_rejected_when_segment_explicitly_continues",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            segments=[{"id": "seg-1", "prompt": "a", "frames": 40}],
+            media=[{"id": "m-1", "role": "last", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
+                    "media": {"relative_path": "image.png"}}],
+        ),
+        WAN_CAPS, ("seg-1", "'flf'"), None,
+        id="director_chain_last_role_rejected_without_a_paired_first_on_the_same_segment",
+    ),
+    pytest.param(
+        lambda: _base_doc("director", segments=[{"id": "seg-1", "prompt": "a", "frames": 0}]),
+        WAN_CAPS, ("positive int",), None,
+        id="director_chain_frames_below_one_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "i2v",
+            media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
+                    "media": {"relative_path": "../../etc/passwd"}}],
+        ),
+        LTX_CAPS, ("escapes",), None,
+        id="path_traversal_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            segments=[{"id": "seg-1", "prompt": "a", "frames": 40, "sub_type": "bogus"}],
+        ),
+        WAN_CAPS, ("sub_type",), None,
+        id="routing_invalid_override_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "i2v",
+            media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": 0.0, "strength": 1.0,
+                    "media": {"relative_path": "does-not-exist.png"}}],
+        ),
+        LTX_CAPS, ("does not exist",), None,
+        id="missing_file_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            settings={"fps": 16, "duration": None, "resolution": "", "seed": 7},
+            segments=[
+                {"id": "seg-1", "prompt": "a", "frames": 81},
+                {"id": "seg-2", "prompt": "b", "frames": 49},
+            ],
+            media=[{"id": "kf-1", "role": "keyframe", "segment_id": None, "at": 9.0, "strength": 1.0,
+                    "media": {"relative_path": "image.png", "type": "image"}}],
+        ),
+        _wan_anywhere_caps(), ("at must be within [0, the chain's total duration]",), None,
+        id="chain_keyframes_anywhere_at_beyond_chain_total_rejected",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            settings={"fps": 16, "duration": None, "resolution": "", "seed": 7},
+            segments=[{"id": "seg-1", "prompt": "a", "frames": 81}],
+            media=[
+                {"id": f"kf-{i}", "role": "keyframe", "segment_id": None, "at": 0.1 * i, "strength": 1.0,
+                 "media": {"relative_path": "image.png", "type": "image"}}
+                for i in range(3)
+            ],
+        ),
+        _wan_anywhere_caps(max_keyframes=2), ("at most 2 keyframes are allowed, got 3",), None,
+        id="chain_keyframes_anywhere_respects_max_keyframes",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            settings={"fps": 16, "duration": None, "resolution": "", "seed": 7},
+            segments=[{"id": "seg-1", "prompt": "a", "frames": 81}],
+            media=[{"id": "kf-1", "role": "keyframe", "segment_id": None, "at": 1.0, "strength": 1.0,
+                    "media": {"relative_path": "image.png", "type": "image"}}],
+        ),
+        WAN_CAPS, ("media[0]: keyframe media is only valid in a timeline director mode",), None,
+        id="chain_keyframes_rejected_without_the_anywhere_capability",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            segments=[{"id": "seg-1", "prompt": "a", "start": 0.0, "end": 5.0}],
+            media=[{"id": "kf-1", "role": "keyframe", "segment_id": None, "at": 9.0, "strength": 1.0,
+                    "media": {"relative_path": "image.png", "type": "image"}}],
+        ),
+        LTX_CAPS, ("at must be within [0, settings.duration], got 9.0",), None,
+        id="timeline_keyframe_window_message_unchanged",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            settings={"fps": 24, "duration": None, "resolution": "", "seed": -1, "continuation": None},
+            segments=[
+                {"id": "seg-1", "prompt": "a", "frames": 81},
+                {"id": "seg-2", "prompt": "b", "frames": 81, "sub_type": "chain"},
+            ],
+        ),
+        CONTINUATION_DISABLED_CAPS, ("segments[1]", "condition-row overlay"), None,
+        id="continuation_disabled_rejects_an_explicit_chain_override",
+    ),
+    pytest.param(
+        lambda: _base_doc(
+            "director",
+            settings={"fps": 24, "duration": None, "resolution": "", "seed": -1,
+                       "continuation": {"source": "tail_frames", "overlap_frames": 4, "stitch": True}},
+            segments=[{"id": "seg-1", "prompt": "a", "frames": 81}],
+        ),
+        CONTINUATION_DISABLED_CAPS, ("settings.continuation", "condition-row overlay"), None,
+        id="continuation_disabled_rejects_a_settings_continuation_block",
+    ),
+]
+
+
+@pytest.mark.parametrize("build_doc,caps,fragments,match", REJECTED_DOCUMENTS)
+def test_invalid_document_rejected(storage_dir, build_doc, caps, fragments, match):
+    with pytest.raises(VideoDirectorValidationError, match=match) as excinfo:
+        normalize_video_director(build_doc(), caps, str(storage_dir))
+    for fragment in fragments:
+        assert fragment in str(excinfo.value)

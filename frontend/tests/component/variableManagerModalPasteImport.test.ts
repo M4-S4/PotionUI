@@ -81,4 +81,40 @@ describe('VariableManagerModal paste import', () => {
 		expect(result.flavor).toEqual({ type: 'text', value: 'sweet' });
 		expect(result.mood).toEqual({ type: 'text', value: 'imported' });
 	});
+
+	async function openPaste(variables: VariablesMap) {
+		Object.defineProperty(navigator, 'clipboard', {
+			value: { readText: vi.fn().mockRejectedValue(new Error('denied')) },
+			configurable: true
+		});
+		mounted = mountModal(variables);
+		const changes: VariablesMap[] = [];
+		mounted.component.$on('change', (e: CustomEvent<VariablesMap>) => changes.push(e.detail));
+		buttonWithText('Paste').click();
+		await tick();
+		return changes;
+	}
+
+	it('lists pasted names that collide case-insensitively with each other instead of overwriting', async () => {
+		const changes = await openPaste({});
+		await setTextareaValue(
+			textarea(),
+			JSON.stringify({ mood: { type: 'text', value: 'a' }, Mood: { type: 'text', value: 'b' } })
+		);
+		expect(document.querySelector('[data-testid="paste-notes"]')!.textContent).toContain("'Mood' was skipped");
+		buttonWithText('Import').click();
+		await tick();
+		expect(Object.keys(changes.at(-1)!)).toEqual(['mood']);
+		expect(changes.at(-1)!.mood).toEqual({ type: 'text', value: 'a' });
+	});
+
+	it('treats a case-variant of an existing name as a clash and replaces the existing entry in place', async () => {
+		const changes = await openPaste({ mood: { type: 'text', value: 'old' } });
+		await setTextareaValue(textarea(), JSON.stringify({ Mood: { type: 'text', value: 'new' } }));
+		expect(document.body.textContent).toContain('already exist');
+		buttonWithText('Import').click();
+		await tick();
+		expect(Object.keys(changes.at(-1)!)).toEqual(['mood']);
+		expect(changes.at(-1)!.mood).toEqual({ type: 'text', value: 'new' });
+	});
 });

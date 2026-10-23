@@ -75,10 +75,8 @@ from src.features.fields.video import Video
 from src.features.fields.audio import Audio
 from src.features.fields.media import Media
 from src.features.fields.tags import Tags
-from src.features.presets.children_paths import DEFAULT_SHARED_PATH
 from src.features.presets.configuration import resolve_field_tag_categories
 from src.features.models.form_refs import is_model_ref, model_id_of
-from src.platform.templating import TemplateProcessor
 from src.platform.util.path_resolution import resolve_within
 from src.features.presets.templates import (
     FieldTemplate,
@@ -93,24 +91,6 @@ logger = logging.getLogger(__name__)
 
 _warned_no_storage_dir_for_field: set = set()
 
-
-def _expand_form_fields(fields: List[FieldTemplate], preset_template: PresetTemplate) -> List[FieldTemplate]:
-    """Expand `@loop`/external-`children` form field declarations into their
-    concrete per-iteration fields, exactly like the form-schema endpoint and
-    `scripts/preset_render.py`'s golden harness do (see `PresetFormSerializer`
-    docstring notes in that script for why it - not the unrelated,
-    known-dead `PresetProcessor._process_form_fields` - is the correct
-    reusable expander). A throwaway `TemplateProcessor`/`PresetFormSerializer`
-    pair is fine here: neither settings-manager-backed rendering nor the
-    preset loader is exercised by field-tree expansion, only `loop.index`
-    substitution and external-file loading.
-    """
-    from src.features.presets.form_serializer import PresetFormSerializer
-
-    template_processor = TemplateProcessor(settings=None)
-    form_serializer = PresetFormSerializer(preset_loader=None, template_processor=template_processor)
-    context = {"paths": {"preset": preset_template.path, "_shared": str(DEFAULT_SHARED_PATH)}}
-    return form_serializer._resolve_external_children(fields, context)
 
 # Registered field-type names whose value is a plain string path (see
 # src/features/fields/builtin.py). `video_director`/`prompt_timeline`/`llm` carry
@@ -252,18 +232,8 @@ def bind_form(
 
     form = _resolve_form(mode_data, preset_id, mode, form_name)
 
-    # `form.fields` may still contain unexpanded `@loop`/external-`children`
-    # field declarations (e.g. a numbered `controlnet_{{ loop.index }}_model`
-    # generator) - the same expansion the form-schema endpoint and the
-    # `scripts/preset_render.py` golden harness already run through
-    # `PresetFormSerializer`. Binding has to see the CONCRETE per-iteration
-    # field names (`controlnet_1_model`, ...), not the template declaration,
-    # or every numbered field would look "unknown" and get stripped/defaulted
-    # to nothing while pipeline.yml still references it directly.
-    resolved_fields = _expand_form_fields(form.fields, preset_template)
-
     field_index: Dict[str, FieldTemplate] = {}
-    _flatten_fields(resolved_fields, field_index)
+    _flatten_fields(form.fields, field_index)
 
     raw = apply_merge_from(field_index.values(), raw_form_data or {})
     errors: List[str] = []
@@ -316,7 +286,7 @@ def bind_form(
 
     plan = _plan_capabilities(field_index, values, preset_template, mode, cloud_capabilities)
     cloud_params: Dict[str, Any] = {}
-    hidden_fields = _hidden_field_names(resolved_fields, values, preset_id=preset_id, mode=mode)
+    hidden_fields = _hidden_field_names(form.fields, values, preset_id=preset_id, mode=mode)
 
     for name, spec in field_index.items():
         if name in plan.unsupported:
@@ -894,7 +864,7 @@ def form_field_index(
         raise FormNotFoundException(preset_template.id, mode, form_name)
     form = _resolve_form(mode_data, preset_template.id, mode, form_name)
     index: Dict[str, FieldTemplate] = {}
-    _flatten_fields(_expand_form_fields(form.fields, preset_template), index)
+    _flatten_fields(form.fields, index)
     return index
 
 

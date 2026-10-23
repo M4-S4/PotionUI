@@ -70,7 +70,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async cancelGeneration(generationId: string): Promise<APIResponse> {
+		async cancelGeneration(generationId: string): Promise<APIResponse<{ cancel_notice: string | null }>> {
 			const response = await client.post(`/api/generations/${generationId}/cancel`);
 			return response.data;
 		},
@@ -186,7 +186,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 			if (includeFiles) searchParams.append('include_files', 'true');
 			const queryString = searchParams.toString();
 			const response = await client.get(
-				`/api/generations/history/${generationId}${queryString ? `?${queryString}` : ''}`
+				`/api/generations/history/${encodeURIComponent(generationId)}${queryString ? `?${queryString}` : ''}`
 			);
 			return response.data;
 		},

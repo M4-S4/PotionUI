@@ -25,8 +25,8 @@
 	let atLast = $derived(currentPage >= totalPages);
 
 	const numberClasses: Record<Size, string> = {
-		sm: 'min-w-8 min-h-8 px-1.5 text-2xs',
-		md: 'min-w-10 min-h-10 px-2 text-xs'
+		sm: 'min-w-8 min-h-8 px-1.5 text-sm',
+		md: 'min-w-10 min-h-10 px-2 text-sm'
 	};
 
 	function go(page: number) {

@@ -1,12 +1,8 @@
 // @vitest-environment jsdom
-//
-// The SessionCluster counterpart of this file explains the race; SessionPill
-// carries the same save/save-as/restore/delete logic for the tabs-row mount
-// and needs the same ownership rule, so the same window is driven here through
-// SessionControl's compact pill (dot + name + Save) rather than the console
-// bar's two-line cells.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { get } from 'svelte/store';
+import { flushSync } from 'svelte';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -70,9 +66,6 @@ function mountPill(tabId: string) {
 		component,
 		sessionName: () =>
 			target.querySelector('button[aria-label="Session"] span.truncate')?.textContent,
-		// The compact pill has no status line: the save control's own label is
-		// the only place the in-flight flag surfaces, and it is rendered at all
-		// only while the session is dirty.
 		saveButtonLabel: () =>
 			target
 				.querySelector('button[aria-label="Save session"], button[aria-label="Saving session"]')
@@ -92,6 +85,13 @@ function mountPill(tabId: string) {
 			);
 			row!.click();
 		},
+		openRename: (name: string) => {
+			document.body.querySelector<HTMLButtonElement>(`button[aria-label="More actions for ${name}"]`)!.click();
+			flushSync();
+			Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+				.find((el) => el.textContent?.includes('Rename'))!
+				.click();
+		},
 		confirmDiscard: () => {
 			Array.from(document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button'))
 				.find((el) => el.textContent?.includes('Confirm'))
@@ -102,10 +102,6 @@ function mountPill(tabId: string) {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function tabState(id: string) {
@@ -168,18 +164,18 @@ describe('SessionPill save ownership', () => {
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 		expect(mounted.sessionName()).toBe('Session A');
 
 		mounted.clickSave();
-		await settle();
+		await settle(10);
 
 		mounted.openSessionMenu();
-		await settle();
+		await settle(10);
 		mounted.clickMenuItem('Session B');
-		await settle();
+		await settle(10);
 		mounted.confirmDiscard();
-		await settle();
+		await settle(10);
 
 		expect(mounted.sessionName()).toBe('Session B');
 		const baselineForB = tabState(tabId)?.savedSessionSignature;
@@ -188,14 +184,14 @@ describe('SessionPill save ownership', () => {
 			success: true,
 			data: { ...makeSession(SESSION_A, 'Session A (saved)') }
 		});
-		await settle();
+		await settle(10);
 
 		expect(mounted.sessionName()).toBe('Session B');
 		expect(tabState(tabId)?.selectedSessionId).toBe(SESSION_B);
 		expect(tabState(tabId)?.savedSessionSignature).toBe(baselineForB);
 
 		mounted.openSessionMenu();
-		await settle();
+		await settle(10);
 		expect(document.body.textContent).toContain('Session A (saved)');
 	});
 
@@ -204,20 +200,20 @@ describe('SessionPill save ownership', () => {
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 
 		mounted.clickSave();
-		await settle();
+		await settle(10);
 
 		mounted.component.$set({ tabId: otherTabId });
-		await settle();
+		await settle(10);
 		expect(mounted.sessionName()).toBe('No saved session');
 
 		pending.resolve({
 			success: true,
 			data: { ...makeSession(SESSION_A, 'Session A (saved)') }
 		});
-		await settle();
+		await settle(10);
 
 		expect(mounted.sessionName()).toBe('No saved session');
 		expect(tabState(otherTabId)?.selectedSessionId).toBeFalsy();
@@ -229,16 +225,16 @@ describe('SessionPill save ownership', () => {
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 
 		mounted.clickSave();
-		await settle();
+		await settle(10);
 
 		tabsStore.updateTab(tabId, { promptSegments: LATER_SEGMENTS });
-		await settle();
+		await settle(10);
 
 		pending.resolve({ success: true, data: makeSession(SESSION_A, 'Session A') });
-		await settle();
+		await settle(10);
 
 		expect(tabState(tabId)?.promptSegments).toEqual(LATER_SEGMENTS);
 		expect(tabState(tabId)?.savedSessionSignature).toContain('EDITED segment');
@@ -256,24 +252,24 @@ describe('SessionPill save ownership', () => {
 		vi.mocked(api.updateSession).mockReturnValue(failing.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 
 		mounted.clickSave();
-		await settle();
+		await settle(10);
 
 		mounted.openSessionMenu();
-		await settle();
+		await settle(10);
 		mounted.clickMenuItem('Session B');
-		await settle();
+		await settle(10);
 		mounted.confirmDiscard();
-		await settle();
+		await settle(10);
 
 		tabsStore.updateTab(tabId, { promptSegments: LATER_SEGMENTS });
-		await settle();
+		await settle(10);
 		const baselineForB = tabState(tabId)?.savedSessionSignature;
 
 		failing.reject(new Error('network down'));
-		await settle();
+		await settle(10);
 
 		expect(mounted.sessionName()).toBe('Session B');
 		expect(tabState(tabId)?.savedSessionSignature).toBe(baselineForB);
@@ -281,9 +277,9 @@ describe('SessionPill save ownership', () => {
 		expect(mounted.saveButtonLabel()).toBe('Save session');
 
 		mounted.openSessionMenu();
-		await settle();
-		mounted.clickMenuItem('Rename');
-		await settle();
+		await settle(10);
+		mounted.openRename('Session B');
+		await settle(10);
 		expect(document.body.textContent).not.toContain('network down');
 	});
 
@@ -292,14 +288,14 @@ describe('SessionPill save ownership', () => {
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 		expect(mounted.saveButtonLabel()).toBe('Save session');
 
 		mounted.clickSave();
-		await settle();
+		await settle(10);
 
 		pending.resolve({ success: true, data: makeSession(SESSION_A, 'Session A') });
-		await settle();
+		await settle(10);
 
 		expect(mounted.saveButtonLabel()).toBeNull();
 		expect(tabState(tabId)?.savedSessionSignature).toContain('EDITED segment');
@@ -310,17 +306,17 @@ describe('SessionPill save ownership', () => {
 		vi.mocked(api.updateSession).mockReturnValue(pending.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 
 		const baselineBeforeSave = tabState(tabId)?.savedSessionSignature;
 		mounted.clickSave();
-		await settle();
+		await settle(10);
 
 		mounted.destroy();
 		mounted = undefined;
 
 		pending.resolve({ success: true, data: makeSession(SESSION_A, 'Session A') });
-		await settle();
+		await settle(10);
 
 		expect(tabState(tabId)?.savedSessionSignature).toBe(baselineBeforeSave);
 	});

@@ -17,8 +17,6 @@ from src.platform.settings.settings import Settings
 
 
 class _ConcreteHandler(BaseGenerationOutputHandler):
-    def can_handle(self, output):
-        return True
 
     def handle(self, output):
         return {}

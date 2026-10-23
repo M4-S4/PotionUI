@@ -4,6 +4,7 @@ import re
 from typing import Any, Dict, Tuple
 
 import yaml
+from src.platform.filesystem.yaml_io import load_yaml
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
@@ -15,7 +16,7 @@ def parse_frontmatter(text: str) -> Tuple[Dict[str, Any], str]:
         return {}, text
 
     try:
-        data = yaml.safe_load(match.group(1)) or {}
+        data = load_yaml(match.group(1)) or {}
     except yaml.YAMLError:
         data = {}
     if not isinstance(data, dict):

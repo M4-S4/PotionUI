@@ -10,18 +10,7 @@ from src.features.models.roots_routes import build_router
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
-
-
-class FakeIndexingCoordinator:
-    def __init__(self):
-        self.calls = []
-
-    def cancel_and_restart(self, trigger="location_change"):
-        self.calls.append(trigger)
-        return {"state": "idle"}
-
-    def status(self):
-        return {"state": "idle"}
+from tests.features.models.fakes import FakeIndexingCoordinator
 
 
 @pytest.fixture

@@ -1,17 +1,14 @@
 """Approval-gated tools for detached rich Prompt aggregates."""
 
 import json
-import logging
 from typing import Any, Dict, Optional
 
 from src.features.prompt_database import operations
 from src.features.prompt_database.dto import PromptRequest
 from src.features.prompt_database.repository import flatten_segments
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
-from src.features.llm.tools.builtin.utils import viewer_is_restricted
-from src.features.llm.tools.errors import unexpected
-
-logger = logging.getLogger(__name__)
+from src.features.llm.tools.base import ApprovalTool, BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.builtin.condition_text import ensure_condition_tags
+from src.features.llm.tools.builtin.utils import parse_page, viewer_is_restricted
 
 
 def _truncate(text: str, limit: int = 90) -> str:
@@ -36,9 +33,12 @@ VARIABLES_SCHEMA = {
     "additionalProperties": {
         "type": "object",
         "properties": {
-            "type": {"type": "string", "enum": ["text", "choice"]},
-            "value": {"type": "string", "description": "text only"},
-            "mode": {"type": "string", "enum": ["shuffle", "pin", "per-image"], "description": "choice only"},
+            "type": {"type": "string", "enum": ["text", "choice", "number"]},
+            "value": {"oneOf": [{"type": "string"}, {"type": "number"}]},
+            "min": {"type": "number"},
+            "max": {"type": "number"},
+            "step": {"type": "number"},
+            "mode": {"type": "string", "enum": ["shuffle", "pin", "per-image"], "description": "choice or number"},
             "pinnedIndex": {"type": "integer", "description": "choice + pin only"},
             "options": {
                 "type": "array",
@@ -71,12 +71,27 @@ VARIABLES_SCHEMA = {
 }
 
 
+def _condition_texts(request: PromptRequest) -> Dict[str, Optional[str]]:
+    return {
+        f"segment {index} {field}": getattr(segment, field, None)
+        for index, segment in enumerate(request.segments, start=1)
+        for field in ("content", "prefix", "suffix")
+    }
+
+
 def _visible_prompt(context: ToolContext, prompt_id: Optional[str]):
     if not context.prompt_database or not prompt_id:
         return None
     prompt = context.prompt_database.repository.get_by_id(prompt_id, context.user_id)
     if prompt is not None and prompt.nsfw and viewer_is_restricted(context):
         return None
+    return prompt
+
+
+def _require_prompt(context: ToolContext, prompt_id: Optional[str]):
+    prompt = _visible_prompt(context, prompt_id)
+    if prompt is None:
+        raise ValueError(f"Prompt '{prompt_id}' not found")
     return prompt
 
 
@@ -106,18 +121,12 @@ def _prompt_request(existing=None, **kwargs) -> PromptRequest:
 class GetPromptTool(BaseTool):
     modes = ["generation", "prompts"]
     icon = "book-open"
+    context_group = "library"
 
-    @property
-    def name(self): return "get_prompt"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Reads one prompt from your library in full."
-
-    @property
-    def hint(self): return "When the user wants to read a saved Prompt, or before editing one"
+    name = "get_prompt"
+    group = "Saved prompts"
+    user_description = "Reads one prompt from your library in full."
+    requires_approval = False
 
     @property
     def description(self):
@@ -126,9 +135,6 @@ class GetPromptTool(BaseTool):
             "and its ${name} variables. The result has the same shape edit_prompt accepts, "
             "so read it first, change what is needed, and send it back."
         )
-
-    @property
-    def requires_approval(self): return False
 
     @property
     def parameters(self):
@@ -153,18 +159,12 @@ class GetPromptTool(BaseTool):
 class ListPromptsTool(BaseTool):
     modes = ["generation", "prompts"]
     icon = "book-open"
+    context_group = "library"
 
-    @property
-    def name(self): return "list_prompts"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Lists the prompts in your library."
-
-    @property
-    def hint(self): return "When the user wants to browse or find saved Prompts"
+    name = "list_prompts"
+    group = "Saved prompts"
+    user_description = "Lists the prompts in your library."
+    requires_approval = False
 
     @property
     def description(self):
@@ -172,9 +172,6 @@ class ListPromptsTool(BaseTool):
             "List the user's saved Prompts, newest first, with id, name, usage_hint, a short "
             "text preview and updated_at. Use get_prompt for the full content."
         )
-
-    @property
-    def requires_approval(self): return False
 
     @property
     def parameters(self):
@@ -191,10 +188,9 @@ class ListPromptsTool(BaseTool):
         if not context.prompt_database:
             return ToolResult(success=False, data="", error="Prompt library not available")
         try:
-            limit = min(max(int(kwargs.get("limit") or 20), 1), 100)
-            offset = max(int(kwargs.get("offset") or 0), 0)
-        except (TypeError, ValueError):
-            return ToolResult(success=False, data="", error="limit and offset must be integers")
+            offset, limit = parse_page(kwargs, 20, 100)
+        except ValueError as exc:
+            return ToolResult(success=False, data="", error=str(exc))
         prompts = context.prompt_database.repository.get_all(
             context.user_id, limit=limit, offset=offset,
             q=(kwargs.get("search") or "").strip() or None, sort_by="updated_at", nsfw="exclude",
@@ -215,21 +211,19 @@ class ListPromptsTool(BaseTool):
         }))
 
 
-class AddPromptTool(BaseTool):
-    modes = ["generation", "prompts"]
+class _PromptWriteTool(ApprovalTool):
+    modes = ["prompts"]
+    context_group = "library"
+    group = "Saved prompts"
+    repositories = ("prompt_database",)
+    unavailable_error = "Prompt library not available"
+
+
+class AddPromptTool(_PromptWriteTool):
     icon = "book-plus"
 
-    @property
-    def name(self): return "add_prompt"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Saves a new prompt composition to your library."
-
-    @property
-    def hint(self): return "When the user wants to save a prompt. Save text the user gave verbatim; compose only when asked"
+    name = "add_prompt"
+    user_description = "Saves a new prompt composition to your library."
 
     @property
     def description(self):
@@ -241,9 +235,6 @@ class AddPromptTool(BaseTool):
             "reorder, translate or enrich terms, and do not borrow vocabulary from memory or search "
             "results. Compose or improve text only when the user asks you to. Use the name the user gave."
         )
-
-    @property
-    def requires_approval(self): return True
 
     @property
     def parameters(self) -> Dict[str, Any]:
@@ -259,13 +250,9 @@ class AddPromptTool(BaseTool):
             "required": ["segments"],
         }
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.prompt_database:
-            return ToolResult(success=False, data="", error="Prompt library not available")
-        try:
-            request = _prompt_request(**kwargs)
-        except Exception as exc:
-            return ToolResult(success=False, data="", error=str(exc))
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        request = _prompt_request(**kwargs)
+        ensure_condition_tags(_condition_texts(request))
         text = flatten_segments(request.segments)
         fields = []
         if request.name:
@@ -284,45 +271,25 @@ class AddPromptTool(BaseTool):
             fields=fields,
             text_blocks=[{"label": "Prompt", "text": text}],
         )
+        return self._proposal(preview, request.model_dump(), "This detached Prompt will be added to the library. Please confirm.")
+
+    async def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        saved = await operations.create_prompt(
+            context.prompt_database, context.user_id, _prompt_request(**kwargs),
+        )
+        saved_name = saved.display_name
         return ToolResult(success=True, data=json.dumps({
-            "action": "add_prompt",
-            "proposal": request.model_dump(),
-            "message": "This detached Prompt will be added to the library. Please confirm.",
-        }), preview=preview)
-
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.prompt_database:
-            return ToolResult(success=False, data="", error="Prompt library not available")
-        try:
-            saved = await operations.create_prompt(
-                context.prompt_database, context.user_id, _prompt_request(**kwargs),
-            )
-            saved_name = saved.display_name
-            return ToolResult(success=True, data=json.dumps({
-                "action": "add_prompt", "success": True, "prompt_id": saved.id,
-                "name": saved_name,
-                "message": f'Saved the prompt "{saved_name}" to the library (id {saved.id}).',
-            }))
-        except Exception as exc:
-            logger.error("add_prompt failed: %s", exc)
-            return ToolResult(success=False, data="", error=unexpected("add_prompt", "save", exc, context.is_admin))
+            "action": "add_prompt", "success": True, "prompt_id": saved.id,
+            "name": saved_name,
+            "message": f'Saved the prompt "{saved_name}" to the library (id {saved.id}).',
+        }))
 
 
-class EditPromptTool(BaseTool):
-    modes = ["generation", "prompts"]
+class EditPromptTool(_PromptWriteTool):
     icon = "book-open"
 
-    @property
-    def name(self): return "edit_prompt"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Updates a prompt already saved in your library."
-
-    @property
-    def hint(self): return "When the user wants to replace a saved Prompt composition"
+    name = "edit_prompt"
+    user_description = "Updates a prompt already saved in your library."
 
     @property
     def description(self):
@@ -332,9 +299,6 @@ class EditPromptTool(BaseTool):
             "When the user supplies the new text, save it VERBATIM: do not add, reorder or enrich "
             "terms. Rewrite or improve text only when the user asks you to."
         )
-
-    @property
-    def requires_approval(self): return True
 
     @property
     def parameters(self):
@@ -350,22 +314,13 @@ class EditPromptTool(BaseTool):
             "required": ["prompt_id"],
         }
 
-    def _existing(self, context, prompt_id):
-        return _visible_prompt(context, prompt_id)
-
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.prompt_database:
-            return ToolResult(success=False, data="", error="Prompt library not available")
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        existing = self._existing(context, prompt_id) if prompt_id else None
-        if existing is None:
-            return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
+        existing = _require_prompt(context, prompt_id)
         if not any(key in kwargs for key in ("name", "usage_hint", "segments", "variables")):
-            return ToolResult(success=False, data="", error="No Prompt fields were supplied")
-        try:
-            request = _prompt_request(existing, **kwargs)
-        except Exception as exc:
-            return ToolResult(success=False, data="", error=str(exc))
+            raise ValueError("No Prompt fields were supplied")
+        request = _prompt_request(existing, **kwargs)
+        ensure_condition_tags(_condition_texts(request))
 
         old_text = flatten_segments(existing.segments)
         new_text = flatten_segments(request.segments)
@@ -393,85 +348,57 @@ class EditPromptTool(BaseTool):
             fields=fields,
             text_blocks=[text_block],
         )
-        return ToolResult(success=True, data=json.dumps({
-            "action": "edit_prompt",
-            "proposal": {
-                "prompt_id": prompt_id,
-                "old": {"name": existing.name, "segments": [s.model_dump() for s in existing.segments]},
-                "new": request.model_dump(),
-            },
-            "message": "The complete Prompt aggregate will be replaced. Please confirm.",
-        }), preview=preview)
+        return self._proposal(preview, {
+            "prompt_id": prompt_id,
+            "old": {"name": existing.name, "segments": [s.model_dump() for s in existing.segments]},
+            "new": request.model_dump(),
+        }, "The complete Prompt aggregate will be replaced. Please confirm.")
 
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
+    async def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        existing = self._existing(context, prompt_id) if context.prompt_database and prompt_id else None
-        if existing is None:
-            return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
-        try:
-            saved = await operations.replace_prompt(
-                context.prompt_database, context.user_id, prompt_id, _prompt_request(existing, **kwargs),
-            )
-            payload = {"action": "edit_prompt", "success": bool(saved), "prompt_id": prompt_id}
-            if saved:
-                payload["name"] = saved.display_name
-                payload["message"] = f'Updated the prompt "{saved.display_name}" in the library.'
-            return ToolResult(
-                success=bool(saved), data=json.dumps(payload), error=None if saved else "Prompt could not be updated"
-            )
-        except Exception as exc:
-            logger.error("edit_prompt failed: %s", exc)
-            return ToolResult(success=False, data="", error=unexpected("edit_prompt", "update", exc, context.is_admin))
+        existing = _require_prompt(context, prompt_id)
+        saved = await operations.replace_prompt(
+            context.prompt_database, context.user_id, prompt_id, _prompt_request(existing, **kwargs),
+        )
+        payload = {"action": "edit_prompt", "success": bool(saved), "prompt_id": prompt_id}
+        if saved:
+            payload["name"] = saved.display_name
+            payload["message"] = f'Updated the prompt "{saved.display_name}" in the library.'
+        return ToolResult(
+            success=bool(saved), data=json.dumps(payload), error=None if saved else "Prompt could not be updated"
+        )
 
 
-class DeletePromptTool(BaseTool):
-    modes = ["generation", "prompts"]
+class DeletePromptTool(_PromptWriteTool):
     icon = "trash-2"
 
-    @property
-    def name(self): return "delete_prompt"
-
-    @property
-    def group(self): return "Saved prompts"
-
-    @property
-    def user_description(self): return "Removes a saved prompt from your library."
-
-    @property
-    def hint(self): return "When the user wants to permanently remove a saved Prompt"
+    name = "delete_prompt"
+    user_description = "Removes a saved prompt from your library."
 
     @property
     def description(self): return "Delete one detached Prompt aggregate from the user's library."
 
     @property
-    def requires_approval(self): return True
-
-    @property
     def parameters(self):
         return {"type": "object", "properties": {"prompt_id": {"type": "string"}}, "required": ["prompt_id"]}
 
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        existing = _visible_prompt(context, prompt_id)
-        if existing is None:
-            return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
+        existing = _require_prompt(context, prompt_id)
         preview = ToolApprovalPreview(
             action="Delete prompt",
             target=existing.display_name,
             summary=_truncate(existing.flattened_text),
         )
-        return ToolResult(success=True, data=json.dumps({
-            "action": "delete_prompt",
-            "proposal": {"prompt_id": prompt_id, "name": existing.display_name, "preview": existing.flattened_text[:200]},
-            "message": "This Prompt will be permanently deleted. Please confirm.",
-        }), preview=preview)
+        return self._proposal(
+            preview,
+            {"prompt_id": prompt_id, "name": existing.display_name, "preview": existing.flattened_text[:200]},
+            "This Prompt will be permanently deleted. Please confirm.",
+        )
 
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
+    def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        if not context.prompt_database or not prompt_id:
-            return ToolResult(success=False, data="", error="prompt_id is required")
-        if _visible_prompt(context, prompt_id) is None:
-            return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
+        _require_prompt(context, prompt_id)
         success = operations.delete_prompt(context.prompt_database, context.user_id, prompt_id)
         return ToolResult(success=success, data=json.dumps({
             "action": "delete_prompt", "success": success, "prompt_id": prompt_id,

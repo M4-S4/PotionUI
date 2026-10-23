@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	// `.shot-row` -- the compact, collapsed shot: 128x72 thumb, checkbox,
 	// number, title/duration, dependency badge, run state and a chevron that
 	// activates (expands) the shot into a ShotCard. `run` is always null in
@@ -145,7 +146,7 @@
 			{#if !shot.timingQualified}
 				<span
 					class="inline-flex items-center rounded border border-line-strong px-[5px] py-px font-mono text-[9.5px] uppercase tracking-[0.04em] text-fg-subtle"
-					title="Motion latents unknown -- showing the requested length, not the generator's real output"
+					use:tooltip={"Motion latents unknown -- showing the requested length, not the generator's real output"}
 				>
 					requested
 				</span>

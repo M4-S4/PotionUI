@@ -45,8 +45,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 # All-zero sha256: no real file hashes to this. Marks a case's model(s) as not
 # locally resolvable yet (see module docstring). Exported so the runner and
@@ -238,8 +238,7 @@ def load_tests_yml(preset_dir: Path) -> Optional[PresetTests]:
 
     prefix = str(tests_file)
     try:
-        with open(tests_file, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+        data = load_yaml_file(tests_file) or {}
     except Exception as exc:  # noqa: BLE001
         raise TestsYmlError(f"{prefix}: failed to parse YAML: {exc}") from exc
 

@@ -64,7 +64,7 @@ class TestGenerateWithHistoryCompletion:
         with patch("httpx.AsyncClient", return_value=_post_ctx(
             {"choices": [_choice("length")], "usage": {}}
         )):
-            response = await client.generate_with_history(HISTORY, _config(), "sys")
+            response = await client.generate_with_tools(HISTORY, _config(), "sys")
         assert response.finish_reason == "length"
         assert response.completion == {"reason": "length", "raw": "length"}
 
@@ -73,7 +73,7 @@ class TestGenerateWithHistoryCompletion:
         with patch("httpx.AsyncClient", return_value=_post_ctx(
             {"choices": [_choice("stop")], "usage": {}}
         )):
-            response = await client.generate_with_history(HISTORY, _config(), "sys")
+            response = await client.generate_with_tools(HISTORY, _config(), "sys")
         assert response.finish_reason == "stop"
         assert response.completion == {"reason": "stop", "raw": "stop"}
 
@@ -82,7 +82,7 @@ class TestGenerateWithHistoryCompletion:
         with patch("httpx.AsyncClient", return_value=_post_ctx(
             {"choices": [_choice(None)], "usage": {}}
         )):
-            response = await client.generate_with_history(HISTORY, _config(), "sys")
+            response = await client.generate_with_tools(HISTORY, _config(), "sys")
         assert response.finish_reason is None
         assert response.completion == {"reason": "unknown", "raw": None}
 

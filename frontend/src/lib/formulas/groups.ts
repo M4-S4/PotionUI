@@ -1,4 +1,5 @@
 import type { FieldIndex } from './fieldIndex';
+import { jsonEqual } from '$lib/utils/equal';
 import { formatValue } from './format';
 import type { FormulaDeclaration, FormulaDraft } from './types';
 
@@ -25,7 +26,7 @@ export function sameValue(a: unknown, b: unknown): boolean {
 	if (a === b) return true;
 	const blank = (v: unknown) => v === undefined || v === null || v === '';
 	if (blank(a) && blank(b)) return true;
-	return JSON.stringify(a) === JSON.stringify(b);
+	return jsonEqual(a, b);
 }
 
 const SUMMARY_LIMIT = 4;

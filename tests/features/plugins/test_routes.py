@@ -15,6 +15,7 @@ from unittest.mock import Mock, MagicMock, AsyncMock
 from datetime import datetime
 
 from src.features.plugins import routes as routes_module
+from src.platform.http.errors import NotFoundError
 from src.features.plugins.routes import PluginController
 from src.features.plugins.dto import (
     PluginResponse,
@@ -28,6 +29,18 @@ from src.features.plugins.records import Plugin, PluginHook, PluginSetting
 from src.platform.plugins.registry import PluginState
 from src.platform.plugins.loader import PluginManifest
 from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def provider_lifecycle(monkeypatch):
+    calls = []
+    monkeypatch.setattr(routes_module, "reset_provider_registry", lambda: calls.append("reset"))
+
+    async def ensure():
+        calls.append("ensure")
+
+    monkeypatch.setattr(routes_module, "ensure_providers_discovered", ensure)
+    return calls
 
 
 @pytest.fixture
@@ -293,7 +306,7 @@ async def test_enable_plugin_not_found(controller, mock_operations):
     from fastapi import HTTPException
 
     # Arrange
-    mock_operations.enable_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.enable_plugin.side_effect = NotFoundError("plugin_not_found", "Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -348,7 +361,7 @@ async def test_disable_plugin_not_found(controller, mock_operations):
     from fastapi import HTTPException
 
     # Arrange
-    mock_operations.disable_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.disable_plugin.side_effect = NotFoundError("plugin_not_found", "Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -382,13 +395,13 @@ async def test_delete_plugin_not_found(controller, mock_operations):
     from fastapi import HTTPException
 
     # Arrange
-    mock_operations.delete_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.delete_plugin.side_effect = NotFoundError("plugin_not_found", "Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
         await controller.delete_plugin("non-existent")
 
-    assert exc_info.value.status_code == 400
+    assert exc_info.value.status_code == 404
     assert exc_info.value.detail["error"] == "plugin_not_found"
 
 
@@ -620,7 +633,7 @@ async def test_update_plugin_settings_plugin_not_found(controller, mock_operatio
     from fastapi import HTTPException
 
     # Arrange
-    mock_operations.update_plugin_settings.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.update_plugin_settings.side_effect = NotFoundError("plugin_not_found", "Plugin 'non-existent' not found")
 
     settings_request = PluginSettingsUpdateRequest(
         settings={"key": "value"}
@@ -1068,3 +1081,31 @@ async def test_update_settings_manifest_unavailable_is_409_not_404(
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail['error'] == 'plugin_manifest_unavailable'
     assert "sk-live-abc" not in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["enable_plugin", "disable_plugin"])
+async def test_toggle_rediscovers_providers_after_the_reset(
+    action, controller, mock_operations, provider_lifecycle, sample_plugin_response
+):
+    getattr(mock_operations, action).return_value = sample_plugin_response
+
+    await getattr(controller, action)("test-plugin-1")
+
+    assert provider_lifecycle == ["reset", "ensure"]
+
+
+@pytest.mark.asyncio
+async def test_toggle_succeeds_when_provider_rediscovery_fails(
+    controller, mock_operations, monkeypatch, sample_plugin_response
+):
+    mock_operations.enable_plugin.return_value = sample_plugin_response
+
+    async def boom():
+        raise RuntimeError("discovery down")
+
+    monkeypatch.setattr(routes_module, "ensure_providers_discovered", boom)
+
+    response = await controller.enable_plugin("test-plugin-1")
+
+    assert response.success is True

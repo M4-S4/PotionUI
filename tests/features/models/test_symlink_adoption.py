@@ -13,18 +13,7 @@ from src.platform.filesystem.model_roots import HOME_ROOT_ID, ModelRootResolver,
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.settings.records import Setting, SettingType, SettingValueType
 from src.platform.settings.repository import SettingRepository
-
-
-class FakeIndexingCoordinator:
-    def __init__(self):
-        self.calls = []
-
-    def cancel_and_restart(self, trigger="roots_change"):
-        self.calls.append(trigger)
-        return {"state": "idle"}
-
-    def status(self):
-        return {"state": "idle"}
+from tests.features.models.fakes import FakeIndexingCoordinator
 
 
 class Harness:

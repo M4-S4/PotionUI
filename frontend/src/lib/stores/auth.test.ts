@@ -135,3 +135,41 @@ describe('authStore.logout', () => {
 		expect(api.endMediaSession).toHaveBeenCalledTimes(1);
 	});
 });
+
+describe('authStore.register', () => {
+	beforeEach(() => {
+		stubLocalStorage();
+		vi.doMock('$app/environment', () => ({ browser: true }));
+		vi.doMock('$app/navigation', () => ({ goto: vi.fn() }));
+	});
+
+	afterEach(() => {
+		vi.doUnmock('$app/environment');
+		vi.doUnmock('$app/navigation');
+	});
+
+	it('keeps the global loading flag off while submitting so the form is not unmounted', async () => {
+		vi.resetModules();
+		const { get } = await import('svelte/store');
+		const { api } = await import('$lib/services/api/index');
+		const { authStore } = await import('./auth');
+		let loadingDuringCall: boolean | undefined;
+		vi.mocked(api.register).mockImplementation(async () => {
+			loadingDuringCall = get(authStore).loading;
+			throw {
+				response: {
+					status: 422,
+					data: { detail: [{ loc: ['body', 'email'], msg: 'value is not a valid email address: x' }] }
+				}
+			};
+		});
+		authStore.logout();
+		const settled = get(authStore).loading;
+
+		const result = await authStore.register('owner', 'a@b', 'longenough1');
+
+		expect(loadingDuringCall).toBe(settled);
+		expect(result.success).toBe(false);
+		expect(result).toMatchObject({ fieldErrors: { email: 'Value is not a valid email address: x' } });
+	});
+});

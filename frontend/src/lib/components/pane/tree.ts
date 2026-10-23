@@ -51,26 +51,6 @@ export function flattenTree<T>(nodes: PaneTreeNode<T>[]): PaneTreeNode<T>[] {
 	return out;
 }
 
-// Same DFS walk, but only descends into a node's children when the node's id
-// is in `expanded` — the flat row list a virtualized/keyboard-navigable pane
-// body renders.
-export function flattenVisible<T extends TreeItem>(
-	nodes: PaneTreeNode<T>[],
-	expanded: ReadonlySet<string>
-): PaneTreeNode<T>[] {
-	const out: PaneTreeNode<T>[] = [];
-	const walk = (list: PaneTreeNode<T>[]) => {
-		for (const n of list) {
-			out.push(n);
-			if (n.children.length > 0 && expanded.has(n.item.id)) {
-				walk(n.children);
-			}
-		}
-	};
-	walk(nodes);
-	return out;
-}
-
 // The id plus every descendant id under it. Used to keep a "Move to…" picker
 // from offering a target that would create a cycle. The result-set membership
 // check also makes this cycle-safe against malformed parent_id loops.
@@ -87,4 +67,28 @@ export function descendantIds<T extends TreeItem>(items: T[], id: string): Set<s
 		}
 	}
 	return result;
+}
+
+export function filterTree<T>(nodes: PaneTreeNode<T>[], keep: (item: T) => boolean): PaneTreeNode<T>[] {
+	const out: PaneTreeNode<T>[] = [];
+	for (const node of nodes) {
+		const children = filterTree(node.children, keep);
+		if (children.length > 0 || keep(node.item)) out.push({ ...node, children });
+	}
+	return out;
+}
+
+export function ancestorsOf<T extends TreeItem>(items: T[], id: string): T[] {
+	const byId = new Map(items.map((item) => [item.id, item]));
+	const chain: T[] = [];
+	const seen = new Set<string>([id]);
+	let parentId = byId.get(id)?.parent_id ?? null;
+	while (parentId !== null && !seen.has(parentId)) {
+		const parent = byId.get(parentId);
+		if (!parent) break;
+		seen.add(parentId);
+		chain.unshift(parent);
+		parentId = parent.parent_id ?? null;
+	}
+	return chain;
 }

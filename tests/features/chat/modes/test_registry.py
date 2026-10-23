@@ -1,6 +1,7 @@
 """Tests for the chat mode registry and builtin generation mode."""
 
 import itertools
+import re
 
 import pytest
 
@@ -8,7 +9,6 @@ from src.features.chat.exceptions import UnknownChatModeException
 from src.features.chat.modes import (
     ChatMode,
     ChatModeRegistry,
-    DuplicateChatModeError,
     DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE,
     GENERATION_MODE_ID,
     build_generation_mode,
@@ -20,28 +20,6 @@ def _mode(mode_id="test", source="builtin", **kwargs) -> ChatMode:
 
 
 class TestChatModeRegistry:
-    def test_register_and_get(self):
-        registry = ChatModeRegistry()
-        mode = _mode()
-        registry.register(mode)
-        assert registry.get("test") is mode
-
-    def test_register_duplicate_raises(self):
-        registry = ChatModeRegistry()
-        registry.register(_mode())
-        with pytest.raises(DuplicateChatModeError):
-            registry.register(_mode())
-
-    def test_get_missing_returns_none(self):
-        registry = ChatModeRegistry()
-        assert registry.get("nope") is None
-
-    def test_get_all(self):
-        registry = ChatModeRegistry()
-        registry.register(_mode("a"))
-        registry.register(_mode("b"))
-        assert {m.id for m in registry.get_all()} == {"a", "b"}
-
     def test_require_returns_mode(self):
         registry = ChatModeRegistry()
         mode = _mode()
@@ -59,19 +37,6 @@ class TestChatModeRegistry:
         assert registry.unregister("test") is True
         assert registry.get("test") is None
         assert registry.unregister("test") is False
-
-    def test_unregister_source(self):
-        registry = ChatModeRegistry()
-        registry.register(_mode("builtin-mode", source="builtin"))
-        registry.register(_mode("plugin-mode-1", source="plugin-x"))
-        registry.register(_mode("plugin-mode-2", source="plugin-x"))
-
-        removed = registry.unregister_source("plugin-x")
-
-        assert removed == 2
-        assert registry.get("builtin-mode") is not None
-        assert registry.get("plugin-mode-1") is None
-        assert registry.get("plugin-mode-2") is None
 
 
 class TestResolveSystemPrompt:
@@ -130,8 +95,7 @@ class TestReplyContractBlock:
         registry = ChatModeRegistry()
         mode = _mode(system_prompt="Base.")
         prompt = registry.resolve_system_prompt(mode, "")
-        assert "Resuming:" in prompt
-        assert "continue the task immediately" in prompt
+        assert "is their answer: continue the task immediately" in prompt
 
 
 class TestBuildGenerationMode:
@@ -152,9 +116,10 @@ class TestBuildGenerationMode:
         registry = ChatModeRegistry()
         mode = build_generation_mode()
         prompt = registry.resolve_system_prompt(mode, "- echo: Use to echo.")
-        assert "PotionUI" in prompt
-        assert "- echo: Use to echo." in prompt
+        assert "PotionAI" in prompt
+        assert "- echo: Use to echo." not in prompt
         assert "{{TOOL_HINTS}}" not in prompt
+        assert "Tool guide" not in prompt
         assert "tool_action" in prompt
         assert "update_segment" in prompt
 
@@ -176,11 +141,32 @@ class TestBuildGenerationMode:
         assert scoping in prompt
         assert 0 < prompt.index(scoping) - prompt.index(tag_example) < 400
 
+    def test_add_and_delete_segment_grammar_sits_with_the_update_tag(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(
+            build_generation_mode(), "- echo: Use to echo.", ["get_current_segments"]
+        )
+        assert 'type="delete_segment"' in prompt
+        assert 'type="add_segment"' in prompt
+        assert 'list="negative"' in prompt
+        update = prompt.index('type="update_segment"')
+        scoping = prompt.index("ONLY for offering prompt versions")
+        assert update < prompt.index('type="delete_segment"') < scoping
+        assert update < prompt.index('type="add_segment"') < scoping
+
+    def test_add_and_delete_segment_absent_with_only_the_video_director(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(
+            build_generation_mode(), "- echo: Use to echo.", ["get_video_director"]
+        )
+        assert "add_segment" not in prompt
+        assert "delete_segment" not in prompt
+
     def test_segment_tag_absent_without_get_current_segments(self):
         registry = ChatModeRegistry()
         prompt = registry.resolve_system_prompt(build_generation_mode(), "- echo: Use to echo.", [])
         assert "update_segment" not in prompt
-        assert "## Changing the prompt" not in prompt
+        assert "## Proposing prompt text" not in prompt
 
     def test_director_segment_tag_is_scoped_and_complete(self):
         """The Video Director prompt-variant tag mirrors update_segment's contract:
@@ -205,7 +191,7 @@ class TestBuildGenerationMode:
         registry = ChatModeRegistry()
         prompt = registry.resolve_system_prompt(build_generation_mode(), "- echo: Use to echo.", [])
         assert "update_director_segment" not in prompt
-        assert "Video Director shots" not in prompt
+        assert "Video Director document" not in prompt
 
     def test_global_direction_prompt_is_named_as_user_only(self):
         """The director paragraph must not leave "segment #N" as the only
@@ -226,19 +212,11 @@ class TestBuildGenerationMode:
 
 
 # Every tool name the builtin generation prompt references in a conditional block.
-_PROMPT_TOOL_NAMES = [
-    "get_form_state",
-    "get_active_models",
-    "search_model_prompts",
-    "get_phrasebook_values",
-    "enhance_prompt",
-    "write_memory",
-    "get_current_segments",
-    "list_phrasebook_categories",
-    "create_phrasebook_category",
-    "create_phrasebook_values",
-    "get_video_director",
-]
+_PROMPT_TOOL_NAMES = sorted({
+    name
+    for match in re.finditer(r"\{\{#(?:if|ifany)\s+([a-z0-9_ ]+)\}\}", DEFAULT_TOOLS_SYSTEM_PROMPT_TEMPLATE)
+    for name in match.group(1).split()
+})
 
 
 class TestGenerationPromptIsSessionAccurate:
@@ -260,7 +238,7 @@ class TestGenerationPromptIsSessionAccurate:
             ("write_memory",),
             ("get_current_segments",),
             ("list_phrasebook_categories",),
-            ("get_phrasebook_values", "create_phrasebook_values"),
+            ("get_phrasebook_values", "manage_prompt_variables"),
             ("get_video_director",),
             tuple(_PROMPT_TOOL_NAMES),
         ],

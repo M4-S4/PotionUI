@@ -14,13 +14,35 @@ from typing import Iterable, List, Tuple
 from backend.preset_import.defaults import (
     _audio_item,
     _image_item,
-    _lora_item,
     _model_item,
     _resolution_item,
     _simple_item,
     _video_item,
 )
-from backend.preset_import.schema import FormTab, HistoryEntry, ImportForm
+from backend.preset_import.schema import FieldItem, FormTab, HistoryEntry, ImportForm
+
+_LORA_PICKER_CONFIG = {
+    "model_type": "lora",
+    "placeholder": "Select a LoRA...",
+    "allow_info_modal": True,
+    "strength_min": -2.0,
+    "strength_max": 2.0,
+    "strength_step": 0.1,
+    "strength_default": 1.0,
+    "max_items": 6,
+}
+
+
+def _lora_item() -> FieldItem:
+    return FieldItem(
+        field_name="loras",
+        field_type="lora_picker",
+        label="LoRAs",
+        default=[],
+        config=dict(_LORA_PICKER_CONFIG),
+        mappings=[],
+    )
+
 
 _MODEL_ROLES = ("checkpoint", "diffusion_model", "clip", "vae")
 _MEDIA_ROLES = {"image": _image_item, "video": _video_item, "audio": _audio_item}

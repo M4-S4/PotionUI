@@ -21,6 +21,7 @@ from .gemma3 import Gemma3Model, Gemma3TextEncoder
 from .loader import FluxTextEncoder, TESpec, load_text_encoder
 from .qwen3 import FLUX3_LAYERS, KLEIN_LAYERS, Flux3TextEncoder, Qwen3Model, Qwen3TextEncoder, ZImageTextEncoder
 from .qwen25_vl import Qwen25VLModel, Qwen25VLTextEncoder
+from .qwen35 import MossImageTextEncoder, Qwen35Model
 from .qwen_vl_vision import Qwen2VLVisionTower, preprocess_qwen_vl_image, qwen25vl_mrope_position_ids
 from .t5xxl import T5XXLModel, T5XXLTextEncoder, UMT5TextEncoder
 
@@ -39,6 +40,8 @@ __all__ = [
     "KLEIN_LAYERS",
     "FLUX3_LAYERS",
     "Flux3TextEncoder",
+    "Qwen35Model",
+    "MossImageTextEncoder",
     "Qwen25VLModel",
     "Qwen25VLTextEncoder",
     "Qwen2VLVisionTower",

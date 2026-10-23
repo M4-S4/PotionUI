@@ -256,12 +256,6 @@ async def test_the_default_attribution_names_the_app_and_its_website(provider, o
     assert openrouter.requests[0]["headers"]["HTTP-Referer"] == "https://potionui.com"
 
 
-async def test_no_user_id_is_sent_by_default(provider, openrouter):
-    await provider.submit(await request_for(provider, user_ref="ref-abc"))
-
-    assert "user" not in generate_calls(openrouter)[-1]["body"]
-
-
 async def test_the_anonymous_user_id_from_core_is_forwarded_when_the_admin_turns_it_on(openrouter):
     made, http = build(openrouter, send_user_hash=True)
     try:

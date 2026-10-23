@@ -121,6 +121,8 @@ settings:
     label: "Search cache TTL (minutes)"
     description: "1 to 1440; raw source answers are cached in the database and filtered per user on every request"
     default: 10
+    min: 1
+    max: 1440
   - name: "providers_notice"
     type: "info"
     label: "Logged-in downloads use the CivitAI and Hugging Face provider plugins"

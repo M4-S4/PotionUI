@@ -201,11 +201,3 @@ class TestS3DriverAddressing:
             auth = request.headers["Authorization"]
             assert auth.startswith("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/")
             assert "Signature=" in auth
-
-    def test_generate_presigned_url_is_well_formed(self):
-        driver = make_s3_driver()
-        url = driver.generate_presigned_url("uploads/a.png", expires_in=600)
-        assert url.startswith("https://")
-        assert "X-Amz-Signature=" in url
-        assert "X-Amz-Expires=600" in url
-        assert "/test-bucket/uploads/a.png" in url

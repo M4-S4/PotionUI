@@ -39,7 +39,6 @@ import type {
 	DirectorCapabilities,
 	DirectorModeCapability,
 	ChainSegment,
-	DirectorPromptSegment,
 	DirectorKeyframe,
 	DirectorAudioSegment,
 	DirectorAudioRole,
@@ -68,11 +67,9 @@ import {
 import {
 	deriveChainSegmentSubType,
 	applyDirectorOperations,
-	chainEdgeKeyframeId,
 	chainKeyframeWindow,
 	chainSegmentEdgeAllowances,
 	collectFormMediaOptions,
-	isChainEdgeKeyframeId,
 	mapTimelineShot,
 	parseChainEdgeKeyframeId,
 	parseTimelineEdgeKeyframeId,
@@ -83,7 +80,7 @@ import {
 } from '$lib/utils/videoDirector';
 import { resolvePromptSegments } from '$lib/utils/promptSegments';
 import { shotReferenceOverview } from '$lib/utils/shotReferences';
-import { mintId, clamp } from '../timelineCore';
+import { mintId } from '../timelineCore';
 
 // ─── Gates ────────────────────────────────────────────────────────────────
 // A shot/block always has two gates (leading, trailing); which of the four
@@ -481,12 +478,6 @@ function timelineEdgeGate(
 		fileLabel: null,
 		slotName: `${block.id}-${edge}`
 	};
-}
-
-function timelineKeyframeRoleForEdge(rail: RailModel, atSeconds: number): DirectorKeyframe['role'] {
-	if (atSeconds <= SNAP_EPSILON_SECONDS) return 'first';
-	if (atSeconds >= rail.totalSeconds - SNAP_EPSILON_SECONDS) return 'last';
-	return 'free';
 }
 
 // ─── Shot type / footer ────────────────────────────────────────────────────
@@ -1203,11 +1194,6 @@ export function withRemoveIcLora(doc: VideoDirectorValue, timelineShotId: string
 	return mapTimelineShot(doc, timelineShotId, (shot) => ({ ...shot, ic_lora: shot.ic_lora.filter((e) => e.id !== id) }));
 }
 
-/** The role a gate's "place a keyframe here" well should mint on fill. */
-export function timelineGateKeyframeRole(rail: RailModel, atSeconds: number): DirectorKeyframe['role'] {
-	return timelineKeyframeRoleForEdge(rail, atSeconds);
-}
-
 /** Removes a free (timeline) or 'anywhere' (chain) keyframe outright.
  * `withChainKeyframeMedia`/`withTimelineKeyframeMedia` already drop a
  * media:null entry from the list rather than leaving an empty placeholder
@@ -1228,14 +1214,6 @@ export function withRemoveKeyframe(doc: VideoDirectorValue, caps: DirectorCapabi
  * document sub-tree an audio track lives in. */
 export function withRemoveAudio(doc: VideoDirectorValue, caps: DirectorCapabilities, timelineShotId: string, id: string): VideoDirectorValue {
 	return applyDirectorOperations(doc, [{ op: 'remove_audio', id, shot_id: timelineShotId }], caps);
-}
-
-export function withStitch(doc: VideoDirectorValue, caps: DirectorCapabilities, stitch: boolean): VideoDirectorValue {
-	return applyDirectorOperations(doc, [{ op: 'set_continuation', continuation: { stitch } }], caps);
-}
-
-export function withOverlapFrames(doc: VideoDirectorValue, caps: DirectorCapabilities, overlapFrames: number): VideoDirectorValue {
-	return applyDirectorOperations(doc, [{ op: 'set_continuation', continuation: { overlap_frames: overlapFrames } }], caps);
 }
 
 /** Flips a join between continue/cut by setting (or clearing) the next shot's
@@ -1418,28 +1396,6 @@ export function withAddedShot(doc: VideoDirectorValue, caps: DirectorCapabilitie
 		ic_lora: []
 	};
 	return { ...doc, timeline: { ...doc.timeline, shots: [...shots, shot] } };
-}
-
-/** Appends a blank keyframe: a chain 'anywhere' keyframe at the midpoint of
- * the chain's current window, or a 'free' keyframe at the midpoint of the
- * named shot's own duration. Callers should gate on the mode's
- * `keyframes`/`maxKeyframes` capability. */
-export function withAddedKeyframe(doc: VideoDirectorValue, caps: DirectorCapabilities, timelineShotId: string): VideoDirectorValue {
-	if (caps.segmentRouting) {
-		const window = chainKeyframeWindow(doc.chain);
-		const kf = { id: mintId('ckf', doc.chain.keyframes), at: clamp(window / 2, 0, window), strength: 1, media: null };
-		return { ...doc, chain: { ...doc.chain, keyframes: [...doc.chain.keyframes, kf] } };
-	}
-	return mapTimelineShot(doc, timelineShotId, (shot) => {
-		const kf: DirectorKeyframe = {
-			id: mintId('kf', shot.keyframes),
-			start: clamp(shot.duration / 2, 0, shot.duration),
-			role: 'free',
-			strength: 1,
-			media: null
-		};
-		return { ...shot, keyframes: [...shot.keyframes, kf] };
-	});
 }
 
 /** Appends a blank audio track spanning the current window (chain) or the

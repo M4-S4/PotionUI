@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 
 import aiohttp
 
+from .comfyui_client import ComfyUiClient
 from src.plugin_api import (
     BackendModel,
     InProcessBackend,
@@ -114,19 +115,14 @@ class ComfyUIBackend(InProcessBackend):
         that case, since an empty list would be indistinguishable from "this
         server genuinely has no models".
         """
-        timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
-
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with ComfyUiClient(self.base_url, self.config.timeout_seconds) as client:
             try:
-                async with session.get(f"{self.base_url}/models") as resp:
-                    resp.raise_for_status()
-                    folders = await resp.json()
+                folders = await client.folders()
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 raise ConnectionError(
                     f"Could not reach ComfyUI backend '{self.name}' at {self.base_url}: {e}"
                 ) from e
 
-            # Merge folders that map to the same model_type (clip + text_encoders).
             folders_by_type: Dict[str, List[str]] = {}
             for folder in folders:
                 model_type = FOLDER_TO_MODEL_TYPE.get(folder)
@@ -134,47 +130,24 @@ class ComfyUIBackend(InProcessBackend):
                     continue
                 folders_by_type.setdefault(model_type, []).append(folder)
 
-            entries: List[BackendModel] = []
-            for model_type, folder_names in folders_by_type.items():
-                for folder in folder_names:
-                    entries.extend(await self._list_folder(session, folder, model_type))
-
-        return deduplicate(entries)
-
-    async def _list_folder(
-        self, session: aiohttp.ClientSession, folder: str, model_type: str
-    ) -> List[BackendModel]:
-        """List one ComfyUI model folder, preferring the sized endpoint."""
-        try:
-            async with session.get(f"{self.base_url}/experiment/models/{folder}") as resp:
-                resp.raise_for_status()
-                items = await resp.json()
-            return [
-                BackendModel(
-                    model_type=model_type,
-                    filename=os.path.basename(item["name"]),
-                    ref=item["name"],
-                    size=item.get("size"),
-                )
-                for item in items
+            pairs = [
+                (folder, model_type)
+                for model_type, folder_names in folders_by_type.items()
+                for folder in folder_names
             ]
-        except (aiohttp.ClientError, asyncio.TimeoutError):
-            logger.debug(
-                f"[COMFYUI_BACKEND] /experiment/models/{folder} unavailable, "
-                f"falling back to /models/{folder}"
-            )
+            listings = await asyncio.gather(*(client.models(folder) for folder, _ in pairs))
 
-        async with session.get(f"{self.base_url}/models/{folder}") as resp:
-            resp.raise_for_status()
-            names = await resp.json()
-        return [
+        entries: List[BackendModel] = [
             BackendModel(
                 model_type=model_type,
-                filename=os.path.basename(name),
-                ref=name,
+                filename=os.path.basename(item["name"]),
+                ref=item["name"],
+                size=item.get("size"),
             )
-            for name in names
+            for (_, model_type), items in zip(pairs, listings)
+            for item in items
         ]
+        return deduplicate(entries)
 
     def prepare_pipes(self, pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -203,11 +176,8 @@ class ComfyUIBackend(InProcessBackend):
             return False
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.base_url}/interrupt",
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
+            async with ComfyUiClient(self.base_url) as client:
+                async with client.post("/interrupt", request_timeout=5) as resp:
                     if resp.status == 200:
                         logger.info(f"[COMFYUI_BACKEND] Interrupted ComfyUI for {generation_id}")
         except Exception as e:
@@ -218,12 +188,9 @@ class ComfyUIBackend(InProcessBackend):
     async def health_check(self) -> Dict[str, Any]:
         """Check if the ComfyUI server is reachable"""
         try:
-            async with aiohttp.ClientSession() as session:
+            async with ComfyUiClient(self.base_url) as client:
                 start_time = asyncio.get_event_loop().time()
-                async with session.get(
-                    f"{self.base_url}/system_stats",
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as resp:
+                async with client.get("/system_stats", request_timeout=10) as resp:
                     end_time = asyncio.get_event_loop().time()
                     response_time_ms = (end_time - start_time) * 1000
 

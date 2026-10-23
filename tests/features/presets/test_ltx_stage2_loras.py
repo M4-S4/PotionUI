@@ -13,11 +13,13 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
+
+from ._bound_form import bound_form_data
+from tests.fixtures.form_lookup import field_by_name
 
 PRESET_DIR = Path("content/presets/marketplace/LTX-2")
 
@@ -32,9 +34,9 @@ _DOC_T2V = {
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/LTX-2")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("/LTX-2")), None)
     if template is None:
-        pytest.skip("LTX-2 preset not present")
+        pytest.fail("LTX-2 preset not present")
     return template
 
 
@@ -59,11 +61,8 @@ def _process(ltx_template, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        ltx_template, "video", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "video", "form_data": dict(bound.values)}
+    form_data = bound_form_data(ltx_template, "video", form_data)
+    generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
     return processor.process(ltx_template, generation_data)
 
 
@@ -116,21 +115,10 @@ def test_stage1_config_never_carries_stage2_loras(ltx_template):
 
 # -- form-definition assertions ---------------------------------------------
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 def test_enhancement_loras_field_is_lora_picker_hidden_when_upscale_off():
     tab_path = PRESET_DIR / "modes/video/tabs/enhance.yml"
     data = yaml.safe_load(tab_path.read_text())
-    field = _field_by_name(data["fields"], "enhancement_loras")
+    field = field_by_name(data["fields"], "enhancement_loras")
     assert field is not None
     assert field["type"] == "lora_picker"
     assert field["default"] == []
@@ -144,6 +132,6 @@ def test_enhancement_loras_field_is_lora_picker_hidden_when_upscale_off():
 def test_enhancement_loras_shares_lora_tags_filter_with_main_lora_field():
     lora_tab = yaml.safe_load((PRESET_DIR / "modes/video/tabs/lora.yml").read_text())
     enhance_tab = yaml.safe_load((PRESET_DIR / "modes/video/tabs/enhance.yml").read_text())
-    main_field = _field_by_name(lora_tab["fields"], "loras")
-    stage2_field = _field_by_name(enhance_tab["fields"], "enhancement_loras")
+    main_field = field_by_name(lora_tab["fields"], "loras")
+    stage2_field = field_by_name(enhance_tab["fields"], "enhancement_loras")
     assert main_field["configuration"]["filter_tags"] == stage2_field["configuration"]["filter_tags"]

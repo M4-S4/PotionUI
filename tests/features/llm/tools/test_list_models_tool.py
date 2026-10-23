@@ -60,11 +60,6 @@ class TestListModelsToolSchema:
     def test_name(self):
         assert ListModelsTool().name == "list_models"
 
-    def test_hint_is_nonempty(self):
-        assert len(ListModelsTool().hint) > 0
-
-    def test_description_is_nonempty(self):
-        assert len(ListModelsTool().description) > 0
 
     def test_requires_approval_is_false(self):
         assert ListModelsTool().requires_approval is False
@@ -255,15 +250,6 @@ class TestListModelsToolExecute:
         payload = json.loads(result.data)
         entry = payload["models"][0]
         assert entry["description"] == "short desc"
-
-    @pytest.mark.asyncio
-    async def test_get_all_exception_returns_failure(self):
-        manager = MagicMock()
-        manager.model_repo.get_all.side_effect = RuntimeError("db connection lost")
-        ctx = make_context(model_index_manager=manager)
-        result = await ListModelsTool().execute(ctx)
-        assert result.success is False
-        assert "db connection lost" in result.error or "failed" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_all_filters_combined(self):

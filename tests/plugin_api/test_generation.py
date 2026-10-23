@@ -33,6 +33,7 @@ from src.platform.plugins import runtime_registries
 from src.platform.security.user import AccountType, User
 from src.plugin_api import generation as api
 from tests.features.content_safety.fakes import FakeResolver, FakeSettings, FakeTagger
+from tests.fixtures.seed import seed_user
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -55,11 +56,7 @@ def _user(user_id, account_type=AccountType.USER):
 class World:
     def __init__(self, db, restricted=False):
         for user_id in ("owner", "other", "admin"):
-            with db.get_cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-                    (user_id, user_id, f"{user_id}@example.test"),
-                )
+            seed_user(db, user_id)
         self.owner = _user("owner")
         self.other = _user("other")
         self.admin = _user("admin", AccountType.ADMIN)

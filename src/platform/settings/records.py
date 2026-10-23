@@ -4,6 +4,10 @@ from enum import Enum
 from typing import Optional, Any
 import json
 
+from src.platform.security.secrets import get_secret_cipher
+
+ENCRYPTED_SETTING_KEYS = frozenset({"s3_secret_key"})
+
 
 class SettingType(Enum):
     USER = "USER"
@@ -61,6 +65,13 @@ class Setting:
             return str(bool(value)).lower()
         else:
             return str(value)
+
+    @staticmethod
+    def serialize_for_storage(key: str, value: Any, value_type: SettingValueType) -> str:
+        serialized = Setting.serialize_value(value, value_type)
+        if key in ENCRYPTED_SETTING_KEYS and serialized:
+            return get_secret_cipher().encrypt(serialized)
+        return serialized
 
 
 @dataclass

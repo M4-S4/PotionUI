@@ -58,8 +58,10 @@ class ResponseProcessor:
         Returns:
             Tuple of (cleaned_content, parsed_content)
         """
+        from src.features.llm.tools.builtin.condition_text import repair_condition_actions
+
         # Step 1: Built-in transformations
-        cleaned = self._remove_thinking_tags(content)
+        cleaned = repair_condition_actions(self._remove_thinking_tags(content))
 
         # Step 2: Split the structured reply contract (## improved / ##
         # questions) out of the prose, before hooks run, so plugin

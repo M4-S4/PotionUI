@@ -14,7 +14,7 @@ from src.features.segments.hooks import SEGMENT_HOOKS
 from src.features.segments.operations.reads import get_category
 from src.features.segments.repository import SegmentCategoryRepository
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def create_category(
     request: SegmentCategoryRequest,
     user_id: str,
 ) -> SegmentCategory:
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         SEGMENT_HOOKS.before_create_category,
         {
@@ -41,11 +41,8 @@ def create_category(
             "color": request.color,
             "user_id": user_id,
         },
+        "Category creation blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Category creation blocked")
-        logger.warning("Segment-domain operation blocked by plugin: %s", reason)
-        raise ValueError(reason)
 
     if category_repository.get_by_name(request.name, user_id):
         raise ValueError("Category with this name already exists")
@@ -78,7 +75,7 @@ def update_category(
     user_id: str,
 ) -> SegmentCategory:
     existing = get_category(category_repository, category_id, user_id)
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         SEGMENT_HOOKS.before_update_category,
         {
@@ -89,11 +86,8 @@ def update_category(
             "color": request.color,
             "user_id": user_id,
         },
+        "Category update blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Category update blocked")
-        logger.warning("Segment-domain operation blocked by plugin: %s", reason)
-        raise ValueError(reason)
 
     duplicate = category_repository.get_by_name(request.name, user_id)
     if duplicate and duplicate.id != category_id:
@@ -130,15 +124,12 @@ def delete_category(
     user_id: str,
 ) -> bool:
     existing = get_category(category_repository, category_id, user_id)
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         SEGMENT_HOOKS.before_delete_category,
         {"category_id": category_id, "name": existing.name, "user_id": user_id},
+        "Category deletion blocked",
     )
-    if blocked:
-        reason = hook_data.get("block_reason", "Category deletion blocked")
-        logger.warning("Segment-domain operation blocked by plugin: %s", reason)
-        raise ValueError(reason)
 
     if category_repository.has_saved_segments(category_id, user_id):
         raise ValueError("Cannot delete category with existing saved segments")

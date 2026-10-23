@@ -226,3 +226,28 @@ class TestFailureReporting:
         cmd = vt.build_transcode_command("ffmpeg", Path("-evil.mp4"), Path("-out.tmp"), vt.TranscodeSpec(container="webm"))
         assert cmd[cmd.index("-i") + 1] == str(tmp_path / "-evil.mp4")
         assert cmd[-1] == str(tmp_path / "-out.tmp")
+
+
+class TestFindFfmpeg:
+    def test_prefers_path_binary(self, monkeypatch):
+        monkeypatch.setattr(vt.shutil, "which", lambda _: "/usr/bin/ffmpeg")
+        assert vt.find_ffmpeg() == "/usr/bin/ffmpeg"
+
+    def test_falls_back_to_the_bundled_imageio_binary(self, monkeypatch, tmp_path):
+        import sys
+        import types
+
+        exe = tmp_path / "ffmpeg bundled.exe"
+        exe.write_bytes(b"")
+        fake = types.ModuleType("imageio_ffmpeg")
+        fake.get_ffmpeg_exe = lambda: str(exe)
+        monkeypatch.setitem(sys.modules, "imageio_ffmpeg", fake)
+        monkeypatch.setattr(vt.shutil, "which", lambda _: None)
+        assert vt.find_ffmpeg() == str(exe)
+
+    def test_none_when_neither_exists(self, monkeypatch):
+        import sys
+
+        monkeypatch.setitem(sys.modules, "imageio_ffmpeg", None)
+        monkeypatch.setattr(vt.shutil, "which", lambda _: None)
+        assert vt.find_ffmpeg() is None

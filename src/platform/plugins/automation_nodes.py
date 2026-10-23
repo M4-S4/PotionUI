@@ -13,10 +13,12 @@ section and `PluginRegistry`, removed again via `unregister_source` on disable.
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
+
 NodeKind = str  # "trigger" | "condition" | "action"
 
 
-class DuplicateNodeTypeError(ValueError):
+class DuplicateNodeTypeError(DuplicateRegistrationError):
     """Raised when registering a node type key that is already registered."""
 
 
@@ -159,32 +161,15 @@ def resolved_config_schema(spec: "NodeTypeSpec") -> List[Dict[str, Any]]:
     return resolved
 
 
-class NodeTypeRegistry:
+class NodeTypeRegistry(SourcedRegistry[NodeTypeSpec]):
     """Registry mapping node type key -> `NodeTypeSpec`."""
 
-    def __init__(self):
-        self._by_key: Dict[str, NodeTypeSpec] = {}
-
-    def register(self, spec: NodeTypeSpec) -> None:
-        """Register a node type. Raises `DuplicateNodeTypeError` on key collision."""
-        if spec.key in self._by_key:
-            raise DuplicateNodeTypeError(f"Node type already registered: '{spec.key}'")
-        self._by_key[spec.key] = spec
-
-    def unregister_source(self, source: str) -> None:
-        """Remove every node type registered by `source` (e.g. a plugin id)."""
-        for key in [key for key, spec in self._by_key.items() if spec.source == source]:
-            del self._by_key[key]
-
-    def get(self, key: str) -> Optional[NodeTypeSpec]:
-        """Look up a node type. Returns None for unknown keys (callers must check)."""
-        return self._by_key.get(key)
-
-    def all(self) -> List[NodeTypeSpec]:
-        return list(self._by_key.values())
+    key_attr = "key"
+    label = "Node type"
+    duplicate_error = DuplicateNodeTypeError
 
     def by_kind(self, kind: NodeKind) -> List[NodeTypeSpec]:
-        return [spec for spec in self._by_key.values() if spec.kind == kind]
+        return [spec for spec in self._entries.values() if spec.kind == kind]
 
 
 # Module-level singleton shared by the engine, manager, plugin enable/disable

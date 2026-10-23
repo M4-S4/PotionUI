@@ -20,6 +20,7 @@ from src.features.segments.dto import (
 from src.platform.util.ids import generate_ulid
 
 from src.platform.database.rows import dt_column, json_column, now_utc
+from src.platform.database import get_cursor
 
 
 DEFAULT_SEGMENT_CATEGORIES = (
@@ -62,8 +63,7 @@ class SegmentCategoryRepository:
         renamed or deleted them.  Any existing category means the user's
         category workspace has already been initialized.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT 1 FROM segment_categories WHERE user_id = ? LIMIT 1",
                 (user_id,),
@@ -94,8 +94,7 @@ class SegmentCategoryRepository:
     def get_all(self, user_id: str, *, ensure_defaults: bool = True) -> List[SegmentCategory]:
         if ensure_defaults:
             self.ensure_defaults(user_id)
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM segment_categories WHERE user_id = ? ORDER BY name COLLATE NOCASE",
                 (user_id,),
@@ -103,8 +102,7 @@ class SegmentCategoryRepository:
             return [self._row_to_category(row) for row in cursor.fetchall()]
 
     def get_by_id(self, category_id: str, user_id: str) -> Optional[SegmentCategory]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM segment_categories WHERE id = ? AND user_id = ?",
                 (category_id, user_id),
@@ -113,8 +111,7 @@ class SegmentCategoryRepository:
             return self._row_to_category(row) if row else None
 
     def get_by_name(self, name: str, user_id: str) -> Optional[SegmentCategory]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT * FROM segment_categories
@@ -129,8 +126,7 @@ class SegmentCategoryRepository:
         if not category.user_id:
             raise ValueError("user_id is required")
         user_id = category.user_id
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO segment_categories
@@ -150,8 +146,7 @@ class SegmentCategoryRepository:
     def update(
         self, category_id: str, category: SegmentCategory, user_id: str
     ) -> Optional[SegmentCategory]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE segment_categories
@@ -171,8 +166,7 @@ class SegmentCategoryRepository:
         return self.get_by_id(category_id, user_id)
 
     def delete(self, category_id: str, user_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM segment_categories WHERE id = ? AND user_id = ?",
                 (category_id, user_id),
@@ -180,8 +174,7 @@ class SegmentCategoryRepository:
             return cursor.rowcount > 0
 
     def has_saved_segments(self, category_id: str, user_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT 1 FROM saved_segments
@@ -237,14 +230,12 @@ class SavedSegmentRepository:
             where += " AND s.category_id = ?"
             params.append(category_id)
         query = self._select_sql(where) + " ORDER BY s.name COLLATE NOCASE"
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [self._row_to_segment(row) for row in cursor.fetchall()]
 
     def get_by_id(self, segment_id: str, user_id: str) -> Optional[SavedSegment]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 self._select_sql("s.id = ? AND s.user_id = ?"),
                 (segment_id, user_id),
@@ -253,8 +244,7 @@ class SavedSegmentRepository:
             return self._row_to_segment(row) if row else None
 
     def get_by_name(self, name: str, user_id: str) -> Optional[SavedSegment]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 self._select_sql("s.user_id = ? AND s.name = ? COLLATE NOCASE"),
                 (user_id, name),
@@ -267,8 +257,7 @@ class SavedSegmentRepository:
         if not segment.user_id:
             raise ValueError("user_id is required")
         user_id = segment.user_id
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO saved_segments (
@@ -307,8 +296,7 @@ class SavedSegmentRepository:
     def update(
         self, segment_id: str, segment: SavedSegment, user_id: str
     ) -> Optional[SavedSegment]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE saved_segments
@@ -344,8 +332,7 @@ class SavedSegmentRepository:
         return self.get_by_id(segment_id, user_id)
 
     def delete(self, segment_id: str, user_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM saved_segments WHERE id = ? AND user_id = ?",
                 (segment_id, user_id),
@@ -395,8 +382,7 @@ class SegmentTemplateRepository:
         )
 
     def get_all(self, user_id: str) -> List[SegmentTemplate]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT * FROM segment_templates
@@ -408,8 +394,7 @@ class SegmentTemplateRepository:
             return [self._row_to_template(cursor, row) for row in rows]
 
     def get_by_id(self, template_id: str, user_id: str) -> Optional[SegmentTemplate]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM segment_templates WHERE id = ? AND user_id = ?",
                 (template_id, user_id),
@@ -418,8 +403,7 @@ class SegmentTemplateRepository:
             return self._row_to_template(cursor, row) if row else None
 
     def get_by_name(self, name: str, user_id: str) -> Optional[SegmentTemplate]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT * FROM segment_templates
@@ -467,8 +451,7 @@ class SegmentTemplateRepository:
         if not template.user_id:
             raise ValueError("user_id is required")
         user_id = template.user_id
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO segment_templates
@@ -490,8 +473,7 @@ class SegmentTemplateRepository:
         self, template_id: str, template: SegmentTemplate, user_id: str
     ) -> Optional[SegmentTemplate]:
         """Atomically update the parent and replace its full ordered collection."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE segment_templates
@@ -512,8 +494,7 @@ class SegmentTemplateRepository:
         return self.get_by_id(template_id, user_id)
 
     def delete(self, template_id: str, user_id: str) -> bool:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM segment_templates WHERE id = ? AND user_id = ?",
                 (template_id, user_id),

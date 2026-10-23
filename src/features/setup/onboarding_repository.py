@@ -9,14 +9,14 @@ from typing import Any, List, Optional
 
 from src.platform.database.rows import now_iso
 from src.features.setup.records import OnboardingStatus, UserOnboardingState
+from src.platform.database import get_cursor
 
 
 class OnboardingRepository:
     """Reads/writes ``user_onboarding_state``."""
 
     def get_onboarding_state(self, user_id: str) -> Optional[UserOnboardingState]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_onboarding_state WHERE user_id = ?", (user_id,)
             )
@@ -33,8 +33,7 @@ class OnboardingRepository:
     ) -> UserOnboardingState:
         existing = self.get_onboarding_state(user_id)
         now = now_iso()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if existing is None:
                 cursor.execute(
                     """

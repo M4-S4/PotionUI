@@ -1,12 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import {
-		createConfirmSettlementGate,
-		getConfirmKeyboardAction,
-		settleIfEligible
-	} from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { api } from '$lib/services/api/index';
 	import { toasts } from '$lib/stores/toast';
@@ -19,14 +12,8 @@
 
 	let stripMetadata = $state(false);
 	let exporting = $state(false);
-	const settlementGate = createConfirmSettlementGate();
 
 	let count = $derived(context.items.length);
-
-	$effect(() => {
-		context;
-		untrack(() => settlementGate.reset());
-	});
 
 	async function download() {
 		exporting = true;
@@ -38,45 +25,31 @@
 			}
 			toasts.success('Export started');
 			onClose();
+			return true;
 		} catch (error) {
 			logger.error('Export failed:', getErrorMessage(error));
 			toasts.error('Export failed');
-			settlementGate.reset();
+			return false;
 		} finally {
 			exporting = false;
 		}
 	}
-
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, count > 0 && !exporting, download);
-	}
-
-	function handleKeydown(event: KeyboardEvent) {
-		if (exporting) return;
-		const { action, suppress } = getConfirmKeyboardAction(event);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) event.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
 	isOpen={true}
 	title="Download .zip"
 	size="md"
-	closeable={!exporting}
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	busy={exporting}
+	resetKey={context}
+	confirmLabel="Download"
+	confirmDisabled={count === 0}
+	onConfirm={download}
+	onCancel={onClose}
 >
-	<svelte:fragment slot="headerIcon">
+	{#snippet headerIconContent()}
 		<Icon name="download" className="h-5 w-5 text-fg-muted" />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="space-y-4 p-4 sm:p-6">
 		<p class="text-sm text-fg-muted tabular-nums">
@@ -90,14 +63,4 @@
 			</label>
 		{/if}
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Download"
-			busy={exporting}
-			confirmDisabled={count === 0}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

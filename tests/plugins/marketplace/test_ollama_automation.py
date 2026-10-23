@@ -12,6 +12,8 @@ from unittest.mock import patch
 import aiohttp
 import pytest
 
+from src.platform.http.tls import client_ssl_context
+
 # Load the plugin's backend modules under a unique package so their
 # `from .client import ...` relative import resolves, without colliding with the
 # generic `backend` package name other plugins also use.
@@ -173,3 +175,44 @@ async def test_node_handler_unreachable_returns_soft_error_not_exception():
     assert result.output["connected"] is False
     assert result.output["success"] is False
     assert result.branch == "out"  # never vetoes / crashes the run
+
+
+@pytest.mark.asyncio
+async def test_unload_session_uses_the_shared_tls_connector():
+    session = _FakeSession([])
+    with patch.object(client.aiohttp, "ClientSession", return_value=session) as session_cls:
+        await client.unload_models("http://x", 5, None)
+
+    connector = session_cls.call_args.kwargs["connector"]
+    try:
+        assert isinstance(connector, aiohttp.TCPConnector)
+        assert connector._ssl is client_ssl_context()
+    finally:
+        await connector.close()
+
+
+class _StoredRows:
+    rows = {}
+
+    def get_plugin_settings(self, plugin_id):
+        assert plugin_id == "ollama"
+        return [
+            types.SimpleNamespace(setting_key=key, setting_value=value)
+            for key, value in self.rows.items()
+        ]
+
+
+@pytest.mark.parametrize(
+    "rows, expected",
+    [
+        ({}, ("http://localhost:11434", 10)),
+        ({"ollama_host": "http://gpu-box:11434/", "connection_timeout": "30"}, ("http://gpu-box:11434", 30)),
+        ({"ollama_host": "", "connection_timeout": "soon"}, ("http://localhost:11434", 10)),
+        ({"connection_timeout": "600"}, ("http://localhost:11434", 60)),
+    ],
+)
+def test_get_settings_reads_the_manifest_backed_values(monkeypatch, rows, expected):
+    monkeypatch.setattr(_StoredRows, "rows", rows)
+    monkeypatch.setattr("src.plugin_api.storage.PluginRepository", _StoredRows)
+
+    assert client.get_settings() == expected

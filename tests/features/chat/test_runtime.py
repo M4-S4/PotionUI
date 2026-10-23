@@ -1,20 +1,17 @@
 """Tests for ChatRuntime."""
 
+from dataclasses import replace
 import pytest
 from types import SimpleNamespace
 from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from src.features.chat.runtime import ChatRuntime
+from src.features.llm.tools.base import ToolServices
 
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 
 
-def _mode_registry() -> ChatModeRegistry:
-    """Real mode registry with the builtin generation mode (no settings)."""
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 from src.features.chat.exceptions import (
     SessionNotFoundException,
     AccessDeniedException,
@@ -25,30 +22,6 @@ from src.features.chat.exceptions import (
 )
 from src.features.chat.hooks import CHAT_SESSION_HOOKS
 from src.features.presets.templates import FormTemplate, ModeTemplate
-
-
-class TestChatRuntimeInit:
-    """Tests for ChatRuntime initialization."""
-
-    def test_init_with_all_dependencies(self):
-        """Should initialize with all required dependencies."""
-        mock_repo = Mock()
-        mock_llm = Mock()
-        mock_processor = Mock()
-        mock_plugins = Mock()
-
-        manager = ChatRuntime(
-            chat_repository=mock_repo,
-            llm_service=mock_llm,
-            response_processor=mock_processor,
-            plugin_registry=mock_plugins,
-            chat_mode_registry=_mode_registry(),
-        )
-
-        assert manager.chat_repository is mock_repo
-        assert manager.llm_service is mock_llm
-        assert manager.response_processor is mock_processor
-        assert manager.plugins is mock_plugins
 
 
 class TestValidationHelpers:
@@ -66,7 +39,7 @@ class TestValidationHelpers:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def test_get_session_or_raise_found(self):
@@ -141,7 +114,7 @@ class TestCreateSession:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def test_create_session_success(self):
@@ -230,13 +203,14 @@ class TestGetSession:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def test_get_session_success(self):
         """Should return session with messages."""
         mock_session = Mock()
         mock_session.user_id = "user-123"
+        mock_session.messages = []
         self.mock_repo.get_session_with_messages.return_value = mock_session
 
         result = self.manager.get_session("session-123", "user-123")
@@ -278,7 +252,7 @@ class TestDeleteSession:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def test_delete_session_success(self):
@@ -322,7 +296,7 @@ class TestUpdateSession:
             llm_service=self.mock_llm,
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
         self.mock_session = Mock()
@@ -376,7 +350,7 @@ class TestSendMessage:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     @pytest.mark.asyncio
@@ -735,7 +709,7 @@ class TestSendMessageBehaviorTrace:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
         # `memory_operations` (as imported into context_builder.py) is patched
@@ -782,7 +756,7 @@ class TestSendMessageBehaviorTrace:
         self.mock_memory_ops.read_notes.side_effect = lambda repo, user_id, scope, scope_ref=None: (
             [note] if scope == "global" else []
         )
-        self.manager.llm_memory_repository = Mock()
+        self.manager.tool_services = replace(self.manager.tool_services, llm_memory_repository=Mock())
 
         return session
 
@@ -817,6 +791,48 @@ class TestSendMessageBehaviorTrace:
         step_names = [s["step"] for s in trace["steps"]]
         assert step_names == ["loading_memory", "thinking"]
         assert all(s["duration_ms"] >= 0 for s in trace["steps"])
+
+    @pytest.mark.asyncio
+    async def test_first_turn_preflight_budget_sees_the_discovered_window(self):
+        from src.features.llm import context_budget
+
+        self._setup_session_and_messages()
+        primed = []
+        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+
+        def profile(*args, **kwargs):
+            capacity = (
+                context_budget.CapacityInfo(65536, "discovered") if primed
+                else context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+            )
+            return context_budget.ContextProfile(capacity=capacity, reserve_tokens=1024)
+
+        self.mock_llm.context_profile_for = Mock(side_effect=profile)
+        self.mock_llm.repository = Mock()
+
+        await self.manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
+
+        budget = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]["context_ledger"]["budget"]
+        assert budget["capacity_source"] == "discovered"
+        assert budget["capacity_tokens"] == 65536
+
+    @pytest.mark.asyncio
+    async def test_tool_tier_reads_the_window_probed_before_tools_resolve(self):
+        from src.features.llm import context_budget
+
+        self._setup_session_and_messages()
+        primed = []
+        self.mock_llm.ensure_context_window = AsyncMock(side_effect=lambda config: primed.append(config))
+        self.mock_llm.repository = Mock()
+        self.mock_llm.context_capacity_for = Mock(side_effect=lambda config: (
+            context_budget.CapacityInfo(131072, "discovered") if primed
+            else context_budget.CapacityInfo(context_budget.UNKNOWN_CAPACITY_TOKENS, "unknown")
+        ))
+
+        await self.manager.send_message(session_id="session-123", user_id="user-123", content="Hello")
+
+        trace = self.mock_repo.add_message.call_args_list[1][1]["metadata"]["behavior_trace"]
+        assert trace["tool_tier"] == context_budget.TOOL_TIER_LARGE
 
     @pytest.mark.asyncio
     async def test_thinking_mode_persisted_from_the_llm_response(self):
@@ -940,9 +956,8 @@ class TestMemoryCountedInHistoryBudget:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
-            llm_memory_repository=Mock(),
-            settings=self.mock_settings,
+            chat_mode_registry=mode_registry(),
+            tool_services=ToolServices(llm_memory_repository=Mock(), settings=self.mock_settings),
         )
 
         session = Mock()
@@ -1033,7 +1048,7 @@ class TestResolveToolExecutionPreservesBehaviorTrace:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     @pytest.mark.asyncio
@@ -1089,7 +1104,7 @@ class TestAcceptSession:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def test_accept_session_success(self):
@@ -1140,7 +1155,7 @@ class TestRejectSession:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def test_reject_session_success(self):
@@ -1184,7 +1199,7 @@ class TestHookExecution:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
     def test_execute_hook_returns_data_and_blocked(self):
@@ -1256,7 +1271,7 @@ class TestSendMessageResources:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
             resource_registry=registry,
         )
 
@@ -1348,8 +1363,6 @@ class TestSendMessageResources:
 
 
 class TestInjectMemoryBlock:
-    """Tests for ChatRuntime._inject_memory_block."""
-
     def _make_note(self, key="pref", content="likes cinematic lighting"):
         note = Mock()
         note.key = key
@@ -1375,9 +1388,8 @@ class TestInjectMemoryBlock:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
-            llm_memory_repository=Mock(),
-            model_index_manager=self.mock_model_index,
+            chat_mode_registry=mode_registry(),
+            tool_services=ToolServices(llm_memory_repository=Mock(), model_index_manager=self.mock_model_index),
         )
 
     def teardown_method(self):
@@ -1387,7 +1399,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
+        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert len(history) == 1
         assert history[0]["role"] == "user"
@@ -1399,7 +1411,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.return_value = []
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
+        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 
@@ -1421,7 +1433,7 @@ class TestInjectMemoryBlock:
             }
         }
 
-        self.manager._inject_memory_block(history, context_metadata, user_id="user-1")
+        self.manager._context.inject_memory_block(history, context_metadata, user_id="user-1")
 
         block = history[0]["content"]
         assert "[global]" in block
@@ -1437,11 +1449,11 @@ class TestInjectMemoryBlock:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
         history = [{"role": "user", "content": "hello"}]
 
-        manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
+        manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 
@@ -1471,7 +1483,7 @@ class TestInjectMemoryBlock:
         self.mock_memory_ops.read_notes.side_effect = RuntimeError("db down")
         history = [{"role": "user", "content": "hello"}]
 
-        self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
+        self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
 
         assert history == [{"role": "user", "content": "hello"}]
 
@@ -1560,9 +1572,8 @@ class TestInjectWorkspaceBlock:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
-            model_index_manager=self.mock_model_index,
-            preset_collaborators=None,
+            chat_mode_registry=mode_registry(),
+            tool_services=ToolServices(model_index_manager=self.mock_model_index, preset_collaborators=None),
         )
 
     def _wire_models(self, by_path):
@@ -1764,9 +1775,8 @@ class TestInjectWorkspaceBlockMusicDirector:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
-            model_index_manager=Mock(),
-            preset_collaborators=None,
+            chat_mode_registry=mode_registry(),
+            tool_services=ToolServices(model_index_manager=Mock(), preset_collaborators=None),
         )
 
     def test_steering_line_and_summary_when_active(self):
@@ -1850,9 +1860,8 @@ class TestInjectWorkspaceBlockVideoDirector:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
-            model_index_manager=Mock(),
-            preset_collaborators=self.mock_preset_collaborators,
+            chat_mode_registry=mode_registry(),
+            tool_services=ToolServices(model_index_manager=Mock(), preset_collaborators=self.mock_preset_collaborators),
         )
 
     def _wire_form_schema(self, properties):
@@ -1986,9 +1995,8 @@ class TestInjectWorkspaceBlockLLMContext:
             llm_service=Mock(),
             response_processor=Mock(),
             plugin_registry=Mock(),
-            chat_mode_registry=_mode_registry(),
-            model_index_manager=self.mock_model_index,
-            preset_collaborators=self.mock_preset_collaborators,
+            chat_mode_registry=mode_registry(),
+            tool_services=ToolServices(model_index_manager=self.mock_model_index, preset_collaborators=self.mock_preset_collaborators),
         )
 
     def _wire_models(self, by_path):
@@ -2287,13 +2295,13 @@ class TestPromiseSentenceRenders:
     """The workspace-note promise sentence survives tool-conditional rendering."""
 
     def test_promise_sentence_present_and_renders(self):
-        registry = _mode_registry()
+        registry = mode_registry()
         mode = registry.require("generation")
 
         rendered = registry.resolve_system_prompt(mode, "hints", allowed_names=["get_form_state"])
 
-        assert "your current workspace" in rendered
-        assert "prompting guidance an admin wrote for them" in rendered
+        assert "the active workspace" in rendered
+        assert "admin prompting guidance" in rendered
         assert "{{" not in rendered
 
 
@@ -2301,12 +2309,12 @@ class TestToolCallFormatGuidance:
     """The tools prompt names the correct call format and warns off near-miss markup."""
 
     def test_builtin_prompt_warns_against_tool_action_markup(self):
-        registry = _mode_registry()
+        registry = mode_registry()
         mode = registry.require("generation")
 
         rendered = registry.resolve_system_prompt(mode, "hints", allowed_names=["get_form_state"])
 
-        assert "never as <tool_action> markup" in rendered
+        assert "a call written as <tool_action> markup" in rendered
         assert "{{" not in rendered
 
     def test_native_client_injects_concrete_tool_call_example(self):
@@ -2425,7 +2433,7 @@ class TestBehaviorTraceToolFailures:
             llm_service=mock_llm,
             response_processor=mock_processor,
             plugin_registry=mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
         session = Mock()
@@ -2474,7 +2482,7 @@ class TestSendMessageToolsPathIterationNudge:
         mock_plugins.execute_hook.return_value = (mock_context, [])
         mock_processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
 
-        registry = _mode_registry()
+        registry = mode_registry()
         registry.require("generation").structured_reply = structured_reply
 
         mock_tool_executor = Mock()

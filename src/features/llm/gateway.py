@@ -1,13 +1,30 @@
+import asyncio
 import logging
 from contextlib import aclosing
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from src.features.llm import context_budget
 from src.features.llm.clients import LLMClient, LLMResponse, NativeLLMClient, OllamaClient, OpenAIClient
-from src.features.llm.model_listing import DiscoveredModel
+from src.features.llm.model_listing import CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS, DiscoveredModel, DiscoveredWindow
 from src.features.llm.repository import LLMConfig, LLMRepository
+from src.features.llm.ttl_cache import TTLCache
+from src.platform.database.rows import now_utc
 from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+
+
+CONTEXT_WINDOW_HIT_TTL_SECONDS = 3600.0
+CONTEXT_WINDOW_MISS_TTL_SECONDS = 300.0
+
+WindowKey = Tuple[str, str, str]
+
+
+@dataclass(frozen=True)
+class WindowProbe:
+    window: Optional[DiscoveredWindow]
+    discovered_at: datetime
 
 
 class LLMGateway:
@@ -35,6 +52,8 @@ class LLMGateway:
             "openai": self._openai,
             "native": self._native,
         }
+        self._window_hits: TTLCache[WindowKey, WindowProbe] = TTLCache(CONTEXT_WINDOW_HIT_TTL_SECONDS)
+        self._window_misses: TTLCache[WindowKey, WindowProbe] = TTLCache(CONTEXT_WINDOW_MISS_TTL_SECONDS)
 
     def _client_for(self, config: LLMConfig) -> LLMClient:
         client = self._clients.get(config.type)
@@ -56,6 +75,63 @@ class LLMGateway:
             raise ValueError(f"LLM type '{type_id}' cannot list models")
         return await self._clients[type_id].list_models(base_url, api_key)
 
+    def supports_context_window_discovery(self, type_id: str) -> bool:
+        return callable(getattr(self._clients.get(type_id), "discover_context_window", None))
+
+    @staticmethod
+    def _window_key(type_id: str, base_url: str, model: str) -> WindowKey:
+        return (type_id, (base_url or "").strip().rstrip("/"), model)
+
+    def _cached_probe(self, key: WindowKey) -> Optional[WindowProbe]:
+        return self._window_hits.get(key) or self._window_misses.get(key)
+
+    async def refresh_context_window(
+        self, type_id: str, base_url: str, api_key: Optional[str], model: str,
+    ) -> WindowProbe:
+        key = self._window_key(type_id, base_url, model)
+        window: Optional[DiscoveredWindow] = None
+        try:
+            window = await asyncio.wait_for(
+                self._clients[type_id].discover_context_window(base_url, api_key, model),
+                timeout=CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS + 1.0,
+            )
+        except Exception:
+            logging.debug("[LLMGateway] context window probe failed for %s", type_id, exc_info=True)
+        probe = WindowProbe(window=window, discovered_at=now_utc())
+        self._window_hits.invalidate(key)
+        self._window_misses.invalidate(key)
+        (self._window_hits if window is not None else self._window_misses).set(key, probe)
+        return probe
+
+    async def ensure_context_window(self, config: LLMConfig) -> None:
+        try:
+            if context_budget.resolve_capacity(config).source == "config":
+                return
+            if not self.supports_context_window_discovery(config.type):
+                return
+            if self._cached_probe(self._window_key(config.type, config.base_url, config.model)) is not None:
+                return
+            await self.refresh_context_window(config.type, config.base_url, config.api_key, config.model)
+        except Exception:
+            logging.debug("[LLMGateway] ensure_context_window failed for '%s'", getattr(config, "id", None), exc_info=True)
+
+    def _discovered_window(self, config: LLMConfig) -> Optional[DiscoveredWindow]:
+        try:
+            probe = self._window_hits.get(self._window_key(config.type, config.base_url, config.model))
+        except Exception:
+            return None
+        return probe.window if probe is not None else None
+
+    def _wire_config(self, config: LLMConfig) -> LLMConfig:
+        if config.type != "ollama":
+            return config
+        capacity = context_budget.resolve_capacity(config, self._discovered_window(config))
+        if capacity.source != "discovered":
+            return config
+        provider_options = dict(config.provider_options or {})
+        provider_options["num_ctx"] = capacity.capacity_tokens
+        return config.model_copy(update={"provider_options": provider_options})
+
     @staticmethod
     def _safe_provider_hook(provider_method: Optional[Any], config: LLMConfig, label: str) -> Optional[Any]:
         """Call an optional per-provider accounting hook (``token_counter``/
@@ -69,26 +145,18 @@ class LLMGateway:
             logging.debug("[LLMGateway] %s failed for '%s'", label, config.id, exc_info=True)
             return None
 
-    def token_counter_for(self, config: LLMConfig) -> Optional[context_budget.TokenCounter]:
-        return self.context_profile_for(config).counter
+    def context_capacity_for(self, config: LLMConfig) -> context_budget.CapacityInfo:
+        return context_budget.resolve_capacity(config, self._discovered_window(config))
 
     def context_profile_for(
         self,
         config: LLMConfig,
         options_override: Optional[Dict[str, Any]] = None,
-        tool_schemas: Optional[List[Dict[str, Any]]] = None,
-        *,
-        force_prompt_tools_eligible: bool = False,
     ) -> context_budget.ContextProfile:
         client = self._client_for(config)
-        capacity = context_budget.resolve_capacity(config)
+        capacity = context_budget.resolve_capacity(config, self._discovered_window(config))
         max_tokens = (options_override or {}).get("max_tokens", config.max_tokens)
-        provider_opts = getattr(config, "provider_options", None) or {}
-        force_prompt_tools = force_prompt_tools_eligible and bool(provider_opts.get("force_prompt_tools", False))
-        native_tools = context_budget.resolve_native_tools(tool_schemas, force_prompt_tools=force_prompt_tools)
-        thinking_enabled = context_budget.resolve_thinking_enabled(
-            config, options_override, native_tools=native_tools,
-        )
+        thinking_enabled = context_budget.resolve_thinking_enabled(config, options_override)
         reserve = context_budget.resolve_reserve(
             max_tokens=max_tokens, window_tokens=capacity.capacity_tokens, thinking_enabled=thinking_enabled,
         )
@@ -116,8 +184,6 @@ class LLMGateway:
         tool_schemas: Optional[List[Dict[str, Any]]] = None,
         image_data: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None,
-        *,
-        force_prompt_tools_eligible: bool = False,
     ) -> context_budget.BudgetOutcome:
         """The one shared budgeting call every gateway send path routes
         through (see ``_budgeted``) and that ``ConversationRunner`` also uses
@@ -126,9 +192,7 @@ class LLMGateway:
         the request doesn't fit even after trimming every eligible older
         message.
         """
-        inputs = self.context_profile_for(
-            config, options_override, tool_schemas, force_prompt_tools_eligible=force_prompt_tools_eligible,
-        )
+        inputs = self.context_profile_for(config, options_override)
         return context_budget.budget_with_profile(
             inputs, system_message=system_message, messages=messages,
             tool_schemas=tool_schemas, image_data=image_data,
@@ -142,15 +206,12 @@ class LLMGateway:
         tool_schemas: Optional[List[Dict[str, Any]]],
         image_data: Optional[str],
         options_override: Optional[Dict[str, Any]],
-        *,
-        force_prompt_tools_eligible: bool = False,
     ) -> tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Budget-check and, if needed, trim *messages* before ANY client
         call — the single choke point every one of the four send methods
         below calls, so a provider-specific path can never skip it."""
         outcome = self.estimate_context_budget(
             config, system_message, messages, tool_schemas, image_data, options_override,
-            force_prompt_tools_eligible=force_prompt_tools_eligible,
         )
         effective_override = options_override
         sent = outcome.ledger["max_tokens_sent"]
@@ -163,7 +224,6 @@ class LLMGateway:
         self,
         config: LLMConfig,
         custom_system_message: Optional[str] = None,
-        log_prefix: str = "[Chat]",
     ) -> str:
         """Resolve the effective system message for a chat call.
 
@@ -174,13 +234,10 @@ class LLMGateway:
         """
         if custom_system_message:
             system_message = custom_system_message
-            logging.info(f"{log_prefix} Using custom_system_message (length: {len(system_message)})")
         elif config.disable_system_prompt:
             system_message = ""
-            logging.info(f"{log_prefix} System prompt disabled for config '{config.id}'")
         else:
             system_message = config.system_message
-            logging.info(f"{log_prefix} Using config default system_message")
         return system_message
 
     async def generate_with_config_id(
@@ -227,7 +284,8 @@ class LLMGateway:
         if not config.enabled:
             raise ValueError(f"LLM configuration '{config.id}' is disabled")
 
-        config = self._clamped_config_for_prompt(config, system_message, prompt, image_data)
+        await self.ensure_context_window(config)
+        config = self._wire_config(self._clamped_config_for_prompt(config, system_message, prompt, image_data))
         return await self._client_for(config).generate(prompt, config, system_message, image_data)
 
     def _clamped_config_for_prompt(
@@ -263,70 +321,33 @@ class LLMGateway:
         llm_id: str,
         image_data: Optional[str] = None,
         custom_system_message: Optional[str] = None,
-        mode: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
-        """Generate a response over a full conversation history.
-
-        Args:
-            messages: List of messages with 'role' and 'content' keys
-            llm_id: LLM configuration ID
-            image_data: Optional base64 encoded image for vision models
-            custom_system_message: Optional custom system message (overrides config default)
-            mode: Optional chat mode id (informational)
-            options_override: Optional sampling overrides (temperature, top_p, top_k, max_tokens,
-                think) applied on top of config/provider_options. Keys not recognized by the
-                target provider are ignored.
-
-        Returns:
-            LLMResponse with generated content
-
-        Raises:
-            ValueError: If LLM configuration not found
-        """
-        config = self.repository.get_configuration(llm_id)
-        if not config:
-            raise ValueError(f"LLM configuration '{llm_id}' not found")
-
-        if not config.enabled:
-            raise ValueError(f"LLM configuration '{config.id}' is disabled")
-
-        system_message = self._resolve_system_message(
-            config, custom_system_message, log_prefix="[Chat]"
-        )
-        messages, options_override = self._budgeted(config, system_message, messages, None, image_data, options_override)
-
-        return await self._client_for(config).generate_with_history(
-            messages, config, system_message, image_data, options_override
+        return await self.generate_with_tools(
+            messages, llm_id, None, image_data, custom_system_message, options_override
         )
 
-    async def stream_with_history(
+    def stream_with_history(
         self,
         messages: list[Dict[str, str]],
         llm_id: str,
         image_data: Optional[str] = None,
         custom_system_message: Optional[str] = None,
-        mode: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[dict, None]:
-        """Stream a response over a full conversation history.
+        return self.stream_with_tools(
+            messages, llm_id, None, image_data, custom_system_message, options_override
+        )
 
-        Args:
-            messages: List of messages with 'role' and 'content' keys
-            llm_id: LLM configuration ID
-            image_data: Optional base64 encoded image for vision models
-            custom_system_message: Optional custom system message (overrides config default)
-            mode: Optional chat mode id (informational)
-            options_override: Optional sampling overrides (temperature, top_p, top_k,
-                max_tokens, think) applied on top of config/provider_options
-
-        Yields:
-            Dicts: {"type": "token", "content": str} for text chunks,
-                   {"type": "usage", "tokens_used": int, "prompt_tokens": int, "completion_tokens": int} at end
-
-        Raises:
-            ValueError: If LLM configuration not found or unsupported type
-        """
+    async def _prepare(
+        self,
+        messages: list[Dict[str, Any]],
+        llm_id: str,
+        tools: Optional[List[Dict]],
+        image_data: Optional[str],
+        custom_system_message: Optional[str],
+        options_override: Optional[Dict[str, Any]],
+    ) -> tuple[LLMConfig, str, list[Dict[str, Any]], Optional[Dict[str, Any]]]:
         config = self.repository.get_configuration(llm_id)
         if not config:
             raise ValueError(f"LLM configuration '{llm_id}' not found")
@@ -334,22 +355,12 @@ class LLMGateway:
         if not config.enabled:
             raise ValueError(f"LLM configuration '{config.id}' is disabled")
 
-        system_message = self._resolve_system_message(
-            config, custom_system_message, log_prefix="[Chat Stream]"
+        await self.ensure_context_window(config)
+        system_message = self._resolve_system_message(config, custom_system_message)
+        messages, options_override = self._budgeted(
+            config, system_message, messages, tools, image_data, options_override,
         )
-        messages, options_override = self._budgeted(config, system_message, messages, None, image_data, options_override)
-
-        # Owns the client's stream: closing THIS generator (aclose(), or an
-        # exception unwinding through it) must close the client's — an
-        # unguarded `async for` here would leave a suspended provider stream
-        # (and whatever it holds — an HTTP response, a lease) to the event
-        # loop's async-generator finalizer instead of closing it at the
-        # point this generator itself is closed.
-        async with aclosing(self._client_for(config).stream_with_history(
-            messages, config, system_message, image_data, options_override
-        )) as agen:
-            async for event in agen:
-                yield event
+        return self._wire_config(config), system_message, messages, options_override
 
     async def generate_with_tools(
         self,
@@ -358,7 +369,6 @@ class LLMGateway:
         tools: List[Dict] = None,
         image_data: Optional[str] = None,
         custom_system_message: Optional[str] = None,
-        mode: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
         """Generate a response with native tool calling support.
@@ -369,7 +379,6 @@ class LLMGateway:
             tools: Optional list of tool definitions to pass to the model
             image_data: Optional base64 encoded image for vision models
             custom_system_message: Optional custom system message (overrides config default)
-            mode: Optional chat mode id (informational)
             options_override: Optional sampling overrides (temperature, top_p, top_k,
                 max_tokens, think) applied on top of config/provider_options
 
@@ -379,19 +388,8 @@ class LLMGateway:
         Raises:
             ValueError: If LLM configuration not found
         """
-        config = self.repository.get_configuration(llm_id)
-        if not config:
-            raise ValueError(f"LLM configuration '{llm_id}' not found")
-
-        if not config.enabled:
-            raise ValueError(f"LLM configuration '{config.id}' is disabled")
-
-        system_message = self._resolve_system_message(
-            config, custom_system_message, log_prefix="[Chat]"
-        )
-        messages, options_override = self._budgeted(
-            config, system_message, messages, tools, image_data, options_override,
-            force_prompt_tools_eligible=True,
+        config, system_message, messages, options_override = await self._prepare(
+            messages, llm_id, tools, image_data, custom_system_message, options_override
         )
 
         return await self._client_for(config).generate_with_tools(
@@ -405,7 +403,6 @@ class LLMGateway:
         tools: Optional[List[Dict]] = None,
         image_data: Optional[str] = None,
         custom_system_message: Optional[str] = None,
-        mode: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None
     ) -> AsyncGenerator[dict, None]:
         """Stream a tool-calling turn, or the final response after tool iterations complete.
@@ -422,19 +419,10 @@ class LLMGateway:
                        model requested tool calls this turn,
                    {"type": "usage", "tokens_used": int, "prompt_tokens": int, "completion_tokens": int} at end
         """
-        config = self.repository.get_configuration(llm_id)
-        if not config:
-            raise ValueError(f"LLM configuration '{llm_id}' not found")
-
-        if not config.enabled:
-            raise ValueError(f"LLM configuration '{config.id}' is disabled")
-
-        system_message = self._resolve_system_message(
-            config, custom_system_message, log_prefix="[Chat Stream]"
+        config, system_message, messages, options_override = await self._prepare(
+            messages, llm_id, tools, image_data, custom_system_message, options_override
         )
-        messages, options_override = self._budgeted(config, system_message, messages, tools, image_data, options_override)
 
-        # See stream_with_history's comment above — same ownership rule.
         async with aclosing(self._client_for(config).stream_with_tools(
             messages, config, system_message, tools, image_data, options_override
         )) as agen:

@@ -54,3 +54,28 @@ def test_two_instances_sharing_a_key_still_use_different_cookie_names(use_secret
     prod = use_secret("shared-secret")
     assert dev != prod
     assert media_session.media_cookie_token(_request({dev: "dev-token"})) is None
+
+def test_the_partitioned_cookie_alone_is_read(use_secret):
+    use_secret("dev-secret")
+    name = media_session.partitioned_media_cookie_name()
+    assert media_session.media_cookie_token(_request({name: "frame-token"})) == "frame-token"
+
+def test_the_lax_cookie_wins_over_the_partitioned_one(use_secret):
+    lax = use_secret("dev-secret")
+    partitioned = media_session.partitioned_media_cookie_name()
+    request = _request({lax: "lax-token", partitioned: "frame-token"})
+    assert media_session.media_cookie_token(request) == "lax-token"
+
+def test_the_partitioned_name_extends_the_lax_name_and_follows_the_instance(use_secret):
+    dev = use_secret("dev-secret")
+    dev_partitioned = media_session.partitioned_media_cookie_name()
+    prod = use_secret("prod-secret")
+    prod_partitioned = media_session.partitioned_media_cookie_name()
+    assert dev_partitioned == f"{dev}_p" and prod_partitioned == f"{prod}_p"
+    assert dev_partitioned != prod_partitioned
+    assert media_session.media_cookie_token(_request({dev_partitioned: "dev-token"})) is None
+
+def test_the_cookie_value_is_ignored_when_it_is_empty(use_secret):
+    use_secret("dev-secret")
+    name = media_session.partitioned_media_cookie_name()
+    assert media_session.media_cookie_token(_request({name: ""})) is None

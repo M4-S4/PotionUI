@@ -79,12 +79,17 @@ class TestResolveThinkingEnabled:
     def test_ollama_false_think_is_disabled(self):
         assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": False})) is False
 
-    def test_ollama_unset_think_defaults_on_without_tools(self):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={}), native_tools=False) is True
+    @pytest.mark.parametrize("provider_options", [None, {}, {"think": None}])
+    def test_ollama_unset_think_is_disabled(self, provider_options):
+        assert resolve_thinking_enabled(_config(type="ollama", provider_options=provider_options)) is False
 
-    def test_ollama_unset_think_defaults_off_with_native_tools(self):
-        assert resolve_thinking_enabled(_config(type="ollama", provider_options={}), native_tools=True) is False
+    @pytest.mark.parametrize("override", [{"temperature": 0.1}, {"think": None}])
+    def test_ollama_unset_think_stays_disabled_when_the_override_does_not_name_one(self, override):
+        assert resolve_thinking_enabled(_config(type="ollama", provider_options={}), override) is False
 
+    def test_ollama_override_can_still_turn_thinking_on_for_one_call(self):
+        config = _config(type="ollama", provider_options={})
+        assert resolve_thinking_enabled(config, {"think": "low"}) is True
 
     def test_ollama_effort_level_is_enabled(self):
         assert resolve_thinking_enabled(_config(type="ollama", provider_options={"think": "high"})) is True
@@ -128,27 +133,23 @@ class TestResolveThinkingEnabledMatchesTheRealWirePayload:
         request = ollama_wire.build_ollama_chat_request(
             config, [{"role": "user", "content": "hi"}], "sys", tools=tools, tool_mode=tool_mode,
         )
-        provider_opts = provider_options or {}
-        force_prompt_tools = tool_mode == ollama_wire.TOOLS_AUTO and bool(provider_opts.get("force_prompt_tools", False))
-        native_tools = context_budget.resolve_native_tools(tools, force_prompt_tools=force_prompt_tools)
-        budget_thinking_enabled = resolve_thinking_enabled(config, native_tools=native_tools)
-        return bool(request.payload["think"]), budget_thinking_enabled
+        return request.payload["think"], resolve_thinking_enabled(config)
 
-    def test_unset_with_no_tools_both_default_on(self):
+    def test_unset_think_agrees_off_without_tools(self):
         wire_think, budget_think = self._compare(None, None, ollama_wire.TOOLS_NONE)
-        assert wire_think is True
-        assert budget_think is True
-
-    def test_unset_with_native_tools_both_default_off(self):
-        wire_think, budget_think = self._compare(None, [_ollama_tool()], ollama_wire.TOOLS_AUTO)
         assert wire_think is False
         assert budget_think is False
 
-    def test_unset_with_force_prompt_tools_both_default_on(self):
-        wire_think, budget_think = self._compare(
-            {"force_prompt_tools": True}, [_ollama_tool()], ollama_wire.TOOLS_AUTO,
-        )
-        assert wire_think is True
+    def test_null_think_agrees_off_with_native_tools(self):
+        wire_think, budget_think = self._compare({"think": None}, [_ollama_tool()], ollama_wire.TOOLS_AUTO)
+        assert wire_think is False
+        assert budget_think is False
+
+    @pytest.mark.parametrize("value", [True, "low", "high"])
+    @pytest.mark.parametrize("tools,mode", [(None, ollama_wire.TOOLS_NONE), ([_ollama_tool()], ollama_wire.TOOLS_AUTO)])
+    def test_an_explicit_value_goes_out_as_given_and_budgets_on(self, value, tools, mode):
+        wire_think, budget_think = self._compare({"think": value}, tools, mode)
+        assert wire_think == value
         assert budget_think is True
 
 
@@ -654,6 +655,22 @@ class TestEnforceBudget:
 # ---------------------------------------------------------------------------
 # resolve_image_token_override
 # ---------------------------------------------------------------------------
+
+class TestToolTier:
+    @pytest.mark.parametrize("tokens,source,expected", [
+        (8192, "unknown", context_budget.TOOL_TIER_STANDARD),
+        (200000, "unknown", context_budget.TOOL_TIER_STANDARD),
+        (8192, "config", context_budget.TOOL_TIER_COMPACT),
+        (24575, "discovered", context_budget.TOOL_TIER_COMPACT),
+        (24576, "discovered", context_budget.TOOL_TIER_STANDARD),
+        (32768, "discovered", context_budget.TOOL_TIER_STANDARD),
+        (65536, "config", context_budget.TOOL_TIER_STANDARD),
+        (65537, "config", context_budget.TOOL_TIER_LARGE),
+        (131072, "discovered", context_budget.TOOL_TIER_LARGE),
+    ])
+    def test_tier_follows_the_known_window(self, tokens, source, expected):
+        assert context_budget.tool_tier(CapacityInfo(tokens, source)) == expected
+
 
 class TestResolveImageTokenOverride:
     def test_unset_is_none(self):

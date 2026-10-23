@@ -9,12 +9,13 @@
 	 * uses — portal + computed fixed position + document-level close
 	 * listeners — just anchored here instead; see computeFlippedMenuPosition).
 	 */
-	import { onMount } from 'svelte';
 	import type { ContextStripModel } from '$lib/chat/contextStrip';
+	import dismiss from '$lib/actions/dismiss';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition } from '$lib/utils/menuPosition';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let model: ContextStripModel;
 	/** Transient signal-blue highlight right after a followed tab switch (~1.2s, caller owns the timer). */
@@ -36,7 +37,6 @@
 		: null;
 
 	let triggerEl: HTMLButtonElement;
-	let menuEl: HTMLDivElement;
 	let showPicker = false;
 	let menuStyle = '';
 
@@ -56,34 +56,6 @@
 		onPinTab?.(id);
 		showPicker = false;
 	}
-
-	function handleOutsidePointerDown(e: PointerEvent) {
-		if (!showPicker) return;
-		const target = e.target as Node;
-		if (!menuEl?.contains(target) && !triggerEl?.contains(target)) {
-			showPicker = false;
-		}
-	}
-
-	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || !showPicker) return;
-		showPicker = false;
-		// A document-level bubble listener runs before window's (capture goes
-		// window->document->target, bubble reverses that), so stopping here
-		// keeps GlobalChatPanel's <svelte:window on:keydown> from also closing
-		// the whole chat panel on this same Escape press (same reasoning as
-		// ChatInput's Tools/pin dropdowns).
-		e.stopPropagation();
-	}
-
-	onMount(() => {
-		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
-		document.addEventListener('keydown', handleOutsideKeydown);
-		return () => {
-			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
-			document.removeEventListener('keydown', handleOutsideKeydown);
-		};
-	});
 </script>
 
 {#if model.state === 'pinned-mismatch'}
@@ -139,7 +111,7 @@
 		data-testid="chat-context-strip"
 		data-strip-state={pinned ? 'pinned-active' : 'following'}
 	>
-		<svg class="icon"><use href={pinned ? '#i-pin' : '#i-file'} /></svg>
+		<Icon name={pinned ? 'chat-pin' : 'chat-file'} className="icon" strokeWidth={1.8} />
 		<button type="button" bind:this={triggerEl} class="context-chip-name" on:click={togglePicker}>
 			{model.tabName}{#if model.presetLabel} · {model.presetLabel}{/if}
 		</button>
@@ -151,7 +123,7 @@
 				class="chip-remove"
 				on:click={() => selectTab(pinned ? null : activeTabId)}
 			>
-				<svg class="icon"><use href="#i-pin" /></svg>
+				<Icon name="chat-pin" className="icon" strokeWidth={1.8} />
 			</button>
 		</Tooltip>
 	</span>
@@ -161,7 +133,7 @@
 	<div
 		use:portal
 		use:overlayLayer
-		bind:this={menuEl}
+		use:dismiss={{ onDismiss: () => (showPicker = false), ignore: [triggerEl] }}
 		class="fixed z-overlay w-[280px] bg-surface-1 border border-line rounded-xl shadow-floating max-h-72 overflow-y-auto"
 		style={menuStyle}
 		data-testid="chat-context-strip-picker"

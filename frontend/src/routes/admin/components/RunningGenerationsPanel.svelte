@@ -8,7 +8,7 @@
 	import { logger } from '$lib/utils/logger';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, EmptyState } from '$lib/components/ui';
-	import { createVisiblePoll } from './visiblePoll';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import {
 		RUNNING_PAGE_SIZE,
 		cancelErrorMessage,

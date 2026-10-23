@@ -56,7 +56,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ._functional import optimized_attention
+from ._functional import optimized_attention, rotate_half
+from .qwen_vl_vision import qwen25vl_mrope_position_ids
 
 # Fixed Qwen3-VL-4B vision-tower architecture constants (HF
 # Qwen/Qwen3-VL-4B-Instruct config.json's `vision_config`, 2026-07-22). Not
@@ -340,16 +341,10 @@ class Qwen3VLVisionRotaryEmbedding(nn.Module):
         return freqs.flatten(1)
 
 
-def _rotate_half_vision(x: torch.Tensor) -> torch.Tensor:
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
 def apply_rotary_pos_emb_vision(q, k, cos, sin):
     cos, sin = cos.unsqueeze(-2).float(), sin.unsqueeze(-2).float()
-    q_embed = (q * cos) + (_rotate_half_vision(q) * sin)
-    k_embed = (k * cos) + (_rotate_half_vision(k) * sin)
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
 
@@ -588,3 +583,59 @@ class Qwen3VLVisionTower(nn.Module):
 
         merged = self.merger(hidden_states)
         return merged, deepstack_features
+
+
+def splice_vision_inputs(
+    module, ids: torch.Tensor, mask: torch.Tensor, images: list[torch.Tensor], *,
+    device, grounding_px: int, image_pad_token: int = IMAGE_PAD_TOKEN,
+) -> tuple[dict[str, Any], torch.Tensor, list[tuple[int, int, torch.Tensor]]]:
+    pad_positions = (ids[0] == image_pad_token).nonzero(as_tuple=True)[0].tolist()
+    if len(pad_positions) != len(images):
+        raise ValueError(
+            f"template has {len(pad_positions)} <|image_pad|> slot(s) but got {len(images)} image(s)"
+        )
+
+    text_embeds = module.model.embed_tokens(ids).to(torch.float32)
+    visual: Qwen3VLVisionTower = module.model.visual
+
+    embed_pieces: list[torch.Tensor] = []
+    mask_pieces: list[torch.Tensor] = []
+    image_spans: list[tuple[int, int, torch.Tensor]] = []
+    deepstack_pieces: list[list[torch.Tensor]] = [[] for _ in visual.deepstack_indexes]
+    cursor = 0
+    for pad_pos, image in zip(pad_positions, images):
+        embed_pieces.append(text_embeds[:, cursor:pad_pos])
+        mask_pieces.append(mask[:, cursor:pad_pos])
+
+        patches, grid_thw = preprocess_qwen3_vl_image(
+            image.to(device), grounding_px=grounding_px,
+            patch_size=visual.patch_size,
+            temporal_patch_size=visual.patch_embed.temporal_patch_size,
+            merge_size=visual.spatial_merge_size,
+        )
+        merged, deepstack_feats = visual(patches.to(device, dtype=torch.float32), grid_thw)
+        start = sum(p.shape[1] for p in embed_pieces)
+        embed_pieces.append(merged.unsqueeze(0).to(text_embeds.dtype))
+        mask_pieces.append(torch.ones((mask.shape[0], merged.shape[0]), dtype=mask.dtype, device=mask.device))
+        image_spans.append((start, merged.shape[0], grid_thw))
+        for j, feat in enumerate(deepstack_feats):
+            deepstack_pieces[j].append(feat)
+
+        cursor = pad_pos + 1
+    embed_pieces.append(text_embeds[:, cursor:])
+    mask_pieces.append(mask[:, cursor:])
+
+    embeds = torch.cat(embed_pieces, dim=1)
+    new_mask = torch.cat(mask_pieces, dim=1)
+    position_ids = qwen25vl_mrope_position_ids(image_spans, embeds.shape[1], embeds.device)
+
+    visual_pos_mask = new_mask.new_zeros(new_mask.shape, dtype=torch.bool)
+    for start, size, _grid in image_spans:
+        visual_pos_mask[:, start:start + size] = True
+    deepstack_embeds = [torch.cat(pieces, dim=0) for pieces in deepstack_pieces]
+
+    inputs = {
+        "inputs_embeds": embeds, "position_ids": position_ids,
+        "deepstack_embeds": deepstack_embeds, "visual_pos_mask": visual_pos_mask,
+    }
+    return inputs, new_mask, image_spans

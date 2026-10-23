@@ -27,6 +27,7 @@ selector alone, across the t2v/i2v/chain sub-types).
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -36,14 +37,16 @@ from src.features.presets.processor import PresetProcessor
 from src.features.video_director.normalize import derive_segment_routing
 from src.platform.templating.processor import TemplateProcessor
 
+from ._bound_form import bound_form_data
+
 
 @pytest.fixture(scope="module")
 def wan_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "native/Wan" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/Wan" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("native/Wan preset not present")
+        pytest.fail("marketplace/Wan preset not present")
     return template
 
 
@@ -68,6 +71,7 @@ def _process(wan_template, mode, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
+    form_data = bound_form_data(wan_template, mode, form_data)
     generation_data = {"prompts": [], "mode": mode, "form_data": form_data}
     return processor.process(wan_template, generation_data)
 

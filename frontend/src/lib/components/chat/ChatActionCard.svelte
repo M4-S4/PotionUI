@@ -16,13 +16,17 @@
 		type ActionDecision,
 		type ActionResolveOutcome
 	} from '$lib/chat/actionCard';
+	import type { VariableRoll, VariablesMap } from '$lib/utils/variableDefs';
 	import ChatActionPreview from './ChatActionPreview.svelte';
+	import Icon from '$lib/components/Icon.svelte';
 
 	let {
 		execution,
 		actionKey,
 		locked = false,
 		externalError = null,
+		variables = undefined,
+		rolls = undefined,
 		onResolve,
 		onAskRedo
 	}: {
@@ -30,6 +34,8 @@
 		actionKey: string;
 		locked?: boolean;
 		externalError?: string | null;
+		variables?: VariablesMap;
+		rolls?: Record<string, VariableRoll>;
 		onResolve?: (decision: ActionDecision) => Promise<ActionResolveOutcome>;
 		onAskRedo?: () => void;
 	} = $props();
@@ -162,7 +168,7 @@
 	>
 		<div class="action-card-head">
 			<div class="action-card-title">
-				<svg class="icon" aria-hidden="true"><use href="#{actionCardIcon(execution)}" /></svg>
+				<Icon name={actionCardIcon(execution)} className="icon" strokeWidth={1.8} />
 				<strong>{toolLabel}</strong>
 				<span class="action-label is-{cardState}">{ACTION_STATE_LABEL[cardState]}</span>
 			</div>
@@ -252,7 +258,7 @@
 					{@const Renderer = pluginRenderer}
 					<Renderer {execution} {toolMeta} expanded={true} />
 				{:else}
-					<ChatActionPreview {execution} />
+					<ChatActionPreview {execution} {variables} {rolls} />
 				{/if}
 			</div>
 		{/if}

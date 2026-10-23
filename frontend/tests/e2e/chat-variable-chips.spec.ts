@@ -4,7 +4,6 @@ import { installAndSelectImagePreset } from './presetPreamble';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-variable-chips';
-const BEAT = 450;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 // ${var} awareness in chat messages: a name defined in the generate tab's
@@ -32,7 +31,6 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	test.setTimeout(120000);
 	await loginAsOwner(page);
 	const token = await ownerToken(page);
-	const headers = { Authorization: `Bearer ${token}` };
 	await seedFakeLlmConfig(page.request, BACKEND, token, fake.url);
 
 	const preset = await installAndSelectImagePreset(page);
@@ -53,7 +51,6 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 		}
 		await variablesButton.waitFor({ state: 'visible', timeout: 10000 });
 	}
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'generate-with-preset');
 
 	// Define a text variable through the real Variable Manager.
@@ -62,7 +59,6 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	await expect(modal).toBeVisible({ timeout: 10000 });
 	await modal.getByLabel('Variable name').fill(VARIABLE_NAME);
 	await modal.getByLabel('Variable value').fill(VARIABLE_VALUE);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'variable-defined');
 	await modal.getByRole('button', { name: 'Done' }).click();
 	await expect(modal).toBeHidden();
@@ -87,8 +83,7 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	await page.keyboard.type('How should I use my variables?');
 	await composer.locator('button[aria-label="Send message"]').click();
 
-	// Known ${style} becomes a chip carrying the variable's value as tooltip.
-	const chip = page.locator(`span[title="${VARIABLE_VALUE}"]`);
+	const chip = page.locator(`span[data-tooltip="${VARIABLE_VALUE}"]`);
 	await expect(chip).toBeVisible({ timeout: 30000 });
 	await expect(chip).toContainText(VARIABLE_NAME);
 
@@ -96,10 +91,9 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	await expect(page.getByText('${nope}')).toBeVisible();
 	await expect(page.getByText('${style}')).toHaveCount(0);
 
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'variable-chip-rendered');
 	await chip.hover();
-	await page.waitForTimeout(BEAT);
+	await expect(page.getByRole('tooltip')).toHaveText(VARIABLE_VALUE);
 	await screenshot(page, JOURNEY, 'conversation-final');
 
 	console.log(

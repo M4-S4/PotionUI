@@ -4,9 +4,7 @@ import html
 import logging
 import math
 import re
-import threading
 import time
-from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Mapping, Optional, Sequence, Tuple
 from urllib.parse import unquote, urlsplit
@@ -30,7 +28,12 @@ from ..schema import (
 )
 from ..security import is_allowed_download_url, sanitize_html
 from .base import SearchQuery
-from .huggingface import MARKDOWN_EXTRAS
+from .coerce import as_list as _list
+from .coerce import int_value
+from .coerce import sha256_hex as _sha256
+from .coerce import strings as _strings
+from .coerce import text as _text
+from .markdown import RenderMemo, convert_markdown, paragraphs_html
 
 logger = logging.getLogger("plugins.model-browser")
 
@@ -104,46 +107,20 @@ _HOST_LABELS: Tuple[Tuple[str, str], ...] = (
 )
 
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,199}")
-_SHA256 = re.compile(r"[0-9a-fA-F]{64}")
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _CURSOR = re.compile(r"[0-9]{1,9}")
 _SCALE = re.compile(r"([0-9]{1,3})x?", re.I)
 _EXTENSION = re.compile(r"[a-z0-9]{1,16}")
-_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
 _ODD_URL_CHARACTERS = frozenset("\\\"'<>`")
 
 
-def _text(value: Any) -> Optional[str]:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
-
-
 def _int(value: Any) -> Optional[int]:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
-        return int(value)
-    return None
+    return int_value(value, whole_floats_only=True)
 
 
 def _positive(value: Any) -> Optional[int]:
     number = _int(value)
     return number if number is not None and number > 0 else None
-
-
-def _list(value: Any) -> List[Any]:
-    return value if isinstance(value, list) else []
-
-
-def _strings(values: Any) -> List[str]:
-    return list(dict.fromkeys(value.strip() for value in _list(values) if isinstance(value, str) and value.strip()))
-
-
-def _sha256(value: Any) -> Optional[str]:
-    return value.lower() if isinstance(value, str) and _SHA256.fullmatch(value) else None
 
 
 def is_model_id(value: Any) -> bool:
@@ -561,42 +538,18 @@ def build_catalog(
     )
 
 
-_RENDER_MEMO_SIZE = 64
-_render_memo: "OrderedDict[str, str]" = OrderedDict()
-_render_lock = threading.Lock()
-
-
-def _paragraphs(text: str) -> str:
-    return "".join(f"<p>{html.escape(part.strip())}</p>" for part in _PARAGRAPH_BREAK.split(text) if part.strip())
+_render_memo: "RenderMemo[str]" = RenderMemo(64)
 
 
 def _render(text: str) -> str:
     if len(text) > MAX_MARKDOWN_CHARS:
-        return _paragraphs(text)
-    try:
-        import markdown2
-    except ImportError:
-        return _paragraphs(text)
-    try:
-        return str(markdown2.markdown(text, extras=dict(MARKDOWN_EXTRAS)))
-    except Exception:  # noqa: BLE001
-        logger.warning("[MODEL-BROWSER] OpenModelDB: could not convert a description; showing it as text", exc_info=True)
-        return _paragraphs(text)
+        return paragraphs_html(text)
+    rendered = convert_markdown(text, "OpenModelDB: could not convert a description")
+    return paragraphs_html(text) if rendered is None else rendered
 
 
 def render_markdown(text: str) -> str:
-    key = hashlib.md5(text.encode("utf-8", "replace"), usedforsecurity=False).hexdigest()
-    with _render_lock:
-        hit = _render_memo.get(key)
-        if hit is not None:
-            _render_memo.move_to_end(key)
-            return hit
-    markup = _render(text)
-    with _render_lock:
-        _render_memo[key] = markup
-        while len(_render_memo) > _RENDER_MEMO_SIZE:
-            _render_memo.popitem(last=False)
-    return markup
+    return _render_memo.render(text, _render)
 
 
 def facts_line(raw: Mapping[str, Any], catalog: Catalog) -> Optional[str]:
@@ -697,6 +650,7 @@ def normalize_item(model_id: str, raw: Mapping[str, Any], catalog: Catalog) -> S
         stats=Stats(),
         source_url=model_page_url(model_id),
         primary_sha256=primary.sha256 if primary is not None else None,
+        primary_size_bytes=primary.size_bytes if primary is not None else None,
     )
 
 

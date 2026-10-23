@@ -23,7 +23,7 @@ import torch
 from src.platform.runtime.native.arch.krea2.model import Krea2
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
-from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _MODEL_PATH = "src/platform/runtime/native/arch/krea2/model.py"
@@ -35,10 +35,6 @@ TINY = {
     "channels": 4, "layers": 1, "multiplier": 1, "tdim": 16, "txtdim": 16,
     "txtheads": 2, "txtkvheads": 2, "txtlayers": 3, "patch": 2, "theta": 1000.0,
 }
-
-
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
 
 
 def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
@@ -54,7 +50,7 @@ def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
 
 
 def _build_ready(config) -> Krea2:
-    m = Krea2.from_config(config, _fp32_ops())
+    m = Krea2.from_config(config, fp32_ops())
     load_into_module(m, _randomised_state_dict(m), match_model_spec(config))
     m.eval()
     return m
@@ -92,12 +88,12 @@ def head_krea2_model():
 def test_no_ref_forward_matches_head_bit_exact(head_krea2_model):
     torch.manual_seed(7)
     config = TINY
-    m_new = Krea2.from_config(config, _fp32_ops())
+    m_new = Krea2.from_config(config, fp32_ops())
     sd = _randomised_state_dict(m_new)
     load_into_module(m_new, sd, match_model_spec(config))
     m_new.eval()
 
-    m_head = head_krea2_model.Krea2.from_config(config, _fp32_ops())
+    m_head = head_krea2_model.Krea2.from_config(config, fp32_ops())
     load_into_module(m_head, {k: v.clone() for k, v in sd.items()}, match_model_spec(config))
     m_head.eval()
 
@@ -113,7 +109,7 @@ def test_no_ref_forward_matches_head_bit_exact(head_krea2_model):
 def test_no_ref_build_stream_inputs_matches_head_bit_exact(head_krea2_model):
     torch.manual_seed(8)
     m_new = _build_ready(TINY)
-    m_head = head_krea2_model.Krea2.from_config(TINY, _fp32_ops())
+    m_head = head_krea2_model.Krea2.from_config(TINY, fp32_ops())
     load_into_module(m_head, {k: v.clone() for k, v in m_new.state_dict().items()}, match_model_spec(TINY))
     m_head.eval()
 

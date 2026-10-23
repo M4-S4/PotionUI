@@ -20,6 +20,7 @@ from src.platform.security.secrets import (
 )
 
 from tests.features.plugins.test_credential_encryption import fresh_file_database
+from tests.platform.database._support import load_migration
 
 PLAINTEXT_KEY = "sk-openai-DUMPGREP-4c7e1a"
 
@@ -41,6 +42,7 @@ def key():
 @pytest.fixture
 def db(tmp_path, key):
     database = fresh_file_database(tmp_path / "db.sqlite")
+    load_migration("065_llm_show_thinking", database).up()
     configure_secret_cipher(SecretCipher([key]))
     with patch("src.platform.database.database.db", database):
         yield database

@@ -1,0 +1,23 @@
+pipeline:
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["tool", "merge_loras"]
+        - ["method", "{{ form.merge_method }}"]
+
+  - name: "model_tools"
+    id: "model_tools"
+    enabled: true
+    configuration:
+      mode: "merge_loras"
+      loras: "{{ form.loras }}"
+      merge_method: "{{ form.merge_method }}"
+      target_rank: "{{ form.target_rank }}"
+      min_energy: "{{ form.min_energy | default(0.9) }}"
+      lora_dtype: "{{ form.lora_dtype | default('F32') }}"
+      output_name: "{{ form.output_name | default('') }}"
+      overwrite: "{{ form.overwrite | default(false) }}"
+      is_admin: "{{ runtime.user.is_admin }}"

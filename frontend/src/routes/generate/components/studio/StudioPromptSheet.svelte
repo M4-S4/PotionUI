@@ -1,5 +1,5 @@
 <script lang="ts">
-	import StudioSheet from './StudioSheet.svelte';
+	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import PromptSection from '../PromptSection.svelte';
 	import type { Tab } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
@@ -33,7 +33,7 @@
 	<svelte:fragment slot="header">
 		<div class="flex items-baseline gap-2">
 			<span class="text-sm font-semibold text-fg">Prompt</span>
-			<span class="font-mono text-2xs text-fg-subtle"
+			<span class="font-mono text-sm text-fg-subtle"
 				>{segmentCount} {segmentCount === 1 ? 'SEGMENT' : 'SEGMENTS'}</span
 			>
 		</div>

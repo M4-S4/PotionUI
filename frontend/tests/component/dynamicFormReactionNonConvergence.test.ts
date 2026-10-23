@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetFormSchema: vi.fn() }
@@ -35,10 +36,6 @@ const PING_PONG = {
 		}
 	}
 };
-
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 let destroy: (() => void) | undefined;
 
@@ -76,7 +73,7 @@ describe('DynamicForm reaction non-convergence', () => {
 			target.remove();
 		};
 
-		await settle();
+		await settle(10);
 
 		expect(log.length).toBeGreaterThan(0);
 		expect(log.length).toBeLessThan(50);

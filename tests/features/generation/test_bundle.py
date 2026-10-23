@@ -177,14 +177,11 @@ class _StubPresetNameResolver:
 
 
 class _StubPresetLoader:
-    """Enough of `PresetTemplateLoader` for `_model_reference_field_names`:
-    an already-loaded `.presets` list and a no-op `_ensure_loaded`."""
-
     def __init__(self, presets):
         self.presets = presets
 
-    def _ensure_loaded(self):
-        pass
+    def get(self, preset_id):
+        return next((preset for preset in self.presets if preset.id == preset_id), None)
 
 
 class TestExportImportRoundTrip:

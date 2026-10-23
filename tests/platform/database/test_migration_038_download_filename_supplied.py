@@ -1,6 +1,4 @@
-import importlib.util
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,36 +7,12 @@ from unittest.mock import patch
 from src.features.downloads.models import Download
 from src.platform.database.database import Database
 from tests.fixtures.persistence_base import make_lean_file_database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MIGRATIONS_DIR, MigrationCase, load_migration
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration038DownloadFilenameSupplied(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        _load_migration("005_download_destination_backend", self.db).up()
-        self.migration = _load_migration("038_download_filename_supplied", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration038DownloadFilenameSupplied(MigrationCase):
+    MIGRATION = "038_download_filename_supplied"
+    PREREQUISITES = ("001_baseline", "005_download_destination_backend")
 
     def _has_column(self) -> bool:
         with self.db.get_cursor() as cursor:
@@ -77,13 +51,6 @@ class TestMigration038DownloadFilenameSupplied(unittest.TestCase):
 
         self.assertTrue(self._has_column())
 
-    def test_down_drops_the_column(self):
-        self.migration.up()
-
-        self.migration.down()
-
-        self.assertFalse(self._has_column())
-
 
 _pre_038_template = None
 
@@ -97,10 +64,10 @@ def _pre_038_template_path(repo_root):
         database.db_path = path
         database._initialized = True
         make_lean_file_database(database)
-        stems = sorted(p.stem for p in _MIGRATIONS.glob("*.py") if p.name != "__init__.py")
+        stems = sorted(p.stem for p in MIGRATIONS_DIR.glob("*.py") if p.name != "__init__.py")
         with patch("pathlib.Path.cwd", return_value=repo_root):
             for stem in [stem for stem in stems if stem < "038_download_filename_supplied"]:
-                _load_migration(stem, database).up()
+                load_migration(stem, database).up()
         with database.get_connection() as conn:
             conn.execute("PRAGMA journal_mode = DELETE").close()
         Database._instance = None
@@ -122,9 +89,8 @@ class TestMigration038OnTheFullChain(unittest.TestCase):
         make_lean_file_database(self.db)
         self.cwd_patch = patch("pathlib.Path.cwd", return_value=repo_root)
         self.cwd_patch.start()
-        self.migration = _load_migration("038_download_filename_supplied", self.db)
+        self.migration = load_migration("038_download_filename_supplied", self.db)
 
-    def tearDown(self):
         self.cwd_patch.stop()
         Database._instance = None
 

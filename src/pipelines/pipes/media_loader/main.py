@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Any, List, Union
+from typing import List
 from pathlib import Path
 from PIL import Image, ImageFile
 
@@ -21,18 +21,6 @@ from src.pipelines.outputs import Icon, Progress
 class MediaLoaderPipe(BasePipe):
     name = "media_loader"
     description = "Load media files (images/videos/audio) from form file paths and convert them to proper IOType objects"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "validate_files": True,  # Validate that files exist and are readable
-            "max_file_size": 104857600,  # 100MB max file size
-            "supported_image_formats": [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"],
-            "supported_video_formats": [".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"],
-            "supported_audio_formats": [".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac"],
-            "auto_detect_type": True,  # Auto-detect media type from file extension
-            "media": [],  # List of media files to load: [{"type": "video", "path": "..."}]
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -179,33 +167,6 @@ class MediaLoaderPipe(BasePipe):
             return "unknown"
 
     def _decode_image(self, file_path: str) -> Image.Image:
-        """Open the image and force a full pixel decode (PIL is lazy on `Image.open`:
-        it only reads the header, and the actual pixel decode happens on first use,
-        against a still-open file object).
-
-        This eager `image.load()` is a CORRECTNESS requirement, not just better error
-        attribution - do not remove it as an "optimization". This pipe runs inside the
-        generation pipeline on a worker thread (`InProcessBackend` drives pipes via
-        `asyncio.to_thread`), but the image this method returns is also handed to
-        `generation_outputs(ImageGenerationOutput(...))`, which the event loop consumes
-        via `OutputBridge` and encodes as a base64 preview
-        (`src/features/generation/handlers/image_handler.py::create_base64_image`) on the
-        EVENT-LOOP thread, concurrently with this pipe (and later pipes, e.g.
-        `_prep_start_frame`'s `.convert("RGB")`) continuing to run on the worker thread.
-        A lazily-opened `Image` still holds an open file handle (`image.fp`) and no
-        decoded pixel buffer (`image.im`); if two threads both trigger PIL's decoder on
-        that same file object, the decode is corrupted mid-stream and raises errors like
-        "unrecognized data stream contents when reading image file" - on a perfectly
-        valid file. Forcing the decode here, before the image is ever handed off,
-        guarantees `image.im` is populated and `image.fp` is cleared (see
-        `PIL.Image.Image.load`), so every later consumer - on any thread - only ever
-        reads an already-decoded, file-independent image.
-
-        If the strict decode raises OSError (PIL's IMAGING_CODEC_UNKNOWN / truncated data
-        - i.e. the file genuinely is truncated/corrupt, unlike the race above), retry once
-        with `ImageFile.LOAD_TRUNCATED_IMAGES = True` and log a loud warning on success.
-        That flag is global PIL state, so it is always restored afterwards.
-        """
         image = Image.open(file_path)
         try:
             image.load()
@@ -356,7 +317,8 @@ class MediaLoaderPipe(BasePipe):
         generation_outputs(ProgressGenerationOutput(
             state=f"Processing <<NUMBER:{len(media_list)} media files:folder>>",
             icon=Icon("folder"),
-            progress=Progress(0, 100)
+            progress=Progress(0, 100),
+            bar=False
         ))
 
         for i, media_item in enumerate(media_list):
@@ -416,7 +378,8 @@ class MediaLoaderPipe(BasePipe):
                 generation_outputs(ProgressGenerationOutput(
                     state=f"Loading <<EFFECT:{Path(file_path).name}:{media_type}>> (<<NUMBER:{i+1}/{len(media_list)}>>)",
                     icon=Icon("folder-open"),
-                    progress=Progress((i * 80) // len(media_list), 100)
+                    progress=Progress((i * 80) // len(media_list), 100),
+                    bar=False
                 ))
 
                 # Load based on type
@@ -496,7 +459,8 @@ class MediaLoaderPipe(BasePipe):
             state=f"Loaded <<NUMBER:{total_loaded} files:check-circle>> (<<NUMBER:{len(loaded_images)} images:image>>, "
                   f"<<NUMBER:{len(loaded_videos)} videos:video>>, <<NUMBER:{len(loaded_audio)} audio:audio>>)",
             icon=Icon("check-circle"),
-            progress=Progress(100, 100)
+            progress=Progress(100, 100),
+            bar=False
         ))
 
         logger.info(f"[MEDIA_LOADER] Successfully loaded {len(loaded_images)} images, {len(loaded_videos)} videos, "

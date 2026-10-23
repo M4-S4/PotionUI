@@ -37,24 +37,26 @@ from src.bootstrap.container import build_container
 from src.features.generation.routes import _get_generation_controller as _generation_controller
 
 run_migrations_sync()
+from src.platform.websocket.notification_connection_hub import notification_connection_hub
 c = build_container()
 r = c.chat_runtime
 indexer = c.media_indexer
 report = {
-    "unwired": sorted(k for k, v in vars(r).items() if v is None),
+    "unwired": sorted(k for k, v in {**vars(r), **vars(r.tool_services)}.items() if v is None),
     "same": {
-        "preset_collaborators": r.preset_collaborators is c.preset_collaborators,
-        "model_index_manager": r.model_index_manager is c.model_index_manager,
-        "generation_orchestrator": r.generation_orchestrator is c.generation_orchestrator,
-        "generation_history_facade": r.generation_history_facade is c.generation_history_facade,
+        "preset_collaborators": r.tool_services.preset_collaborators is c.preset_collaborators,
+        "model_index_manager": r.tool_services.model_index_manager is c.model_index_manager,
+        "generation_orchestrator": r.tool_services.generation_orchestrator is c.generation_orchestrator,
+        "generation_history_facade": r.tool_services.generation_history_facade is c.generation_history_facade,
         "generation_repository": r.generation_repository is c.generation_repository,
-        "prompt_database": r.prompt_database is c.prompt_database,
+        "prompt_database": r.tool_services.prompt_database is c.prompt_database,
         "chat_repository": r.chat_repository is c.chat_repository,
         "response_processor": r.response_processor is c.response_processor,
         "controller_runtime": c.chat_controller.chat_runtime is r,
         "controller_turns": c.chat_controller.turn_registry is c.chat_turn_registry,
         "plugin_registry": c.plugin_controller.registry is c.plugin_registry,
         "runtime_plugins": r.plugins is c.plugin_registry,
+        "indexer_plugins": indexer.plugins is c.plugin_registry,
         "facade_repo": c.generation_history_facade.generation_repo is c.generation_repository,
         "parameter_repository": (
             c.inspiration_collaborators.generation_parameter_repository
@@ -87,6 +89,9 @@ report = {
         "orchestrator_uses_the_broadcaster": c.generation_orchestrator.output_broadcaster is c.output_broadcaster,
         "controller_uses_the_broadcaster": _generation_controller(c).output_broadcaster is c.output_broadcaster,
         "websocket_handler_uses_the_container_hub": _generation_controller(c).websocket_handler.connection_hub is c.connection_hub,
+        "model_files_are_indexed_by_the_container_coordinator": (
+            c.output_processor.model_file_indexer == c.model_index_manager.indexing.index_downloaded
+        ),
     },
     "shutdownable": {
         "history_executor": hasattr(c.generation_history_facade.executor, "shutdown"),
@@ -102,6 +107,20 @@ report = {
         "plugin_kinds": c.plugin_registry.limit_kind_registry is c.limit_kind_registry,
         "core_kinds": sorted(k.key for k in c.limit_kind_registry.all() if k.source == "core"),
     },
+    "tab_draft_wiring": {
+        "controller_uses_the_container_manager": c.tab_draft_controller.manager is c.tab_draft_manager,
+        "manager_has_a_repository": c.tab_draft_manager.repository is not None,
+        "chat_tools_use_the_container_manager": c.chat_runtime.tool_services.tab_drafts is c.tab_draft_manager,
+        "mcp_tools_use_the_container_manager": c.mcp_tool_collaborators.services.tab_drafts is c.tab_draft_manager,
+        "pushes_go_to_the_notification_hub": c.tab_draft_manager.notifier is notification_connection_hub,
+        "housekeeping_sweeps_the_container_manager": any(
+            t.name == "tab_drafts" for t in c.housekeeping_worker.tasks
+        ),
+    },
+    "detected_tags_wired": any(
+        pid == "organize_engine"
+        for pid, _ in c.plugin_registry.hook_chain._handlers.get("media_index.after_tags_written", [])
+    ),
     "failure_alerts_wired": any(
         pid == "core.admin_failure_alerts"
         for pid, _ in c.plugin_registry.hook_chain._handlers.get("generation.failed", [])
@@ -109,6 +128,42 @@ report = {
     "inference_imports": [
         m for m in ("torch", "diffusers", "transformers") if m in sys.modules
     ],
+}
+from types import SimpleNamespace
+from src.features.generation.status_tracker import GenerationState
+governor = c.model_index_manager.indexing.scanner.governor
+c.backend_registry.get_backends_for_engine = lambda engine: [
+    SimpleNamespace(backend_id="local-1", config=SimpleNamespace(driver="native.local"))
+]
+idle = governor.throttle.generation_running()
+c.generation_status_tracker.create("g-cloud", backend_id="cloud-1").state = GenerationState.RUNNING
+other_backend = governor.throttle.generation_running()
+c.generation_status_tracker.create("g-local", backend_id="local-1").state = GenerationState.RUNNING
+report["indexing_wiring"] = {
+    "indexing_starts_at_the_low_level": governor.level() == "low",
+    "an_idle_app_does_not_pause_indexing": idle is False,
+    "a_generation_on_another_backend_does_not_pause_indexing": other_backend is False,
+    "a_running_local_generation_pauses_indexing": governor.throttle.generation_running() is True,
+}
+digests = c.model_index_manager.digests
+indexing = c.model_index_manager.indexing
+scanner = indexing.scanner
+report["digest_wiring"] = {
+    "the_scanner_hands_large_files_to_the_digest_pool": scanner.digests is digests,
+    "the_pool_writes_under_the_scanners_lock": digests._write_lock is scanner.write_lock,
+    "the_pool_follows_the_same_level_and_pause_rules": digests.governor is governor,
+    "the_pool_reports_applied_digests_to_the_coordinator": digests._on_applied == indexing.on_digests_applied,
+    "the_scanner_reports_contested_files_to_the_coordinator": scanner.contested_listener == indexing._on_contested_resolved,
+    "the_pool_resolves_paths_through_the_scanner": digests._path_for == scanner.location_path,
+    "the_pool_is_not_running_until_the_lifespan_starts_it": digests._running is False,
+    "provider_fetch_hashes_through_the_pool": c.model_index_manager.provider_info.digests is digests,
+    "setting_a_type_can_ask_the_pool_for_a_digest": c.model_index_manager.types._digests is digests,
+    "remote_backends_hash_bundled_models_through_the_pool": c.backend_registry.model_digests is digests,
+    "recipe_listings_look_for_renamed_files_through_the_pool": c.recipe_slot_variants._digests is digests,
+    "download_verification_is_paced_by_the_same_governor": c.download_queue.verify_throttle == governor.verification_throttle,
+    "preset_requirements_can_count_unverified_files": c.model_index_manager.digests.pending_count() == 0,
+    "the_recipe_plan_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.plan")._digests is digests,
+    "the_recipe_fetch_looks_for_renamed_files_through_the_pool": c.recipe_runner._executor_registry.get_executor("artifacts.fetch")._digests is digests,
 }
 print("COMPOSITION_REPORT=" + json.dumps(report))
 """
@@ -168,6 +223,22 @@ def test_every_submit_and_upload_path_shares_the_one_limit_guard(report):
     wiring = dict(report["limit_wiring"])
     assert wiring.pop("core_kinds") == ["cloud_spend_usd_month", "generations_per_day", "storage_bytes", "upload_file_size"]
     assert [k for k, v in wiring.items() if not v] == []
+
+
+def test_indexing_pauses_only_for_a_generation_running_on_this_machine(report):
+    assert [k for k, v in report["indexing_wiring"].items() if not v] == []
+
+
+def test_the_digest_pool_is_wired_to_the_scanner_and_the_coordinator(report):
+    assert [k for k, v in report["digest_wiring"].items() if not v] == []
+
+
+def test_tab_drafts_are_composed_and_swept_by_housekeeping(report):
+    assert [k for k, v in report["tab_draft_wiring"].items() if not v] == []
+
+
+def test_organize_listens_to_the_tags_the_media_indexer_announces(report):
+    assert report["detected_tags_wired"] is True
 
 
 def test_admin_failure_alerts_listen_to_generation_failed(report):

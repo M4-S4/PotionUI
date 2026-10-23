@@ -17,6 +17,7 @@
 	import axios from 'axios';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import { authStore } from '$lib/stores/auth';
 	import { AdminOnlyMark, Badge, Button, Spinner } from '$lib/components/ui';
 	import Icon from '../Icon.svelte';
@@ -38,6 +39,8 @@
 	import type { ModelRecommendation, PresetRecipeLink } from '$lib/types/api';
 
 	export let modelType: string;
+	export let modelTypes: string[] = [];
+	export let unquantizedOnly: boolean = false;
 	export let presetId: string = '';
 	export let limit: number = 100;
 	export let searchQuery: string = '';
@@ -129,11 +132,8 @@
 	async function resolveTagIds(names: string[], signal: AbortSignal): Promise<string[]> {
 		if (names.length === 0) return [];
 		try {
-			const response = await api.getTags('MODEL', signal);
-			if (response.success && response.data?.tags) {
-				const allTags = response.data.tags;
-				return names.map((n) => allTags.find((t: any) => t.name === n)?.id).filter(Boolean);
-			}
+			const allTags = await tagCatalog.get('MODEL', { signal });
+			return names.map((n) => allTags.find((t) => t.name === n)?.id).filter(Boolean) as string[];
 		} catch (error) {
 			if (axios.isCancel(error)) throw error;
 			logger.error('[ModelBrowserPanel] Failed to resolve tag filters:', error);
@@ -174,6 +174,8 @@
 		// specific request believes its own scope was.
 		const scope = {
 			modelType,
+			modelTypes: [...modelTypes],
+			unquantizedOnly,
 			presetId,
 			searchQuery,
 			limit,
@@ -194,7 +196,9 @@
 				limit: scope.limit,
 				tagIds,
 				anyTagIds: scope.filterTagIds,
-				favoritesOnly: scope.favoritesOnly
+				favoritesOnly: scope.favoritesOnly,
+				modelTypes: scope.modelTypes,
+				unquantizedOnly: scope.unquantizedOnly
 			});
 			const response =
 				request.kind === 'preset'
@@ -242,6 +246,8 @@
 	let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastScope = {
 		modelType: '',
+		modelTypes: '',
+		unquantizedOnly: false,
 		presetId: '',
 		searchQuery: '',
 		limit: 0,
@@ -259,6 +265,8 @@
 	// fetch at all.
 	$: scheduleFilterFetch(
 		modelType,
+		modelTypes.join(','),
+		unquantizedOnly,
 		presetId,
 		searchQuery,
 		limit,
@@ -270,6 +278,8 @@
 
 	function scheduleFilterFetch(
 		mt: string,
+		typesKey: string,
+		unquantized: boolean,
 		pid: string,
 		query: string,
 		lim: number,
@@ -281,6 +291,8 @@
 		if (!isMounted) return;
 		const current = {
 			modelType: mt,
+			modelTypes: typesKey,
+			unquantizedOnly: unquantized,
 			presetId: pid,
 			searchQuery: query,
 			limit: lim,
@@ -291,6 +303,8 @@
 		const searchQueryChanged = current.searchQuery !== lastScope.searchQuery;
 		const othersChanged =
 			current.modelType !== lastScope.modelType ||
+			current.modelTypes !== lastScope.modelTypes ||
+			current.unquantizedOnly !== lastScope.unquantizedOnly ||
 			current.presetId !== lastScope.presetId ||
 			current.limit !== lastScope.limit ||
 			current.tagFilters !== lastScope.tagFilters ||
@@ -320,6 +334,8 @@
 	onMount(() => {
 		lastScope = {
 			modelType,
+			modelTypes: modelTypes.join(','),
+			unquantizedOnly,
 			presetId,
 			searchQuery,
 			limit,

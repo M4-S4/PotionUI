@@ -185,7 +185,7 @@ button { cursor: pointer; }
 
 .chip .icon { width: 10px; height: 10px; margin-left: 4px; color: rgb(var(--fg-subtle)); }
 
-.phrase-chip, .variable-chip, .choice-chip, .resource-chip { padding: 0; overflow: hidden; }
+.phrase-chip, .variable-chip, .choice-chip, .resource-chip, .condition-chip { padding: 0; overflow: hidden; }
 
 .resource-chip { vertical-align: middle; }
 
@@ -259,7 +259,7 @@ button { cursor: pointer; }
 
 .resolved-body mark { color: rgb(var(--fg)); background: transparent; text-decoration: underline; text-decoration-color: rgb(var(--line-strong)); text-underline-offset: 3px; }
 
-.floating { position: absolute; z-index: 40; background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line-strong)); border-radius: 9px; box-shadow: var(--shadow-overlay); overflow: hidden; }
+.floating { position: absolute; z-index: 40; background: rgb(var(--surface-1)); border: 1px solid rgb(var(--line-strong)); border-radius: 10px; box-shadow: var(--shadow-overlay); overflow: hidden; }
 
 .picker { width: 27rem; left: 52px; top: 250px; background: rgb(var(--surface-3)); border-radius: 10px; display: flex; flex-direction: column; max-height: 26rem; }
 
@@ -374,11 +374,11 @@ button { cursor: pointer; }
 
 .kbd { display: inline-flex; min-width: 16px; height: 16px; align-items: center; justify-content: center; padding: 0 4px; color: rgb(var(--fg-muted)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 3px; font-size: 5.5px; }
 
-.popover { width: 350px; right: 18px; top: 194px; }
+.popover { right: 18px; top: 194px; }
 
-.popover-head { min-height: 51px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgb(var(--surface-2)); border-bottom: 1px solid rgb(var(--line)); }
+.popover-head { min-height: 52px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: rgb(var(--surface-2)); border-bottom: 1px solid rgb(var(--line)); }
 
-.popover-mark { width: 29px; height: 29px; display: grid; place-items: center; color: rgb(var(--fg)); background: rgb(var(--surface-3)); border: 1px solid rgb(var(--line)); border-radius: 6px; font: 600 10px "IBM Plex Mono"; }
+.popover-mark { width: 28px; height: 28px; display: grid; place-items: center; color: rgb(var(--fg)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 4px; font: 600 13px "IBM Plex Mono"; }
 
 .phrase-popover .popover-mark { color: rgb(var(--signal)); }
 
@@ -396,11 +396,11 @@ button { cursor: pointer; }
 
 .popover-title span { margin-top: 3px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; }
 
-.close { width: 25px; height: 25px; display: grid; place-items: center; color: rgb(var(--fg-subtle)); background: transparent; border-radius: 4px; }
+.close { width: 32px; height: 32px; display: grid; place-items: center; color: rgb(var(--fg-subtle)); background: transparent; border-radius: 4px; }
 
 .close:hover { color: rgb(var(--fg)); background: rgb(var(--surface-3)); }
 
-.close .icon { width: 12px; }
+.close .icon { width: 16px; height: 16px; }
 
 .popover-body { padding: 11px; }
 
@@ -473,7 +473,11 @@ button { cursor: pointer; }
 
 .small-button:hover { color: rgb(var(--fg)); border-color: rgb(var(--line-strong)); }
 
-.small-button.danger { margin-left: auto; color: rgb(var(--danger)); }
+.small-button.danger { color: rgb(var(--danger)); background: transparent; border-color: transparent; }
+
+.small-button.danger:hover { color: rgb(var(--danger)); background: rgb(var(--danger) / 0.1); border-color: transparent; }
+
+.popover-actions .popover-done { margin-left: auto; }
 
 .segment-menu { width: 205px; right: 7px; top: 34px; padding: 5px; }
 
@@ -498,6 +502,7 @@ button { cursor: pointer; }
 .menu-glyph.variable { color: rgb(var(--ai-1)); }
 
 .menu-glyph.choice { color: rgb(var(--warning)); }
+.menu-glyph.condition { color: rgb(var(--ai-3)); }
 
 .menu-glyph.resource { color: rgb(var(--success)); }
 
@@ -515,21 +520,9 @@ button { cursor: pointer; }
 
 .modal-body { padding: 14px; }
 
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-
-.form-grid .full { grid-column: 1 / -1; }
-
-.field-label { display: block; margin-bottom: 5px; color: rgb(var(--fg-subtle)); font: 400 6px "IBM Plex Mono"; text-transform: uppercase; letter-spacing: .08em; }
-
 .field { width: 100%; height: 34px; padding: 0 9px; color: rgb(var(--fg)); background: rgb(var(--surface-2)); border: 1px solid rgb(var(--line)); border-radius: 5px; font-size: 9px; }
 
 textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
-
-.swatches { display: flex; gap: 6px; }
-
-.swatch { width: 25px; height: 25px; padding: 0; border-radius: 5px; background: var(--swatch); border: 2px solid transparent; }
-
-.swatch.active { border-color: rgb(var(--fg)); box-shadow: 0 0 0 2px rgb(var(--surface-1)), 0 0 0 3px var(--swatch); }
 
 .modal-foot { height: 52px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 0 14px; border-top: 1px solid rgb(var(--line)); }
 
@@ -654,31 +647,6 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 	text-decoration: underline;
 }
 
-/* The details modal keeps its existing custom-colour swatch (a real picker
-   the mock doesn't show alongside its five presets) and its "Clear" action,
-   both styled in the mock's own field/swatch idiom rather than left in the
-   old Tailwind-utility skin. */
-.swatch-current {
-	display: inline-flex;
-	width: 25px;
-	height: 25px;
-	flex-shrink: 0;
-	cursor: pointer;
-	border-radius: 5px;
-	box-shadow: inset 0 0 0 1px rgb(var(--line-strong));
-}
-.clear-color {
-	flex-shrink: 0;
-	color: rgb(var(--fg-subtle));
-	font: 400 6px "IBM Plex Mono";
-	text-transform: uppercase;
-	letter-spacing: .08em;
-	transition: color .15s ease;
-}
-.clear-color:hover {
-	color: rgb(var(--fg));
-}
-
 /* The resolved preview distinguishes more token kinds than the mock's single
    sample string shows (plain text + one <mark> value): a dynamicprompts
    choice/weight expansion reads as "emphasis", and a segment excluded from
@@ -777,7 +745,7 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 
 /* Popovers (phrase / variable / choice settings) — controls kept ≥28px tall */
 .popover-title strong {
-	font-size: 13px;
+	font-size: 14px;
 }
 .popover-title span {
 	font-size: 12px;
@@ -940,18 +908,20 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 .menu-item:focus:not(:focus-visible) {
 	outline: none;
 }
-.chip-main:focus-visible,
-.chip-config:focus-visible,
-.close:focus-visible,
-.picker-row:focus-visible,
-.picker-footer button:focus-visible,
-.popover-body button:focus-visible,
-.popover-actions button:focus-visible,
-.small-button:focus-visible,
-.behavior-button:focus-visible,
-.menu-item:focus-visible {
-	outline: 2px solid color-mix(in srgb, rgb(var(--fg)) 72%, transparent);
-	outline-offset: 2px;
+:where(html:not([data-input='pointer'])) & {
+	.chip-main:focus-visible,
+	.chip-config:focus-visible,
+	.close:focus-visible,
+	.picker-row:focus-visible,
+	.picker-footer button:focus-visible,
+	.popover-body button:focus-visible,
+	.popover-actions button:focus-visible,
+	.small-button:focus-visible,
+	.behavior-button:focus-visible,
+	.menu-item:focus-visible {
+		outline: 2px solid rgb(var(--signal));
+		outline-offset: 2px;
+	}
 }
 }
 
@@ -1021,9 +991,23 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 	height: 16px;
 	font-size: 12px;
 }
+.segment-content .inline-chip-editor .choice-chip .chip-mark {
+	width: auto;
+	min-width: 16px;
+	padding: 0 2px;
+}
 .segment-content .inline-chip-editor .chip-label {
 	font-size: 12px;
 }
 .segment-content .inline-chip-editor .chip-context {
 	font-size: 12px;
 }
+
+.condition-chip .chip-mark { color: rgb(var(--ai-3)); line-height: 1; padding-bottom: 2px; }
+.condition-chip, .segment-content .inline-chip-editor .condition-chip { max-width: min(100%, 560px); }
+.condition-chip .chip-context { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: rgb(var(--fg)); font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 500; }
+.condition-chip .chip-state { flex: none; }
+.condition-chip .chip-context + .chip-label { margin-left: 6px; }
+.condition-chip.broken { color: rgb(var(--warning)); background: color-mix(in srgb, rgb(var(--warning)) 10%, rgb(var(--surface-2))); border-color: color-mix(in srgb, rgb(var(--warning)) 40%, rgb(var(--line))); }
+.condition-chip.broken .chip-mark, .condition-chip.broken .chip-context { color: rgb(var(--warning)); }
+.row-copy .row-copy-variable { font-family: "IBM Plex Mono", ui-monospace, monospace; }

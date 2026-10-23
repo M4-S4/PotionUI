@@ -31,11 +31,9 @@ this file can't vary it without producing a false failure).
 
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
-import pytest
 import torch
 from safetensors.torch import save_file
 
@@ -46,7 +44,7 @@ from src.platform.runtime.native.vae.minimax_music3_dav import (
 )
 from vendor.gpl.comfyui.ops import disable_weight_init
 
-_HEADER_PATH = Path("ai/minimax_music3/minimax_music3_dav_header.json")
+from .._header_listings import load_header
 
 # See module docstring "Shrink strategy" -- `upsampling_ratios` is NOT
 # shape-derived by the detector, so it is pinned to the real production value.
@@ -57,15 +55,6 @@ _CONFIG = dict(
     upsampling_ratios=(8, 8, 4, 2),
     sample_rate=44100,
 )
-
-
-def _load_real_header() -> dict:
-    if not _HEADER_PATH.exists():
-        pytest.skip(f"{_HEADER_PATH} not present (fetched once via range request; not part of the repo checkout)")
-    with _HEADER_PATH.open() as f:
-        header = json.load(f)
-    header.pop("__metadata__", None)
-    return header
 
 
 def _build_plain_state_dict() -> dict[str, torch.Tensor]:
@@ -101,18 +90,18 @@ class TestRawStateDictMatchesRealHeaderKeySet:
         checkpoint has that this module doesn't register, or getting the
         weight_g/weight_v-vs-plain split wrong for any single conv (e.g.
         forgetting `dec_in_proj` is the ONE conv that stays plain)."""
-        header = _load_real_header()
+        header = load_header("minimax_music3/minimax_music3_dav")
         raw = _to_raw_weight_norm(_build_plain_state_dict())
         assert set(raw.keys()) == set(header.keys())
 
     def test_shape_ranks_match(self):
-        header = _load_real_header()
+        header = load_header("minimax_music3/minimax_music3_dav")
         raw = _to_raw_weight_norm(_build_plain_state_dict())
         for key, tensor in raw.items():
             assert tensor.ndim == len(header[key]["shape"]), key
 
     def test_all_real_header_tensors_are_f32(self):
-        header = _load_real_header()
+        header = load_header("minimax_music3/minimax_music3_dav")
         assert all(entry["dtype"] == "F32" for entry in header.values())
 
 
@@ -125,7 +114,6 @@ class TestFullEngineDispatchDryRun:
     assertions -> `post_load` -> NaN/meta-device sanity."""
 
     def test_loads_through_the_real_engine_and_decodes(self):
-        _load_real_header()
         raw = _to_raw_weight_norm(_build_plain_state_dict())
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -150,7 +138,6 @@ class TestFullEngineDispatchDryRun:
         """Confirms the loaded module's weight is the FOLDED tensor (not,
         say, `weight_v` copied through unfolded) by comparing against
         `fold_weight_norm_conv` applied independently to the same raw sd."""
-        _load_real_header()
         plain_sd = _build_plain_state_dict()
         raw = _to_raw_weight_norm(plain_sd)
 

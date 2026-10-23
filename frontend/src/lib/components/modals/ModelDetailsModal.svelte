@@ -16,6 +16,7 @@
 	import ModelDetailsHeader from './model-details/ModelDetailsHeader.svelte';
 	import ModelDetailsContent from './model-details/ModelDetailsContent.svelte';
 	import { createLibraryModelDetailsController } from './model-details/modelDetailsController';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 
 	export let isOpen: boolean = false;
 	export let modelId: string | null = null;
@@ -45,7 +46,7 @@
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
-		if (!isOpen) return;
+		if (!isOpen || isTypingInField(event)) return;
 		controller.handleKeydownNav(event);
 	}
 

@@ -21,12 +21,6 @@ class TestImageField(unittest.TestCase):
             'type': 'image/png',
             'size': 95
         }
-        
-    def test_can_handle(self):
-        """Test that image field handles 'image' type"""
-        self.assertTrue(self.image_field.can_handle('image'))
-        self.assertFalse(self.image_field.can_handle('select'))
-        self.assertFalse(self.image_field.can_handle('slider'))
     
     def test_input_single_image(self):
         """Test processing single image input"""
@@ -312,7 +306,7 @@ class TestImageField(unittest.TestCase):
         image_data.update({'width': 2000, 'height': 1500})
         
         rules = {'max_width': 1024, 'max_height': 1024}
-        errors = self.image_field._validate_image(image_data, rules)
+        errors = self.image_field._validate_legacy(image_data, rules)
         
         self.assertEqual(len(errors), 2)  # Both width and height exceed limits
         self.assertTrue(any('width exceeds maximum' in error for error in errors))

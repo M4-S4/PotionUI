@@ -1,6 +1,7 @@
 import { get } from 'svelte/store';
 import { page } from '$app/stores';
 import { keybindingsStore } from '$lib/stores/keybindings';
+import { isTypingInField } from '$lib/utils/editableTarget';
 
 let initialized = false;
 let suppressGlobal = false;
@@ -52,11 +53,7 @@ export function isKeyboardSuppressed(): boolean {
 }
 
 export function shouldIgnoreEvent(e: KeyboardEvent): boolean {
-	const tag = (e.target as HTMLElement)?.tagName;
-	const isEditable = (e.target as HTMLElement)?.isContentEditable;
-	const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || isEditable;
-	const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
-	return isInput && !hasModifier;
+	return isTypingInField(e) && !(e.ctrlKey || e.metaKey || e.altKey);
 }
 
 function getContext(pathname: string): string {

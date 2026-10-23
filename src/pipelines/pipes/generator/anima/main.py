@@ -22,7 +22,7 @@ schema/defaults plus the ``AnimaNativeGenerator`` subclass.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import List
 
 from src.platform.runtime.native.engine import NativeGenerator
 from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
@@ -33,6 +33,11 @@ from src.pipelines.pipes._shared.generation.guidance_options import (
     schedule_settings_config_specs,
 )
 from src.pipelines.pipes._shared.generation.native_generator import register_native_generator
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    preview_config_spec,
+    seed_config_spec,
+)
 
 
 @register_native_generator("anima")
@@ -79,29 +84,6 @@ class GeneratorAnimaPipe(FlowMatchGeneratorPipe):
         return ctx
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "txt2img",
-            "steps": 24,
-            "guidance": 6.0,
-            "shift": None,
-            "sampler": "euler",
-            "resolution": "1024x1024",
-            "quantity": 1,
-            "seed": -1,
-            "device": "cuda",
-            "denoise": 0.55,
-            "preview": True,
-            "step_cache": {},
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("mode", str, "txt2img", "Generation mode", required=True, choices=["txt2img", "img2img"]),
@@ -113,9 +95,9 @@ class GeneratorAnimaPipe(FlowMatchGeneratorPipe):
                            "(see GET /api/sampling/catalog)", required=False),
             PipeConfigSpec("resolution", str, "1024x1024", "Resolution (WxH)", required=False),
             PipeConfigSpec("quantity", int, 1, "Number of images", required=False, min_value=1, max_value=10),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
+            seed_config_spec(),
+            device_config_spec(),
+            preview_config_spec(),
             *schedule_settings_config_specs(),
             PipeConfigSpec(
                 "step_cache", dict, {},

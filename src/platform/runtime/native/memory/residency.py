@@ -222,13 +222,6 @@ class GpuResidencyRegistry:
         with self._lock:
             self._entries.pop(id(model), None)
 
-    def touch(self, model: Any) -> None:
-        """Mark ``model`` as most-recently-used (so it is evicted last)."""
-        with self._lock:
-            entry = self._entries.get(id(model))
-            if entry is not None:
-                entry.last_used = time.monotonic()
-
     def mark_orphaned(self, model: Any) -> None:
         """Flag a GPU-resident component whose owning cache entry was just
         evicted (fingerprint bust / preset switch) while still referenced

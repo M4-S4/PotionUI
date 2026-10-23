@@ -173,31 +173,3 @@ def sample_preset_template(
         vars=None,
         tags=['realistic', 'sdxl']
     )
-
-
-@pytest.fixture
-def sample_flux_preset_template(sample_mode_template) -> PresetTemplate:
-    """
-    Create a sample FLUX preset template.
-
-    Args:
-        sample_mode_template: Sample mode template fixture
-
-    Returns:
-        PresetTemplate: FLUX preset template
-    """
-    from src.features.presets.templates import GenerationMode
-
-
-    return PresetTemplate(
-        id='workbench/flux/dev',
-        name='FLUX Dev',
-        version='1.0.0',
-        description='FLUX.1 development model',
-        path='presets/workbench/flux/dev',
-        modes={
-            GenerationMode.TXT2IMG: sample_mode_template
-        },
-        vars=None,
-        tags=['flux']
-    )

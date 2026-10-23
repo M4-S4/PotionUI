@@ -3,6 +3,7 @@
 	import { api } from '$lib/services/api/index';
 	import { collectionRulesHref, filledByLabel } from '$lib/organize/collectionRules';
 	import type { OrganizeCollectionRuleRef, OrganizeCollectionScope } from '$lib/types/organize';
+	import { MENU_ITEM_CLASS } from './sidebar';
 
 	let {
 		scope,
@@ -35,12 +36,8 @@
 </script>
 
 {#if rules.length > 0}
-	<a
-		class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs text-fg-muted hover:bg-surface-2 hover:text-fg"
-		href={collectionRulesHref(scope, rules)}
-		role="menuitem"
-	>
-		<Icon name="sparkles" className="h-3.5 w-3.5" />
+	<a class="{MENU_ITEM_CLASS} text-fg" href={collectionRulesHref(scope, rules)} role="menuitem">
+		<Icon name="sparkles" className="h-4 w-4 flex-shrink-0 text-fg-muted" strokeWidth={1.75} />
 		{filledByLabel(rules.length)}
 	</a>
 {/if}

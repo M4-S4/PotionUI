@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	/**
 	 * Ranked horizontal bar chart. `colorBy: 'single'` uses one hue for every
 	 * bar (nominal categories, e.g. presets) — never a darker-where-bigger
@@ -62,7 +63,7 @@
 	<div class="flex flex-col gap-0.5">
 		{#each data as d (d.key)}
 			<div class="flex items-center gap-2">
-				<div class="w-28 shrink-0 truncate text-xs text-fg-muted" title={d.label}>{d.label}</div>
+				<div class="w-28 shrink-0 truncate text-xs text-fg-muted" use:tooltip={{ text: d.label, truncateOnly: true }}>{d.label}</div>
 				<div class="relative h-5 flex-1 min-w-0">
 					<div
 						class="absolute inset-y-0 left-0 rounded-r"

@@ -1,6 +1,6 @@
 import { modelTypeLabel } from './format.js';
 
-export const CAPABILITIES = ['browse', 'request', 'download', 'approve'];
+const CAPABILITIES = ['browse', 'request', 'download', 'approve'];
 
 export const MODEL_TYPES = [
 	'checkpoint',

@@ -354,6 +354,27 @@ def test_models_added_after_the_rule_are_filed_into_model_collections(seed, mana
     assert old not in members and other not in members
 
 
+def test_models_are_filed_again_when_their_digests_arrive(seed, manager, worker):
+    user = seed.user("admin", admin=True)
+    seed.model("old-lora.safetensors", "lora", created_at="2020-01-01 00:00:00")
+    loras = seed.model_collection("admin", "LoRAs")
+    manager.create_rule(user, rule_body(
+        subject="model", conditions=[{"fact": "model_type", "operator": "is", "value": "lora"}],
+        actions=[collection_action(loras)],
+    ))
+    fresh = seed.model("new-lora.safetensors", "lora", created_at="2999-01-01 00:00:00")
+    chain = HookChain()
+    worker.subscribe(chain)
+
+    chain.execute("model_index.after_digests", initial_data={"model_ids": [fresh]})
+    worker.drain()
+
+    members = {r["model_id"] for r in seed.rows(
+        "SELECT model_id FROM model_collection_members WHERE collection_id = ?", (loras,)
+    )}
+    assert members == {fresh}
+
+
 def test_models_a_user_cannot_see_are_never_filed(seed, manager):
     user = seed.user("u1")
     visible = seed.model("mine.safetensors", "lora")

@@ -7,22 +7,20 @@ current user turn (@resource snapshots, the mode's context contributor and
 recalled persistent memory) via ``context_budget.attach_context_block``. Also
 serves @resource autocomplete suggestions.
 
-Split out of the ChatRuntime coordinator; it reads its collaborators (resource
-registry, memory manager, model/preset managers, chat-mode registry, tool
-executor) through the manager so the composition root's late binding keeps
-working.
 """
 
 import asyncio
 import inspect
 import logging
+import re
 import traceback
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Collection, Dict, Iterable, List, Optional, Tuple
 
 from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
 from src.features.llm import context_budget
-from src.features.llm.tools.governance import ToolGovernanceRepository, compute_allowed_tool_names
+from src.features.llm.tools.governance import ToolGovernanceRepository, ToolScopeResolution, resolve_tool_scope
+from src.features.llm.tools.use_tools import deferred_tool_groups
 from src.features.llm.ttl_cache import TTLCache
 from src.features.llm_memory import operations as memory_operations
 from src.features.presets import operations
@@ -57,8 +55,22 @@ _WORKSPACE_MAX_AI_HINT_CHARS = 200
 # behind get_current_segments.
 _PROMPT_STATE_CONTENT_CHARS = 100
 _PROMPT_STATE_MAX_SEGMENTS = 20
+_CONDITION_OPEN = re.compile(r"<<if(?=\s|>)")
+_CONDITION_END = "<<end>>"
+_CONDITION_ELIDED = "<<if …>>"
+_CONDITION_EXTEND_FACTOR = 4
 _PROMPT_STATE_MAX_BLOCK_CHARS = 4000
-_PROMPT_STATE_HEADER = (
+_PROMPT_STATE_MAX_CONDITION_PROBLEMS = 2
+_PROMPT_STATE_CONDITION_PROBLEM_CHARS = 300
+_PROMPT_STATE_SKIPPED_LONG = "     condition check skipped (segment too long to check)"
+_PROMPT_STATE_SKIPPED_BUDGET = "     condition check skipped (enough condition text was checked this turn)"
+_PROMPT_STATE_MAX_PROMPTS = 20
+_PROMPT_STATE_PREVIEW_CHARS = 60
+_PROMPT_STATE_NAME_CHARS = 40
+_PROMPT_STATE_OVERVIEW_MAX_CHARS = 2000
+PROMPT_BATCH_ACTIONS_CAPABILITY = "prompt_batch_actions"
+_PROMPT_STATE_HEADER = "PROMPT STATE (current editor contents; truncated):"
+_PROMPT_STATE_HEADER_WITH_TOOL = (
     "PROMPT STATE (current editor contents; truncated — "
     "get_current_segments returns full text):"
 )
@@ -84,6 +96,11 @@ _TOOL_UNAVAILABLE_LABELS = {
 }
 
 
+PARTIAL_TOOLS_BLOCK = (
+    "Some tools are unavailable this turn; use only the tools you were given. "
+    "Never announce an action you can't perform."
+)
+
 def _cap_text(text: str, limit: int, suffix: str = "…") -> str:
     text = (text or "").strip()
     if len(text) <= limit:
@@ -91,8 +108,39 @@ def _cap_text(text: str, limit: int, suffix: str = "…") -> str:
     return text[:limit].rstrip() + suffix
 
 
-def _cap_guidance(text: str, limit: int = _WORKSPACE_MAX_GUIDANCE_CHARS) -> str:
-    return _cap_text(text, limit, "… (call get_model_info for the full guidance)")
+def _cap_guidance(
+    text: str, limit: int = _WORKSPACE_MAX_GUIDANCE_CHARS, full_available: bool = True,
+) -> str:
+    suffix = "… (call get_model_info for the full guidance)" if full_available else "…"
+    return _cap_text(text, limit, suffix)
+
+def _tool_offered(offered_tools: Optional[Collection[str]], name: str) -> bool:
+    return offered_tools is None or name in offered_tools
+
+
+def _condition_straddle_end(compact: str, limit: int) -> Optional[int]:
+    for opening in _CONDITION_OPEN.finditer(compact):
+        if opening.start() >= limit:
+            return None
+        closing = compact.find(_CONDITION_END, opening.end())
+        if closing < 0:
+            return None
+        end = closing + len(_CONDITION_END)
+        if end <= limit:
+            continue
+        return end if end <= limit * _CONDITION_EXTEND_FACTOR else None
+    return None
+
+
+def _drop_dangling_condition(cut: str) -> str:
+    for opening in _CONDITION_OPEN.finditer(cut):
+        if cut.find(_CONDITION_END, opening.end()) < 0:
+            cut = cut[:opening.start()].rstrip()
+            break
+    partial = cut.rfind("<<")
+    if partial >= 0 and ">>" not in cut[partial:]:
+        cut = cut[:partial].rstrip()
+    return cut or _CONDITION_ELIDED
 
 
 def _truncate_prompt_content(text: str, limit: int) -> Tuple[str, int, bool]:
@@ -101,11 +149,15 @@ def _truncate_prompt_content(text: str, limit: int) -> Tuple[str, int, bool]:
     total = len(compact)
     if total <= limit:
         return compact, total, False
+    end = _condition_straddle_end(compact, limit)
+    if end is not None:
+        return compact[:end], total, end < total
     cut = compact[:limit]
-    sp = cut.rfind(" ")
-    if sp > 0:
-        cut = cut[:sp]
-    return cut.rstrip(), total, True
+    if compact[limit] != " ":
+        sp = cut.rfind(" ")
+        if sp > 0:
+            cut = cut[:sp]
+    return _drop_dangling_condition(cut.rstrip()), total, True
 
 
 def _render_prompt_state_line(seq: int, seg: Dict[str, Any]) -> str:
@@ -129,6 +181,63 @@ def _render_prompt_state_line(seq: int, seg: Dict[str, Any]) -> str:
     if truncated:
         return f'{prefix}: "{shown}…" ({total} ch)'
     return f'{prefix}: "{shown}"'
+
+
+def _render_prompt_overview(
+    context_metadata: Optional[Dict[str, Any]], segments_offered: bool
+) -> List[str]:
+    from src.features.llm.tools.builtin.utils import prompt_batch_supported
+
+    metadata = context_metadata if isinstance(context_metadata, dict) else {}
+    if not prompt_batch_supported(metadata.get("form_state")):
+        return []
+    batch = metadata.get("prompt_batch")
+    prompts = batch.get("prompts") if isinstance(batch, dict) else None
+    if not isinstance(prompts, list) or len(prompts) < 2:
+        return []
+    active = batch.get("active")
+    if not isinstance(active, int) or isinstance(active, bool):
+        active = 0
+    lines = [f"Prompts ({len(prompts)}, active {active}):"]
+    used = len(lines[0])
+    for entry in prompts[:_PROMPT_STATE_MAX_PROMPTS]:
+        if not isinstance(entry, dict):
+            continue
+        index = entry.get("index")
+        if not isinstance(index, int) or isinstance(index, bool):
+            continue
+        raw_name = entry.get("name")
+        name = raw_name if isinstance(raw_name, str) and raw_name.strip() else f"Prompt {index + 1}"
+        name, _, name_cut = _truncate_prompt_content(name, _PROMPT_STATE_NAME_CHARS)
+        if name_cut:
+            name += "…"
+        raw_segments = entry.get("segments")
+        entry_segments = [s for s in raw_segments if isinstance(s, dict)] if isinstance(raw_segments, list) else []
+        preview = next(
+            (
+                s["content"]
+                for s in entry_segments
+                if not s.get("negative")
+                and s.get("enabled", True)
+                and isinstance(s.get("content"), str)
+                and s["content"].strip()
+            ),
+            "",
+        )
+        shown, _, truncated = _truncate_prompt_content(preview, _PROMPT_STATE_PREVIEW_CHARS)
+        mark = "*" if index == active else ""
+        count = len(entry_segments)
+        line = f'  {index}{mark} "{name}" ({count} segment{"" if count == 1 else "s"})'
+        if shown:
+            line += f': "{shown}{"…" if truncated else ""}"'
+        if used + len(line) + 1 > _PROMPT_STATE_OVERVIEW_MAX_CHARS:
+            break
+        lines.append(line)
+        used += len(line) + 1
+    if segments_offered:
+        lines.append("Another prompt's segments: get_current_segments with prompt_index.")
+    lines.append(f"The segment lists below belong to prompt {active}.")
+    return lines
 
 
 def _format_triggers(triggers: Any) -> str:
@@ -185,15 +294,33 @@ class ChatContextBuilder:
 
     def __init__(self, manager):
         self._m = manager
-        self._prompt_tools_cache: TTLCache[Tuple[Any, ...], Tuple[str, List[str]]] = TTLCache(
+        self._prompt_tools_cache: TTLCache[Tuple[Any, ...], Tuple[str, List[str], Dict[str, List[str]]]] = TTLCache(
             _PROMPT_TOOLS_CACHE_TTL_SECONDS
+        )
+
+    def resolve_tool_scope(self, session, form_state: Optional[Dict[str, Any]] = None) -> ToolScopeResolution:
+        mode = self._m.chat_mode_registry.require(session.mode)
+        registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
+        mode_tools = registry.get_for_mode(mode) if registry else []
+        governance_repo = getattr(self._m, "tool_governance_repository", None)
+        if not isinstance(governance_repo, ToolGovernanceRepository):
+            governance_repo = None
+        return resolve_tool_scope(
+            mode_tools,
+            governance_repo,
+            getattr(session, "llm_config_id", None),
+            getattr(session, "user_id", None),
+            form_state,
         )
 
     def resolve_session_prompt_and_tools(
         self,
         session,
         form_state: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[str, List[str], ChatMode]:
+        tool_tier: str = context_budget.TOOL_TIER_LARGE,
+        loaded_groups: Iterable[str] = (),
+        scope: Optional[ToolScopeResolution] = None,
+    ) -> Tuple[str, List[str], ChatMode, Dict[str, List[str]]]:
         """Resolve the session's mode into a system prompt and allowed tool names.
 
         The mode determines the tool set (mode tools + global tools); each tool
@@ -224,6 +351,8 @@ class ChatContextBuilder:
         Raises:
             UnknownChatModeException: If the session's mode is not registered
         """
+        from src.features.llm.tools.builtin.utils import prompt_batch_supported
+
         mode = self._m.chat_mode_registry.require(session.mode)
 
         session_metadata = getattr(session, 'metadata', None) or {}
@@ -232,34 +361,14 @@ class ChatContextBuilder:
         custom_system_message = session_metadata.get('system_message')
 
         registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
-        mode_tools = registry.get_for_mode(mode) if registry else []
+        if scope is None:
+            scope = self.resolve_tool_scope(session, form_state)
+        mode_tools = list(scope.tools)
         mode_tool_names = [t.name for t in mode_tools]
-
-        unavailable = tuple(sorted(t.name for t in mode_tools if not t.is_available(form_state)))
-
-        # isinstance-guarded rather than a bare truthiness/None check: a
-        # generic Mock() collaborator (common in tests that don't care about
-        # governance) auto-vivifies any attribute access, so `getattr(...,
-        # None)` alone would hand back a Mock here instead of skipping this
-        # block.
-        governance_repo = getattr(self._m, "tool_governance_repository", None)
-        if not isinstance(governance_repo, ToolGovernanceRepository):
-            governance_repo = None
-        user_id = getattr(session, "user_id", None)
-        # Governance is per LLM config (see src.features.llm.tools.governance) -
-        # a session with no config assigned yet degrades to pure passthrough
-        # on the admin-enabled/locked axis, but the user's own opt-out set is
-        # global and still applies regardless.
+        unavailable = scope.unavailable
+        governance_snapshot = scope.governance_snapshot
+        user_disabled = scope.user_disabled
         llm_config_id = getattr(session, "llm_config_id", None)
-        if governance_repo is not None:
-            governance_snapshot = (
-                governance_repo.get_config_snapshot(llm_config_id, mode_tool_names) if llm_config_id else {}
-            )
-            user_disabled = governance_repo.get_user_disabled(user_id) if user_id else set()
-        else:
-            governance_snapshot = {}
-            user_disabled = set()
-        governed = set(compute_allowed_tool_names(mode_tool_names, governance_snapshot, user_disabled))
 
         cache_key = (
             mode.id,
@@ -270,35 +379,48 @@ class ChatContextBuilder:
             llm_config_id,
             tuple(sorted(governance_snapshot.items())),
             tuple(sorted(user_disabled & set(mode_tool_names))),
+            tool_tier,
+            tuple(sorted(set(loaded_groups))),
+            prompt_batch_supported(form_state),
         )
         cached = self._prompt_tools_cache.get(cache_key)
         if cached is not None:
-            prompt, allowed_names = cached
-            return prompt, allowed_names, mode
+            prompt, allowed_names, deferred = cached
+            return prompt, allowed_names, mode, deferred
 
-        allowed_names = [
-            t.name for t in mode_tools
-            if t.name in governed and t.name not in unavailable and tools_enabled and t.name not in disabled_tools
-        ]
+        allowed_names = scope.allowed_names(tools_enabled, disabled_tools)
+        deferred = deferred_tool_groups(
+            [t for t in mode_tools if t.name in allowed_names],
+            tool_tier,
+            mode.core_groups,
+            always_core=mode.tool_names or (),
+            loaded_groups=loaded_groups,
+        )
+        deferred_names = {name for names in deferred.values() for name in names}
+        allowed_names = [name for name in allowed_names if name not in deferred_names]
 
         if custom_system_message:
             prompt = custom_system_message
-        elif mode_tools and not allowed_names:
+        elif mode_tools and not allowed_names and not deferred:
             # The mode has tools but the session disabled all of them — a
             # tool-centric mode prompt would mislead the model, so fall back to
             # the config default/style resolution downstream.
             prompt = ""
         else:
             hints = registry.get_tool_hints_text(allowed_names) if (registry and allowed_names) else ""
-            prompt = self._m.chat_mode_registry.resolve_system_prompt(mode, hints, allowed_names)
+            capabilities = list(allowed_names)
+            if prompt_batch_supported(form_state) and "get_current_segments" in allowed_names:
+                capabilities.append(PROMPT_BATCH_ACTIONS_CAPABILITY)
+            prompt = self._m.chat_mode_registry.resolve_system_prompt(mode, hints, capabilities)
 
-        self._prompt_tools_cache.set(cache_key, (prompt, allowed_names))
-        return prompt, allowed_names, mode
+        self._prompt_tools_cache.set(cache_key, (prompt, allowed_names, deferred))
+        return prompt, allowed_names, mode, deferred
 
     def withheld_tools_for_session(
         self,
         session,
         form_state: Optional[Dict[str, Any]] = None,
+        scope: Optional[ToolScopeResolution] = None,
     ) -> Dict[str, str]:
         """Reasons the session's mode declares tools that ``allowed_names`` omits.
 
@@ -309,40 +431,19 @@ class ChatContextBuilder:
         prompt/allowed-names cache hit. Empty when the mode declares no tools
         or every declared tool is allowed.
         """
-        mode = self._m.chat_mode_registry.require(session.mode)
         session_metadata = getattr(session, 'metadata', None) or {}
         tools_enabled = session_metadata.get('tools_enabled', True)
         disabled_tools = session_metadata.get('disabled_tools') or []
 
-        registry = self._m.tool_executor.tool_registry if self._m.tool_executor else None
-        mode_tools = registry.get_for_mode(mode) if registry else []
+        if scope is None:
+            scope = self.resolve_tool_scope(session, form_state)
+        mode_tools = list(scope.tools)
         if not mode_tools:
             return {}
-        mode_tool_names = [t.name for t in mode_tools]
 
-        unavailable = tuple(sorted(t.name for t in mode_tools if not t.is_available(form_state)))
-
-        governance_repo = getattr(self._m, "tool_governance_repository", None)
-        if not isinstance(governance_repo, ToolGovernanceRepository):
-            governance_repo = None
-        user_id = getattr(session, "user_id", None)
-        llm_config_id = getattr(session, "llm_config_id", None)
-        if governance_repo is not None:
-            governance_snapshot = (
-                governance_repo.get_config_snapshot(llm_config_id, mode_tool_names) if llm_config_id else {}
-            )
-            user_disabled = governance_repo.get_user_disabled(user_id) if user_id else set()
-        else:
-            governance_snapshot = {}
-            user_disabled = set()
-        governed = set(compute_allowed_tool_names(mode_tool_names, governance_snapshot, user_disabled))
-
-        allowed_names = [
-            t.name for t in mode_tools
-            if t.name in governed and t.name not in unavailable and tools_enabled and t.name not in disabled_tools
-        ]
+        allowed_names = scope.allowed_names(tools_enabled, disabled_tools)
         return _classify_withheld_tools(
-            mode_tools, allowed_names, unavailable, tools_enabled, disabled_tools, governance_snapshot
+            mode_tools, allowed_names, scope.unavailable, tools_enabled, disabled_tools, scope.governance_snapshot
         )
 
     # --- @Resource helpers ---
@@ -359,18 +460,37 @@ class ChatContextBuilder:
             user_id=user_id,
             mode_id=mode_id,
             is_admin=is_admin,
-            model_index_manager=self._m.model_index_manager,
-            phrasebook_category_repository=self._m.phrasebook_category_repository,
-            phrasebook_value_repository=self._m.phrasebook_value_repository,
+            model_index_manager=self._m.tool_services.model_index_manager,
+            phrasebook_category_repository=self._m.tool_services.phrasebook_category_repository,
+            phrasebook_value_repository=self._m.tool_services.phrasebook_value_repository,
             phrasebook_search=self._m.phrasebook_search,
-            preset_collaborators=self._m.preset_collaborators,
+            preset_collaborators=self._m.tool_services.preset_collaborators,
             preset_lookup=self._m.preset_lookup,
             preset_form_schema_lookup=self._m.preset_form_schema_lookup,
             generation_repository=self._m.generation_repository,
             generation_parameter_repository=self._m.generation_parameter_repository,
             generation_model_repository=self._m.generation_model_repository,
             form_state=form_state,
+            prompt_variables=self._draft_variable_reader(user_id, form_state),
         )
+
+    def prompt_state_variable_reader(self, user_id: str, context_metadata: Optional[Dict[str, Any]]):
+        return self._draft_variable_reader(user_id, (context_metadata or {}).get("form_state"))
+
+    def _draft_variable_reader(self, user_id: str, form_state: Optional[Dict[str, Any]]):
+        drafts = self._m.tool_services.tab_drafts
+        tab_id = form_state.get("tab_id") if isinstance(form_state, dict) else None
+        if drafts is None or not isinstance(tab_id, str) or not tab_id:
+            return None
+
+        def read() -> Dict[str, Any]:
+            try:
+                return drafts.variables(user_id, tab_id)
+            except Exception:
+                logger.warning("Could not read the tab draft for the variable summary", exc_info=True)
+                return {}
+
+        return read
 
     async def resolve_message_resources(
         self,
@@ -456,6 +576,7 @@ class ChatContextBuilder:
     def inject_reply_contract_reminder_block(
         conversation_history: List[Dict[str, Any]],
         mode: Optional[ChatMode],
+        tool_tier: str = context_budget.TOOL_TIER_STANDARD,
     ) -> None:
         """Fold a short reply-contract reminder into the current user turn.
 
@@ -467,7 +588,7 @@ class ChatContextBuilder:
         end of the user's content. No-op for modes with ``structured_reply``
         off.
         """
-        if not mode or not mode.structured_reply:
+        if not mode or not mode.structured_reply or tool_tier == context_budget.TOOL_TIER_COMPACT:
             return
         context_budget.attach_context_block(conversation_history, REPLY_CONTRACT_REMINDER)
 
@@ -500,15 +621,7 @@ class ChatContextBuilder:
                 + ". Never announce an action you cannot perform."
             )
         else:
-            lines = []
-            for name, reason in sorted(withheld.items()):
-                label = _TOOL_UNAVAILABLE_LABELS.get(reason, reason)
-                hint = TOOL_WITHHELD_HINTS.get(reason)
-                lines.append(f"- {name}: {label}" + (f" ({hint})" if hint else ""))
-            text = (
-                "Some tools your instructions describe are unavailable this turn — "
-                "do not call them or tell the user you did:\n" + "\n".join(lines)
-            )
+            text = PARTIAL_TOOLS_BLOCK
         context_budget.attach_context_block(conversation_history, text)
 
     def inject_memory_block(
@@ -547,7 +660,7 @@ class ChatContextBuilder:
             "by_scope_dropped": {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0},
             "injected_chars": 0,
         }
-        if not self._m.llm_memory_repository:
+        if not self._m.tool_services.llm_memory_repository:
             return empty
         try:
             from src.features.llm.tools.builtin.utils import (
@@ -559,7 +672,7 @@ class ChatContextBuilder:
             by_scope = {"global": 0, "preset": 0, "model": 0, "mode": 0, "session": 0}
             note_ids: List[str] = []
 
-            global_notes = memory_operations.read_notes(self._m.llm_memory_repository, user_id=user_id, scope="global")
+            global_notes = memory_operations.read_notes(self._m.tool_services.llm_memory_repository, user_id=user_id, scope="global")
             if global_notes:
                 groups.append(("global", global_notes))
                 by_scope["global"] = len(global_notes)
@@ -570,17 +683,17 @@ class ChatContextBuilder:
             preset_ref = resolve_active_preset_id(form_state)
             if preset_ref:
                 preset_notes = memory_operations.read_notes(
-                    self._m.llm_memory_repository, user_id=user_id, scope="preset", scope_ref=preset_ref,
+                    self._m.tool_services.llm_memory_repository, user_id=user_id, scope="preset", scope_ref=preset_ref,
                 )
                 if preset_notes:
                     groups.append(("this preset", preset_notes))
                     by_scope["preset"] = len(preset_notes)
                     note_ids.extend(note.id for note in preset_notes if note.id)
 
-            model_ref = resolve_active_model_id(form_state, self._m.model_index_manager)
+            model_ref = resolve_active_model_id(form_state, self._m.tool_services.model_index_manager)
             if model_ref:
                 model_notes = memory_operations.read_notes(
-                    self._m.llm_memory_repository, user_id=user_id, scope="model", scope_ref=model_ref,
+                    self._m.tool_services.llm_memory_repository, user_id=user_id, scope="model", scope_ref=model_ref,
                 )
                 if model_notes:
                     groups.append(("this model", model_notes))
@@ -589,7 +702,7 @@ class ChatContextBuilder:
 
             if mode_id:
                 mode_notes = memory_operations.read_notes(
-                    self._m.llm_memory_repository, user_id=user_id, scope="mode", scope_ref=mode_id,
+                    self._m.tool_services.llm_memory_repository, user_id=user_id, scope="mode", scope_ref=mode_id,
                 )
                 if mode_notes:
                     groups.append(("this mode", mode_notes))
@@ -599,7 +712,7 @@ class ChatContextBuilder:
             session_ref = form_state.get("session_id") if isinstance(form_state, dict) else None
             if session_ref:
                 session_notes = memory_operations.read_notes(
-                    self._m.llm_memory_repository, user_id=user_id, scope="session", scope_ref=session_ref,
+                    self._m.tool_services.llm_memory_repository, user_id=user_id, scope="session", scope_ref=session_ref,
                 )
                 if session_notes:
                     groups.append(("this session", session_notes))
@@ -661,6 +774,7 @@ class ChatContextBuilder:
         self,
         conversation_history: List[Dict[str, Any]],
         context_metadata: Optional[Dict[str, Any]],
+        offered_tools: Optional[Collection[str]] = None,
     ) -> Dict[str, Any]:
         """Fold a snapshot of the active Generate-form workspace into the current user turn.
 
@@ -710,7 +824,7 @@ class ChatContextBuilder:
             "preset": None, "checkpoint": None, "loras": [], "guidance_included": False,
         }
         form_state = (context_metadata or {}).get("form_state")
-        if not isinstance(form_state, dict) or not form_state or not self._m.model_index_manager:
+        if not isinstance(form_state, dict) or not form_state or not self._m.tool_services.model_index_manager:
             return empty
         try:
             from src.features.llm.tools.builtin.utils import (
@@ -724,12 +838,12 @@ class ChatContextBuilder:
             variant = form_state.get("variant")
             video_director = form_state.get("video_director")
             music_director = form_state.get("music_director")
-            field_meta = build_model_field_metadata(self._m.preset_collaborators, form_state)
+            field_meta = build_model_field_metadata(self._m.tool_services.preset_collaborators, form_state)
 
             preset_template = None
-            if preset_id and self._m.preset_collaborators:
+            if preset_id and self._m.tool_services.preset_collaborators:
                 try:
-                    preset_template = self._m.preset_collaborators.file_repo.find_preset_by_id(preset_id)
+                    preset_template = self._m.tool_services.preset_collaborators.file_repo.find_preset_by_id(preset_id)
                 except Exception:
                     preset_template = None
             llm_spec = (getattr(preset_template, "llm", None) or {}) if preset_template else {}
@@ -741,7 +855,7 @@ class ChatContextBuilder:
             checkpoint: Optional[Dict[str, Any]] = None
             loras: List[Dict[str, Any]] = []
             for field_name, model_path, weight, model_info in resolve_active_models(
-                form_data, self._m.model_index_manager
+                form_data, self._m.tool_services.model_index_manager
             ):
                 meta = field_meta.get(field_name, {})
                 model_type = model_info.get("type") or meta.get("model_type") or "unknown"
@@ -758,6 +872,7 @@ class ChatContextBuilder:
                 return empty
 
             guidance_included = False
+            model_info_offered = _tool_offered(offered_tools, "get_model_info")
             lines = [
                 "Your Generate workspace this turn (use it; do not re-ask what it already tells you):"
             ]
@@ -794,10 +909,18 @@ class ChatContextBuilder:
                     form_data, preset_id, mode, variant,
                 ))
             else:
-                lines.append("Video Director: no document active — form changes go through update_form_settings.")
+                lines.append(
+                    "Video Director: no document active — form changes go through update_form_settings."
+                    if _tool_offered(offered_tools, "update_form_settings")
+                    else "Video Director: no document active."
+                )
 
             if music_director and music_director.get("active"):
-                lines.append("Music Director: active — form changes go through update_music_director.")
+                lines.append(
+                    "Music Director: active — form changes go through update_music_director."
+                    if _tool_offered(offered_tools, "update_music_director")
+                    else "Music Director: active."
+                )
                 lines.extend(self._render_music_director_summary(music_director.get("doc") or {}))
 
             if checkpoint is not None:
@@ -805,7 +928,7 @@ class ChatContextBuilder:
                 guidance = checkpoint["info"].get("prompting_guidance")
                 guidance_allowed = allowed_guidance_fields is None or checkpoint["field_name"] in allowed_guidance_fields
                 if guidance and guidance_allowed:
-                    lines.append(f"  Guidance: {_cap_guidance(guidance, guidance_chars)}")
+                    lines.append(f"  Guidance: {_cap_guidance(guidance, guidance_chars, model_info_offered)}")
                     guidance_included = True
 
             if loras:
@@ -822,7 +945,7 @@ class ChatContextBuilder:
                     guidance_allowed = allowed_guidance_fields is None or lora["field_name"] in allowed_guidance_fields
                     detail = info.get("prompting_guidance") or info.get("description")
                     if detail and guidance_allowed:
-                        lines.append(f"    {_cap_guidance(detail, guidance_chars)}")
+                        lines.append(f"    {_cap_guidance(detail, guidance_chars, model_info_offered)}")
                         if info.get("prompting_guidance"):
                             guidance_included = True
 
@@ -868,10 +991,10 @@ class ChatContextBuilder:
         from src.features.llm.tools.media_values import media_field_names
 
         media_fields: List[str] = []
-        if self._m.preset_collaborators and preset_id:
+        if self._m.tool_services.preset_collaborators and preset_id:
             try:
                 schema_data = operations.get_form_schema(
-                    self._m.preset_collaborators, preset_id, mode=mode, form_name=variant
+                    self._m.tool_services.preset_collaborators, preset_id, mode=mode, form_name=variant
                 )
                 props = (schema_data.get("form_schema") or {}).get("properties")
                 media_fields = sorted(media_field_names(props))
@@ -954,11 +1077,11 @@ class ChatContextBuilder:
         Never raises — a schema lookup failure yields an empty listing rather than
         dropping the rest of the already-built workspace block.
         """
-        if not self._m.preset_collaborators:
+        if not self._m.tool_services.preset_collaborators:
             return []
         try:
             schema_data = operations.get_form_schema(
-                self._m.preset_collaborators, preset_id, mode=mode, form_name=variant
+                self._m.tool_services.preset_collaborators, preset_id, mode=mode, form_name=variant
             )
         except Exception:
             logger.warning(
@@ -1004,6 +1127,8 @@ class ChatContextBuilder:
     def inject_prompt_state_block(
         conversation_history: List[Dict[str, Any]],
         context_metadata: Optional[Dict[str, Any]],
+        offered_tools: Optional[Collection[str]] = None,
+        variable_reader: Optional[Callable[[], Optional[Dict[str, Any]]]] = None,
     ) -> None:
         """Fold a compact structural snapshot of the current prompt editor into the current user turn.
 
@@ -1020,18 +1145,30 @@ class ChatContextBuilder:
         there "segment #N" means a shot, and get_video_director is the
         structural snapshot for that, not this block.
         """
+        from src.features.llm.tools.builtin.condition_text import (
+            CONDITION_MARKERS,
+            MAX_CHECKED_CHARS,
+            Budget,
+            condition_problems,
+            condition_variable_lines,
+        )
         from src.features.llm.tools.builtin.utils import video_director_active
 
         if video_director_active((context_metadata or {}).get("form_state")):
             return
 
+        segments_offered = _tool_offered(offered_tools, "get_current_segments")
+        overview = _render_prompt_overview(context_metadata, segments_offered)
+
         segments = (context_metadata or {}).get("segments")
-        if not isinstance(segments, list) or not segments:
+        if not isinstance(segments, list):
+            segments = []
+        if not segments and not overview:
             return
 
         positives = [s for s in segments if isinstance(s, dict) and not s.get("negative")]
         negatives = [s for s in segments if isinstance(s, dict) and s.get("negative")]
-        if not positives and not negatives:
+        if not positives and not negatives and not overview:
             return
 
         template_names: List[str] = []
@@ -1046,13 +1183,16 @@ class ChatContextBuilder:
                     seen.add(nm)
                     template_names.append(str(nm))
 
-        lines = [_PROMPT_STATE_HEADER]
+        lines = [_PROMPT_STATE_HEADER_WITH_TOOL if segments_offered else _PROMPT_STATE_HEADER]
+        lines.extend(overview)
         if len(template_names) == 1:
             lines.append(f'Template: "{template_names[0]}"')
         elif template_names:
             lines.append("Templates: " + ", ".join(f'"{n}"' for n in template_names))
 
+        variables = variable_reader() if variable_reader is not None else None
         emitted = 0
+        budget = Budget()
         overflow = 0
         for title, group in (("Positive:", positives), ("Negative:", negatives)):
             if not group:
@@ -1063,19 +1203,43 @@ class ChatContextBuilder:
                     overflow += 1
                     continue
                 section.append(_render_prompt_state_line(seq, seg))
+                content = seg.get("content") or ""
+                if any(marker in content for marker in CONDITION_MARKERS):
+                    if len(content) > MAX_CHECKED_CHARS:
+                        section.append(_PROMPT_STATE_SKIPPED_LONG)
+                    elif not budget.take(content):
+                        section.append(_PROMPT_STATE_SKIPPED_BUDGET)
+                    else:
+                        problems = condition_problems(content, variables or None)[:_PROMPT_STATE_MAX_CONDITION_PROBLEMS]
+                        section.extend(
+                            f"     condition problem: {_cap_text(problem, _PROMPT_STATE_CONDITION_PROBLEM_CHARS)}"
+                            for problem in problems
+                        )
                 emitted += 1
             if section:
                 lines.append(title)
                 lines.extend(section)
         if overflow:
-            lines.append(f"…and {overflow} more segments — call get_current_segments.")
-
-        block = "\n".join(lines)
-        if len(block) > _PROMPT_STATE_MAX_BLOCK_CHARS:
-            block = (
-                block[:_PROMPT_STATE_MAX_BLOCK_CHARS].rstrip()
-                + "\n…(truncated — call get_current_segments for full segment text)"
+            lines.append(
+                f"…and {overflow} more segments — call get_current_segments."
+                if segments_offered
+                else f"…and {overflow} more segments."
             )
+
+        variable_lines = condition_variable_lines(variables)
+        block_limit = _PROMPT_STATE_MAX_BLOCK_CHARS - sum(len(line) + 1 for line in variable_lines)
+        block = "\n".join(lines)
+        if len(block) > block_limit:
+            head = block[:block_limit]
+            if "\n" in head:
+                head = head.rsplit("\n", 1)[0]
+            block = head.rstrip() + (
+                "\n…(truncated — call get_current_segments for full segment text)"
+                if segments_offered
+                else "\n…(truncated)"
+            )
+        if variable_lines:
+            block = "\n".join([block, *variable_lines])
         context_budget.attach_context_block(conversation_history, block)
 
     async def suggest_resources(

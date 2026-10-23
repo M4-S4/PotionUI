@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, scopedStorageKey, screenshot, apiGet, apiPost } from './helpers';
 
 // A generated 3D mesh (TRELLIS.2 emits a .glb) must actually display in the
 // workbench. The failure this guards against: `displayImage` in
@@ -77,21 +77,6 @@ function buildTinyGlb(): Buffer {
 	binChunk.writeUInt32LE(0x004e4942, 4); // 'BIN\0'
 
 	return Buffer.concat([header, jsonChunk, jsonBuf, binChunk, bin]);
-}
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
 }
 
 test('workbench renders a generated mesh through <model-viewer>', async ({ page }) => {

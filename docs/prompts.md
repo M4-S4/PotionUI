@@ -19,6 +19,7 @@ prompt authored in PotionUI pastes back out into those tools.
 | `{2$$ and $$a\|b\|c}` | pick two, joined by `" and "` |
 | `{1-2$$ and $$a\|b\|c}` | pick between one and two |
 | `${name}` | substitute a prompt variable |
+| `<<if $x = "a">>…<<else>>…<<end>>` | pick text by a variable (see [Conditions](#conditions)) |
 
 Expansion is done by the [`dynamicprompts`](https://github.com/adieyal/dynamicprompts) library
 (`SamplingContext`, `SamplingMethod.RANDOM`).
@@ -28,8 +29,11 @@ Expansion is done by the [`dynamicprompts`](https://github.com/adieyal/dynamicpr
 - **`__wildcard__`** — the `#phrasebook` chip system supersedes it, and is better: DB-backed,
   searchable, with per-generation shuffle. A bare `WildcardManager()` resolves nothing, so a stray
   `__foo__` survives as literal text (with a warning) rather than failing the generation.
-- **`#` comments** — `#` is the phrasebook trigger in the editor. The collision is not worth it.
+- **`#` comments** — `#` is the phrasebook trigger in the editor, so a literal `#` is plain text.
 - **`%{wrap}`**, parameterized wildcards, and the `~` / `@` sampler sigils.
+
+A literal `$`, `%` or `#` (`$100`, `100% cotton`, `#5`) is plain text; only `${`, `$$` inside braces and `%{...$$...}` are grammar.
+A template that still fails to parse is used verbatim and the user gets a "Check your prompt" warning toast.
 
 An undefined `${var}` expands to the empty string rather than raising, so a typo degrades the prompt
 instead of failing the generation.
@@ -42,11 +46,14 @@ generate tab; there is no variables table.
 
 The LLM chat's `manage_prompt_variables` tool (`src/features/llm/tools/builtin/prompt_variables_tool.py`)
 can create, update, and remove a tab's variables, approval-gated the same way `update_form_settings`
-is. It reads the read-only `form_state.variables` snapshot the frontend sends (rendered by
-`src/platform/resources/prompt_variables.py`) to validate names, count, and option caps, and its
-confirmed result is an `apply_variable_changes` action the frontend applies via
-`frontend/src/lib/chat/applyVariableChanges.ts`. The model never invents a `${name}`: it either
-references one already in `form_state.variables`, or calls this tool first.
+is. A tab's variables live in its server-side draft (`/api/tab-drafts`, `src/features/tab_drafts/`), keyed
+by the tab id the chat sends as `form_state.tab_id`. `get_prompt_variables` and `manage_prompt_variables`
+read that draft (rendered by `src/platform/resources/prompt_variables.py`) to validate names, count, and
+option caps; an approved change is applied to the draft on the server, which then pushes
+`tab_variables_changed` to the user's notification socket so open tabs update. The same tools work over MCP
+with an explicit `tab_id`, and `list_tab_drafts` lists the caller's tabs. Only the last rolls
+(`form_state.variable_rolls`) still come from the browser. The model never invents a `${name}`: it either
+references one already in the draft, or calls this tool first.
 
 A choice option is a plain string, or `{text, when: {var, values}}` to make it eligible only
 when the referenced variable last resolved to one of `values`; the wire op passes conditioned
@@ -57,8 +64,107 @@ variable in scope and rejects a cycle. `when.values` must match the referenced v
 option texts exactly; there is no fuzzy repair. Every rejection names the fix, e.g. `'dance':
 when.var 'musc' is not a choice variable on this tab; choice variables: music, era.` A variable
 with conditioned options resolves after the variables its `when.var`s name — `get_form_state`
-and `@form` show this as a `resolves after $music` prefix, and each conditioned option as
-`breaking (when $music = hip hop)`.
+and `@form` show this as a `resolves after $music` marker plus a `1 conditional` count, and
+`get_prompt_variables` returns each conditioned option with its `when`.
+
+`get_form_state` and `@form` carry a compact summary per variable, never the full option lists:
+`outfit_kind: choice, shuffles each generation, 40 options (first 3: …)`, a number's range and step,
+a text's length and a clipped preview, the pinned value, and one closing line pointing at the read
+tool. The read-only `get_prompt_variables` tool (same file, generation mode, no approval) lists
+those summary rows (optional `search` over names and option texts) or, given `names`, returns every
+option with its 0-based `index` (what `pinned_index` takes), its condition, the number grid
+(`min`, `max`, `step`, `count`, `decimals`) or the full text, paged with `offset`/`limit`/`total`/
+`has_more`; an unknown name answers with close-match suggestions. It is not exposed over MCP.
+
+## Conditions
+
+A condition chooses a piece of text by the value of a variable. It is stored as plain text in the
+prompt, so it round-trips through saved prompts, history and `<tool_action>` bodies:
+
+```
+portrait of a woman, <<if $age > 65>>grey hair, deep wrinkles<<else if $age < 25 and $mood in "calm", "serene">>youthful, soft skin<<else>>auburn hair<<end>>, soft window light
+```
+
+`src/features/prompt/conditions.py` (standard library only, linear time) parses and evaluates them
+inside `expand_prompts`, so every generation path (Generate, batch, X/Y, both Directors, PotionAI
+`run_generation`, MCP) gets them with no extra wiring.
+
+| Operand | Tests |
+|---|---|
+| number variable | `= != < <= > >=` against a number, `in 18..30` / `not in 18..30` (inclusive) |
+| choice or text variable | `= "x"`, `!= "x"`, `in "a", "b"`, `not in "a", "b"`, `contains "x"`, `not contains "x"`, `is empty`, `is not empty` |
+
+- Spaces around every operator are required (`$age > 65`, never `$age>65`). Keywords are lowercase.
+- A head holds 1 to 32 tests joined by `and` or by `or`, never both; use another `else if` for mixed cases.
+- A quoted value holds 1 to 2,000 characters, the longest a choice option can be; a longer one makes the
+  head malformed. A head holds at most 4,096 characters; a longer `<<if …>>` is not a tag and is removed.
+- The first true branch wins; `<<else>>` is optional; there is no nesting.
+- Numbers compare exactly (`Decimal`), so `$age > 9` is true for `10`. `=` on text is exact and
+  case-sensitive on the trimmed value; `contains` ignores case.
+- An undefined variable makes every test false, even `!=`, so the Otherwise text is used.
+- A chosen body is inserted verbatim. If the result is empty, the spaces around it collapse and one
+  neighbouring comma is dropped (`woman, <<if …>>x<<end>>, soft light` becomes `woman, soft light`);
+  newlines are never removed.
+- `{a|b}`, `${x}`, `(x:1.2)` and newlines are fine inside a branch. `<<hello>>`, `<lora:x:1>` and
+  `<Picture 1>` are not tags and stay literal.
+
+**Errors never fail a generation.** A tag that is not part of a well-formed block (unclosed `<<if`,
+stray `<<else>>`/`<<end>>`, nesting, more than 128 blocks or 32 branches per channel, anything past
+20,000 characters) is removed and the text around it is kept. A malformed head inside a good block
+counts as false. Either case raises one "Check your prompt" warning per generation.
+
+Reading a head costs up to 4,098 characters when it never reaches `>>`, so one scan of a text reads at
+most 80,000 characters (`MAX_HEAD_SCAN_CHARS`, four times the 20,000-character window) of heads that
+never close. Once that is spent, every further `<<if`/`<<else if` in the same scan is a malformed tag. A
+prompt needs about twenty unclosed tags before this happens, and both parsers count code points
+identically, so a 20 KB flood of junk tags parses in a few milliseconds on either side.
+
+**PotionAI.** The generation mode's system prompt teaches the grammar with three examples
+(`src/features/chat/modes/builtin.py`). Each turn's PROMPT STATE lists the tab's variables with the
+exact values a condition compares against, choice options quoted the way a condition writes them
+(`"12\" vinyl"`), and flags a broken condition under its segment. `write_condition`
+(`src/features/llm/tools/builtin/condition_tool.py`, generation mode, no approval) builds a block from
+structured branches with `conditions.format_block`, or checks hand-written text against the tab's
+variables, and returns the text to paste. Tools that save segment text refuse malformed tags with the
+exact problem and, when the slip is mechanical, the corrected text
+(`src/features/llm/tools/builtin/condition_text.py`). A `<tool_action>` segment proposal written with
+`{% if %}`, `elif`/`endif`, `==`, `&&`, single quotes or `${name}` inside a tag is rewritten into the
+grammar before the reply is saved; anything ambiguous is left as written for the card to flag.
+
+**Evaluation order, per image** (seed = base seed + image index):
+
+1. the `prompt.transform` `pre` hook runs on the template, tags included (handlers must leave
+   `<<…>>` intact; they may add tags);
+2. every variable a condition reads is rolled once from `Random(f"{seed}:var:{name}")` and rebound as
+   that literal, so `${age}` and every condition agree;
+3. each block is decided and replaced by a placeholder character;
+4. the rest of the template is sampled with the usual `Random(seed)`, so every other `{a|b}`
+   rolls exactly as it would if the condition were not there — flipping a variable changes only the
+   condition's own text;
+5. the chosen body is sampled with `Random(f"{seed}:{channel}:{block}")` and put in place of its
+   placeholder, then empty-result cleanup runs;
+6. the text is trimmed and the `post` hook runs.
+
+A prompt without any tag skips steps 2 to 5 and expands exactly as before. History keeps the
+template (`prompt_state`, `form_data`) and the per-image resolved text (`positive_prompt`).
+
+## Number variables
+
+A variable of `type: "number"` has `min`, `max`, `step` and a `mode`, the same three modes as a choice:
+
+```json
+{"type": "number", "mode": "per-image", "min": 18, "max": 80, "step": 1}
+```
+
+- `pin` sends the `value` (clamped to the range); `shuffle` (default) is rolled once per Generate
+  click; `per-image` is sent as `{18|19|…|80}` and the backend rolls it per image.
+- Values lie on the grid `min + k*step`, formatted from the grid index with as many decimal places as
+  `step` has (`0.1` gives `0.5`, never `0.5000000001`). `max` is only reachable when it is on the grid.
+- The grid is capped at 200 values; a larger one is rejected with the step that would fit.
+- `min`, `max`, `step` and `value` must be plain numbers below 10^12 in magnitude with at most 12
+  significant digits (no exponent tricks such as `1e30`); `step > 0` with at most 6 decimal places;
+  `min <= max`; and `min` may not have more decimal places than `step`. Anything else is rejected
+  with a message naming the limit. A number can also be used outside conditions, e.g. `(red dress:${weight})`.
 
 ## Seeding
 

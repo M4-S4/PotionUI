@@ -92,10 +92,6 @@ def generate_thumbnails(
 class ImageGenerationOutputHandler(BaseGenerationOutputHandler):
     """Handler for ImageGenerationOutput - handles image saving and processing."""
 
-    def can_handle(self, output) -> bool:
-        """Check if this handler can process ImageGenerationOutput."""
-        return isinstance(output, ImageGenerationOutput)
-
     def handle(self, output: ImageGenerationOutput) -> Dict[str, Any]:
         """
         Process ImageGenerationOutput - save image if not temporary.

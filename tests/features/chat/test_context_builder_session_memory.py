@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from src.features.llm.tools.base import ToolServices
 from src.features.chat.runtime import ChatRuntime
 from src.features.llm_memory.records import LLMMemoryNote
 
@@ -31,8 +32,7 @@ def _runtime(notes):
         response_processor=Mock(),
         plugin_registry=Mock(),
         chat_mode_registry=registry,
-        llm_memory_repository=FakeMemoryRepository(notes),
-        model_index_manager=Mock(),
+        tool_services=ToolServices(llm_memory_repository=FakeMemoryRepository(notes), model_index_manager=Mock()),
     )
 
 

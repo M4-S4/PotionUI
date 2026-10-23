@@ -1,8 +1,10 @@
 <script lang="ts">
-	import { onMount, tick, untrack } from 'svelte';
+	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { get } from 'svelte/store';
+	import dismiss from '$lib/actions/dismiss';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
+	import { createUrlState } from '$lib/utils/urlState';
 	import { api } from '$lib/services/api';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, EmptyState, Spinner } from '$lib/components/ui';
@@ -12,6 +14,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { tabsStore, activeTab } from '$lib/stores/tabs';
+	import { libraryTabVariables } from '$lib/prompts/libraryTabVariables';
 	import LibraryShell from '$lib/components/library/LibraryShell.svelte';
 	import LibraryFilterBar from '$lib/components/library/LibraryFilterBar.svelte';
 	import { libraryCounts, setLibraryCount } from '../library/libraryCounts';
@@ -23,22 +26,18 @@
 	import {
 		SEGMENT_SORT_OPTIONS,
 		applySegmentFilters,
-		clearAllSegmentFilters,
-		clearSegmentFilterChip,
 		segmentCountsByCategory,
-		segmentFilterActiveCount,
 		segmentFilterChips,
-		segmentFiltersFromSearchParams,
-		segmentFiltersToSearchParams,
 		segmentTagVocabulary,
 		type SegmentFilters,
-		type SegmentSortBy
+		type SegmentSortBy,
+		segmentFilters
 	} from './segmentFilters';
 
 	const NAME_FIELD_ID = 'segment-detail-name-field';
 
 	const params = $derived($page.url.searchParams);
-	const filters = $derived(segmentFiltersFromSearchParams(params));
+	const filters = $derived(segmentFilters.fromSearchParams(params));
 	const viewId = $derived(params.get('id'));
 	const viewIsNew = $derived(params.get('new') === '1');
 	const detailOpen = $derived(!!viewId || viewIsNew);
@@ -51,13 +50,13 @@
 	const counts = $derived(segmentCountsByCategory(segments));
 	const visible = $derived(applySegmentFilters(segments, categories, filters));
 	const chips = $derived(segmentFilterChips(filters, categories));
-	const filterCount = $derived(segmentFilterActiveCount(filters));
+	const filterCount = $derived(segmentFilters.activeCount(filters));
 	const filtersActive = $derived(filterCount > 0 || !!filters.q.trim());
 	const tagVocabulary = $derived(segmentTagVocabulary(segments));
 	const categoryNames = $derived(new Map(categories.map((category) => [category.id, category.name])));
 
 	function buildUrl(overrides: { filters?: SegmentFilters; id?: string | null; isNew?: boolean } = {}): string {
-		const next = segmentFiltersToSearchParams(overrides.filters ?? filters);
+		const next = segmentFilters.toSearchParams(overrides.filters ?? filters);
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		const isNew = overrides.isNew !== undefined ? overrides.isNew : viewIsNew;
 		if (id) next.set('id', id);
@@ -65,13 +64,11 @@
 		return `/prompts?${withSection(next, 'segments').toString()}`;
 	}
 
-	let filtersDebounce: ReturnType<typeof setTimeout> | undefined;
+	const urlState = createUrlState({ href: buildUrl });
+	onDestroy(urlState.cancel);
 
 	function updateFilters(next: SegmentFilters) {
-		clearTimeout(filtersDebounce);
-		filtersDebounce = setTimeout(() => {
-			void goto(buildUrl({ filters: next }), { replaceState: true, keepFocus: true, noScroll: true });
-		}, 250);
+		urlState.debounced({ filters: next });
 	}
 
 	function selectCategory(id: string) {
@@ -79,15 +76,15 @@
 	}
 
 	function openSegment(segment: SavedSegment) {
-		void goto(buildUrl({ id: segment.id, isNew: false }));
+		void urlState.go({ id: segment.id, isNew: false });
 	}
 
 	function backToGrid() {
-		void goto(buildUrl({ id: null, isNew: false }));
+		void urlState.go({ id: null, isNew: false });
 	}
 
 	function startNew() {
-		void goto(buildUrl({ id: null, isNew: true }));
+		void urlState.go({ id: null, isNew: true });
 	}
 
 	async function loadAll() {
@@ -248,7 +245,7 @@
 			toasts.success(selected ? 'Segment updated' : 'Segment created');
 			await loadAll();
 			if (mode === 'create') {
-				void goto(buildUrl({ id: response.data.id, isNew: false }));
+				void urlState.go({ id: response.data.id, isNew: false });
 			} else {
 				selected = response.data;
 				fillFrom(response.data);
@@ -445,16 +442,11 @@
 
 	function handleWindowKeydown(event: KeyboardEvent) {
 		if (event.key !== 'Escape') return;
-		if (moveMenuOpen) moveMenuOpen = false;
-		else if (selectedIds.size > 0) clearSelection();
-	}
-
-	function handleWindowClick(event: MouseEvent) {
-		if (moveMenuOpen && moveMenuEl && !moveMenuEl.contains(event.target as Node)) moveMenuOpen = false;
+		if (selectedIds.size > 0) clearSelection();
 	}
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} onclick={handleWindowClick} />
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <LibraryShell
 	title="Prompt Library"
@@ -466,8 +458,8 @@
 	count={visible.length}
 	{detailOpen}
 	filterChips={chips}
-	onRemoveChip={(key) => updateFilters(clearSegmentFilterChip(filters, key))}
-	onClearFilters={() => updateFilters(clearAllSegmentFilters(filters))}
+	onRemoveChip={(key) => updateFilters(segmentFilters.clearChip(filters, key))}
+	onClearFilters={() => updateFilters(segmentFilters.clearAll(filters))}
 	loadedCount={visible.length}
 	total={segments.length}
 >
@@ -539,6 +531,7 @@
 			onDelete={deleteFromDetail}
 			onDuplicate={duplicateFromDetail}
 			onInsert={insertFromDetail}
+			tabVariables={$libraryTabVariables}
 		/>
 	{:else}
 		<div class="flex h-full flex-col overflow-hidden">
@@ -558,7 +551,7 @@
 						>
 							{#snippet actions()}
 								{#if filtersActive}
-									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...clearAllSegmentFilters(filters), q: '' })}>
+									<Button size="sm" variant="ghost" onclick={() => updateFilters({ ...segmentFilters.clearAll(filters), q: '' })}>
 										Clear filters
 									</Button>
 								{:else}
@@ -623,6 +616,7 @@
 				<div
 					class="absolute bottom-[calc(100%+6px)] left-0 z-50 max-h-64 min-w-[200px] overflow-y-auto rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating"
 					role="menu"
+					use:dismiss={{ onDismiss: () => (moveMenuOpen = false), ignore: [moveMenuEl] }}
 				>
 					{#each categories as category (category.id)}
 						<button

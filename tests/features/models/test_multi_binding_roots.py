@@ -21,14 +21,7 @@ from src.platform.database.rows import now_iso
 from src.platform.filesystem.model_roots import ModelRootResolver, RootProbe
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.settings.repository import SettingRepository
-
-
-class _Coordinator:
-    def cancel_and_restart(self, trigger="location_change"):
-        return {"state": "idle"}
-
-    def status(self):
-        return {"state": "idle"}
+from tests.features.models.fakes import FakeIndexingCoordinator
 
 
 @pytest.fixture
@@ -40,7 +33,7 @@ def stack(mock_db, tmp_path):
         repository=repository,
         resolver=resolver,
         probe=probe,
-        indexing_coordinator=_Coordinator(),
+        indexing_coordinator=FakeIndexingCoordinator(),
         setting_repository=SettingRepository(),
         base_dir=tmp_path,
     )

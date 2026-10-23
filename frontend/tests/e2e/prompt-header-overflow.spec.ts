@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
-import { installAndSelectImagePreset } from './presetPreamble';
+import { chooseLayout, installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'prompt-header-overflow';
 const LABELS = ['Styles', 'Prompts', 'Segments', 'Templates', 'Variables'];
@@ -56,8 +56,7 @@ test('prompt header actions collapse into the more menu as the prompts pane is d
 	await page.goto('/generate');
 	await installAndSelectImagePreset(page);
 
-	await page.getByRole('button', { name: 'More view options' }).click();
-	await page.getByRole('option', { name: /Three panes/ }).click();
+	await chooseLayout(page, 'Three panes');
 
 	const handle = page.getByTestId('prompts-workbench-handle');
 	await expect(handle).toBeVisible({ timeout: 20000 });

@@ -36,7 +36,7 @@
 </script>
 
 <div class="field-card">
-	<div class="rounded-lg border border-line-strong bg-surface-1 p-3">
+	<div class="rounded-lg border border-line-strong bg-surface-2 p-3">
 		<label
 			for={fieldName}
 			class="flex w-full cursor-pointer select-none items-center justify-between gap-3"

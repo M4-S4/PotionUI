@@ -28,6 +28,7 @@ rather than ported (no coverage was lost).
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -37,6 +38,8 @@ from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
 
+from ._bound_form import bound_form_data
+
 DISTILLED_RECIPE = "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
 
 
@@ -44,9 +47,9 @@ DISTILLED_RECIPE = "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).endswith("native/LTX-2")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("marketplace/LTX-2")), None)
     if template is None:
-        pytest.skip("native/LTX-2 preset not present")
+        pytest.fail("marketplace/LTX-2 preset not present")
     return template
 
 
@@ -79,6 +82,7 @@ def _process_video(ltx_template, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
+    form_data = bound_form_data(ltx_template, "video", form_data)
     generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
     return processor.process(ltx_template, generation_data)
 

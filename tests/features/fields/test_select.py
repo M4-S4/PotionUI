@@ -1,7 +1,6 @@
 import unittest
 import tempfile
 import os
-import yaml
 from unittest.mock import Mock, patch
 from pathlib import Path
 
@@ -19,35 +18,9 @@ class TestSelectField(unittest.TestCase):
         self.mock_preset.path = '/test/presets/test_author/test_model/v1/main'
         
         self.preset_loader.preset_files_path = '/test/presets'
-        self.preset_loader.presets = [self.mock_preset]
+        self.preset_loader.get.return_value = self.mock_preset
         self.mock_preset.id = 'test_preset_id'
-    
-    def test_can_handle(self):
-        """Test that select field handles 'select' type"""
-        self.assertTrue(self.select_field.can_handle('select'))
-        self.assertFalse(self.select_field.can_handle('image'))
-        self.assertFalse(self.select_field.can_handle('slider'))
 
-    def test_configuration(self):
-        """Test that configuration includes all expected parameters"""
-        config_specs = Select.configuration()
-
-        # Check that we have the expected configuration parameters
-        config_names = [spec.name for spec in config_specs]
-        expected_params = ['options', 'file', 'files']
-
-        for param in expected_params:
-            self.assertIn(param, config_names, f"Missing configuration parameter: {param}")
-
-        # Check options parameter supports examples
-        options_spec = next((spec for spec in config_specs if spec.name == 'options'), None)
-        self.assertIsNotNone(options_spec)
-        self.assertEqual(options_spec.param_type, list)
-
-        # Check that example shows options with examples
-        example_options = options_spec.example
-        self.assertTrue(isinstance(example_options, list))
-        self.assertTrue(any('example' in opt for opt in example_options if isinstance(opt, dict)))
     
     
     def test_output_static_options(self):
@@ -175,10 +148,9 @@ class TestSelectField(unittest.TestCase):
         self.assertEqual(options[2]['label'], 'string_option')
         self.assertEqual(options[3]['label'], '123')
     
-    @patch('builtins.open')
     @patch('pathlib.Path.exists')
     @patch('src.platform.templating.TemplateProcessor.process_template')
-    def test_get_file_options(self, mock_template, mock_exists, mock_open):
+    def test_get_file_options(self, mock_template, mock_exists):
         """Test file-based options loading"""
         # Setup mocks
         mock_exists.return_value = True
@@ -191,10 +163,8 @@ class TestSelectField(unittest.TestCase):
                 {'label': 'File Option 2', 'value': 'file_opt2'}
             ]
         }
-        mock_open.return_value.__enter__.return_value.read.return_value = yaml.dump(yaml_content)
-        
-        # Mock yaml.safe_load
-        with patch('yaml.safe_load', return_value=yaml_content):
+
+        with patch('src.features.fields.select.load_yaml_cached', return_value=yaml_content):
             config = {'file': {'path': '/test/path/options.yml'}}
             options = self.select_field._get_file_options(config, 'test_preset_id')
         

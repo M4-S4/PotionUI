@@ -3,7 +3,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-prompt-feedback';
-const BEAT = 450;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 // Thumbs feedback on an LLM-proposed prompt: the assistant message carries a
@@ -57,13 +56,12 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	await expect(segmentHeader).toBeVisible({ timeout: 30000 });
 	await expect(page.getByText(PROPOSED_PROMPT)).toBeVisible();
 
-	const thumbsUp = page.locator('button[title="Good prompt"]');
-	const thumbsDown = page.locator('button[title="Bad prompt"]');
+	const thumbsUp = page.locator('button[aria-label="Good prompt"]');
+	const thumbsDown = page.locator('button[aria-label="Bad prompt"]');
 	await expect(thumbsUp).toBeVisible();
 	await expect(thumbsDown).toBeVisible();
 	await expect(thumbsUp).toHaveAttribute('aria-pressed', 'false');
 
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'proposal-with-thumbs');
 
 	const feedbackResponse = page.waitForResponse(
@@ -76,7 +74,6 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	await expect(thumbsUp).toHaveAttribute('aria-pressed', 'true');
 	await expect(thumbsUp).toBeDisabled();
 	await expect(thumbsDown).toBeDisabled();
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'thumbs-up-pressed');
 
 	const response = await feedbackResponse;
@@ -94,7 +91,7 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	await fab.click();
 	await expect(page.getByText('Update Segment #1')).toBeVisible({ timeout: 30000 });
 
-	const thumbsUpAfter = page.locator('button[title="Good prompt"]');
+	const thumbsUpAfter = page.locator('button[aria-label="Good prompt"]');
 	await expect(thumbsUpAfter).toBeVisible();
 	await expect(
 		thumbsUpAfter,
@@ -102,7 +99,6 @@ test('thumbs-up on a proposed prompt reflects immediately and survives reload', 
 	).toHaveAttribute('aria-pressed', 'true');
 	await expect(thumbsUpAfter).toBeDisabled();
 
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'after-reload-persisted');
 
 	console.log(

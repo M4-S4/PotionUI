@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/services/api/index';
 	import { Badge, Button } from '$lib/components/ui';
@@ -227,7 +228,7 @@
 												{#each inputs as input, i (`${input.name}:${i}`)}
 													<span
 														class="inline-flex items-center gap-1 rounded border border-line-strong bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-fg-muted"
-														title={ioChipTitle(input, input.required)}
+														use:tooltip={ioChipTitle(input, input.required)}
 													>
 														{#if input.required}
 															<span class="w-1 h-1 rounded-full bg-warning" aria-hidden="true"></span>
@@ -249,7 +250,7 @@
 												{#each outputs as output, i (`${output.name}:${i}`)}
 													<span
 														class="inline-flex items-center gap-1 rounded border border-line-strong bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-fg-muted"
-														title={ioChipTitle(output)}
+														use:tooltip={ioChipTitle(output)}
 													>
 														<span class="text-fg">{ioChipLabel(output)}</span>
 														<span class="text-fg-subtle">· {output.io_type}</span>

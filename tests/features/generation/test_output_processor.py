@@ -529,18 +529,6 @@ class TestProgressCalculation:
 class TestOutputTypeRegistration:
     """Test cases for output type registry access via OutputProcessor."""
 
-    def test_get_registered_output_types(
-        self,
-        output_processor,
-        mock_type_registry
-    ):
-        """Test getting list of registered OutputTypeSpec entries."""
-        result = output_processor.get_registered_output_types()
-
-        assert result == mock_type_registry.all()
-        assert len(result) == 1
-        assert result[0].key == 'mock'
-
 
 class TestOutputProcessorIntegration:
     """Integration tests for OutputProcessor."""

@@ -40,13 +40,10 @@ jobs:
           - name: platform
             paths: >-
               tests/platform
-              tests/pipelines
               tests/features/plugins
               --ignore=tests/platform/runtime/native/test_engine.py
               --ignore=tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
-            serial_paths: >-
-              tests/platform/runtime/native/test_engine.py
-              tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
+            serial_paths: ""
           - name: features
             paths: >-
               tests/features/generation
@@ -55,7 +52,10 @@ jobs:
               tests/features/media_index
               tests/features/backends
               tests/features/models
-            serial_paths: ""
+              tests/pipelines
+            serial_paths: >-
+              tests/platform/runtime/native/test_engine.py
+              tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
           - name: rest
             paths: >-
               tests/
@@ -72,68 +72,74 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - id: py
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            requirements-ci.txt
-            requirements-dev.txt
+
+      - name: Resolve cache week
+        id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore apt archives
+        id: apt
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-archives
+          key: apt-${{ runner.os }}-libglib-ffmpeg-${{ steps.week.outputs.week }}
 
       # libglib2.0-0 supplies libgthread-2.0.so.0, which `import cv2` needs
       # (see docs/testing-notes.md) - without it the cv2-dependent suites
       # skip silently rather than fail, so install it for real coverage.
       # ffmpeg unlocks the media-editing suite's video/audio round-trips the
       # same way.
-      # The 87 packages ffmpeg pulls in (64.7 MB) come from the runner's Azure
-      # Ubuntu mirror, which sometimes drops to ~75 kB/s and exhausts the step
-      # cap. The downloaded .deb files are cached per runner image + package
-      # list, so a hit installs from local files and a miss still falls back to
-      # the mirror with the retries below.
-      - name: Compute apt archive cache key
-        id: apt-cache-key
-        env:
-          APT_PACKAGES: libglib2.0-0 ffmpeg
-        run: echo "key=apt-debs-${ImageOS:-ubuntu}-${ImageVersion:-unknown}-$(echo "$APT_PACKAGES" | tr ' ' '-')" >> "$GITHUB_OUTPUT"
+      - name: Install system dependencies
+        timeout-minutes: 16
+        run: |
+          sudo grep -rl "dl.google.com" /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
+          mkdir -p ~/apt-archives/partial
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dir::Cache::Archives=$HOME/apt-archives"
+          for attempt in 1 2 3; do
+            if [ "$attempt" -gt 1 ]; then
+              sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+              sudo dpkg --configure -a || true
+            fi
+            sudo timeout -k 10 90 apt-get update $APT_OPTS || true
+            sudo timeout -k 10 180 apt-get install -y --no-install-recommends $APT_OPTS libglib2.0-0 ffmpeg && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep 10
+          done
+          sudo rm -rf ~/apt-archives/partial ~/apt-archives/lock
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-archives
 
-      - name: Restore apt archive cache
+      - name: Save apt archives
+        if: steps.apt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-archives
+          key: apt-${{ runner.os }}-libglib-ffmpeg-${{ steps.week.outputs.week }}
+
+      - name: Restore Python environment
+        id: venv
         uses: actions/cache@v4
         with:
-          path: ~/apt-debs
-          key: ${{ steps.apt-cache-key.outputs.key }}
-
-      - name: Install system dependencies
-        timeout-minutes: 12
-        run: |
-          # The runner image ships Google's Chrome apt source (a .list or a deb822
-          # .sources file depending on the image); its mirror rotates mid-update and
-          # fails apt with a Hash Sum mismatch. We do not need it: drop every source
-          # that points at dl.google.com, and do not let an unrelated index failure
-          # fail the step - the Ubuntu indexes the two packages come from still load.
-          sudo grep -rl "dl.google.com" /etc/apt/sources.list.d/ 2>/dev/null | xargs -r sudo rm -f
-          mkdir -p "$HOME/apt-debs"
-          sudo cp -n "$HOME"/apt-debs/*.deb /var/cache/apt/archives/ 2>/dev/null || true
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
-          for attempt in 1 2 3; do
-            sudo timeout 120 apt-get update $APT_OPTS || true
-            sudo timeout 240 apt-get install -y --no-install-recommends $APT_OPTS libglib2.0-0 ffmpeg && break
-            [ "$attempt" = 3 ] && exit 1
-            sleep 15
-          done
-          if ls /var/cache/apt/archives/*.deb >/dev/null 2>&1; then
-            sudo cp -u /var/cache/apt/archives/*.deb "$HOME/apt-debs/"
-            sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-debs"
-          fi
+          path: ~/venv-ci
+          key: py-venv-${{ runner.os }}-${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements-ci.txt', 'requirements-dev.txt') }}-${{ steps.week.outputs.week }}
 
       # pytest-timeout backs pytest.ini's `timeout = 300` - it is not in
       # requirements-dev.txt today, so it's installed explicitly here rather
       # than assumed present.
       - name: Install backend dependencies (CPU-only torch)
+        if: steps.venv.outputs.cache-hit != 'true'
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements-dev.txt
-          pip install pytest-timeout
+          python -m venv ~/venv-ci
+          ~/venv-ci/bin/python -m pip install --upgrade pip
+          ~/venv-ci/bin/python -m pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          ~/venv-ci/bin/python -m pip install -r requirements-dev.txt
+          ~/venv-ci/bin/python -m pip install pytest-timeout
+
+      - name: Use the Python environment
+        run: echo "$HOME/venv-ci/bin" >> "$GITHUB_PATH"
 
       # One BLAS thread per worker: without the pins, 4 workers x 4 OMP
       # threads oversubscribe the 4 cores and float reductions go
@@ -146,8 +152,9 @@ jobs:
           POTIONUI_TEST_THREADS: "1"
           POTIONUI_TEST_BUDGET_S: "15"
         run: >
-          python -m pytest ${{ matrix.shard.paths }} -q --durations=25 --timeout=300 -n 4
+          python -m pytest ${{ matrix.shard.paths }} -q --durations=25 --timeout=300 -n 4 --dist worksteal
           -m "not requires_gpu and not requires_models and not gc_sensitive"
+          --junitxml=junit-linux-${{ matrix.shard.name }}.xml
 
       # timeout-method=thread: the default signal method can't interrupt a
       # hang inside native code.
@@ -166,6 +173,7 @@ jobs:
           python -m pytest ${{ matrix.shard.serial_paths }} -q --durations=25
           --timeout=300 --timeout-method=thread
           -m "not requires_gpu and not requires_models and not gc_sensitive"
+          --junitxml=junit-linux-${{ matrix.shard.name }}-serial.xml
 
       - name: pytest (marketplace plugin test suites)
         if: matrix.shard.name == 'rest'
@@ -174,9 +182,20 @@ jobs:
           MKL_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
           POTIONUI_TEST_THREADS: "1"
+          POTIONUI_PLUGIN_SUITE_WORKERS: "10"
         run: >
           python tests/plugins/run_suites.py -q --timeout=300
           -m "not requires_gpu and not requires_models and not gc_sensitive"
+
+      - name: Upload pytest results (Linux)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-tests-linux-${{ matrix.shard.name }}
+          path: |
+            junit-linux-${{ matrix.shard.name }}.xml
+            junit-linux-${{ matrix.shard.name }}-serial.xml
+          retention-days: 14
 
   frontend-tests:
     name: frontend unit tests
@@ -187,7 +206,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -216,7 +235,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: content/plugins/package-lock.json
 

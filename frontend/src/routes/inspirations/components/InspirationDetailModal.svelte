@@ -6,7 +6,7 @@
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Badge, Button, Spinner } from '$lib/components/ui';
+	import { Badge, Button, Spinner, IconButton } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
 	import { loadPresets } from '$lib/stores/presetsCatalog';
 	import { authStore } from '$lib/stores/auth';
@@ -236,22 +236,10 @@
 			class="relative rounded-lg border border-line-strong bg-black overflow-hidden flex items-center justify-center min-h-[16rem] max-h-[55vh]"
 		>
 			{#if canPrev}
-				<button
-					class="absolute left-3 top-1/2 -translate-y-1/2 z-10 p-2.5 rounded bg-black/70 hover:bg-black/80 text-white transition-colors"
-					on:click={goPrev}
-					aria-label="Previous file"
-				>
-					<Icon name="chevron-left" className="w-5 h-5" />
-				</button>
+				<IconButton icon="chevron-left" label="Previous file" variant="overlay" onclick={goPrev} class="absolute left-3 top-1/2 -translate-y-1/2 z-10" />
 			{/if}
 			{#if canNext}
-				<button
-					class="absolute right-3 top-1/2 -translate-y-1/2 z-10 p-2.5 rounded bg-black/70 hover:bg-black/80 text-white transition-colors"
-					on:click={goNext}
-					aria-label="Next file"
-				>
-					<Icon name="chevron-right" className="w-5 h-5" />
-				</button>
+				<IconButton icon="chevron-right" label="Next file" variant="overlay" onclick={goNext} class="absolute right-3 top-1/2 -translate-y-1/2 z-10" />
 			{/if}
 			{#if media.length > 1}
 				<div

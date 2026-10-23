@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { parseServerDate } from '$lib/utils/relativeTime';
+	import { formatBytes } from '$lib/utils/format';
 	import {
 		downloadStore,
 		statusBadgeVariant,
@@ -166,8 +167,8 @@
 							<div class="flex flex-col gap-0.5">
 								<span class="font-mono text-sm font-semibold tabular-nums text-fg">
 									{download.total_bytes
-										? `${downloadStore.formatBytes(download.downloaded_bytes)} / ${downloadStore.formatBytes(download.total_bytes)}`
-										: downloadStore.formatBytes(download.downloaded_bytes)}
+										? `${formatBytes(download.downloaded_bytes)} / ${formatBytes(download.total_bytes)}`
+										: formatBytes(download.downloaded_bytes)}
 								</span>
 								<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle">Received</span>
 							</div>
@@ -245,8 +246,8 @@
 							<div class="flex flex-col gap-0.5">
 								<span class="font-mono text-sm font-semibold tabular-nums text-fg">
 									{download.total_bytes
-										? `${downloadStore.formatBytes(download.downloaded_bytes)} / ${downloadStore.formatBytes(download.total_bytes)}`
-										: downloadStore.formatBytes(download.downloaded_bytes)}
+										? `${formatBytes(download.downloaded_bytes)} / ${formatBytes(download.total_bytes)}`
+										: formatBytes(download.downloaded_bytes)}
 								</span>
 								<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle">Received</span>
 							</div>
@@ -273,7 +274,7 @@
 									</span>
 									<Badge variant={statusBadgeVariant(sibling.status)} size="sm">{statusLabel(sibling.status)}</Badge>
 									{#if sibling.total_bytes}
-										<span class="font-mono text-2xs tabular-nums text-fg-subtle flex-shrink-0">{downloadStore.formatBytes(sibling.total_bytes)}</span>
+										<span class="font-mono text-2xs tabular-nums text-fg-subtle flex-shrink-0">{formatBytes(sibling.total_bytes)}</span>
 									{/if}
 									{#if sibling.id === download.id}
 										<span class="font-mono text-2xs uppercase tracking-wide text-signal flex-shrink-0">This file</span>
@@ -315,7 +316,7 @@
 							{/if}
 						</KVItem>
 						<KVItem label="Size" mono>
-							{download.total_bytes ? downloadStore.formatBytes(download.total_bytes) : 'Unknown'}
+							{download.total_bytes ? formatBytes(download.total_bytes) : 'Unknown'}
 						</KVItem>
 						{#if download.checksum_sha256}
 							<KVItem label="SHA-256" full>

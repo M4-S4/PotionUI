@@ -272,6 +272,14 @@
         "steps": {
           "type": "int",
           "value": 8
+        },
+        "text_enhancer_strength": {
+          "type": "float",
+          "value": 0.0
+        },
+        "text_scale": {
+          "type": "float",
+          "value": 1.0
         }
       },
       "enabled": {

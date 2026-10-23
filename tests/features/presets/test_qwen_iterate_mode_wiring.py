@@ -16,10 +16,12 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
+from tests.fixtures.form_lookup import field_by_name
 
 PRESET_DIR = Path("content/presets/marketplace/QwenImage")
 
@@ -28,9 +30,9 @@ PRESET_DIR = Path("content/presets/marketplace/QwenImage")
 def qwen_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "marketplace/QwenImage" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/QwenImage" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("marketplace/QwenImage preset not present")
+        pytest.fail("marketplace/QwenImage preset not present")
     return template
 
 
@@ -48,11 +50,8 @@ def _process(qwen_template, form_over: dict | None = None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        qwen_template, "txt2img", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "txt2img", "form_data": dict(bound.values)}
+    form_data = bound_form_data(qwen_template, "txt2img", form_data)
+    generation_data = {"prompts": [], "mode": "txt2img", "form_data": form_data}
     return processor.process(qwen_template, generation_data)
 
 
@@ -70,20 +69,9 @@ def test_iterate_mode_on_reaches_the_generator(qwen_template):
     assert cfg["iterate_mode"] is True
 
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 def test_iterate_mode_checkbox_is_present():
     tab = yaml.safe_load((PRESET_DIR / "modes/txt2img/tabs/advanced.yml").read_text())
-    field = _field_by_name(tab["fields"], "iterate_mode")
+    field = field_by_name(tab["fields"], "iterate_mode")
     assert field is not None
     assert field["type"] == "checkbox"
     assert field["default"] is False

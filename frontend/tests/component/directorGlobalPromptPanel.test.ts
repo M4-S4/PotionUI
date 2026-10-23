@@ -17,36 +17,17 @@ vi.mock('$lib/services/api/index', () => ({
 	}
 }));
 
-const { flushSync } = await import('svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { default: VideoDirectorEditor } = await import('$lib/components/video-director/VideoDirectorEditor.svelte');
 
-import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability, ChainSegment } from '$lib/types/videoDirector';
-
-function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorModeCapability {
-	return {
-		tips: [],
-		maxDuration: null,
-		audio: false,
-		icLora: false,
-		maxKeyframes: null,
-		perSegmentLoras: false,
-		keyframes: 'first_only',
-		maxSegments: null,
-		maxFramesPerSegment: null,
-		defaultSegmentDuration: 5,
-		continuation: null,
-		maxOverlapFrames: null,
-		continuationDisabled: false,
-		fpsLocked: false,
-		...overrides
-	};
-}
+import type { VideoDirectorValue, DirectorCapabilities, ChainSegment } from '$lib/types/videoDirector';
+import { settleFlush } from './helpers/settle';
+import { baseModeCap } from './directorFixtures';
 
 function chainCaps(): DirectorCapabilities {
 	return {
 		presetModes: null,
-		modes: { director: baseModeCap({ maxSegments: 8 }) },
+		modes: { director: baseModeCap({ keyframes: 'first_only', maxSegments: 8 }) },
 		enabledModes: ['director'],
 		defaultDuration: 5,
 		defaultFps: 16,
@@ -102,11 +83,6 @@ function docWith(globalPrompt: string, negativePrompt: string): VideoDirectorVal
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 function mountEditor(value: VideoDirectorValue) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
@@ -152,7 +128,7 @@ function globalPromptButton(target: HTMLElement): HTMLButtonElement {
 describe('VideoDirectorEditor header: Global prompt button', () => {
 	it('renders as a plain button with no badge when both fields are empty', async () => {
 		mounted = mountEditor(docWith('', ''));
-		await settle();
+		await settleFlush();
 
 		const button = globalPromptButton(mounted.target);
 		expect(button.querySelector('.bg-signal\\/15')).toBeNull();
@@ -160,7 +136,7 @@ describe('VideoDirectorEditor header: Global prompt button', () => {
 
 	it('shows a count badge once either field has content', async () => {
 		mounted = mountEditor(docWith('A cinematic teaser\nsecond line', 'blurry, warped hands'));
-		await settle();
+		await settleFlush();
 
 		const button = globalPromptButton(mounted.target);
 		const badge = button.querySelector('.bg-signal\\/15');
@@ -171,11 +147,11 @@ describe('VideoDirectorEditor header: Global prompt button', () => {
 describe('VideoDirectorEditor header: Global prompt panel', () => {
 	it('opens both segmented editors, labeled, on click', async () => {
 		mounted = mountEditor(docWith('A cinematic teaser', 'blurry hands'));
-		await settle();
+		await settleFlush();
 
 		expect(document.body.querySelector('[role="dialog"]')).toBeNull();
 		globalPromptButton(mounted.target).click();
-		await settle();
+		await settleFlush();
 
 		const dialog = document.body.querySelector('[role="dialog"]');
 		expect(dialog).toBeTruthy();
@@ -185,10 +161,10 @@ describe('VideoDirectorEditor header: Global prompt panel', () => {
 
 	it('renders the full image-tab toolbar row (Prompts/Segments/Templates + More) for each editor, not the stripped-down embedded rail', async () => {
 		mounted = mountEditor(docWith('A cinematic teaser', 'blurry hands'));
-		await settle();
+		await settleFlush();
 
 		globalPromptButton(mounted.target).click();
-		await settle();
+		await settleFlush();
 
 		const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement;
 		const buttonLabels = Array.from(dialog.querySelectorAll('button')).map((button) => button.textContent?.trim());
@@ -198,16 +174,16 @@ describe('VideoDirectorEditor header: Global prompt panel', () => {
 
 	it('a typed edit in the panel reaches onChange', async () => {
 		mounted = mountEditor(docWith('A cinematic teaser', ''));
-		await settle();
+		await settleFlush();
 
 		globalPromptButton(mounted.target).click();
-		await settle();
+		await settleFlush();
 
 		const editable = document.body.querySelector('[role="list"][aria-label="Global prompt"] [contenteditable="true"]') as HTMLElement | null;
 		expect(editable).toBeTruthy();
 		editable!.textContent = 'A cinematic teaser, golden hour';
 		editable!.dispatchEvent(new Event('input', { bubbles: true }));
-		await settle();
+		await settleFlush();
 
 		expect(mounted.onChangeCalls()).toBeGreaterThan(0);
 		expect(mounted.latest().global_prompt).toContain('golden hour');
@@ -223,9 +199,9 @@ describe('ShotStage read-only Global prompt note', () => {
 
 	it('shows the global (and negative) text, muted, above the beat, once a shot is selected', async () => {
 		mounted = mountEditor(docWith('A cinematic teaser', 'blurry hands'));
-		await settle();
+		await settleFlush();
 		selectChainBeat(mounted.target);
-		await settle();
+		await settleFlush();
 
 		const note = mounted.target.querySelector('.global-note');
 		expect(note).toBeTruthy();
@@ -237,24 +213,24 @@ describe('ShotStage read-only Global prompt note', () => {
 
 	it('is hidden once both the global and negative prompt are empty', async () => {
 		mounted = mountEditor(docWith('', ''));
-		await settle();
+		await settleFlush();
 		selectChainBeat(mounted.target);
-		await settle();
+		await settleFlush();
 
 		expect(mounted.target.querySelector('.global-note')).toBeNull();
 	});
 
 	it('its Edit link opens the same header panel', async () => {
 		mounted = mountEditor(docWith('A cinematic teaser', ''));
-		await settle();
+		await settleFlush();
 		selectChainBeat(mounted.target);
-		await settle();
+		await settleFlush();
 
 		const editLink = mounted.target.querySelector('.global-note .edit-link') as HTMLButtonElement | null;
 		expect(editLink).toBeTruthy();
 		expect(document.body.querySelector('[role="dialog"]')).toBeNull();
 		editLink!.click();
-		await settle();
+		await settleFlush();
 
 		expect(document.body.querySelector('[role="dialog"]')).toBeTruthy();
 	});

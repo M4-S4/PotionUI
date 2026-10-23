@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 import { api } from '$lib/services/api';
 import { logger } from '$lib/utils/logger';
 import { parseServerDate } from '$lib/utils/relativeTime';
+import { startOfDay } from '$lib/utils/time';
 import type {
 	AppNotification,
 	NotificationPreferences,
@@ -44,7 +45,6 @@ const DAY_MS = 86_400_000;
 export function bucketForDate(dateString: string, now: Date = new Date()): DayBucket {
 	const date = parseServerDate(dateString);
 	if (!date) return 'Earlier';
-	const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 	const dayDiff = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
 	if (dayDiff <= 0) return 'Today';
 	if (dayDiff === 1) return 'Yesterday';

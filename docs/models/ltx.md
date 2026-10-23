@@ -428,7 +428,7 @@ workflow's parameters against Lightricks' own inference package
 
 ## Hardware
 
-The 2.0/2.3 all-in-one checkpoint (DiT + both VAEs + vocoder + text-embedding projection) is **~27 GB on disk** (19–22B-parameter DiT; `memory_policy.py`'s `ltx2 = 27.0` cost estimate); LTX-2.5's split layout adds up to roughly the same total across its separate DiT/TE/VAE files.
+The 2.0/2.3 all-in-one checkpoint (DiT + both VAEs + vocoder + text-embedding projection) is **~27 GB on disk** (19–22B-parameter DiT); LTX-2.5's split layout adds up to roughly the same total across its separate DiT/TE/VAE files.
 
 **Measured on a 12 GB card (LTX-2.5 22B).** The files are the distilled DiT in int8 ConvRot, a Gemma4 12B text encoder in int8, and the video and audio VAEs: five files, about 40 GB, all present on the test machine. The runs were taken on one RTX 4070 Ti (12 GB) under Docker Desktop on WSL2, with the backend's `gpu_max_vram` at 10 and `text_encoder_placement` at `auto`:
 

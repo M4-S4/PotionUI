@@ -19,3 +19,4 @@ export { default as Alert } from './Alert.svelte';
 export { default as UserPicker } from './UserPicker.svelte';
 export { default as AdminOnlyMark } from './AdminOnlyMark.svelte';
 export { default as ModelPickTrigger } from './ModelPickTrigger.svelte';
+export { default as Menu } from './Menu.svelte';

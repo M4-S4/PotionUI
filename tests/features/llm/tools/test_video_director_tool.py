@@ -101,11 +101,6 @@ class TestGetVideoDirectorToolSchema:
     def test_name(self):
         assert GetVideoDirectorTool().name == "get_video_director"
 
-    def test_hint_is_nonempty(self):
-        assert len(GetVideoDirectorTool().hint) > 0
-
-    def test_description_is_nonempty(self):
-        assert len(GetVideoDirectorTool().description) > 0
 
     def test_requires_no_approval(self):
         assert GetVideoDirectorTool().requires_approval is False

@@ -1,5 +1,6 @@
-import { test, expect } from '@playwright/test';
-import { loginAsOwner, screenshot, ownerToken } from './helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { loginAsOwner, screenshot } from './helpers';
+import { discoverAndAssignImagePreset, presetOption } from './presetPreamble';
 
 const JOURNEY = 'mobile-generate';
 
@@ -57,7 +58,7 @@ test('generate page fits and shows the Studio shell at phone width', async ({ pa
 	// Dock: prompt pill + shutter, anchored ABOVE the fixed bottom tab bar, not
 	// underneath or overlapping it.
 	const promptPill = page.getByRole('button', { name: 'Prompt' });
-	const shutter = page.getByRole('button', { name: 'Generate', exact: true });
+	const shutter = page.locator('.generation-panel .generate-button');
 	await expect(promptPill).toBeVisible();
 	await expect(shutter).toBeVisible();
 	const shutterBox = await shutter.boundingBox();
@@ -111,15 +112,6 @@ test('Settings pill opens the settings sheet; backdrop click closes it', async (
 });
 
 test('overlay opened from inside a Studio sheet covers the full viewport', async ({ page }) => {
-	// Regression this replaces: the old mobile carousel's swipe track carried a
-	// translateX transform, which becomes the containing block for any
-	// `position: fixed` descendant — a raw `fixed inset-0` overlay opened from
-	// inside a panel resolved against the 400%-wide transformed track instead
-	// of the viewport (small, offset, "desktop mode" looking). Studio's sheets
-	// are portaled to <body> instead, but the guard is still worth keeping: a
-	// modal opened from INSIDE a sheet (portal-in-portal) must still size
-	// itself against the viewport. The preset picker is a BaseModal consumer
-	// reachable from the preset & session sheet with no generation required.
 	await loginAsOwner(page);
 	await page.goto('/generate');
 
@@ -130,18 +122,15 @@ test('overlay opened from inside a Studio sheet covers the full viewport', async
 
 	await presetSheet.locator('button[aria-haspopup="dialog"]').first().click();
 
-	const backdrop = page.locator('div[role="button"][aria-label="Close modal"]');
-	await expect(backdrop).toBeVisible();
-	const backdropBox = await backdrop.boundingBox();
-	expect(backdropBox, 'modal backdrop has a box').toBeTruthy();
-	// Tolerance of 20px absorbs the app's `scrollbar-gutter: stable` — a real,
-	// pre-existing few-px discrepancy between the viewport and a fixed
-	// element's containing block that's unrelated to this regression. The
-	// containing-block bug this guards against is nowhere close to that:
-	// pre-fix, the backdrop was sized to the 400%-wide panel track (~1100px
-	// too wide), not off by a few px.
-	expect(Math.abs(backdropBox!.x), 'backdrop left edge at viewport origin').toBeLessThanOrEqual(20);
-	expect(Math.abs(backdropBox!.width - 375), 'backdrop spans the full viewport width').toBeLessThanOrEqual(20);
+	const picker = page.getByRole('dialog', { name: 'Choose preset' });
+	await expect(picker).toBeVisible();
+	const viewport = page.viewportSize()!;
+	const box = await picker.boundingBox();
+	expect(box, 'preset picker has a box').toBeTruthy();
+	expect(Math.abs(box!.x), 'picker left edge at viewport origin').toBeLessThanOrEqual(20);
+	expect(Math.abs(box!.y), 'picker top edge at viewport origin').toBeLessThanOrEqual(1);
+	expect(Math.abs(box!.width - viewport.width), 'picker spans the full viewport width').toBeLessThanOrEqual(20);
+	expect(Math.abs(box!.height - viewport.height), 'picker spans the full viewport height').toBeLessThanOrEqual(1);
 });
 
 test('a dropped mode-list request does not strand the settings sheet forever', async ({ page }) => {
@@ -171,19 +160,8 @@ test('a dropped mode-list request does not strand the settings sheet forever', a
 	// lives inside the preset & session sheet, closed by default. Install/
 	// assign via its API calls, then drive the picker through the mobile
 	// chrome ourselves, same as the overlay test above.
-	const token = await ownerToken(page);
-	const headers = { Authorization: `Bearer ${token}` };
-	const list = await page.request.get('/api/presets?include_uninstalled=true', { headers });
-	const presetsData = ((await list.json()).data || []) as Array<{ id: string; name: string; engine?: string; category?: string; installed?: boolean }>;
-	const presetInfo =
-		presetsData.find((p) => /sdxl/i.test(p.id)) || presetsData.find((p) => p.engine === 'native' && p.category === 'image');
-	expect(presetInfo, 'a native image preset must exist to select').toBeTruthy();
-	if (!presetInfo!.installed) {
-		await page.request.post(`/api/presets/${presetInfo!.id}/install`, { headers });
-	}
-	const me = await page.request.get('/api/auth/me', { headers });
-	const userId = (await me.json())?.data?.id;
-	await page.request.post(`/api/presets/${presetInfo!.id}/assign`, { headers, data: { user_ids: [userId] } });
+	const preset = await discoverAndAssignImagePreset(page);
+	expect(preset, 'a native image preset must exist to select').toBeTruthy();
 
 	await page.goto('/generate');
 	await expect(page.locator('.studio-dock')).toBeVisible({ timeout: 15000 });
@@ -197,8 +175,8 @@ test('a dropped mode-list request does not strand the settings sheet forever', a
 	await pickerTrigger.click();
 	const presetList = page.locator('[role="listbox"][aria-label="Presets"]');
 	await expect(presetList).toBeVisible({ timeout: 15000 });
-	await presetList.getByText(presetInfo!.name, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset!.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	await page.keyboard.press('Escape');
 	await expect(presetSheet).toHaveCount(0);
@@ -211,4 +189,163 @@ test('a dropped mode-list request does not strand the settings sheet forever', a
 	// and selectedMode got set, not just that the sheet opened.
 	await expect(settingsSheet.locator('input, select, textarea').first()).toBeVisible({ timeout: 10000 });
 	expect(modesCallCount, 'the dropped /modes request must have been retried').toBeGreaterThan(1);
+});
+
+test('the generation deck sits between the Studio canvas and the tab bar', async ({ page }) => {
+	await loginAsOwner(page);
+	await page.goto('/generate');
+
+	const deck = page.locator('.generation-panel');
+	await expect(deck).toBeVisible({ timeout: 15000 });
+	await expect(page.locator('.studio-dock')).toBeVisible();
+
+	const tabBarBox = await page.locator('nav.fixed.bottom-0').boundingBox();
+	const deckBox = await deck.boundingBox();
+	const canvasBox = await page.locator('.studio-canvas').boundingBox();
+	const dockBox = await page.locator('.studio-dock').boundingBox();
+
+	expect(Math.abs(deckBox!.y + deckBox!.height - tabBarBox!.y), 'deck bottom meets the tab bar').toBeLessThanOrEqual(1);
+	expect(Math.abs(deckBox!.height - 140), 'deck is 140px tall').toBeLessThanOrEqual(1);
+	expect(Math.abs(deckBox!.width - 375), 'deck spans the viewport').toBeLessThanOrEqual(1);
+	expect(canvasBox!.y + canvasBox!.height, 'canvas ends above the deck').toBeLessThanOrEqual(deckBox!.y + 1);
+	expect(dockBox!.y + dockBox!.height, 'prompt row ends above the deck').toBeLessThanOrEqual(deckBox!.y + 1);
+
+	await expect(page.locator('[role="progressbar"]')).toHaveCount(1);
+	await expect(page.locator('.studio-dock svg circle')).toHaveCount(0);
+
+	await screenshot(page, JOURNEY, 'studio-deck-idle');
+});
+
+test('X/Y, Generate and Continuous share one row in that order', async ({ page }) => {
+	await loginAsOwner(page);
+	await page.goto('/generate');
+
+	const controls = page.locator('.generation-panel .run-cluster button');
+	await expect(controls).toHaveCount(3, { timeout: 15000 });
+	await expect(controls.nth(0)).toHaveAttribute('data-compare-toggle', '');
+	await expect(controls.nth(1)).toHaveClass(/generate-button/);
+
+	const boxes = await controls.evaluateAll((elements) =>
+		elements.map((element) => {
+			const rect = element.getBoundingClientRect();
+			return { x: rect.x, centerY: rect.y + rect.height / 2, width: rect.width, height: rect.height };
+		})
+	);
+	expect(boxes[0].x).toBeLessThan(boxes[1].x);
+	expect(boxes[1].x).toBeLessThan(boxes[2].x);
+	expect(Math.abs(boxes[0].centerY - boxes[1].centerY)).toBeLessThanOrEqual(1);
+	expect(Math.abs(boxes[2].centerY - boxes[1].centerY)).toBeLessThanOrEqual(1);
+	expect(Math.abs(boxes[1].width - 60)).toBeLessThanOrEqual(1);
+	expect(boxes[0].width).toBeGreaterThanOrEqual(44);
+	expect(boxes[2].width).toBeGreaterThanOrEqual(44);
+});
+
+test('the Settings button sits right after the prompt pill on the same row', async ({ page }) => {
+	await loginAsOwner(page);
+	await page.goto('/generate');
+
+	const prompt = page.getByRole('button', { name: 'Prompt', exact: true });
+	const settings = page.getByRole('button', { name: 'Settings', exact: true });
+	await expect(settings).toBeVisible({ timeout: 15000 });
+
+	const promptBox = await prompt.boundingBox();
+	const settingsBox = await settings.boundingBox();
+	expect(Math.abs(settingsBox!.width - 44)).toBeLessThanOrEqual(1);
+	expect(Math.abs(settingsBox!.height - 44)).toBeLessThanOrEqual(1);
+	expect(settingsBox!.x).toBeGreaterThanOrEqual(promptBox!.x + promptBox!.width - 1);
+	expect(
+		Math.abs(settingsBox!.y + settingsBox!.height / 2 - (promptBox!.y + promptBox!.height / 2)),
+		'Settings is centred on the prompt pill'
+	).toBeLessThanOrEqual(1);
+});
+
+test('Studio chrome and the deck draw no text under 12px', async ({ page }) => {
+	await loginAsOwner(page);
+	await page.goto('/generate');
+	await expect(page.locator('.generation-panel')).toBeVisible({ timeout: 15000 });
+
+	const tooSmall = await page.evaluate(() => {
+		const roots = ['.studio-topbar', '.studio-dock', '.generation-panel']
+			.map((selector) => document.querySelector(selector))
+			.filter((root): root is Element => !!root);
+		const small: string[] = [];
+		for (const root of roots) {
+			for (const element of root.querySelectorAll('*')) {
+				const ownText = [...element.childNodes].some((node) => node.nodeType === 3 && node.textContent?.trim());
+				if (!ownText || element.getClientRects().length === 0) continue;
+				const style = getComputedStyle(element);
+				if (style.visibility === 'hidden') continue;
+				if (parseFloat(style.fontSize) < 12) small.push(`${element.className} ${style.fontSize}`);
+			}
+		}
+		return small;
+	});
+	expect(tooSmall).toEqual([]);
+});
+
+test('a lost WebSocket shows its warning between the Studio dock and the deck with no blank band', async ({ page }) => {
+	await page.addInitScript(() => {
+		const Native = window.WebSocket;
+		const Stalled = function (url: string, protocols?: string | string[]) {
+			if (!String(url).includes('/ws/generation')) return new Native(url, protocols);
+			return Object.assign(new EventTarget(), { readyState: 0, close() {}, send() {} });
+		} as unknown as typeof WebSocket;
+		Object.assign(Stalled, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 });
+		window.WebSocket = Stalled;
+	});
+	await loginAsOwner(page);
+	await page.goto('/generate');
+
+	const warning = page.locator('div.border-warning\\/25', { hasText: 'WebSocket disconnected' });
+	await expect(warning).toBeVisible({ timeout: 15000 });
+	await expect(page.locator('.generation-panel')).toBeVisible();
+
+	const dockBox = await page.locator('.studio-dock').boundingBox();
+	const canvasBox = await page.locator('.studio-canvas').boundingBox();
+	const warningBox = await warning.boundingBox();
+	const deckBox = await page.locator('.generation-panel').boundingBox();
+
+	expect(dockBox!.y + dockBox!.height, 'prompt row ends at the warning').toBeLessThanOrEqual(warningBox!.y + 1);
+	expect(canvasBox!.y + canvasBox!.height, 'canvas ends at the warning').toBeLessThanOrEqual(warningBox!.y + 1);
+	expect(warningBox!.y + warningBox!.height, 'warning ends at the deck').toBeLessThanOrEqual(deckBox!.y + 1);
+	expect(Math.abs(deckBox!.y - (warningBox!.y + warningBox!.height)), 'no blank band between warning and deck').toBeLessThanOrEqual(1);
+	await screenshot(page, JOURNEY, 'studio-deck-disconnected');
+});
+
+async function offerInstall(page: Page) {
+	await page.evaluate(() => {
+		const event: any = new Event('beforeinstallprompt', { cancelable: true });
+		event.prompt = async () => {};
+		event.userChoice = new Promise(() => {});
+		window.dispatchEvent(event);
+	});
+}
+
+test('the install banner sits above the deck on Generate, below its drawers', async ({ page }) => {
+	await loginAsOwner(page);
+	await page.goto('/generate');
+	await expect(page.locator('.generation-panel')).toBeVisible({ timeout: 15000 });
+	await offerInstall(page);
+
+	const banner = page.locator('[data-install-banner]');
+	await expect(banner).toBeVisible();
+	const bannerBox = await banner.boundingBox();
+	const deckBox = await page.locator('.generation-panel').boundingBox();
+	expect(bannerBox!.y + bannerBox!.height, 'banner ends above the deck').toBeLessThanOrEqual(deckBox!.y + 1);
+	expect(Number(await banner.evaluate((element) => getComputedStyle(element).zIndex)), 'banner stacks under the deck').toBeLessThan(30);
+	await screenshot(page, JOURNEY, 'install-banner-generate');
+});
+
+test('the install banner sits on the tab bar away from Generate', async ({ page }) => {
+	await loginAsOwner(page);
+	await page.goto('/history');
+	await expect(page.locator('nav.fixed.bottom-0')).toBeVisible({ timeout: 15000 });
+	await offerInstall(page);
+
+	const banner = page.locator('[data-install-banner]');
+	await expect(banner).toBeVisible();
+	const bannerBox = await banner.boundingBox();
+	const tabBarBox = await page.locator('nav.fixed.bottom-0').boundingBox();
+	expect(Math.abs(bannerBox!.y + bannerBox!.height - tabBarBox!.y), 'banner rests on the tab bar').toBeLessThanOrEqual(1);
+	expect(Number(await banner.evaluate((element) => getComputedStyle(element).zIndex))).toBe(30);
 });

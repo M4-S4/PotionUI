@@ -240,6 +240,13 @@ def video_director_active(form_state: Optional[Dict[str, Any]]) -> bool:
     return bool(vd and vd.get("active"))
 
 
+def prompt_batch_supported(form_state: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(form_state, dict):
+        return False
+    batch = form_state.get("prompt_batch")
+    return isinstance(batch, dict) and bool(batch.get("supported")) and not video_director_active(form_state)
+
+
 def music_director_active(form_state: Optional[Dict[str, Any]]) -> bool:
     """Whether the Music Director document is the active editor on the form.
     Mirrors `video_director_active` exactly."""
@@ -403,3 +410,13 @@ def build_generation_preview(
         fields=fields,
         text_blocks=text_blocks,
     )
+
+
+def parse_page(kwargs: Dict[str, Any], default: int, maximum: int) -> Tuple[int, int]:
+    try:
+        raw_limit = kwargs.get("limit")
+        limit = default if raw_limit in (None, "") else int(raw_limit)
+        offset = max(0, int(kwargs.get("offset") or 0))
+    except (TypeError, ValueError):
+        raise ValueError("'limit' and 'offset' must be integers.") from None
+    return offset, min(max(1, limit), maximum)

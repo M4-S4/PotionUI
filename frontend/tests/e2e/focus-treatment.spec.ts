@@ -1,5 +1,8 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, SIGNED_OUT } from './helpers';
+import { presetOption } from './presetPreamble';
+
+test.use({ storageState: SIGNED_OUT });
 
 const JOURNEY = 'focus-treatment';
 const SDXL_PRESET_ID = '01K0W24A3RADXXABH16YQ7KE90';
@@ -36,10 +39,8 @@ async function expectNoRing(el: Locator) {
 }
 
 async function keyboardFocus(page: Page, el: Locator) {
-	await page.keyboard.press('Shift');
+	await page.keyboard.press('Tab');
 	await el.focus();
-	await expect(el).toBeFocused();
-	await page.keyboard.press('Shift');
 	await expect(el).toBeFocused();
 	await expect.poll(() => el.evaluate((node) => node.matches(':focus-visible')), { timeout: 5000 }).toBe(true);
 }
@@ -140,8 +141,8 @@ test('preset form frames and the prompt segment editor', async ({ page }) => {
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset!.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset!.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	const generationTab = page.getByRole('tab', { name: 'Generation' });
 	if ((await generationTab.count()) > 0) await generationTab.click();
 
@@ -170,7 +171,6 @@ test('preset form frames and the prompt segment editor', async ({ page }) => {
 	await expect(modalSearch).toBeVisible({ timeout: 10000 });
 	const modalInput = modalSearch.locator('input');
 	await modalInput.click();
-	await page.waitForTimeout(250);
 	await page.screenshot({ path: shotPath(JOURNEY, 'picker-modal-search-focus') });
 	await expectNoRing(modalInput);
 	await expectRing(modalSearch, signal);

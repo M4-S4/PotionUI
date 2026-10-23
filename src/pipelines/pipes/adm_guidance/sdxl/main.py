@@ -1,5 +1,5 @@
 # Derived from: Fooocus modules/patch.py ADM scaler technique (GPL-3.0)
-from typing import Dict, Any, List
+from typing import List
 from src.pipelines.contracts import BasePipe, logger
 from src.pipelines.contracts import (
     PipeInput,
@@ -15,14 +15,6 @@ from src.pipelines.pipes.adm_guidance.sdxl.hook import ADMGuidanceHook
 class ADMGuidancePipe(BasePipe):
     name = "adm_guidance"
     description = "ADM Guidance enhancement for SDXL (Fooocus technique)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "positive_scale": 1.5,
-            "negative_scale": 0.8,
-            "scaler_end": 0.3,
-        }
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         model = pipe_input.input["model"]

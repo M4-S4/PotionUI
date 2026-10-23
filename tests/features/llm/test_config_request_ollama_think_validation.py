@@ -1,8 +1,3 @@
-"""LLMConfigRequest validation of provider_options.think for type == "ollama":
-null/omitted (automatic), a real bool, or one of the named effort levels
-Ollama accepts for models that support graded reasoning. No truthiness
-coercion — a stray 1/"true" is rejected, not silently accepted as True."""
-
 import pytest
 from pydantic import ValidationError
 
@@ -21,14 +16,37 @@ def _ollama_request(**provider_options) -> LLMConfigRequest:
     )
 
 
-def test_think_omitted_is_valid():
+def test_think_omitted_is_stored_as_false_and_other_options_survive():
     req = _ollama_request(keep_alive="5m")
-    assert "think" not in req.provider_options
+    assert req.provider_options == {"keep_alive": "5m", "think": False}
 
 
-def test_think_none_is_valid():
+def test_think_none_is_stored_as_false():
     req = _ollama_request(think=None)
-    assert req.provider_options["think"] is None
+    assert req.provider_options["think"] is False
+
+
+def test_no_provider_options_at_all_still_stores_think_false():
+    req = LLMConfigRequest(
+        name="n", type="ollama", enabled=True, base_url="http://localhost:11434", model="llama3", system_message="s",
+    )
+    assert req.provider_options == {"think": False}
+
+
+def test_a_non_ollama_type_keeps_its_options_untouched():
+    req = LLMConfigRequest(
+        name="n", type="openai", enabled=True, base_url="", model="m", system_message="s",
+    )
+    assert req.provider_options is None
+
+
+def test_the_callers_dict_is_not_mutated():
+    options = {"keep_alive": "5m"}
+    LLMConfigRequest(
+        name="n", type="ollama", enabled=True, base_url="http://localhost:11434", model="llama3",
+        system_message="s", provider_options=options,
+    )
+    assert options == {"keep_alive": "5m"}
 
 
 @pytest.mark.parametrize("value", [True, False])

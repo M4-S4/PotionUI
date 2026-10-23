@@ -12,14 +12,9 @@ so the failure names the declared inputs instead.
 from __future__ import annotations
 
 import pytest
-import torch
 
 from src.platform.runtime.native.arch.ltx.model import Embeddings1DConnector
-from vendor.gpl.comfyui.ops import pick_operations
-
-
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
+from .._native_ops import fp32_ops
 
 
 def test_valid_dims_construct_without_error():
@@ -27,7 +22,7 @@ def test_valid_dims_construct_without_error():
     # connector dims; must not raise.
     connector = Embeddings1DConnector(
         inner=3840, dim_head=128, num_layers=1, num_learnable_registers=4,
-        operations=_fp32_ops(),
+        operations=fp32_ops(),
     )
     assert connector.num_attention_heads == 30
 
@@ -36,7 +31,7 @@ def test_valid_audio_dims_construct_without_error():
     # 2.3's per-stream audio connector: 2048 / 64 = 32 heads.
     connector = Embeddings1DConnector(
         inner=2048, dim_head=64, num_layers=1, num_learnable_registers=4,
-        operations=_fp32_ops(),
+        operations=fp32_ops(),
     )
     assert connector.num_attention_heads == 32
 
@@ -48,7 +43,7 @@ def test_heads_mismatch_raises_with_declared_and_derived_numbers():
     with pytest.raises(ValueError, match=r"heads mismatch") as exc_info:
         Embeddings1DConnector(
             inner=130, dim_head=64, num_layers=1, num_learnable_registers=4,
-            operations=_fp32_ops(),
+            operations=fp32_ops(),
         )
     message = str(exc_info.value)
     assert "inner=130" in message
@@ -61,7 +56,7 @@ def test_odd_dim_head_raises_even_when_divisible():
     with pytest.raises(ValueError, match=r"heads mismatch"):
         Embeddings1DConnector(
             inner=90, dim_head=9, num_layers=1, num_learnable_registers=4,
-            operations=_fp32_ops(),
+            operations=fp32_ops(),
         )
 
 
@@ -72,5 +67,5 @@ def test_zero_dim_head_raises_clean_error_not_zero_division():
     with pytest.raises(ValueError, match=r"heads mismatch"):
         Embeddings1DConnector(
             inner=128, dim_head=0, num_layers=1, num_learnable_registers=4,
-            operations=_fp32_ops(),
+            operations=fp32_ops(),
         )

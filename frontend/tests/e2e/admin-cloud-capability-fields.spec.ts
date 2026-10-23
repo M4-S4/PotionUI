@@ -1,8 +1,8 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'cloud-capability-fields';
-const BEAT = 400;
 
 async function json(route: Route, data: unknown, status = 200) {
 	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
@@ -128,18 +128,6 @@ const FORM_SCHEMA = {
 	}
 };
 
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, { headers: { Authorization: `Bearer ${token}` }, data: data ?? {} });
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
 async function mockCloud(page: Page) {
 	const capabilityCalls: string[] = [];
 	await page.route('**/api/presets/*/form*', (route) => json(route, { success: true, data: { preset_id: 'mock', form_schema: FORM_SCHEMA } }));
@@ -173,14 +161,16 @@ async function mockCloud(page: Page) {
 
 async function settledSheet(page: Page) {
 	const sheet = page.getByRole('dialog', { name: 'Settings' });
-	let previous = '';
-	for (let attempt = 0; attempt < 40; attempt++) {
-		const box = await sheet.boundingBox();
-		const current = JSON.stringify(box);
-		if (current === previous) return;
-		previous = current;
-		await page.waitForTimeout(150);
-	}
+	await expect
+		.poll(
+			async () => {
+				const first = await sheet.boundingBox();
+				await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+				return JSON.stringify(first) === JSON.stringify(await sheet.boundingBox());
+			},
+			{ timeout: 6000 }
+		)
+		.toBe(true);
 }
 
 async function openCloudForm(page: Page, mobile: boolean) {
@@ -202,8 +192,8 @@ async function openCloudForm(page: Page, mobile: boolean) {
 		const needsPreset = await trigger.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
 		if (needsPreset) {
 			await trigger.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(preset.name, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, preset.name).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		}
 		await page.keyboard.press('Escape');
 		await expect(presetSheet).toHaveCount(0);
@@ -216,10 +206,9 @@ async function openCloudForm(page: Page, mobile: boolean) {
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(preset.name, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, preset.name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
-	await page.waitForTimeout(BEAT);
 	return preset;
 }
 
@@ -229,7 +218,6 @@ async function chooseModel(page: Page, label: string) {
 	await field(page, 'model').locator('button:visible', { hasText: 'Swap' }).first().click();
 	await field(page, 'model').locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
-	await page.waitForTimeout(BEAT);
 }
 
 for (const viewport of [
@@ -295,6 +283,13 @@ test.describe('settings sheet reference @390', () => {
 		test.setTimeout(120000);
 		const preset = await openCloudForm(page, true);
 		test.skip(!preset, 'No native preset available on this throwaway instance.');
+		const sheet = page.getByRole('dialog', { name: 'Settings' });
+		await expect(sheet).toBeVisible();
+		await expect(sheet.locator('[data-field-name]').first()).toBeVisible();
+		await expect(field(page, 'provider_options')).toHaveCount(0);
+		const box = await sheet.boundingBox();
+		expect(box!.x).toBeGreaterThanOrEqual(0);
+		expect(box!.x + box!.width).toBeLessThanOrEqual(390.5);
 		await screenshot(page, JOURNEY, 'native-settings-sheet-390');
 	});
 });

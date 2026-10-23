@@ -20,9 +20,10 @@ silently rendering `None` into a config value.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from src.platform.observability.logger import logger
+from src.platform.security.user import AccountType
 from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 from src.platform.templating.errors import TemplateEvaluationError
@@ -56,11 +57,13 @@ class PresetProcessor:
             settings: Settings,
             preset_template_loader: PresetTemplateLoader,
             content_policy: Optional[Any] = None,
+            user_resolver: Optional[Callable[[str], Any]] = None,
     ):
         self.template_processor = template_processor
         self.settings = settings
         self.preset_template_loader = preset_template_loader
         self.content_policy = content_policy
+        self.user_resolver = user_resolver
 
     def _resolve_loop_items(self, items: Any, context: Dict[str, Any]) -> List[Any]:
         """Resolve `@loop`'s `items:` to a concrete list of loop items.
@@ -287,6 +290,17 @@ class PresetProcessor:
             ),
         }
 
+    def _build_runtime_user(self, user_id: Optional[str]) -> Dict[str, Any]:
+        is_admin = False
+        if user_id and self.user_resolver is not None:
+            try:
+                user = self.user_resolver(user_id)
+            except Exception:
+                logger.debug(f"Could not resolve user {user_id} for runtime.user", exc_info=True)
+                user = None
+            is_admin = getattr(user, 'account_type', None) == AccountType.ADMIN
+        return {'is_admin': is_admin}
+
     def _resolve_enabled(
         self,
         raw_enabled: Any,
@@ -409,6 +423,7 @@ class PresetProcessor:
             },
             'runtime': {
                 'settings': self._build_runtime_settings(user_id),
+                'user': self._build_runtime_user(user_id),
             },
             'paths': {
                 'preset': preset_template.path,
@@ -439,11 +454,6 @@ class PresetProcessor:
                     }
                     inpts.append(inpt)
 
-                cache = []
-                if pipe.cache:
-                    for c in pipe.cache:
-                        cache.append(self.process_value(c, context))
-
                 # `enabled` resolves FIRST: a disabled pipe's config is never
                 # rendered. Under StrictUndefined, rendering configs of pipes
                 # that will not run turns optional features (e.g. ControlNet
@@ -459,7 +469,6 @@ class PresetProcessor:
                         if enabled and pipe.configuration else {}
                     ),
                     'input': inpts,
-                    'cache': cache,
                 }
             except TemplateEvaluationError as e:
                 raise e.with_location(

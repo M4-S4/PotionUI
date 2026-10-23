@@ -9,6 +9,7 @@ const getGenerationFailure = vi.fn();
 vi.mock('$lib/services/admin-api', () => ({ getGenerationFailure }));
 
 import type { AdminGenerationListItem, GenerationFailureDetail, RunReport } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 const { default: GenerationRunReport } = await import(
 	'../../src/routes/admin/components/GenerationRunReport.svelte'
@@ -31,10 +32,6 @@ function mount(generation: AdminGenerationListItem, report: RunReport | null = n
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function baseGeneration(overrides: Partial<AdminGenerationListItem> = {}): AdminGenerationListItem {

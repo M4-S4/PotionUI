@@ -18,7 +18,6 @@ import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-import numpy as np
 import torch
 
 from src.platform.runtime.native.sampling import ProgressHook, denoise, make_preview_hook
@@ -44,23 +43,28 @@ from src.pipelines.pipes._shared.generation.wan_i2v_contract import require_conc
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.vae.wan_tiled_encode import make_room_for_wan_vae_encode, make_wan_vae_encode
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
-from src.pipelines.pipes.generator.txt2vid_wan22.main import (
-    _attach_nag,
-    _build_video_output,
-    _decode_video,
-    _emit_video_results,
-    _ExpertRouter,
-    _TEMPORAL_DOWNSCALE,
-    _snap_geometry,
-    _to_device,
+from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
+from src.pipelines.pipes._shared.video.frames import prep_start_frame
+from src.pipelines.pipes._shared.video.video_common import build_video_output, emit_video_results, to_device
+from src.pipelines.pipes._shared.video.wan_experts import (
+    decode_wan_video,
+    ExpertRouter,
     resolve_expert_boundary,
+    snap_wan_geometry,
+    WAN_TEMPORAL_DOWNSCALE,
+)
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    nag_config_specs,
+    preview_config_spec,
+    seed_config_spec,
 )
 
 
 class _I2VForward:
     """Wraps the expert router to prepend the constant i2v concat to the latent."""
 
-    def __init__(self, router: _ExpertRouter, concat: torch.Tensor) -> None:
+    def __init__(self, router: ExpertRouter, concat: torch.Tensor) -> None:
         self.router = router
         self.concat = concat
 
@@ -116,66 +120,9 @@ class _Ctx:
             pass
 
 
-def _prep_start_frame(image: Any, height: int, width: int, device: str, dtype: torch.dtype) -> torch.Tensor:
-    """Normalize a PIL image / HWC tensor to ``(1, H, W, 3)`` float [0,1], resized
-    to cover the target and centre-cropped (ComfyUI ``common_upscale`` 'center')."""
-    if hasattr(image, "convert"):  # PIL
-        arr = torch.from_numpy(np.asarray(image.convert("RGB"))).to(dtype) / 255.0
-    else:
-        arr = torch.as_tensor(image, dtype=dtype)
-        if arr.max() > 1.5:
-            arr = arr / 255.0
-    if arr.ndim == 4:
-        arr = arr[0]
-    chw = arr.permute(2, 0, 1).unsqueeze(0).to(device)  # (1,3,H0,W0)
-    _, _, h0, w0 = chw.shape
-    scale = max(width / w0, height / h0)
-    chw = torch.nn.functional.interpolate(chw, size=(round(h0 * scale), round(w0 * scale)),
-                                          mode="bilinear", align_corners=False)
-    _, _, h1, w1 = chw.shape
-    top, left = (h1 - height) // 2, (w1 - width) // 2
-    chw = chw[:, :, top:top + height, left:left + width]
-    return chw.squeeze(0).permute(1, 2, 0).unsqueeze(0)  # (1, H, W, 3)
-
-
 class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
     name = "generator"
     description = "Native Wan image-to-video generator (concat conditioning, dual-expert)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "img2vid", "steps": 30, "cfg": 5.0, "sampler": "unipc",
-            "resolution": "832x480", "frames": 81, "fps": 16.0,
-            "quantity": 1, "seed": -1, "device": "cuda", "expert_boundary": None, "expert_switch_step": None,
-            "preview": True,
-            "cfg_zero_star": True,
-            "zero_init_steps": 0,
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-            "riflex": False,
-            "riflex_trained_frames": None,
-            # None-sentinel: guidance_options.py's *_overrides() only emit a key
-            # when non-None, so an unset knob here lets the model's own
-            # ModelSpec.sampling_settings survive the merge (see that module's
-            # docstring; P5 fix).
-            "apg_eta": None,
-            "apg_norm_threshold": None,
-            "apg_momentum": None,
-            "slg_scale": None,
-            "slg_layers": None,
-            "slg_sigma_start": None,
-            "slg_sigma_end": None,
-            "sampler_options": {},
-            "step_cache": {},
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -189,24 +136,17 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
             PipeConfigSpec("frames", int, 81, "Number of video frames", required=False, min_value=1, max_value=257),
             PipeConfigSpec("fps", float, 16.0, "Output frame rate", required=False, min_value=1.0, max_value=60.0),
             PipeConfigSpec("quantity", int, 1, "Number of videos", required=False, min_value=1, max_value=4),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            seed_config_spec(),
+            device_config_spec(),
             PipeConfigSpec("expert_boundary", float, None, "Dual-expert switch boundary override", required=False,
                            min_value=0.0, max_value=1.0),
             PipeConfigSpec("expert_switch_step", int, None, "Switch high->low expert at this step (wins over expert_boundary; converted to that step's sigma)", required=False,
                            min_value=0),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews (frame 0) to the workbench during sampling", required=False),
+            preview_config_spec("Emit live latent previews (frame 0) to the workbench during sampling"),
             PipeConfigSpec("cfg_zero_star", bool, True, "CFG-Zero*: rescale the uncond branch onto cond before extrapolation (free quality correction)", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: return a zero velocity prediction for the first N steps", required=False,
                            min_value=0, max_value=100),
-            PipeConfigSpec("nag_scale", float, 1.0, "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
-                           "prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set "
-                           "cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on.",
-                           required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold (paper default 3.5)", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back-toward-positive weight (paper default 0.5)", required=False,
-                           min_value=0.0, max_value=1.0),
+            *nag_config_specs(),
             *riflex_config_specs(),
             *apg_settings_config_specs(),
             *slg_settings_config_specs(),
@@ -294,21 +234,21 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         boundary = resolve_expert_boundary(spec, self.config, sampling_settings, steps,
                                            default=0.900, log_tag="GENERATOR WAN-I2V")
         riflex = build_riflex(self.config)
-        router = _ExpertRouter(bundle.high_dit, bundle.low_dit, boundary, device, riflex=riflex)
+        router = ExpertRouter(bundle.high_dit, bundle.low_dit, boundary, device, riflex=riflex)
         lf = spec.latent_format
         dtype = bundle.high_dit.compute_dtype
 
         # Snap to the model's granularity BEFORE the start frame is resized/encoded
         # into the concat (spatial to spatial_downscale*patch, frames to 1+4k).
-        width, height, frames = _snap_geometry(bundle, lf, width, height, frames)
+        width, height, frames = snap_wan_geometry(bundle, lf, width, height, frames)
 
         # Build the i2v concat ONCE (constant across seeds): VAE-encode the start frame.
         # The causal-3D VAE encode is the memory-heavy step (~2x decode); at 480p+ the
         # untiled encode OOMs, so fall back to a spatially-tiled encode on OOM (mirrors
         # the engine's decode OOM safety net -- temporal chunking is unchanged, tiling
         # is spatial only).
-        start = _prep_start_frame(images[0], height, width, device, dtype)
-        end = _prep_start_frame(end_images[0], height, width, device, dtype) if end_images else None
+        start = prep_start_frame(images[0], height, width, device, dtype)
+        end = prep_start_frame(end_images[0], height, width, device, dtype) if end_images else None
         make_room_for_wan_vae_encode(device, keep=(bundle.vae, bundle.high_dit, bundle.low_dit))
         bundle.vae.move_to(device)
         # try/finally: build_context runs OUTSIDE process()'s own try (it's
@@ -350,11 +290,11 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter) -> str:
         c: _Ctx = ctx.extra
         cond_model = c.conditioning[index] if index < len(c.conditioning) else c.conditioning[-1]
-        cond = _to_device(cond_model.embeds, c.device, c.dtype)
-        uncond = _to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
-        cond = _attach_nag(cond, uncond, self.config)
+        cond = to_device(cond_model.embeds, c.device, c.dtype)
+        uncond = to_device(cond_model.n_embeds, c.device, c.dtype) if cond_model.n_embeds else None
+        cond = attach_nag(cond, uncond, self.config)
 
-        t_lat = (c.frames - 1) // _TEMPORAL_DOWNSCALE + 1
+        t_lat = (c.frames - 1) // WAN_TEMPORAL_DOWNSCALE + 1
         shape = (1, c.latent_channels, t_lat, c.height // c.spatial_downscale, c.width // c.spatial_downscale)
         # Activation-aware partial residency for each expert — the i2v
         # concat rides the same forward, so the DiT still full-pinned OOMs at 720p/5s.
@@ -396,13 +336,13 @@ class GeneratorWanImg2VidPipe(BaseGeneratorPipe):
         finally:
             c.forward.router.offload_active()
 
-        frames = _decode_video(c, latent)
+        frames = decode_wan_video(c, latent)
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(frames, out_path, fps=c.fps)
         return out_path
 
     def emit_results(self, generation_outputs: callable, results: List[str], used_seeds: List[int]) -> None:
-        _emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
+        emit_video_results(generation_outputs, results, used_seeds, resolution=getattr(self, "_video_resolution", None))
 
     def build_output(self, results: List[str]) -> Dict[str, Any]:
-        return _build_video_output(results)
+        return build_video_output(results)

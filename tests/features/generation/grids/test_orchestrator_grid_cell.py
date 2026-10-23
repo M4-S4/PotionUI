@@ -7,6 +7,7 @@ from src.features.generation.grids.dto import GridCellRef
 from src.features.generation.orchestrator import GenerationOrchestrator
 from src.features.generation.repository import GenerationRepository
 from src.features.generation.status_tracker import GenerationStatusTracker
+from tests.fixtures.seed import seed_user
 
 
 @pytest.fixture(autouse=True)
@@ -22,10 +23,7 @@ def bind_form_passthrough():
 
 class Harness:
     def __init__(self, db):
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "INSERT INTO users (id, username, email, password_hash, account_type) VALUES ('u1', 'u1', 'u1@example.test', 'x', 'USER')"
-            )
+        seed_user(db)
         self.repo = GenerationRepository()
         self.backend = Mock(backend_id="b1", engine="native", name="Local")
         self.backend.start_generation = AsyncMock()

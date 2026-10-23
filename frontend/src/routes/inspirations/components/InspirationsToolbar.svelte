@@ -1,22 +1,34 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import { inspirationsStore } from '$lib/stores/inspirations';
 	import { PageHeader, PageTitle, IconButton } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
+	import InspirationsSidebar from './InspirationsSidebar.svelte';
+	import SubcollectionFilters from '$lib/components/collections/SubcollectionFilters.svelte';
+	import { inspirationsCollectionsStore } from '$lib/stores/inspirationsCollections';
+
+	export let sidebarOpen = true;
+	export let onOpenSidebar: () => void = () => {};
 
 	$: state = $inspirationsStore;
 
+	function setDirectOnly(value: boolean) {
+		inspirationsStore.setFilter('directOnly', value);
+		inspirationsStore.load();
+	}
+
 	// Search matches title/description server-side, debounced - same pattern
 	// as the Library toolbar.
-	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSearch = debounce(() => inspirationsStore.load(), 300);
 	function handleSearchInput(event: Event) {
 		const value = (event.currentTarget as HTMLInputElement).value;
 		inspirationsStore.setFilter('search', value);
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => inspirationsStore.load(), 300);
+		scheduleSearch();
 	}
 
-	onDestroy(() => clearTimeout(searchDebounce));
+	onDestroy(scheduleSearch.cancel);
 
 	async function toggleSaved() {
 		inspirationsStore.setFilter('saved', !state.filters.saved);
@@ -25,7 +37,10 @@
 </script>
 
 <PageHeader wrap sticky={false}>
-	<div class="flex items-center gap-2 md:gap-4 w-full">
+	<div class="flex flex-wrap items-center gap-2 md:gap-4 w-full">
+		<CollectionSidebarSheet label="Inspirations" collapsed={!sidebarOpen} onExpand={onOpenSidebar}>
+			<InspirationsSidebar />
+		</CollectionSidebarSheet>
 		<PageTitle title="Inspirations" count={state.totalCount} countLabel="items" />
 
 		<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
@@ -58,10 +73,19 @@
 			Saved
 		</button>
 
+		<SubcollectionFilters
+			class="hidden md:block flex-shrink-0"
+			collections={$inspirationsCollectionsStore.collections}
+			activeId={state.filters.collectionId}
+			directOnly={!!state.filters.directOnly}
+			onDirectOnlyChange={setDirectOnly}
+		/>
+
 		<div class="flex-1 hidden md:block"></div>
 
 		<!-- Right: actions -->
 		<div class="flex items-center gap-2 ml-auto md:ml-0 flex-shrink-0">
+			<InspirationsSidebar part="actions" />
 			<IconButton icon="refresh" label="Refresh" onclick={() => inspirationsStore.load()} />
 		</div>
 	</div>

@@ -175,6 +175,34 @@ def test_every_recorded_list_item_has_the_hash_its_detail_gives(name):
         assert listed == normalize_detail(raw, 2).versions[0].files[0].sha256
 
 
+def test_primary_size_is_the_size_of_the_file_the_hash_was_taken_from():
+    items = _items("models_lora_page1")
+
+    assert items[264290].primary_size_bytes == round(56075.02734375 * 1024)
+    assert items[58390].primary_size_bytes == round(36973.8046875 * 1024)
+
+
+def test_the_size_follows_the_same_file_as_the_hash_when_an_earlier_file_has_none():
+    raw = item("models_lora_page1", 58390)
+    files = raw["modelVersions"][0]["files"]
+    files[0]["primary"] = False
+    files.insert(0, {**_file(2, None), "sizeKB": 1.0})
+    files.append({**_file(3, "cd" * 32), "sizeKB": 2.0})
+
+    normalised = normalize_item(raw, 2)
+
+    assert normalised.primary_sha256 == "47aaaf0d2945ca937151d61304946dd229b3f072140b85484bc93e38f2a6e2f7"
+    assert normalised.primary_size_bytes == round(36973.8046875 * 1024)
+
+
+@pytest.mark.parametrize("size_kb", [None, "x", -1])
+def test_a_primary_file_without_a_usable_size_has_no_primary_size(size_kb):
+    raw = item("models_lora_page1", 58390)
+    raw["modelVersions"][0]["files"][0]["sizeKB"] = size_kb
+
+    assert normalize_item(raw, 2).primary_size_bytes is None
+
+
 def test_the_primary_file_is_preferred_to_a_file_listed_before_it():
     raw = item("models_lora_page1", 58390)
     raw["modelVersions"][0]["files"].insert(0, _file(1, "1" * 64))

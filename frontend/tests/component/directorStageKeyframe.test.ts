@@ -1,30 +1,11 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
-import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability } from '../../src/lib/types/videoDirector';
+import type { VideoDirectorValue, DirectorCapabilities } from '../../src/lib/types/videoDirector';
+import { baseModeCap } from './directorFixtures';
 
 const { default: StageKeyframe } = await import('../../src/lib/components/video-director/stage-rail/StageKeyframe.svelte');
 const { deriveStageModel } = await import('../../src/lib/components/video-director/stage-rail/stageModel');
 const { createClassComponent } = await import('svelte/legacy');
-
-function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorModeCapability {
-	return {
-		tips: [],
-		maxDuration: null,
-		audio: false,
-		icLora: false,
-		maxKeyframes: null,
-		perSegmentLoras: false,
-		keyframes: 'none',
-		maxSegments: null,
-		maxFramesPerSegment: null,
-		defaultSegmentDuration: 5,
-		continuation: null,
-		maxOverlapFrames: null,
-		continuationDisabled: false,
-		fpsLocked: false,
-		...overrides
-	};
-}
 
 function timelineCaps(): DirectorCapabilities {
 	return {

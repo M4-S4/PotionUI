@@ -23,13 +23,6 @@ class TestAudioField(unittest.TestCase):
             'size': 16
         }
 
-    def test_can_handle(self):
-        """Test that audio field handles 'audio' type only"""
-        self.assertTrue(self.audio_field.can_handle('audio'))
-        self.assertFalse(self.audio_field.can_handle('video'))
-        self.assertFalse(self.audio_field.can_handle('image'))
-        self.assertFalse(self.audio_field.can_handle('select'))
-
     def test_input_single_audio(self):
         """Test processing single audio input"""
         result = self.audio_field.input('test_audio', self.sample_audio_data)
@@ -288,42 +281,18 @@ class TestAudioField(unittest.TestCase):
         self.assertEqual(accept_string, 'audio/*')
 
     def test_validate_audio_invalid_format(self):
-        """Test _validate_audio directly with non-dict input"""
-        errors = self.audio_field._validate_audio("not a dict", {})
+        errors = self.audio_field._validate_legacy("not a dict", {})
         self.assertEqual(len(errors), 1)
         self.assertIn('Invalid audio data format', errors[0])
 
     def test_validate_audio_duration(self):
-        """Test _validate_audio duration check"""
         audio_data = self.sample_audio_data.copy()
         audio_data['duration'] = 600
 
-        errors = self.audio_field._validate_audio(audio_data, {'max_duration': 300})
+        errors = self.audio_field._validate_legacy(audio_data, {'max_duration': 300})
         self.assertEqual(len(errors), 1)
         self.assertIn('duration exceeds maximum', errors[0])
 
-    def test_map_field_delegates_to_output(self):
-        """Test that map_field delegates to output"""
-        field = {
-            'type': 'audio',
-            'name': 'test_audio',
-            'label': 'Test Audio',
-            'configuration': {}
-        }
-
-        schema_output = self.audio_field.output(field)
-        schema_map = self.audio_field.map_field(field)
-        self.assertEqual(schema_output, schema_map)
-
-    def test_configuration_specs(self):
-        """Test that configuration() returns valid specs"""
-        specs = Audio.configuration()
-        self.assertIsInstance(specs, list)
-        self.assertTrue(len(specs) > 0)
-        names = [s.name for s in specs]
-        self.assertIn('multi', names)
-        self.assertIn('formats', names)
-        self.assertIn('validation', names)
 
     def test_validation_rules_specs(self):
         """Test that validation_rules() returns valid specs without width/height"""
@@ -336,15 +305,6 @@ class TestAudioField(unittest.TestCase):
         # Audio does not have width/height rules
         self.assertNotIn('max_width', rule_names)
         self.assertNotIn('max_height', rule_names)
-
-    def test_examples(self):
-        """Test that examples() returns three valid example specs"""
-        examples = Audio.examples()
-        self.assertEqual(len(examples), 3)
-        for example in examples:
-            self.assertIsNotNone(example.title)
-            self.assertIsNotNone(example.yaml_config)
-            self.assertIsNotNone(example.rendered_output)
 
 
 if __name__ == '__main__':

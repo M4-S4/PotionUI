@@ -1,5 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
+import { storage } from '$lib/utils/storage';
 
 export type ThemePref = 'dark' | 'light' | 'system';
 export type ResolvedTheme = 'dark' | 'light';
@@ -25,12 +26,8 @@ function resolve(pref: ThemePref): ResolvedTheme {
 }
 
 function loadPref(): ThemePref {
-	if (!browser) return 'dark';
-	const stored = localStorage.getItem(STORAGE_KEY);
-	if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
-	// Unset defaults to dark (not system) while the light theme rollout is in
-	// progress — flip to 'system' once all core screens are token-migrated.
-	return 'dark';
+	const stored = storage.get(STORAGE_KEY);
+	return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark';
 }
 
 function apply(resolved: ResolvedTheme) {
@@ -81,7 +78,7 @@ function createThemeStore() {
 
 		setPref(pref: ThemePref) {
 			currentPref = pref;
-			if (browser) localStorage.setItem(STORAGE_KEY, pref);
+			storage.set(STORAGE_KEY, pref);
 			const resolved = resolve(pref);
 			apply(resolved);
 			set({ pref, resolved });

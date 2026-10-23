@@ -32,7 +32,7 @@ def _manager(monkeypatch, notes: list) -> Mock:
     validation logic (covered separately by
     tests/features/llm_memory/test_operations.py)."""
     manager = Mock()
-    manager.llm_memory_repository = Mock()
+    manager.tool_services.llm_memory_repository = Mock()
     mock_ops = Mock()
     mock_ops.read_notes.return_value = notes
     mock_ops.delete_note.return_value = True

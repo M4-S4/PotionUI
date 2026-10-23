@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import torch
 from safetensors.torch import save_file
@@ -12,6 +14,7 @@ from src.platform.runtime.native.io.safetensors_loader import (
     load_torch_file_prefixed,
     load_torch_file_stripped,
 )
+from vendor.gpl.comfyui.ops import _parse_comfy_quant
 
 
 def test_load_safetensors_roundtrip(tmp_path):
@@ -236,3 +239,54 @@ def test_stripped_gguf_rejected(tmp_path):
 def test_stripped_missing_file(tmp_path):
     with pytest.raises(NativeEngineUnsupportedError, match="not found"):
         load_torch_file_stripped(tmp_path / "nope.safetensors")
+
+
+INT4_CODES = torch.tensor([[1, -2, 7, -7], [0, 3, -1, 4]], dtype=torch.int8)
+INT4_PACKED = torch.tensor([[-31, -105], [48, 79]], dtype=torch.int8)
+
+
+def _blob(conf):
+    return torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
+
+
+def _int4_file(path, prefix="", descriptor=None, scale=True):
+    sd = {
+        f"{prefix}blocks.0.q.weight": INT4_PACKED,
+        f"{prefix}blocks.0.q.comfy_quant": _blob(descriptor or {"format": "convrot_w4a4", "convrot_groupsize": 64}),
+        f"{prefix}blocks.0.k.weight": torch.ones(2, 2, dtype=torch.float8_e4m3fn),
+        f"{prefix}blocks.0.k.weight_scale": torch.tensor(0.5),
+        f"{prefix}blocks.0.k.comfy_quant": _blob({"format": "float8_e4m3fn"}),
+    }
+    if scale:
+        sd[f"{prefix}blocks.0.q.weight_scale"] = torch.tensor([0.25, 0.5])
+    save_file(sd, str(path))
+    return path
+
+
+@pytest.mark.parametrize(
+    "load, prefix",
+    [
+        (load_torch_file, ""),
+        (lambda path: load_torch_file_prefixed(path, "blocks."), ""),
+        (load_torch_file_stripped, "model.diffusion_model."),
+    ],
+)
+def test_int4_convrot_layers_load_as_int8_convrot(tmp_path, load, prefix):
+    loaded, _ = load(_int4_file(tmp_path / "int4.safetensors", prefix))
+    assert torch.equal(loaded["blocks.0.q.weight"], INT4_CODES)
+    assert torch.equal(loaded["blocks.0.q.weight_scale"], torch.tensor([[0.25], [0.5]]))
+    assert _parse_comfy_quant(loaded["blocks.0.q.comfy_quant"]) == {
+        "format": "int8_tensorwise", "convrot": True, "convrot_groupsize": 64,
+    }
+    assert loaded["blocks.0.k.weight"].dtype == torch.float8_e4m3fn
+    assert _parse_comfy_quant(loaded["blocks.0.k.comfy_quant"]) == {"format": "float8_e4m3fn"}
+
+
+def test_int4_without_a_stated_group_size_uses_the_format_default(tmp_path):
+    loaded, _ = load_torch_file(_int4_file(tmp_path / "int4.safetensors", descriptor={"format": "convrot_w4a4"}))
+    assert _parse_comfy_quant(loaded["blocks.0.q.comfy_quant"])["convrot_groupsize"] == 256
+
+
+def test_int4_layer_without_a_scale_is_refused(tmp_path):
+    with pytest.raises(NativeEngineUnsupportedError, match="int4 layer 'blocks.0.q'"):
+        load_torch_file(_int4_file(tmp_path / "int4.safetensors", scale=False))

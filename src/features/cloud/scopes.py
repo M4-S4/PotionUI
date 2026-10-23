@@ -23,10 +23,6 @@ class CloudModelScopes:
             raise ModelNotFoundException(f"Model '{model_id}' is not a cloud model")
         return model
 
-    def _presets_by_id(self) -> Dict[str, Any]:
-        self.preset_loader._ensure_loaded()
-        return {preset.id: preset for preset in self.preset_loader.presets}
-
     @staticmethod
     def _usable_by(preset: Any, driver: str) -> bool:
         return preset.engine == CLOUD_ENGINE and getattr(preset, "driver", None) == driver
@@ -34,7 +30,6 @@ class CloudModelScopes:
     def describe(self, model_id: str) -> Dict[str, Any]:
         model = self._cloud_model(model_id)
         driver = driver_of_slug(model.filename)
-        presets = self._presets_by_id()
         preset_ids = self.repository.get(model_id)
         return {
             "model_id": model_id,
@@ -43,10 +38,10 @@ class CloudModelScopes:
             "driver": driver,
             "scoped": bool(preset_ids),
             "preset_ids": preset_ids,
-            "presets": [self._entry(preset_id, presets.get(preset_id), driver) for preset_id in preset_ids],
+            "presets": [self._entry(preset_id, self.preset_loader.get(preset_id), driver) for preset_id in preset_ids],
             "candidates": [
                 {"id": preset.id, "title": preset.name}
-                for preset in sorted(presets.values(), key=lambda p: (p.name or "").lower())
+                for preset in sorted(self.preset_loader.all(), key=lambda p: (p.name or "").lower())
                 if self._usable_by(preset, driver)
             ],
         }
@@ -54,10 +49,9 @@ class CloudModelScopes:
     def replace(self, model_id: str, preset_ids: Sequence[str]) -> Dict[str, Any]:
         model = self._cloud_model(model_id)
         driver = driver_of_slug(model.filename)
-        presets = self._presets_by_id()
         problems: List[str] = []
         for preset_id in dict.fromkeys(preset_ids):
-            preset = presets.get(preset_id)
+            preset = self.preset_loader.get(preset_id)
             if preset is None:
                 problems.append(f"Preset '{preset_id}' does not exist.")
             elif not self._usable_by(preset, driver):

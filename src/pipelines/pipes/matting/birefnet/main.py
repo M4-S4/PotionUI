@@ -44,7 +44,7 @@ import hashlib
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 from PIL import Image
@@ -131,14 +131,6 @@ def _raw_matte_cache_key(model_path: str, fingerprint: str, rgb: Image.Image) ->
 class MattingBirefnetPipe(BasePipe):
     name = "matting/birefnet"
     description = "Background removal via BiRefNet, producing an RGBA cutout"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,
-            "matte_strength": 50,
-            "feather": 0.0,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

@@ -70,6 +70,10 @@ class ModelTypeManager:
         self._models = model_repository
         self._types = types_repository
         self._recompute = recompute
+        self._digests: Optional[Any] = None
+
+    def attach_digests(self, digests: Any) -> None:
+        self._digests = digests
 
     def assert_type(
         self, sha256: str, model_type: str, source: str, set_by: Optional[str] = None
@@ -106,7 +110,7 @@ class ModelTypeManager:
                 sha256, previous["model_type"], previous["source"], previous["set_by"], previous["set_at"]
             )
 
-    def set_admin_type(self, model_id: str, model_type: str, user_id: Optional[str]) -> None:
+    def set_admin_type(self, model_id: str, model_type: str, user_id: Optional[str]) -> Optional[Dict[str, Any]]:
         if model_type not in assignable_types():
             raise InvalidModelTypeException(f"'{model_type}' is not a type a model can be set to")
         model = self._models.get_by_id(model_id, include_providers=False, include_tags=False)
@@ -116,11 +120,31 @@ class ModelTypeManager:
         if model.is_directory:
             raise ModelTypeNotAssignableException("Directory models keep the type of their folder")
         if not model.sha256:
-            raise ModelTypeNotAssignableException("This model has no content hash yet, so its type cannot be set")
+            pending = self._digest_pending(model_id)
+            if pending is not None:
+                return pending
+            model = self._models.get_by_id(model_id, include_providers=False, include_tags=False)
+            if model is None:
+                raise ModelNotFoundException(f"Model '{model_id}' not found")
         self._raise_on_collision(model, model_type)
         outcome = self.assert_type(model.sha256, model_type, SOURCE_ADMIN, user_id)
         if outcome.conflicts:
             raise self._conflict(model, model_type)
+        return None
+
+    def _digest_pending(self, model_id: str) -> Optional[Dict[str, Any]]:
+        pending = self._digests.request_digest(model_id) if self._digests is not None else None
+        if pending is not None and pending["state"] == "ready":
+            return None
+        if pending is not None and pending["state"] == "failed":
+            raise ModelTypeNotAssignableException(
+                "This model's file could not be read to make a content hash, so its type cannot be set yet"
+            )
+        if pending is None or pending["state"] != "queued":
+            raise ModelTypeNotAssignableException(
+                "This model has no content hash and no readable file to make one from, so its type cannot be set"
+            )
+        return pending
 
     def reset_admin_type(self, model_id: str) -> None:
         model = self._models.get_by_id(model_id, include_providers=False, include_tags=False)

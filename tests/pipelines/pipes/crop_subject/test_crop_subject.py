@@ -59,11 +59,7 @@ def test_missing_image_raises():
 
 # -- array contract: process EVERY image, never just the first --------------
 
-def test_two_image_list_returns_two_images_bite_check():
-    """Feed a two-image list; both must come back, cropped independently, in
-    order. Bite-check: reverting to unwrapping `image[0]` and returning a
-    bare `PipeOutput(output={"image": cropped, "cropped": True})` makes this
-    go red (a one-element result / a scalar `cropped` instead of a list)."""
+def test_two_image_list_returns_two_images():
     image_a = _rgba_with_opaque_rect(size=(40, 40), rect=(10, 10, 20, 20))
     image_b = _rgba_with_opaque_rect(size=(40, 40), rect=(5, 5, 10, 10))
     pipe = CropSubjectPipe({"margin": 0, "alpha_threshold": 16})
@@ -110,7 +106,7 @@ def test_margin_expands_the_crop():
     assert cropped.size == (30, 30)
 
 
-def test_margin_bite_check_removing_it_shrinks_crop():
+def test_margin_grows_the_crop():
     """Pin the exact math: margin must ADD px on every side, not zero out."""
     image = _rgba_with_opaque_rect(size=(40, 40), rect=(10, 10, 20, 20))
     no_margin = CropSubjectPipe({"margin": 0, "alpha_threshold": 16}).process(
@@ -175,7 +171,7 @@ def test_mixed_batch_one_empty_one_with_subject():
     assert result.output["image"][1].size == (5, 5)
 
 
-def test_empty_alpha_bite_check_would_zero_size_without_guard():
+def test_empty_alpha_does_not_produce_a_zero_size_crop():
     """Confirms `alpha_bbox` really does return None for this input (the
     condition the pass-through branch depends on) rather than an accidental
     degenerate non-None bbox that would happen to also work."""

@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
 from src.features.generation.queue import QueuedGeneration
+from src.features.generation.scheduling import FAIR, SchedulingPolicy
 from src.features.generation.status_tracker import GenerationState
 
 
@@ -297,6 +298,7 @@ class TestQueueingThroughTheOrchestrator:
         src.features.generation.model_identity.resolve_model_identity."""
         from src.features.models.records import Model
 
+        orchestrator._scheduling_policy_for = lambda backend_id: SchedulingPolicy(name=FAIR)
         request = _request('tab_a')
         request.form_data = {'checkpoint': 'model:sdxl-base', 'steps': 20}
 
@@ -316,6 +318,58 @@ class TestQueueingThroughTheOrchestrator:
 
         assert spy.call_args.kwargs['model_key'] == 'deadbeef'
 
+    async def test_fifo_submit_skips_model_key_resolution(self, orchestrator, backends, repo):
+        with patch.object(orchestrator, '_resolve_model_key') as resolve, patch(
+            'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
+        ) as spy:
+            await _start(orchestrator, 'tab_a', 'gen_1')
+
+        resolve.assert_not_called()
+        orchestrator.pipeline_builder.build_pipeline.assert_called_once()
+        assert spy.call_args.kwargs['model_key'] is None
+
+    async def test_output_processing_uses_the_tracked_user_without_reloading_the_row(
+        self, orchestrator, backends, repo
+    ):
+        from src.pipelines.outputs import TimerGenerationOutput
+
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        repo.get_by_id.reset_mock()
+
+        await orchestrator._handle_generation_output(
+            'gen_1', TimerGenerationOutput(name='t', value=1.0), 'native', None
+        )
+
+        repo.get_by_id.assert_not_called()
+        assert orchestrator.output_processor.process_output.await_args.args[2] == 'user_1'
+
+    async def test_server_only_output_uses_the_tracked_user_without_reloading_the_row(
+        self, orchestrator, backends, repo
+    ):
+        from src.features.generation.output_types import output_type_registry
+        from src.pipelines.outputs import TimerGenerationOutput
+
+        await _start(orchestrator, 'tab_a', 'gen_1')
+        repo.get_by_id.reset_mock()
+
+        with patch.object(output_type_registry, 'is_server_only', return_value=True):
+            await orchestrator._handle_generation_output(
+                'gen_1', TimerGenerationOutput(name='t', value=1.0), 'native', None
+            )
+
+        repo.get_by_id.assert_not_called()
+        assert orchestrator.output_processor.process_output.await_args.args[2] == 'user_1'
+
+    async def test_fair_submit_resolves_model_key(self, orchestrator, backends, repo):
+        orchestrator._scheduling_policy_for = lambda backend_id: SchedulingPolicy(name=FAIR)
+        with patch.object(orchestrator, '_resolve_model_key', return_value='k') as resolve, patch(
+            'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
+        ) as spy:
+            await _start(orchestrator, 'tab_a', 'gen_1')
+
+        resolve.assert_called_once()
+        assert spy.call_args.kwargs['model_key'] == 'k'
+
     async def test_enqueued_item_ignores_a_lora_reference_ahead_of_the_checkpoint(
         self, orchestrator, backends, repo
     ):
@@ -324,6 +378,7 @@ class TestQueueingThroughTheOrchestrator:
         reference later in it."""
         from src.features.models.records import Model
 
+        orchestrator._scheduling_policy_for = lambda backend_id: SchedulingPolicy(name=FAIR)
         request = _request('tab_a')
         request.form_data = {'lora': 'model:some-lora', 'checkpoint': 'model:sdxl-base', 'steps': 20}
 

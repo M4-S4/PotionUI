@@ -1,13 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { downloadStore, downloadSettings, type DownloadSettings } from '$lib/stores/downloads';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import { Switch, Alert } from '$lib/components/ui';
 
 	const dispatch = createEventDispatcher();
-	const settlementGate = createConfirmSettlementGate();
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	let settings: DownloadSettings = {
 		max_concurrent_downloads: 2,
@@ -53,34 +51,26 @@
 			errorMessage = err.message || 'Failed to save settings';
 		} finally {
 			saving = false;
-			settlementGate.reset();
 		}
+		return false;
 	}
 
 	function close() {
 		dispatch('close');
 	}
-
-	function handleCancel() {
-		settlementGate.settle(close);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !saving, handleSubmit);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal isOpen={true} title="Download Settings" sizeClass="md:max-w-lg md:w-full" handleEscapeKey={false} on:close={handleCancel}>
-	<form on:submit|preventDefault={handleConfirm} class="px-6 py-4 space-y-5">
+<ConfirmDialog
+	bind:this={dialog}
+	isOpen={true}
+	title="Download Settings"
+	sizeClass="md:max-w-lg md:w-full"
+	busy={saving}
+	confirmLabel="Save Settings"
+	onConfirm={handleSubmit}
+	onCancel={close}
+>
+	<form on:submit|preventDefault={() => dialog.confirm()} class="px-6 py-4 space-y-5">
 		<!-- Error Message -->
 		{#if errorMessage}
 			<Alert variant="danger" density="compact">{errorMessage}</Alert>
@@ -211,13 +201,4 @@
 		</div>
 
 	</form>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Save Settings"
-			busy={saving}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

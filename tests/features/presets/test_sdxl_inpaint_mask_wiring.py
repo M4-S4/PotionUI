@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -14,9 +15,9 @@ from src.platform.templating.processor import TemplateProcessor
 def sdxl_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "marketplace/SDXL" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/SDXL" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("marketplace/SDXL preset not present")
+        pytest.fail("marketplace/SDXL preset not present")
     return template
 
 

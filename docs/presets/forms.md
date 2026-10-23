@@ -49,6 +49,27 @@ root option files use), so a fragment reused across presets can live under `cont
 e.g. `children: "{{ paths._shared }}/tabs/advanced.yml"`. `preset_lint` reports an error when the
 fragment a `children:` path names does not exist.
 
+A shared fragment that differs between presets only in a few values takes parameters through the
+mapping form of the include:
+
+```yaml
+- type: "section"
+  label: "Sampling"
+  children:
+    file: "{{ paths._shared }}/native/sampling_turbo_base.yml"
+    vars: {family: "flux3", steps: 50, steps_turbo: 16, steps_base: 50, cfg: 3.5, cfg_base: 3.5, shift_max: 20.0}
+```
+
+The fragment marks each parameter as `{{ vars.<name> }}`. Substitution runs on the parsed YAML at
+load time, before the schema validates it: a value that is exactly one `{{ vars.<name> }}` keeps the
+type of the supplied scalar (`steps: 50` stays an integer), and a marker inside a longer string is
+interpolated as text. Values must be scalars (string, number, boolean). A fragment included with
+`vars:` that uses a name the include does not supply, an include that supplies a name the fragment
+never uses, a non-scalar value, and a fragment that itself includes another fragment are all load
+errors, reported by `preset_lint` too. An include without `vars:` is never substituted, so existing
+fragments are unaffected. Field names and paths are unchanged by an include, so admin form overrides
+keyed by field path keep working.
+
 
 ## Variants
 
@@ -204,6 +225,14 @@ the generated [`model_type` values table](../preset-context.md#model_type-values
     allow_info_modal: true
     placeholder: "Select model..."
 ```
+
+`model_types` (optional list) offers several model types in one picker, for example
+`[diffusion_model, unet, checkpoint, text_encoder]`. Preset-scoped pickers list their union
+(`GET /api/presets/{id}/models?model_types=a,b,c`); the first entry stands in for `model_type`
+when that is not set, and unknown names are dropped. A field without the list behaves exactly as
+before. `unquantized_only: true` additionally hides safetensors files whose header already holds
+quantized tensors (an fp8 dtype, scale or `comfy_quant` entries) and every non-safetensors file;
+it is applied server-side, before paging.
 
 `recommendations` (a `model` field's list of downloadable models offered when the picker is empty)
 supports two entry shapes:

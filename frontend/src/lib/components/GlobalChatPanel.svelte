@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { fade, scale } from 'svelte/transition';
+	import { hasOpenDismissLayer } from '$lib/actions/layerStack';
 	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import UnifiedAIChat from '$lib/components/UnifiedAIChat.svelte';
 	import { loadHistoryRailCollapsed } from '$lib/utils/chatHistoryRail';
@@ -15,7 +16,7 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape' && isOpen) {
+		if (e.key === 'Escape' && isOpen && !hasOpenDismissLayer()) {
 			chatPanelStore.close();
 		}
 	}

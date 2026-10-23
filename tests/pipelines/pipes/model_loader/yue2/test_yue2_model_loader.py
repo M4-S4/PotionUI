@@ -53,12 +53,6 @@ def _run(cfg=None, models=None):
     return models, out
 
 
-def test_name_and_outputs():
-    assert ModelLoaderYuE2Pipe.name == "model_loader"
-    out = {o.name: o.io_type for o in ModelLoaderYuE2Pipe.outputs()}
-    assert out == {"model": IOType.MODEL}
-
-
 def test_two_eager_standalone_component_acquires():
     models, _out = _run()
     keys = [k for k, _ in models.calls]

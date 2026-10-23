@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetFormSchema: vi.fn() }
@@ -63,10 +64,6 @@ const SCHEMA = {
 	}
 };
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function mountForm(formData: Record<string, unknown> = {}) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
@@ -81,11 +78,11 @@ function mountForm(formData: Record<string, unknown> = {}) {
 		field,
 		choose: async (label: string) => {
 			field('guide')!.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]')!.click();
-			await settle();
+			await settle(10);
 			Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
 				.find((el) => el.textContent?.trim() === label)!
 				.click();
-			await settle();
+			await settle(10);
 		},
 		destroy: () => {
 			unmount(host);
@@ -115,21 +112,21 @@ const guideLabel = () =>
 describe('A guide switched between extracting and using the image as it is', () => {
 	it('loads an old "use as is" guide as Canny with extraction off', async () => {
 		mounted = mountForm({ guide: 'as_is' });
-		await settle();
+		await settle(10);
 		expect(guideLabel()).toContain('Canny');
 		expect(box().checked).toBe(false);
 	});
 
 	it('migrates a saved "use as is" session that still carries extraction on', async () => {
 		mounted = mountForm({ guide: 'as_is', guide_extract: true });
-		await settle();
+		await settle(10);
 		expect(guideLabel()).toContain('Canny');
 		expect(box().checked).toBe(false);
 	});
 
 	it('hides the switch for None and Grayscale and shows it for a detector', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		expect(box().checked).toBe(true);
 
 		await mounted.choose('None');

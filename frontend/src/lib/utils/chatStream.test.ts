@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
 	applyToken,
+	applyThinking,
+	thinkingFromMetadata,
 	applyToolStart,
 	applyToolEnd,
 	applyStatus,
@@ -1322,5 +1324,177 @@ describe('recoverDurableMessage orchestration: identity matching, truncation, an
 		});
 		expect(result.published).toBe(false);
 		expect(result.messages[1].content).toBe('partial snapshot text'); // untouched
+	});
+});
+
+describe('applyThinking', () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+	});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('opens the first segment on the streaming assistant message', () => {
+		const out = applyThinking(fixture(), 0, 'let me');
+		expect(out[1].thinking).toEqual([{ text: 'let me', started_at: Date.now(), open: true }]);
+	});
+
+	it('replaces the same segment as the accumulated text grows, keeping its start time', () => {
+		const first = applyThinking(fixture(), 0, 'let');
+		vi.advanceTimersByTime(1500);
+		const out = applyThinking(first, 0, 'let me think');
+		expect(out[1].thinking).toHaveLength(1);
+		expect(out[1].thinking![0].text).toBe('let me think');
+		expect(out[1].thinking![0].started_at).toBe(first[1].thinking![0].started_at);
+	});
+
+	it('a new segment closes the previous one with its elapsed time', () => {
+		const first = applyThinking(fixture(), 0, 'turn one');
+		vi.advanceTimersByTime(4000);
+		const out = applyThinking(first, 1, 'turn two');
+		expect(out[1].thinking![0]).toEqual({
+			text: 'turn one',
+			started_at: first[1].thinking![0].started_at,
+			duration_ms: 4000
+		});
+		expect(out[1].thinking![1].open).toBe(true);
+	});
+
+	it('does not mutate its input', () => {
+		const input = fixture();
+		applyThinking(input, 0, 'x');
+		expect(input[1].thinking).toBeUndefined();
+	});
+
+	it('is a no-op when the last message is not an assistant message', () => {
+		const msgs: UnifiedChatMessageData[] = [{ role: 'user', content: 'a', timestamp: 1 }];
+		expect(applyThinking(msgs, 0, 'x')).toBe(msgs);
+	});
+
+	it('an answer token closes the open segment and stamps its duration', () => {
+		const thinking = applyThinking(fixture(), 0, 'plan');
+		vi.advanceTimersByTime(2500);
+		const out = applyToken(thinking, 'The answer');
+		expect(out[1].thinking![0].open).toBeUndefined();
+		expect(out[1].thinking![0].duration_ms).toBe(2500);
+	});
+
+	it('whitespace-only answer text leaves the segment open', () => {
+		const thinking = applyThinking(fixture(), 0, 'plan');
+		const out = applyToken(thinking, '\n');
+		expect(out[1].thinking![0].open).toBe(true);
+	});
+
+	it('a tool call closes the open segment', () => {
+		const thinking = applyThinking(fixture(), 0, 'need a tool');
+		vi.advanceTimersByTime(1000);
+		const out = applyToolStart(thinking, { tool_name: 'list_models', arguments: {} });
+		expect(out[1].thinking![0].open).toBeUndefined();
+		expect(out[1].thinking![0].duration_ms).toBe(1000);
+	});
+
+	it('done adopts the persisted segments, with their durations, over the live ones', () => {
+		const live = applyThinking(fixture(), 0, 'live text');
+		const out = applyDone(live, {
+			assistant_message: {
+				id: 'a1',
+				content: 'answer',
+				metadata: { thinking: { segments: [{ text: 'persisted text', duration_ms: 9000 }] } }
+			}
+		});
+		expect(out[1].thinking).toEqual([{ text: 'persisted text', duration_ms: 9000 }]);
+		expect(out[1].isStreaming).toBe(false);
+	});
+
+	it('done without persisted thinking closes whatever was live', () => {
+		const live = applyThinking(fixture(), 0, 'live text');
+		vi.advanceTimersByTime(3000);
+		const out = applyDone(live, { assistant_message: { id: 'a1', content: 'answer' } });
+		expect(out[1].thinking![0].text).toBe('live text');
+		expect(out[1].thinking![0].open).toBeUndefined();
+		expect(out[1].thinking![0].duration_ms).toBe(3000);
+	});
+
+	it('done whose metadata carries only the trace keeps the streamed segments', () => {
+		const live = applyThinking(fixture(), 0, 'streamed reasoning');
+		vi.advanceTimersByTime(5000);
+		const out = applyDone(live, {
+			assistant_message: {
+				id: 'a1',
+				content: 'answer',
+				metadata: { tokens_used: 7, behavior_trace: { steps: [], thinking_visible: true } }
+			}
+		});
+		expect(out[1].thinking).toEqual([
+			{ text: 'streamed reasoning', started_at: live[1].thinking![0].started_at, duration_ms: 5000 }
+		]);
+		expect(out[1].metadata).toMatchObject({ tokens_used: 7 });
+	});
+
+	it('done on a reply that never thought carries no thinking', () => {
+		const out = applyDone(fixture(), { assistant_message: { id: 'a1', content: 'answer' } });
+		expect(out[1].thinking).toBeUndefined();
+	});
+});
+
+describe('thinkingFromMetadata', () => {
+	it('reads the stored segments', () => {
+		expect(
+			thinkingFromMetadata({ thinking: { segments: [{ text: 'a', duration_ms: 5 }, { text: 'b' }] } })
+		).toEqual([
+			{ text: 'a', duration_ms: 5 },
+			{ text: 'b', duration_ms: undefined }
+		]);
+	});
+
+	it('returns undefined without usable segments', () => {
+		expect(thinkingFromMetadata(undefined)).toBeUndefined();
+		expect(thinkingFromMetadata({})).toBeUndefined();
+		expect(thinkingFromMetadata({ thinking: {} })).toBeUndefined();
+		expect(thinkingFromMetadata({ thinking: { segments: [] } })).toBeUndefined();
+		expect(thinkingFromMetadata({ thinking: { segments: [{ text: '  ' }, { text: 3 }] } })).toBeUndefined();
+	});
+
+	it('maps a persisted message so a reopened chat has its thinking collapsed and ready', () => {
+		const mapped = mapPersistedMessage({
+			id: 'a1',
+			session_id: 's',
+			role: 'assistant',
+			content: 'answer',
+			created_at: '2026-01-01T00:00:00Z',
+			metadata: { thinking: { segments: [{ text: 'stored', duration_ms: 2000 }] } }
+		} as ChatMessageResponse);
+		expect(mapped.thinking).toEqual([{ text: 'stored', duration_ms: 2000 }]);
+	});
+
+	it('maps a persisted message without thinking to none', () => {
+		const mapped = mapPersistedMessage({
+			id: 'a1',
+			session_id: 's',
+			role: 'assistant',
+			content: 'answer',
+			created_at: '2026-01-01T00:00:00Z'
+		} as ChatMessageResponse);
+		expect(mapped.thinking).toBeUndefined();
+	});
+});
+
+describe('hydrateTraceSteps thinking marker', () => {
+	const manifest = (extra: Partial<BehaviorTraceManifest>) =>
+		({
+			steps: [{ step: 'thinking', duration_ms: 5 }],
+			...extra
+		}) as BehaviorTraceManifest;
+
+	it('marks the thinking step when the turn showed model thinking', () => {
+		const steps = hydrateTraceSteps(manifest({ thinking_visible: true }), 0);
+		expect(steps[0].detail).toEqual({ thinking_visible: true });
+	});
+
+	it('leaves the step untouched otherwise', () => {
+		const steps = hydrateTraceSteps(manifest({}), 0);
+		expect(steps[0].detail).toBeUndefined();
 	});
 });

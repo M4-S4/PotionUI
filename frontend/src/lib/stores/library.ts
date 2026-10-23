@@ -2,6 +2,8 @@ import { writable, derived } from 'svelte/store';
 import { browser } from '$app/environment';
 import { logger, getErrorMessage } from '$lib/utils/logger';
 import { api } from '$lib/services/api/index';
+import { tagCatalog } from '$lib/stores/tagCatalog';
+import { libraryCollectionsStore } from '$lib/stores/collections';
 import type { BulkDeleteLibraryByCriteriaRequest, LibraryItem } from '$lib/services/api/library';
 import type { Tag } from '$lib/types/history';
 import {
@@ -75,6 +77,10 @@ function loadItemsPerPage(): number {
 function createLibraryStore() {
 	const { subscribe, set, update } = writable<LibraryPageState>(initialState);
 
+	tagCatalog.tags(LIBRARY_TAG_TYPE).subscribe((tags) => {
+		update((state) => ({ ...state, availableTags: tags as unknown as Tag[] }));
+	});
+
 	/** Current state without waiting a tick - the store is synchronous. */
 	function snapshot(): LibraryPageState {
 		let state!: LibraryPageState;
@@ -138,18 +144,14 @@ function createLibraryStore() {
 
 		async loadTags() {
 			try {
-				const response = await api.getTags(LIBRARY_TAG_TYPE);
-				if (response.success && response.data) {
-					const tags = response.data.tags as Tag[];
-					update((state) => ({ ...state, availableTags: tags }));
-				}
+				await tagCatalog.get(LIBRARY_TAG_TYPE, { fresh: true });
 			} catch (error) {
 				logger.error('Failed to load library tags:', getErrorMessage(error));
 			}
 		},
 
 		async createTag(name: string) {
-			const response = await api.createTag(name, LIBRARY_TAG_TYPE);
+			const response = await tagCatalog.create(name, LIBRARY_TAG_TYPE);
 			if (response.success) await this.loadTags();
 			return response;
 		},
@@ -265,7 +267,7 @@ function createLibraryStore() {
 					selectedIds: state.selectedIds.filter((id) => id !== itemId)
 				}));
 				await reloadAfterRemoval(1);
-				await this.loadFacets();
+				await Promise.all([this.loadFacets(), libraryCollectionsStore.load()]);
 			}
 			return response;
 		},
@@ -293,7 +295,7 @@ function createLibraryStore() {
 
 			update((state) => ({ ...state, selectedIds: [], selectionMode: false }));
 			await reloadAfterRemoval(deleted);
-			await this.loadFacets();
+			await Promise.all([this.loadFacets(), deleted > 0 ? libraryCollectionsStore.load() : undefined]);
 			return { deleted, failed };
 		},
 
@@ -302,7 +304,7 @@ function createLibraryStore() {
 			const response = await api.bulkDeleteLibraryItemsByCriteria(criteria);
 			if (response.success && response.data) {
 				await reloadAfterRemoval(response.data.deleted_count);
-				await this.loadFacets();
+				await Promise.all([this.loadFacets(), libraryCollectionsStore.load()]);
 			}
 			return response;
 		},

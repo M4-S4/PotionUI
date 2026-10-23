@@ -95,6 +95,14 @@ def _jsonrpc_error(request_id, code: int, message: str) -> JSONResponse:
     )
 
 
+def request_origin(request: Request) -> str:
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+    scheme = forwarded_proto or request.url.scheme
+    host = forwarded_host or request.headers.get("host", "").strip() or request.url.netloc
+    return f"{scheme}://{host}" if host else ""
+
+
 def build_router(container: "AppContainer") -> APIRouter:
     token_repository = container.mcp_token_repository
     settings = container.settings
@@ -187,6 +195,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             result = await handle_method(
                 collaborators, method, params, current_user.id,
                 is_admin=current_user.account_type == AccountType.ADMIN,
+                request_origin=request_origin(request),
             )
         except JsonRpcError as exc:
             if is_notification:

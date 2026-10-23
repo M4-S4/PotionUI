@@ -11,10 +11,6 @@ class TestCameraShot(unittest.TestCase):
         self.preset_loader = Mock()
         self.field = CameraShot(self.preset_loader)
 
-    def test_can_handle(self):
-        self.assertTrue(self.field.can_handle('camera_shot'))
-        self.assertFalse(self.field.can_handle('header'))
-
     def test_output_defaults_to_image_categories(self):
         field = {'type': 'camera_shot', 'name': 'camera', 'label': 'Camera & Shot'}
         result = self.field.output(field)
@@ -71,11 +67,6 @@ class TestCameraShot(unittest.TestCase):
         result = self.field.output(field)
         keys = [s['key'] for s in result['catalog'][0]['shots']]
         self.assertNotIn('bogus', keys)
-
-
-    def test_map_field_delegates_to_output(self):
-        field = {'type': 'camera_shot', 'name': 'camera', 'label': 'Camera'}
-        self.assertEqual(self.field.output(field, 'p'), self.field.map_field(field, 'p'))
 
     def test_examples_render_camera_shot(self):
         for example in CameraShot.examples():

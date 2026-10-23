@@ -1,11 +1,14 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { Kbd } from '$lib/components/ui';
+	import { Kbd, IconButton } from '$lib/components/ui';
 	import { getIconPath } from '$lib/utils/IconLibrary';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
+	import menuNav from '$lib/actions/menuNav';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import {
 		toolLabel,
 		type MediaTool,
@@ -144,21 +147,13 @@
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (!open) return;
-		if (event.key === 'Escape') {
-			if (submenu) {
-				submenu = null;
-				return;
-			}
-			onClose();
-			(trigger?.querySelector('button') as HTMLButtonElement | null)?.focus();
-			return;
-		}
 		if (
 			(variant === 'entry' || variant === 'bar') &&
 			!event.ctrlKey &&
 			!event.metaKey &&
 			!event.altKey &&
-			!submenu
+			!submenu &&
+			!isTypingInField(event)
 		) {
 			const target = acceleratorTarget(event.key);
 			if (target) {
@@ -167,18 +162,18 @@
 				return;
 			}
 		}
-		if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-		if (!menuEl?.contains(document.activeElement)) return;
-		event.preventDefault();
-		const all = items();
-		const at = all.indexOf(document.activeElement as HTMLButtonElement);
-		focusItem(at + (event.key === 'ArrowDown' ? 1 : -1));
 	}
 
-	function handlePointerDown(event: PointerEvent) {
-		if (!open) return;
-		const target = event.target as Node;
-		if (trigger?.contains(target) || menuEl?.contains(target)) return;
+	function dismissMenu(reason: DismissReason) {
+		if (reason === 'escape') {
+			if (submenu) {
+				submenu = null;
+				return;
+			}
+			onClose();
+			(trigger?.querySelector('button') as HTMLButtonElement | null)?.focus();
+			return;
+		}
 		onClose();
 	}
 
@@ -232,7 +227,6 @@
 
 <svelte:window
 	onkeydown={handleKeydown}
-	onpointerdown={handlePointerDown}
 	onscrollcapture={handleViewportChange}
 	onresize={handleViewportChange}
 />
@@ -390,7 +384,7 @@
 										Plugin
 									</span>
 								{:else if availability.enabled && tool.shortcut && !sheet}
-									<Kbd keys={shortcutKeys(tool.shortcut)} size="md" />
+									<Kbd keys={shortcutKeys(tool.shortcut)} />
 								{/if}
 							</button>
 						</Tooltip>
@@ -411,6 +405,8 @@
 			<div class="absolute inset-0 bg-black/60" aria-hidden="true"></div>
 			<div
 				bind:this={menuEl}
+				use:dismiss={{ onDismiss: dismissMenu, ignore: [trigger] }}
+				use:menuNav={'[role="menuitem"]'}
 				class="relative max-h-[80dvh] overflow-y-auto bg-surface-1 border-t border-line-strong rounded-t-xl shadow-overlay p-2 flex flex-col"
 				role="menu"
 				data-tools-menu
@@ -426,14 +422,7 @@
 								<p class="font-mono text-xs uppercase tracking-[0.07em] text-fg-subtle truncate">{subtitle}</p>
 							{/if}
 						</div>
-						<button
-							type="button"
-							class="p-2 rounded text-fg-muted hover:text-fg hover:bg-surface-2"
-							aria-label="Close menu"
-							onclick={onClose}
-						>
-							<Icon name="close" className="w-4 h-4" />
-						</button>
+						<IconButton icon="close" label="Close menu" size="sm" onclick={onClose} />
 					</div>
 				{/if}
 				{@render rows()}
@@ -444,6 +433,8 @@
 			use:portal
 			use:overlayLayer
 			bind:this={menuEl}
+			use:dismiss={{ onDismiss: dismissMenu, ignore: [trigger] }}
+			use:menuNav={'[role="menuitem"]'}
 			class="fixed z-overlay overflow-y-auto bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-1 flex flex-col"
 			style={positionStyle}
 			role="menu"

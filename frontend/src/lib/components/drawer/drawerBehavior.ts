@@ -1,4 +1,5 @@
 import { storage } from '$lib/utils/storage';
+import { isTypingInField } from '$lib/utils/editableTarget';
 
 export const KEEP_OPEN_MIN_WIDTH = 1200;
 export const PHONE_MAX_WIDTH = 640;
@@ -21,11 +22,6 @@ export function writeKeepOpenPref(key: string, next: boolean): void {
 
 export function effectiveKeepOpen(pref: boolean, viewportWidth: number): boolean {
 	return pref && viewportWidth >= KEEP_OPEN_MIN_WIDTH;
-}
-
-export function isEditable(target: EventTarget | null): boolean {
-	const el = target as HTMLElement | null;
-	return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable === true);
 }
 
 function navItems(root: HTMLElement | undefined): HTMLElement[] {
@@ -56,7 +52,7 @@ export function handleDrawerKeydown(event: KeyboardEvent, context: DrawerKeyCont
 		return;
 	}
 
-	if (event.key === '/' && !isEditable(target)) {
+	if (event.key === '/' && !isTypingInField(event)) {
 		event.preventDefault();
 		searchEl?.focus();
 		return;

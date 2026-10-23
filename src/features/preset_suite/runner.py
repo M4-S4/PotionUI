@@ -38,6 +38,7 @@ from typing import Any, Callable, Iterable, List, Optional, Protocol, Tuple
 
 from .models import CaseOutcome, CaseResult, FAIL, PASS, SKIP
 from .resolver import ModelResolver
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +74,8 @@ def _read_preset_meta(preset_dir: Path) -> Tuple[str, Optional[str]]:
     yaml read — no preset processor boot needed.
     """
     try:
-        import yaml
 
-        with open(preset_dir / "preset.yml", "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+        data = load_yaml_file(preset_dir / "preset.yml") or {}
         engine = str(data.get("engine", "native"))
         pid = data.get("id")
         return engine, (str(pid) if pid else None)

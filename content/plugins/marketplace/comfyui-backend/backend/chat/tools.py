@@ -76,6 +76,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from src.plugin_api import BaseTool, ToolContext, ToolResult
 from src.plugin_api.chat import ToolApprovalPreview
+from src.plugin_api.forms import core_field_type_names
 
 from ..preset_import.schema import GRAPH_WIRED_FIELD_TYPES, FieldMapping
 
@@ -179,18 +180,7 @@ _FIELD_TYPE_ALIASES = {
     "float": "number",
 }
 
-# Every core (non-container) field type `register_builtin_fields`
-# (`src/features/fields/builtin.py`) registers. Duplicated here rather than
-# imported because a marketplace plugin may only import `src.plugin_api`,
-# which does not expose the field type registry -- keep in sync by hand.
-_KNOWN_FIELD_TYPES = frozenset({
-    "string", "textbox", "number", "integer", "boolean", "checkbox", "slider",
-    "stepper", "seed", "resolution", "select", "checkbox_group", "model",
-    "models", "lora_picker", "image", "video", "audio", "media", "file",
-    "carousel", "llm", "alert", "markdown", "header", "section", "gate",
-    "prompt_timeline", "camera_shot",
-})
-
+_KNOWN_FIELD_TYPES = core_field_type_names()
 
 def _apply_key_aliases(op: Dict[str, Any], aliases: Tuple[str, ...], canonical: str) -> None:
     if canonical in op:
@@ -511,17 +501,9 @@ class GetWorkflowInputsTool(BaseTool):
     modes = ["comfyui-import"]
     icon = "search"
 
-    @property
-    def name(self) -> str:
-        return "get_workflow_inputs"
-
-    @property
-    def group(self) -> str:
-        return "ComfyUI import"
-
-    @property
-    def user_description(self) -> str:
-        return "Looks up workflow inputs from the ComfyUI import wizard."
+    name = "get_workflow_inputs"
+    group = "ComfyUI import"
+    user_description = "Looks up workflow inputs from the ComfyUI import wizard."
 
     @property
     def hint(self) -> str:
@@ -605,21 +587,10 @@ class ProposeFormChangesTool(BaseTool):
     modes = ["comfyui-import"]
     icon = "wand-sparkles"
 
-    @property
-    def name(self) -> str:
-        return "propose_form_changes"
-
-    @property
-    def group(self) -> str:
-        return "ComfyUI import"
-
-    @property
-    def user_description(self) -> str:
-        return "Proposes form field mappings and tabs for the imported preset."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
+    name = "propose_form_changes"
+    group = "ComfyUI import"
+    user_description = "Proposes form field mappings and tabs for the imported preset."
+    requires_approval = True
 
     @property
     def hint(self) -> str:

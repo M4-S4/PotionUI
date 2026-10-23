@@ -1,4 +1,4 @@
-import { isAxiosError } from 'axios';
+import { parseApiError } from '$lib/utils/apiErrors';
 
 const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV;
 
@@ -30,13 +30,6 @@ export function getErrorMessage(err: unknown, fallback = 'An unexpected error oc
 	return fallback;
 }
 
-/**
- * Extracts a human-readable message from an unknown caught error, preferring
- * the FastAPI `detail: { message }` shape over axios's own error message.
- */
 export function getApiErrorMessage(err: unknown, fallback = 'An unexpected error occurred'): string {
-	if (isAxiosError<{ message?: string; detail?: { message?: string } }>(err)) {
-		return err.response?.data?.detail?.message || err.response?.data?.message || err.message || fallback;
-	}
-	return getErrorMessage(err, fallback);
+	return parseApiError(err).message || getErrorMessage(err, fallback);
 }

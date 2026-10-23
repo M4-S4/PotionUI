@@ -155,3 +155,49 @@ def test_encrypt_declared_secrets_tolerates_a_missing_manifest(repo, registry):
     registry.get_plugin.return_value = None
 
     assert operations.encrypt_declared_secrets(repo, registry) == 0
+
+
+def live_registry_with_dict_specs():
+    manifest = Mock()
+    manifest.settings = [
+        {"name": "api_key", "type": "string", "is_secret": True},
+        {"name": "base_url", "type": "string", "is_secret": False},
+    ]
+    reg = Mock()
+    reg.get_plugin.return_value = manifest
+    return reg
+
+
+def test_dict_shaped_manifest_specs_still_flag_the_secret(repo):
+    operations.update_plugin_settings(
+        repo, live_registry_with_dict_specs(), "acme-provider", {"api_key": "sk-live-abc", "base_url": "x"}
+    )
+
+    flags = {c.kwargs['setting_key']: c.kwargs['is_secret'] for c in repo.set_plugin_setting.call_args_list}
+    assert flags == {"api_key": True, "base_url": False}
+
+
+def test_the_shipped_civitai_manifest_flags_its_api_key(repo):
+    from src.platform.plugins.runtime_registries import get_global_plugin_registry
+
+    repo.get_plugin_by_id.return_value.id = "civitai-provider"
+    operations.update_plugin_settings(
+        repo, get_global_plugin_registry(), "civitai-provider", {"api_key": "sk-live-abc"}
+    )
+    assert repo.set_plugin_setting.call_args.kwargs['is_secret'] is True
+
+
+def test_the_startup_pass_promotes_unflagged_secrets_of_dict_shaped_manifests():
+    repo = Mock()
+    repo.get_all_plugins.return_value = [Plugin(
+        id="acme-provider", name="Acme", version="1.0.0", type="backend-only",
+        enabled=True, manifest_path="m.yml",
+    )]
+    repo.get_plugin_settings.return_value = [
+        PluginSetting(id=1, plugin_id="acme-provider", setting_key="api_key", setting_value="sk-plain", is_secret=False),
+        PluginSetting(id=2, plugin_id="acme-provider", setting_key="base_url", setting_value="x", is_secret=False),
+    ]
+
+    assert operations.encrypt_declared_secrets(repo, live_registry_with_dict_specs()) == 1
+    assert repo.set_plugin_setting.call_args.kwargs['setting_key'] == "api_key"
+    assert repo.set_plugin_setting.call_args.kwargs['is_secret'] is True

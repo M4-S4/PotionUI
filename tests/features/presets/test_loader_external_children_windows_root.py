@@ -12,7 +12,7 @@ def test_loader_resolves_children_path_literally(monkeypatch):
     loader = PresetTemplateLoader([])
     seen = {}
 
-    def fake_load(children_file, prefix):
+    def fake_load(children_file, prefix, ref):
         seen["path"] = children_file
         return []
 

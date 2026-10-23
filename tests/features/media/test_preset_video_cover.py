@@ -15,6 +15,15 @@ from src.platform.settings.settings import Settings
 VIDEO_BYTES = bytes(range(256)) * 8
 
 
+def _loader(preset_dir):
+    preset = SimpleNamespace(id="vid", path=str(preset_dir))
+    return SimpleNamespace(
+        presets=[preset],
+        all=lambda: [preset],
+        get=lambda preset_id: preset if preset_id == "vid" else None,
+    )
+
+
 @pytest.fixture
 def preset_dir(tmp_path):
     root = tmp_path / "preset"
@@ -29,7 +38,7 @@ def preset_dir(tmp_path):
 def client(preset_dir):
     settings = Mock(spec=Settings)
     settings.get_file_storage_directory.return_value = str(preset_dir / "storage")
-    loader = SimpleNamespace(presets=[SimpleNamespace(id="vid", path=str(preset_dir))])
+    loader = _loader(preset_dir)
     resolver = FilePathResolver(settings, loader)
     store = MediaStore(
         file_resolver=resolver,
@@ -94,7 +103,7 @@ class TestPresetVideoCoverServing:
 
     def test_resolver_rejects_an_unnormalised_traversal(self, preset_dir):
         settings = Mock(spec=Settings)
-        loader = SimpleNamespace(presets=[SimpleNamespace(id="vid", path=str(preset_dir))])
+        loader = _loader(preset_dir)
         (preset_dir.parent / "outside.webm").write_bytes(VIDEO_BYTES)
         with pytest.raises(ValueError):
             FilePathResolver(settings, loader).resolve_preset_file("vid", "public/../../outside.webm")

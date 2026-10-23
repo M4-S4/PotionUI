@@ -31,6 +31,24 @@ def test_reminder_absent_when_structured_reply_off():
     assert history == [{"role": "user", "content": "hi"}]
 
 
+def test_reminder_dropped_on_a_compact_window():
+    history = [{"role": "user", "content": "hi"}]
+    ChatContextBuilder.inject_reply_contract_reminder_block(
+        history, _mode(structured_reply=True), context_budget.TOOL_TIER_COMPACT,
+    )
+
+    assert history == [{"role": "user", "content": "hi"}]
+
+
+def test_reminder_kept_on_a_large_window():
+    history = [{"role": "user", "content": "hi"}]
+    ChatContextBuilder.inject_reply_contract_reminder_block(
+        history, _mode(structured_reply=True), context_budget.TOOL_TIER_LARGE,
+    )
+
+    assert REPLY_CONTRACT_REMINDER in history[-1]["content"]
+
+
 def test_reminder_absent_when_mode_is_none():
     history = [{"role": "user", "content": "hi"}]
     ChatContextBuilder.inject_reply_contract_reminder_block(history, None)

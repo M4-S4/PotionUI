@@ -28,6 +28,7 @@ from src.features.backup.paths import (
     resolve_layout,
 )
 from src.features.backup.verify import VerifyReport, verify_media
+from src.platform.database.database import Database
 from src.platform.database.migration_runner import MigrationRunner
 from src.platform.util.process import pid_alive
 
@@ -275,6 +276,7 @@ def run_restore(
             item.destination.parent.mkdir(parents=True, exist_ok=True)
 
             if item.name == DB_FILENAME:
+                Database.close_pool()
                 previous = _set_aside_database(item.destination, stamp)
             elif item.name == SECRET_KEY_FILENAME and item.destination.exists():
                 previous = item.destination.with_name(

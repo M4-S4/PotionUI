@@ -86,10 +86,3 @@ def up():
         f"Migration 027_measured_indexes: created {len(created)} index(es), "
         f"dropped {len(dropped)} duplicate(s) of a UNIQUE index"
     )
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for name, _ in _NEW_INDEXES:
-            cursor.execute(f"DROP INDEX IF EXISTS {name}")
-    print("Migration 027_measured_indexes: dropped the added indexes")

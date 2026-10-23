@@ -1,5 +1,6 @@
 <script>
 	import { untrack } from 'svelte';
+	import HostUi from '../../../../sdk/HostUi.svelte';
 	import {
 		USER_MODE_ALL,
 		USER_MODE_SELECTED,
@@ -24,7 +25,6 @@
 	let currentUserId = $state(null);
 	let formState = $state(null);
 	let result = $state(null);
-	let hoverTip = $state(null);
 
 	let modalHostEl = $state(null);
 	let modalApi = $state.raw(null);
@@ -37,11 +37,6 @@
 
 	let usersById = $derived(Object.fromEntries(users.map((u) => [u.id, u])));
 
-	function authHeaders() {
-		const token = localStorage.getItem('auth_token');
-		return token ? { Authorization: `Bearer ${token}` } : {};
-	}
-
 	function notify(level, message) {
 		const notifications = window.__potionui?.notifications;
 		if (notifications?.toast) notifications.toast(level, message);
@@ -52,10 +47,7 @@
 	}
 
 	async function fetchJson(url, init) {
-		const response = await fetch(url, {
-			...init,
-			headers: { ...authHeaders(), ...(init?.headers || {}) }
-		});
+		const response = await window.__potionui.api.fetch(url, init);
 		const payload = await response.json().catch(() => null);
 		if (!response.ok || payload?.success === false) {
 			const message = payload?.message || payload?.error || `Request failed (${response.status})`;
@@ -200,7 +192,7 @@
 			const body = buildFetchRequestBody(model.id, formState);
 			const data = await fetchJson(`/api/plugins/${pluginId}/prompts/fetch`, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				timeout: 0,
 				body: JSON.stringify(body)
 			});
 			result = summarizeFetchResult(data);
@@ -221,17 +213,6 @@
 		}
 	}
 
-	function showTip(e) {
-		const text = e.currentTarget.dataset.tip;
-		if (!text) return;
-		const rect = e.currentTarget.getBoundingClientRect();
-		hoverTip = { text, top: rect.top - 6, left: rect.left + rect.width / 2 };
-	}
-
-	function hideTip() {
-		hoverTip = null;
-	}
-
 	function optionValue(o) {
 		return typeof o === 'string' ? o : (o?.value ?? '');
 	}
@@ -242,47 +223,30 @@
 </script>
 
 {#if model.id}
-	<button
-		class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-		onclick={openModal}
-		aria-label="Fetch prompts from CivitAI"
-	>
-		<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-			<path
-				stroke-linecap="round"
-				stroke-linejoin="round"
-				stroke-width="2"
-				d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-			/>
-		</svg>
-	</button>
+	<span class="trigger">
+		<HostUi name="IconButton" props={{ icon: 'document', label: 'Fetch prompts from CivitAI', size: 'sm', variant: 'secondary', onclick: openModal }} />
+	</span>
 {/if}
 
 {#if open}
 	<div bind:this={modalHostEl}></div>
 	<div bind:this={bodyEl} class="body">
 		{#if loadingModal}
-		<div class="loading-row"><span class="spinner"></span>Loading options&hellip;</div>
+		<div class="loading-row"><HostUi name="Spinner" props={{ size: 'sm' }} />Loading options&hellip;</div>
 		{:else if loadError}
-		<p class="message message-error">{loadError}</p>
+		<HostUi name="Alert" props={{ variant: 'danger', density: 'compact', icon: true }}>{loadError}</HostUi>
 		{:else if phase === 'result' && result}
 		<div class="result-list">
 			{#each result.models as m (m.modelId)}
 				<div class="result-model">
 					<div class="result-model-header">
-						<span
-							class="result-model-name"
-							role="note"
-							data-tip={m.modelName}
-							onmouseenter={showTip}
-							onmouseleave={hideTip}
-						>
-							{m.modelName}
-						</span>
+						<HostUi name="Tooltip" props={{ text: m.modelName, wrapperClass: 'flex min-w-0' }}>
+								<span class="result-model-name">{m.modelName}</span>
+							</HostUi>
 						{#if m.notLinked}
-							<span class="chip chip-warn">Not linked</span>
+							<HostUi name="Badge" props={{ variant: 'warning', size: 'sm' }}>Not linked</HostUi>
 						{:else if m.error}
-							<span class="chip chip-danger">Error</span>
+							<HostUi name="Badge" props={{ variant: 'danger', size: 'sm' }}>Error</HostUi>
 						{/if}
 					</div>
 
@@ -323,9 +287,9 @@
 									{#each m.perUserRows as row (row.userId)}
 										<tr>
 											<td class="per-user-name">
-												<span role="note" data-tip={userLabel(row.userId)} onmouseenter={showTip} onmouseleave={hideTip}>
-													{userLabel(row.userId)}
-												</span>
+												<HostUi name="Tooltip" props={{ text: userLabel(row.userId), wrapperClass: 'flex min-w-0' }}>
+														<span class="per-user-label">{userLabel(row.userId)}</span>
+													</HostUi>
 											</td>
 											<td>{row.created}</td>
 											<td>{row.skippedDuplicates}</td>
@@ -340,7 +304,7 @@
 		</div>
 		{:else if formState}
 		{#if submitError}
-			<p class="message message-error">{submitError}</p>
+			<HostUi name="Alert" props={{ variant: 'danger', density: 'compact', icon: true }}>{submitError}</HostUi>
 		{/if}
 
 		<div class="field-group">
@@ -389,37 +353,35 @@
 		</div>
 
 		<div class="field-group">
-			<label class="toggle-row">
-				<span class="toggle-switch" class:toggle-on={formState.includeShowcase}>
-					<input
-						type="checkbox"
-						checked={formState.includeShowcase}
-						onchange={(e) => (formState = { ...formState, includeShowcase: e.currentTarget.checked })}
-						disabled={phase === 'submitting'}
+			<div class="toggle-row">
+					<HostUi
+						name="Switch"
+						props={{
+							checked: formState.includeShowcase,
+							label: 'Include creator showcase images',
+							size: 'sm',
+							disabled: phase === 'submitting',
+							onchange: (checked) => (formState = { ...formState, includeShowcase: checked })
+						}}
 					/>
-					<span class="toggle-thumb"></span>
-				</span>
-				Include creator showcase images
-			</label>
-			<label class="toggle-row">
-				<span class="toggle-switch" class:toggle-on={formState.includeNegative}>
-					<input
-						type="checkbox"
-						checked={formState.includeNegative}
-						onchange={(e) => (formState = { ...formState, includeNegative: e.currentTarget.checked })}
-						disabled={phase === 'submitting'}
+					<span>Include creator showcase images</span>
+				</div>
+			<div class="toggle-row">
+					<HostUi
+						name="Switch"
+						props={{
+							checked: formState.includeNegative,
+							label: 'Also save negative prompts',
+							size: 'sm',
+							disabled: phase === 'submitting',
+							onchange: (checked) => (formState = { ...formState, includeNegative: checked })
+						}}
 					/>
-					<span class="toggle-thumb"></span>
-				</span>
-				Also save negative prompts
-			</label>
+					<span>Also save negative prompts</span>
+				</div>
 		</div>
 		{/if}
 	</div>
-{/if}
-
-{#if hoverTip}
-	<div class="hover-tip" style={`top:${hoverTip.top}px; left:${hoverTip.left}px;`}>{hoverTip.text}</div>
 {/if}
 
 <style>
@@ -455,10 +417,18 @@
 		gap: 8px;
 		font-size: 13px;
 		color: rgb(var(--fg, 232 234 237));
-		cursor: pointer;
+	}
+	.trigger {
+		display: inline-flex;
+		opacity: 0;
+		transition: opacity 100ms;
+	}
+	:global(.group:hover) .trigger,
+	.trigger:focus-within {
+		opacity: 1;
 	}
 	.result-model-name,
-	.per-user-name {
+	.per-user-label {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -484,55 +454,6 @@
 		cursor: not-allowed;
 	}
 
-	.toggle-switch {
-		position: relative;
-		display: inline-flex;
-		flex-shrink: 0;
-		width: 34px;
-		height: 18px;
-		border-radius: 9999px;
-		background: rgb(var(--surface-3, 39 42 49));
-		border: 1px solid rgb(var(--line-strong, 43 46 53));
-		transition: background-color 0.1s;
-	}
-	.toggle-switch.toggle-on {
-		background: rgb(var(--signal, 91 157 255));
-		border-color: transparent;
-	}
-	.toggle-switch input {
-		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		margin: 0;
-		opacity: 0;
-		cursor: pointer;
-	}
-	.toggle-thumb {
-		position: absolute;
-		top: 50%;
-		left: 2px;
-		transform: translateY(-50%);
-		width: 13px;
-		height: 13px;
-		border-radius: 50%;
-		background: rgb(var(--canvas, 12 13 15));
-		transition: transform 0.1s;
-	}
-	.toggle-switch.toggle-on .toggle-thumb {
-		transform: translateY(-50%) translateX(16px);
-	}
-
-	.message {
-		padding: 10px 14px;
-		border-radius: 6px;
-		font-size: 12px;
-	}
-	.message-error {
-		color: rgb(var(--danger, 255 138 138));
-		background: rgb(var(--danger, 255 138 138) / 0.1);
-		border: 1px solid rgb(var(--danger, 255 138 138) / 0.25);
-	}
 	.loading-row {
 		display: flex;
 		align-items: center;
@@ -541,21 +462,6 @@
 		color: rgb(var(--fg-muted, 169 174 184));
 		font-size: 12px;
 	}
-	.spinner {
-		width: 13px;
-		height: 13px;
-		border-radius: 50%;
-		border: 2px solid rgb(var(--line-strong, 43 46 53));
-		border-top-color: rgb(var(--signal, 91 157 255));
-		animation: spin 0.7s linear infinite;
-		flex-shrink: 0;
-	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
 	.result-list {
 		display: flex;
 		flex-direction: column;
@@ -608,24 +514,6 @@
 		font-size: 14px;
 		color: rgb(var(--fg, 232 234 237));
 	}
-	.chip {
-		display: inline-flex;
-		align-items: center;
-		font-size: 9.5px;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		font-weight: 600;
-		padding: 2px 6px;
-		border-radius: 3px;
-	}
-	.chip-warn {
-		background: rgb(var(--warning, 255 197 61) / 0.1);
-		color: rgb(var(--warning, 255 197 61));
-	}
-	.chip-danger {
-		background: rgb(var(--danger, 255 138 138) / 0.1);
-		color: rgb(var(--danger, 255 138 138));
-	}
 	.per-user-table {
 		width: 100%;
 		margin-top: 10px;
@@ -649,20 +537,5 @@
 	.per-user-table td.per-user-name {
 		max-width: 12rem;
 		color: rgb(var(--fg, 232 234 237));
-	}
-
-	.hover-tip {
-		position: fixed;
-		z-index: 10000;
-		transform: translate(-50%, -100%);
-		padding: 4px 8px;
-		font-size: 12px;
-		font-weight: 500;
-		color: rgb(var(--fg, 232 234 237));
-		background: rgb(var(--surface-3, 39 42 49));
-		border-radius: 4px;
-		box-shadow: 0 4px 16px rgb(0 0 0 / 0.5);
-		pointer-events: none;
-		white-space: nowrap;
 	}
 </style>

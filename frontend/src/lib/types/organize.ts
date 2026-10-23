@@ -81,6 +81,7 @@ export interface OrganizeFactSpec {
 	source: string;
 	component: string | null;
 	previewable: boolean;
+	triggers?: string[];
 }
 
 export interface OrganizeConfigField {

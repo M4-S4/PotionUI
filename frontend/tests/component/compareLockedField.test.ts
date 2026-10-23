@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
+import { settleFlush } from './helpers/settle';
 
 const { default: FormField } = await import('../../src/lib/components/form-fields/FormField.svelte');
 const { createClassComponent } = await import('svelte/legacy');
-const { flushSync } = await import('svelte');
 const { tabsStore } = await import('$lib/stores/tabs');
 const store = await import('$lib/generation/compare/compareStore.svelte');
 const { registerBuiltinFieldComponents } = await import('$lib/fields/builtin');
@@ -46,11 +46,6 @@ function mountField(name: string, config: Record<string, unknown>, value: unknow
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
-}
-
 beforeEach(() => {
 	tabsStore.reset();
 	store.resetCompareStoreForTests();
@@ -65,7 +60,7 @@ afterEach(() => {
 describe('axis fields in the form', () => {
 	it('renders the normal control while Compare is off', async () => {
 		mounted = mountField('sampler', samplerConfig, 'euler');
-		await settle();
+		await settleFlush();
 		expect(mounted.target.querySelector('[data-axis-locked]')).toBeNull();
 		expect(mounted.target.textContent).toContain('Sampler');
 	});
@@ -73,7 +68,7 @@ describe('axis fields in the form', () => {
 	it('locks an axis field with the X AXIS tag, value count and form value, opening the drawer on click', async () => {
 		store.setCompare(tabId, { armed: true, x: sampler });
 		mounted = mountField('sampler', samplerConfig, 'euler');
-		await settle();
+		await settleFlush();
 
 		const locked = mounted.target.querySelector<HTMLButtonElement>('[data-axis-locked="x"]')!;
 		expect(locked).toBeTruthy();
@@ -90,19 +85,19 @@ describe('axis fields in the form', () => {
 	it('tags the Y axis and unlocks the field again when Compare is turned off', async () => {
 		store.setCompare(tabId, { armed: true, y: { ...sampler, values: sampler.values.slice(0, 3) } });
 		mounted = mountField('sampler', samplerConfig, 'euler');
-		await settle();
+		await settleFlush();
 		const locked = mounted.target.querySelector('[data-axis-locked="y"]');
 		expect(locked?.textContent).toContain('3 values');
 
 		store.turnOffCompare(tabId);
-		await settle();
+		await settleFlush();
 		expect(mounted.target.querySelector('[data-axis-locked]')).toBeNull();
 	});
 
 	it('leaves fields that are not on an axis editable', async () => {
 		store.setCompare(tabId, { armed: true, x: sampler });
 		mounted = mountField('scheduler', { type: 'select', title: 'Scheduler', options: [{ value: 'beta', label: 'beta' }] }, 'beta');
-		await settle();
+		await settleFlush();
 		expect(mounted.target.querySelector('[data-axis-locked]')).toBeNull();
 	});
 
@@ -110,10 +105,10 @@ describe('axis fields in the form', () => {
 		store.publishCompareSchema(tabId, 'p-txt2img', { properties: {}, quantity_fields: ['quantity'] });
 		const quantity = { type: 'stepper', title: 'Quantity', minimum: 1, maximum: 10 };
 		mounted = mountField('quantity', quantity, 3);
-		await settle();
+		await settleFlush();
 		expect(mounted.target.querySelector('[data-compare-quantity-note]')).toBeNull();
 		store.setCompare(tabId, { armed: true, x: sampler });
-		await settle();
+		await settleFlush();
 		expect(mounted.target.querySelector('[data-compare-quantity-note]')?.textContent).toContain('1 per cell');
 	});
 
@@ -123,7 +118,7 @@ describe('axis fields in the form', () => {
 		const stepper = { type: 'stepper', title: 'Quantity', minimum: 1, maximum: 8 };
 		mounted = mountField('count', stepper, 3);
 		const named = mountField('quantity', stepper, 3);
-		await settle();
+		await settleFlush();
 		expect(mounted.target.querySelector('[data-compare-quantity-note]')?.textContent).toContain('1 per cell');
 		expect(named.target.querySelector('[data-compare-quantity-note]')).toBeNull();
 		named.destroy();

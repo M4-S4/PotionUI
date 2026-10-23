@@ -17,19 +17,20 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
 
 
 @pytest.fixture(scope="module")
 def music3_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "MiniMax-Music3" in str(p.path)), None)
+    template = next((p for p in loader.presets if "MiniMax-Music3" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("MiniMax-Music3 preset not present")
+        pytest.fail("MiniMax-Music3 preset not present")
     return template
 
 
@@ -50,14 +51,11 @@ def _process(music3_template, form_over: dict | None = None, positive: str = "")
         "description": "ambient synth pads",
     }
     form_data.update(form_over or {})
-    bound = bind_form(
-        music3_template, "song", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
+    form_data = bound_form_data(music3_template, "song", form_data)
     return processor.process(music3_template, {
         "prompts": [{"positive": positive, "negative": ""}],
         "mode": "song",
-        "form_data": dict(bound.values),
+        "form_data": form_data,
     })
 
 

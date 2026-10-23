@@ -4,6 +4,7 @@
 	import focusTrap from '$lib/actions/focusTrap';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss from '$lib/actions/dismiss';
 	import { IconButton } from '$lib/components/ui';
 
 	// Size presets
@@ -29,6 +30,7 @@
 	export let labelledBy: string | undefined = undefined;
 	/** Set false when the caller owns Escape itself (e.g. ConfirmModal), so it isn't handled twice. */
 	export let handleEscapeKey: boolean = true;
+	export let compact: boolean = false;
 
 	const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -53,7 +55,8 @@
 	$: hasExplicitMdHeight = /md:h-(\[|full|screen)/.test(appliedSizeClass);
 	$: dialogClasses = [
 		'relative bg-surface-1 md:rounded-xl shadow-overlay flex flex-col',
-		'w-full h-full md:max-h-[90vh]',
+		compact ? 'w-full h-auto max-h-[90vh] rounded-t-xl' : 'w-full h-full',
+		'md:max-h-[90vh]',
 		'pb-[env(safe-area-inset-bottom)] md:pb-0',
 		hasExplicitMdHeight ? '' : 'md:h-auto',
 		appliedSizeClass
@@ -84,16 +87,7 @@
 		if (e.target === e.currentTarget) handleClose();
 	}
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (!isOpen || !handleEscapeKey) return;
-		if (e.key === 'Escape') {
-			e.preventDefault();
-			handleClose();
-		}
-	}
 </script>
-
-<svelte:window on:keydown|capture={handleKeydown} />
 
 {#if isOpen}
 	<!-- Backdrop. Portaled to <body> — callers mount BaseModal from all over
@@ -104,7 +98,8 @@
 	<div
 		use:portal
 		use:overlayLayer
-		class="fixed inset-0 z-overlay flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
+		use:dismiss={{ onDismiss: handleClose, outside: false, escape: handleEscapeKey }}
+		class="fixed inset-0 z-overlay flex {compact ? 'items-end' : ''} md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
 		role="button"
 		tabindex="-1"
 		aria-label="Close modal"
@@ -127,25 +122,25 @@
 		>
 			<!-- Header (rendered only when title or close button is needed) -->
 			{#if title || subtitle || $$slots.header || (!hideCloseButton && closeable)}
-				<div class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-line flex-shrink-0">
+				<div class="flex items-center justify-between gap-3 min-h-[52px] py-[7px] pl-4 pr-2 md:min-h-14 md:py-[9px] md:pl-5 md:pr-2.5 border-b border-line flex-shrink-0">
 					<div class="flex flex-wrap items-center gap-3 flex-1 min-w-0">
 						{#if $$slots.headerIcon}
 							<slot name="headerIcon" />
 						{/if}
 						{#if title || subtitle}
-							<div class="min-w-0 flex-1">
+							<div class="min-w-[8rem] flex-1">
 								{#if title}
 									<h2 class="text-lg font-semibold text-fg truncate">{title}</h2>
 								{/if}
 								{#if subtitle}
-									<p class="text-xs text-fg-muted mt-0.5 truncate">{subtitle}</p>
+									<p class="text-sm text-fg-muted mt-0.5 truncate">{subtitle}</p>
 								{/if}
 							</div>
 						{/if}
 						<slot name="header" />
 					</div>
 					{#if !hideCloseButton && closeable}
-						<IconButton icon="close" label="Close modal" onclick={handleClose} />
+						<IconButton icon="close" label="Close modal" size="sm" onclick={handleClose} />
 					{/if}
 				</div>
 			{/if}

@@ -1,29 +1,13 @@
-import importlib.util
 import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from src.platform.database.database import Database
-from tests.fixtures.persistence_base import make_lean_file_database
 from src.platform.util.ids import generate_ulid
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
-
-
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
+from tests.fixtures.persistence_base import make_lean_file_database
+from tests.platform.database._support import load_migration
 
 _pre_037_template = None
 
@@ -39,9 +23,9 @@ def _pre_037_template_path(repo_root):
         database._initialized = True
         make_lean_file_database(database)
         with patch("pathlib.Path.cwd", return_value=repo_root):
-            _load_migration("001_baseline", database).up()
-            _load_migration("035_model_roots", database).up()
-            _load_migration("036_native_availability_logical_refs", database).up()
+            load_migration("001_baseline", database).up()
+            load_migration("035_model_roots", database).up()
+            load_migration("036_native_availability_logical_refs", database).up()
         with database.get_connection() as conn:
             conn.execute("PRAGMA journal_mode = DELETE").close()
         Database._instance = None
@@ -65,7 +49,7 @@ class TestMigration037DropModelFilePath(unittest.TestCase):
         self.cwd_patch = patch("pathlib.Path.cwd", return_value=self.repo_root)
         self.cwd_patch.start()
 
-        self.migration = _load_migration("037_drop_model_file_path", self.db)
+        self.migration = load_migration("037_drop_model_file_path", self.db)
 
     def tearDown(self):
         self.cwd_patch.stop()
@@ -124,58 +108,6 @@ class TestMigration037DropModelFilePath(unittest.TestCase):
         self.migration.up()
 
         self.assertFalse(self._has_column("models", "file_path"))
-
-    def test_down_restores_file_path_from_the_winning_location(self):
-        model_id = self._insert_model("lora", "d.safetensors", "models/loras/d.safetensors")
-        self._insert_location(model_id, "lora", "d.safetensors")
-        self.migration.up()
-
-        self.migration.down()
-
-        with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM models WHERE id = ?", (model_id,))
-            row = cursor.fetchone()
-        self.assertIsNotNone(row["file_path"])
-        self.assertTrue(row["file_path"].replace("\\", "/").endswith("d.safetensors"))
-
-    def test_down_restores_windows_style_root_paths(self):
-        model_id = self._insert_model("lora", "e.safetensors", "models/loras/e.safetensors")
-        with self._cursor() as cursor:
-            cursor.execute("UPDATE model_roots SET path = ? WHERE id = 'home'", ("D:\\ComfyUI\\models",))
-        self._insert_location(model_id, "lora", "sdxl/e.safetensors")
-        self.migration.up()
-
-        self.migration.down()
-
-        with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM models WHERE id = ?", (model_id,))
-            row = cursor.fetchone()
-        self.assertIn("e.safetensors", row["file_path"])
-
-    def test_down_leaves_a_model_with_no_location_unset(self):
-        model_id = self._insert_model("checkpoint", "f.safetensors", None)
-        self.migration.up()
-
-        self.migration.down()
-
-        with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM models WHERE id = ?", (model_id,))
-            row = cursor.fetchone()
-        self.assertIsNone(row["file_path"])
-
-    def test_down_is_safe_to_run_twice(self):
-        model_id = self._insert_model("lora", "g.safetensors", "models/loras/g.safetensors")
-        self._insert_location(model_id, "lora", "g.safetensors")
-        self.migration.up()
-
-        self.migration.down()
-        self.migration.down()
-
-        self.assertTrue(self._has_column("models", "file_path"))
-        with self._cursor() as cursor:
-            cursor.execute("SELECT file_path FROM models WHERE id = ?", (model_id,))
-            row = cursor.fetchone()
-        self.assertIsNotNone(row["file_path"])
 
 
 if __name__ == "__main__":

@@ -1,69 +1,8 @@
-"""MiniMax-H3 latent upsampler (spatial-only, in latent space).
-
-Pure latent-space upsample: normalize (the arch's own fixed per-channel
-``MEAN``/``STD`` -- see ``vae/minimax_h3_latent_upsampler.py``'s module
-docstring for why these are interoperability constants rather than a VAE
-statistics object like LTX's) -> the loaded ``MiniMaxH3LatentUpsampler`` arch
-forward, run in temporal chunks -> re-normalize. No sampling loop, no LoRA,
-no DiT -- cheap relative to a generation pass, same idiom as
-``latent_upscaler/ltx``.
-
-Two entry shapes, same as ``latent_upscaler/ltx``:
-
-* ``latent`` input -- an already-generated latent, chained directly from a
-  generator pipe's raw output (in-flow two-stage: stage 1 generates with
-  ``decode: false``, this pipe upsamples, stage 2 refines).
-* ``video`` input -- an existing video FILE (the standalone "upscale" mode):
-  read, resized onto the encode canvas MiniMax-H3 generation itself resolves
-  to (``geometry.resolve_canvas_size`` -- short edge 768, area capped, both
-  axes on the 32px grid), frame count padded UP to the video VAE's ``17*n+5``
-  lattice, then VAE-encoded before upsampling.
-
-Requires ``model_loader/minimax_h3``'s optional ``upscale_model`` slot to
-have been configured -- raises a clear error pointing at that slot otherwise,
-rather than silently no-op'ing.
-
-Target geometry (``geometry.resolve_target_geometry``): ``target_mode``
-picks a decimal-megapixel area target or a straight axis multiplier; either
-way the result is rounded onto the model's own 32px canvas grid and floor-
-divided by 16 for the latent target. This model has no downscale mode, so an
-``effective_scale < 1.0`` request is a hard error, not a silent shrink.
-
-Temporal chunking (``geometry.upsample_chunked``): the upsampler's forward
-resizes the WHOLE clip it is handed in one pass (unlike LTX's fixed-ratio
-resampler, this one targets an arbitrary caller-given size), so a long clip
-run whole would need activation memory proportional to its length. Windowed
-in chunks of 16 latent frames with 2 frames of trimmed overlap instead --
-frame count is unaffected either way (this pipe never changes T, only H/W).
-
-VRAM: evicts every foreign GPU-resident component before this pipe's own
-VAE-encode + upsampler-forward work, same eviction idiom
-``dit_placement.py`` uses. Unlike ``latent_upscaler/ltx``'s own
-``_free_room_for_upscale``, a resident DiT is offloaded only when it would
-not otherwise fit beside the upsampler (this pipe's own fit rule, same
-``effective_free_vram_gb``/``minimum_inference_memory_gb`` idiom
-``generator/video_minimax_h3``'s ``_place_vae`` uses) -- a two-stage Enhance
-run's `latent` path hands this pipe a ~0.6GB upsampler right after
-``generator_stage1`` sampled with the DiT resident, and evicting it here
-just to bring it straight back for ``generator_stage2`` is a ~20s round
-trip this fit check now avoids. The TE host-RAM release goes through the
-same shared ``release_idle_te`` (``generator/txt2vid_ltx/main.py``) every
-native family's generator already calls -- by the time this pipe runs,
-``prompt_encoder``/the generator have usually already evicted it, so this
-call is typically a no-op fallback, same as LTX's own belt-and-suspenders
-call.
-
-Encode OOM: the H3 video VAE's ``encode()`` (``vae/minimax_h3_video.py``)
-already does its own internal 17-frame chunking, but exposes no separate
-tiled/OOM-retry ladder the way LTX's VAE does (no ``ltx_tiled_encode``-style
-fallback exists for this family yet) -- a whole-clip OOM here raises a plain,
-clearly-worded error rather than silently degrading.
-"""
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -87,14 +26,15 @@ from src.platform.runtime.native.memory.residency import (
     minimum_inference_memory_gb,
 )
 from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import denormalize_h3_latent, normalize_h3_latent
-from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
-from src.pipelines.pipes.generator.video_ltx.main import _load_video_frames
+from src.pipelines.pipes._shared.video.frames import load_video_frames
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import resolve_canvas_size
 from src.pipelines.pipes.latent_upscaler.minimax_h3.geometry import (
     pad_frames_to_h3_grid,
     resolve_target_geometry,
     upsample_chunked,
 )
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 logger = logging.getLogger(__name__)
 
@@ -115,11 +55,6 @@ def _encode_dtype(vae_module: Any) -> torch.dtype:
 
 
 def _resize_cover_center_crop_01(frames: torch.Tensor, height: int, width: int) -> torch.Tensor:
-    """``(n, H0, W0, 3)`` [0,1] -> ``(1, 3, n, H, W)`` [0,1] (cover + center
-    crop). Same recipe as ``generator/video_ltx/conditioning.py``'s
-    ``_resize_cover_center_crop``, minus its ``[-1, 1]`` remap -- the H3 VAE
-    wants ImageNet-normalized pixels (:data:`_PIXEL_MEAN`/:data:`_PIXEL_STD`),
-    not LTX's own ``[-1, 1]`` convention."""
     chw = frames.permute(0, 3, 1, 2)
     _, _, h0, w0 = chw.shape
     scale = max(width / w0, height / h0)
@@ -131,9 +66,6 @@ def _resize_cover_center_crop_01(frames: torch.Tensor, height: int, width: int) 
 
 
 def _unload_idle_te(bundle: Any, models: Any) -> float:
-    """Thin wrapper over the shared ``release_idle_te`` -- see the module
-    docstring's VRAM section. Kept as a call-site-stable function, same as
-    ``latent_upscaler/ltx``'s own ``_unload_idle_te``."""
     return release_idle_te(bundle, models, "H3_UPSCALE")
 
 
@@ -195,15 +127,9 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
     description = "Upsample a MiniMax-H3 video latent spatially, via the model's optional upscaler checkpoint"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "device": "cuda", "target_mode": "megapixels", "megapixels": 2.1, "scale": 2.0, "max_frames": 601,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
             PipeConfigSpec("target_mode", str, "megapixels", "How to size the upscale target: a decimal-megapixel "
                            "area, or a straight axis multiplier", required=False, choices=["megapixels", "scale"]),
             PipeConfigSpec("megapixels", float, 2.1, "Target area in megapixels (target_mode='megapixels')",
@@ -294,7 +220,7 @@ class LatentUpscalerMinimaxH3Pipe(BasePipe):
         canvas in pixels, the ``resolve_target_geometry`` source size.
         """
         max_frames = int(self.config.get("max_frames", 601))
-        frames = _load_video_frames(video_path, max_frames)
+        frames = load_video_frames(video_path, max_frames)
         h0, w0 = int(frames.shape[1]), int(frames.shape[2])
         height, width = resolve_canvas_size(w0, h0)
 

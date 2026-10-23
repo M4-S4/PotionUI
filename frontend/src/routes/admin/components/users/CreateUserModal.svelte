@@ -2,15 +2,12 @@
 	import { logger } from '$lib/utils/logger';
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import { useUsersDirectory } from './usersDirectory.svelte';
 
 	let { onCreated }: { onCreated: (id: string | null) => void } = $props();
 
 	const directory = useUsersDirectory();
-	const gate = createConfirmSettlementGate();
 
 	let isOpen = $state(false);
 	let saving = $state(false);
@@ -18,7 +15,6 @@
 
 	export function open() {
 		form = { username: '', email: '', password: '', account_type: 'USER' };
-		gate.reset();
 		isOpen = true;
 	}
 
@@ -29,35 +25,27 @@
 			await directory.loadUsers();
 			isOpen = false;
 			onCreated(response?.data?.id ?? null);
+			return true;
 		} catch (error) {
 			logger.error('Failed to save user:', error);
 			toasts.error('Failed to save user. Please check the form and try again.');
+			return false;
 		} finally {
 			saving = false;
-			gate.reset();
 		}
-	}
-
-	function cancel() {
-		gate.settle(() => (isOpen = false));
-	}
-
-	function confirm() {
-		settleIfEligible(gate, !!form.username && !!form.email && !!form.password && !saving, save);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (!isOpen) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') cancel();
-		else if (action === 'confirm') confirm();
-		if (suppress) e.preventDefault();
 	}
 </script>
 
-<svelte:window onkeydowncapture={handleKeydown} />
-
-<BaseModal {isOpen} title="Create New User" size="md" handleEscapeKey={false} on:close={cancel}>
+<ConfirmDialog
+	{isOpen}
+	title="Create New User"
+	size="md"
+	busy={saving}
+	confirmLabel="Create User"
+	confirmDisabled={!form.username || !form.email || !form.password}
+	onConfirm={save}
+	onCancel={() => (isOpen = false)}
+>
 	<div class="p-6 space-y-4">
 		<div>
 			<label class="block text-sm font-medium text-fg-muted mb-2" for="user-username-input">Username</label>
@@ -79,13 +67,4 @@
 			</select>
 		</div>
 	</div>
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Create User"
-			busy={saving}
-			confirmDisabled={!form.username || !form.email || !form.password}
-			onCancel={cancel}
-			onConfirm={confirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

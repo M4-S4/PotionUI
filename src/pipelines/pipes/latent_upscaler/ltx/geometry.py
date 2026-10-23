@@ -1,30 +1,3 @@
-"""LTX-2/2.3 two-stage upscale geometry.
-
-The in-flow two-stage recipe (``content/presets/marketplace/LTX-2/modes/video/pipeline.yml``)
-has TWO independent sources of stage-2 geometry that must agree:
-
-1. What ``latent_upscaler/ltx`` actually produces: stage 1 renders at the
-   picked resolution (snapped to the model's 32px grid --
-   ``generator/txt2vid_ltx``'s ``_SPATIAL_DOWNSCALE``/``_snap_geometry``),
-   then ``LTXLatentUpsampler``'s rational resampler (``spatial_scale``'s
-   ``num``/``den``, see ``ltx_latent_upsampler.py``) upsamples that latent.
-2. What stage 2 is CONFIGURED to expect: the preset's Jinja computes
-   ``round(stage1_resolution * factor)`` independently and snaps THAT to the
-   same 32px grid (``generator_stage2``'s own ``resolution:`` config -- see
-   pipeline.yml's comment above that node).
-
-These are two different roundings of the same "times 1.5/2.0" idea, and they
-only always agree at scale 2.0 (den=1 -- no downsample step, no rounding to
-disagree over). At scale 1.5 (den=2) they disagree whenever a stage-1 latent
-axis isn't divisible by ``den``, which crashes AFTER the (expensive) stage-1
-render with a "initial_latent token count" mismatch (a remaining gap after
-the equivalent TEMPORAL drift was fixed by deriving stage
-2's frame count from the latent instead of re-snapping duration*fps -- see
-``generator/video_ltx``'s ``build_context``). This module lets the
-preflight check computed spatial disagreement BEFORE stage 1 ever runs, using
-the exact same helpers stage 1/2 use (``snap_resolution``,
-``rational_resample_out_size``) rather than a hand-rederived formula.
-"""
 
 from __future__ import annotations
 
@@ -35,7 +8,7 @@ from src.platform.runtime.native.vae.ltx_latent_upsampler import (
     _rational_for_scale,
     rational_resample_out_size,
 )
-from src.pipelines.pipes.generator.txt2vid_ltx.main import _SPATIAL_DOWNSCALE
+from src.pipelines.pipes._shared.video.ltx_constants import LTX_SPATIAL_DOWNSCALE
 
 
 def temporal_upsample_out_frames(frames: int) -> int:
@@ -58,17 +31,8 @@ def temporal_upsample_out_frames(frames: int) -> int:
 
 
 def required_axis_divisor(scale: float) -> int:
-    """Pixel-axis divisor a stage-1 resolution must already satisfy for
-    ``scale`` to round-trip cleanly through the two-stage geometry (module
-    docstring): the resampler's blur_down only avoids rounding when the
-    stage-1 LATENT axis is a multiple of ``den`` (the scale's rational
-    denominator, ``_rational_for_scale``), i.e. the PIXEL axis is a multiple
-    of ``_SPATIAL_DOWNSCALE * den``. 2.0's ``den == 1`` -- always satisfied by
-    the ordinary 32px grid, matching the "any /32 resolution doubles onto the
-    /64 grid" note in pipeline.yml.
-    """
     _, den = _rational_for_scale(scale)
-    return _SPATIAL_DOWNSCALE * den
+    return LTX_SPATIAL_DOWNSCALE * den
 
 
 @dataclass(frozen=True)
@@ -97,8 +61,8 @@ def compute_two_stage_geometry(width: int, height: int, scale: float) -> LtxTwoS
     ``generator_stage2``'s own configured resolution for a ``width x height``
     request at ``scale`` (the preset's ``upscale`` selection: 1.5 or 2.0).
     """
-    stage1_w, stage1_h = snap_resolution(width, height, _SPATIAL_DOWNSCALE, 1)
-    stage1_w_lat, stage1_h_lat = stage1_w // _SPATIAL_DOWNSCALE, stage1_h // _SPATIAL_DOWNSCALE
+    stage1_w, stage1_h = snap_resolution(width, height, LTX_SPATIAL_DOWNSCALE, 1)
+    stage1_w_lat, stage1_h_lat = stage1_w // LTX_SPATIAL_DOWNSCALE, stage1_h // LTX_SPATIAL_DOWNSCALE
 
     actual_w_lat = rational_resample_out_size(stage1_w_lat, scale)
     actual_h_lat = rational_resample_out_size(stage1_h_lat, scale)
@@ -108,7 +72,7 @@ def compute_two_stage_geometry(width: int, height: int, scale: float) -> LtxTwoS
     # way generator/video_ltx's build_context snaps ANY configured resolution.
     target_w_px = round(stage1_w * scale)
     target_h_px = round(stage1_h * scale)
-    stage2_w, stage2_h = snap_resolution(target_w_px, target_h_px, _SPATIAL_DOWNSCALE, 1)
+    stage2_w, stage2_h = snap_resolution(target_w_px, target_h_px, LTX_SPATIAL_DOWNSCALE, 1)
 
     return LtxTwoStageGeometry(
         stage1_width=stage1_w,
@@ -117,8 +81,8 @@ def compute_two_stage_geometry(width: int, height: int, scale: float) -> LtxTwoS
         stage2_height=stage2_h,
         actual_width_lat=actual_w_lat,
         actual_height_lat=actual_h_lat,
-        expected_width_lat=stage2_w // _SPATIAL_DOWNSCALE,
-        expected_height_lat=stage2_h // _SPATIAL_DOWNSCALE,
+        expected_width_lat=stage2_w // LTX_SPATIAL_DOWNSCALE,
+        expected_height_lat=stage2_h // LTX_SPATIAL_DOWNSCALE,
     )
 
 
@@ -126,10 +90,10 @@ def _axis_matches(pixel: int, scale: float) -> bool:
     """Whether a single already-32-snapped axis of size ``pixel`` round-trips
     cleanly through both stage-2 geometry sources (module docstring points
     1/2) at ``scale``."""
-    lat = pixel // _SPATIAL_DOWNSCALE
+    lat = pixel // LTX_SPATIAL_DOWNSCALE
     actual = rational_resample_out_size(lat, scale)
-    expected_px = snap_to_multiple(round(pixel * scale), _SPATIAL_DOWNSCALE)
-    return actual == expected_px // _SPATIAL_DOWNSCALE
+    expected_px = snap_to_multiple(round(pixel * scale), LTX_SPATIAL_DOWNSCALE)
+    return actual == expected_px // LTX_SPATIAL_DOWNSCALE
 
 
 def nearest_achievable_pixel(pixel: int, scale: float, *, max_steps: int = 8) -> int:
@@ -142,14 +106,14 @@ def nearest_achievable_pixel(pixel: int, scale: float, *, max_steps: int = 8) ->
     most 4 for the supported scales), so ``max_steps`` never needs to be
     large; it exists only as a hard stop, never expected to bind.
     """
-    base = snap_to_multiple(pixel, _SPATIAL_DOWNSCALE)
+    base = snap_to_multiple(pixel, LTX_SPATIAL_DOWNSCALE)
     if _axis_matches(base, scale):
         return base
     for step in range(1, max_steps + 1):
-        lower = base - step * _SPATIAL_DOWNSCALE
-        if lower >= _SPATIAL_DOWNSCALE and _axis_matches(lower, scale):
+        lower = base - step * LTX_SPATIAL_DOWNSCALE
+        if lower >= LTX_SPATIAL_DOWNSCALE and _axis_matches(lower, scale):
             return lower
-        higher = base + step * _SPATIAL_DOWNSCALE
+        higher = base + step * LTX_SPATIAL_DOWNSCALE
         if _axis_matches(higher, scale):
             return higher
     return base  # pragma: no cover - unreachable for the supported scale map

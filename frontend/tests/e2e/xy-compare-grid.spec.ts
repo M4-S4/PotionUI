@@ -28,7 +28,6 @@ const position = (page: Page) => page.locator('[data-generation-position]');
 
 async function pressInViewer(page: Page, key: string) {
 	await page.keyboard.press(key);
-	await page.waitForTimeout(250);
 }
 
 async function positionText(page: Page) {

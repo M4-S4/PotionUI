@@ -8,6 +8,7 @@ const { presetsKind, groupsKind } = await import('../../src/lib/components/picke
 
 import type { PresetInfo } from '../../src/lib/types/api';
 import type { UserGroup } from '../../src/lib/services/admin-api';
+import { settleFlush } from './helpers/settle';
 
 function preset(id: string, name: string, extra: Partial<PresetInfo> = {}): PresetInfo {
 	return {
@@ -74,11 +75,6 @@ function viewButton(label: string): HTMLButtonElement {
 
 function applyButton(): HTMLButtonElement {
 	return document.querySelector<HTMLButtonElement>('[role="dialog"] button.bg-accent')!;
-}
-
-async function settle() {
-	for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-	flushSync();
 }
 
 afterEach(() => {
@@ -174,7 +170,7 @@ describe('EntityPicker', () => {
 		flushSync();
 		expect(document.querySelector('[data-picker-summary]')?.textContent).toContain('+2 add / -1 remove');
 		applyButton().click();
-		await settle();
+		await settleFlush();
 		expect(onApply).toHaveBeenCalledTimes(1);
 		const diff = onApply.mock.calls[0][0];
 		expect(diff.remove).toEqual(['sdxl']);
@@ -189,7 +185,7 @@ describe('EntityPicker', () => {
 		rowById('flux').click();
 		flushSync();
 		applyButton().click();
-		await settle();
+		await settleFlush();
 		expect(onClose).not.toHaveBeenCalled();
 		expect(rowById('flux').textContent).toContain('Not installed');
 		expect(document.body.textContent).toContain('1 of 2 changes failed');
@@ -206,7 +202,7 @@ describe('EntityPicker', () => {
 		flushSync();
 		expect(rowEls().every((row) => row.getAttribute('aria-selected') === 'true')).toBe(true);
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true }));
-		await settle();
+		await settleFlush();
 		expect(onApply).toHaveBeenCalledTimes(1);
 		expect(onApply.mock.calls[0][0].add).toHaveLength(5);
 	});
@@ -233,7 +229,7 @@ describe('EntityPicker', () => {
 		flushSync();
 		expect(rowById('sdxl').getAttribute('aria-selected')).toBe('false');
 		applyButton().click();
-		await settle();
+		await settleFlush();
 		expect(onApply.mock.calls[0][0]).toEqual({ add: ['wan'], remove: ['sdxl'] });
 	});
 
@@ -303,7 +299,7 @@ describe('AssignedList', () => {
 	it('removes a row through onApply', async () => {
 		const { onApply } = mountList();
 		(document.querySelector('button[aria-label="Remove SDXL"]') as HTMLButtonElement).click();
-		await settle();
+		await settleFlush();
 		expect(onApply).toHaveBeenCalledWith({ add: [], remove: ['sdxl'] });
 		expect(rowById('sdxl').getAttribute('aria-selected')).toBe('false');
 	});

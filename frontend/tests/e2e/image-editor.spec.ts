@@ -4,11 +4,9 @@ import { pickFieldTool } from './mediaFieldHelpers';
 import {
 	SIZES,
 	openControlTab,
-	openEditField,
 	fixturePng,
 	prepare,
 	strokeAcross,
-	uploadSample,
 	expectEditorReady,
 	visibleText
 } from './imageEditorHelpers';

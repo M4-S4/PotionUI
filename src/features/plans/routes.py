@@ -1,10 +1,8 @@
-import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from src.features.plans.dto import AssignBody, PlanBody, SettingsBody
-from src.features.plans.errors import PlanError
 from src.features.plans.manager import PlansManager
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
@@ -14,20 +12,11 @@ if TYPE_CHECKING:
 
 
 class PlansController(BaseController):
+    failure_message = "Plans request failed"
 
     def __init__(self, manager: PlansManager):
         super().__init__()
         self.manager = manager
-
-    async def run(self, error: str, func: Callable[..., Any], *args: Any) -> APIResponse:
-        try:
-            return self.success_response(data=await asyncio.to_thread(func, *args))
-        except PlanError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.payload())
-        except HTTPException:
-            raise
-        except Exception as exc:
-            self.handle_exception(exc, error_code=error, message="Plans request failed")
 
 
 def build_router(container: "AppContainer") -> APIRouter:

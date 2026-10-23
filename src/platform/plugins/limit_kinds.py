@@ -2,7 +2,9 @@ import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Tuple
+from typing import Any, Callable, List, Mapping, Optional, Protocol, Tuple
+
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
 
 VALUE_TYPES = ("bytes", "count", "usd")
 FORMATS = ("bytes", "count", "percent")
@@ -18,7 +20,7 @@ _DEFAULT_UNITS = {"bytes": "GB", "count": "", "usd": "USD"}
 _DEFAULT_ICONS = {"bytes": "database", "count": "bolt", "usd": "calendar"}
 
 
-class DuplicateLimitKindError(ValueError):
+class DuplicateLimitKindError(DuplicateRegistrationError):
     pass
 
 
@@ -191,30 +193,27 @@ def validate_kind(kind: LimitKind) -> None:
         raise InvalidLimitKindError(f"Limit kind '{kind.key}' measures money and cannot render as {kind.format}")
 
 
-class LimitKindRegistry:
+class LimitKindRegistry(SourcedRegistry[LimitKind]):
+    key_attr = "key"
+    label = "Limit kind"
+    duplicate_error = DuplicateLimitKindError
 
     def __init__(self):
-        self._kinds: Dict[str, LimitKind] = {}
+        super().__init__()
         self._lock = threading.Lock()
 
     def register(self, kind: LimitKind) -> None:
         validate_kind(kind)
         with self._lock:
-            if kind.key in self._kinds:
-                raise DuplicateLimitKindError(f"Limit kind already registered: '{kind.key}'")
-            self._kinds[kind.key] = kind
+            super().register(kind)
 
-    def unregister_source(self, source: str) -> None:
+    def unregister_source(self, source: str) -> int:
         with self._lock:
-            for key in [k for k, kind in self._kinds.items() if kind.source == source]:
-                del self._kinds[key]
-
-    def get(self, key: str) -> Optional[LimitKind]:
-        return self._kinds.get(key)
+            return super().unregister_source(source)
 
     def all(self) -> List[LimitKind]:
         with self._lock:
-            kinds = list(self._kinds.values())
+            kinds = super().all()
         return sorted(kinds, key=lambda kind: (kind.source != "core", kind.source))
 
     def has_source(self, source: str) -> bool:

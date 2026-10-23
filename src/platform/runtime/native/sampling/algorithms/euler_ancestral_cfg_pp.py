@@ -72,16 +72,10 @@ import math
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled
+from ..hooks import StepLoop
+from ..noise import fresh_noise
 
 Tensor = torch.Tensor
-
-
-def _fresh_noise(x: Tensor, generator: torch.Generator | None) -> Tensor:
-    if generator is None:
-        return torch.randn_like(x)
-    return torch.randn(x.shape, generator=generator, device=x.device, dtype=x.dtype)
 
 
 @torch.no_grad()
@@ -114,26 +108,11 @@ def sample_euler_ancestral_cfg_pp(
         raise ValueError(f"eta must be in [0, 1], got {eta}")
     generator = opts.get("generator")
 
-    total_steps = len(sigmas) - 1
-    run_hooks(hooks, "on_start", total_steps)
+    with StepLoop(sigmas, hooks, is_cancelled) as loop:
+        zero_init_steps = getattr(guidance, "zero_init_steps", 0)
 
-    # Mirrors SkipLayerGuidance's own guard: during a TrueCFG zero-init
-    # window the guidance call below returns a deliberate zero velocity
-    # without ever running an uncond forward this step, so `last_uncond_v`
-    # would still hold a STALE value from a prior step. Route those steps
-    # around the CFG++ split entirely (v_cfg IS v_uncond IS 0, so this is a
-    # pure no-op vs. treating it as "no split available").
-    zero_init_steps = getattr(guidance, "zero_init_steps", 0)
-
-    s_in = x.new_ones((x.shape[0],))
-    try:
-        for i in range(total_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=i)
-
-            sigma = sigmas[i]
-            sigma_next = sigmas[i + 1]
-
+        s_in = x.new_ones((x.shape[0],))
+        for i, _, sigma, sigma_next in loop:
             v_cfg = guidance(model_fn, x, sigma * s_in, cond, uncond, i)
             x0_est = x - sigma * v_cfg
 
@@ -167,14 +146,11 @@ def sample_euler_ancestral_cfg_pp(
                 x = (1.0 - sigma_next) * x0_est + sigma_next * eps
             else:
                 eps = x + (1.0 - sigma) * v_dir
-                eps_fresh = _fresh_noise(x, generator)
+                eps_fresh = fresh_noise(x, generator)
                 kept = math.sqrt(max(1.0 - eta * eta, 0.0))
                 eps_mix = kept * eps + eta * eps_fresh
                 x = (1.0 - sigma_next) * x0_est + sigma_next * eps_mix
 
-            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
-            run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0_est)
-    finally:
-        run_hooks(hooks, "on_end")
+            x = loop.finish_step(x, i, sigma, sigma_next, x0_est)
 
     return x

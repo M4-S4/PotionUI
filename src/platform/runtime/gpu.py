@@ -201,15 +201,6 @@ class GpuMonitor:
         """
         return self._get_memory_info().free // (1024 * 1024)
 
-    def get_used_vram(self) -> int:
-        """
-        Get used VRAM in MB (NVML reported).
-
-        Returns:
-            int: Used VRAM in MB
-        """
-        return self._get_memory_info().used // (1024 * 1024)
-
     def get_total_vram(self) -> int:
         """
         Get total VRAM in MB.
@@ -332,80 +323,6 @@ class GpuMonitor:
 
         # Add 10% overhead for safety
         return total_vram * 1.1
-
-    def can_fit_in_vram(self, estimated_usage: float, safety_margin: float = 0.85) -> bool:
-        """
-        Check if estimated operation fits in VRAM budget.
-
-        Args:
-            estimated_usage: Estimated VRAM usage in GB
-            safety_margin: Safety margin multiplier (default 0.85 = 85%)
-
-        Returns:
-            bool: True if operation fits, False otherwise
-        """
-        budget = self.get_vram_budget(safety_margin=safety_margin)
-        fits = estimated_usage <= budget
-
-        logger.debug(
-            f"[GPU_MANAGER] VRAM Check: {estimated_usage:.2f}GB needed vs "
-            f"{budget:.2f}GB budget = {'OK' if fits else 'INSUFFICIENT'}"
-        )
-
-        return fits
-
-    def log_vram_status(self, context: str = ""):
-        """
-        Log current VRAM status for debugging.
-
-        Args:
-            context: Optional context string for log message
-        """
-        import torch
-
-        total_mb = self.get_total_vram()
-        used_mb = self.get_used_vram()
-        free_mb = self.get_free_vram()
-        available_gb = self.get_available_vram()
-        budget_gb = self.get_vram_budget()
-
-        context_str = f"[{context}] " if context else ""
-
-        # PyTorch memory stats
-        if torch.cuda.is_available():
-            allocated_gb = torch.cuda.memory_allocated() / (1024**3)
-            reserved_gb = torch.cuda.memory_reserved() / (1024**3)
-            logger.debug(
-                f"[GPU_MANAGER] {context_str}VRAM Status:\n"
-                f"  Total: {total_mb / 1024:.2f}GB\n"
-                f"  Used: {used_mb / 1024:.2f}GB\n"
-                f"  Free: {free_mb / 1024:.2f}GB\n"
-                f"  Available: {available_gb:.2f}GB\n"
-                f"  Budget: {budget_gb:.2f}GB\n"
-                f"  PyTorch Allocated: {allocated_gb:.2f}GB\n"
-                f"  PyTorch Reserved: {reserved_gb:.2f}GB"
-            )
-        else:
-            logger.debug(
-                f"[GPU_MANAGER] {context_str}VRAM Status:\n"
-                f"  Total: {total_mb / 1024:.2f}GB\n"
-                f"  Used: {used_mb / 1024:.2f}GB\n"
-                f"  Free: {free_mb / 1024:.2f}GB\n"
-                f"  Available: {available_gb:.2f}GB\n"
-                f"  Budget: {budget_gb:.2f}GB"
-            )
-
-    def get_temperature(self) -> int:
-        """
-        Get GPU temperature in Celsius.
-
-        Returns:
-            int: GPU temperature in °C, or 0 if no GPU is available.
-        """
-        if not self.available:
-            return 0
-        with self.lock:
-            return nvmlDeviceGetTemperature(self.handle, NVML_TEMPERATURE_GPU)
 
     def __del__(self):
         """Cleanup NVML on destruction."""

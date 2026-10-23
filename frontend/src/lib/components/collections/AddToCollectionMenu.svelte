@@ -1,4 +1,5 @@
 <script lang="ts" generics="T extends CollectionLike">
+	import dismiss from '$lib/actions/dismiss';
 	import Icon from '$lib/components/Icon.svelte';
 	import CollectionTreePicker from './CollectionTreePicker.svelte';
 	import type { CollectionLike } from './types';
@@ -19,6 +20,7 @@
 	// Create a collection from the typed name, then add the selection to it.
 	export let onCreateAndAdd: (name: string) => Promise<boolean>;
 
+	let rootEl: HTMLDivElement;
 	let newCollectionName = '';
 	let adding = false;
 	let creating = false;
@@ -47,7 +49,7 @@
 	}
 </script>
 
-<div class="relative">
+<div class="relative" bind:this={rootEl}>
 	<button
 		class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
 		on:click={onToggle}
@@ -64,6 +66,7 @@
 				? 'bottom-full mb-2'
 				: 'top-full mt-2'} right-0 w-64 max-h-80 bg-surface-1 border border-line-strong rounded-lg shadow-overlay flex flex-col overflow-hidden z-30"
 			role="menu"
+			use:dismiss={{ onDismiss: onClose, ignore: [rootEl] }}
 		>
 			<CollectionTreePicker
 				{collections}

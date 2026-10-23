@@ -9,12 +9,13 @@ This controller delegates all business logic to `src.features.models.operations`
 """
 
 import asyncio
-import logging
 from typing import Any, Optional, List, TYPE_CHECKING
 
 from fastapi import APIRouter, BackgroundTasks, Query, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded
+from src.platform.security.failure_text import failure_detail
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.models.dto import (
     ModelInfoFetchRequest,
@@ -34,6 +35,8 @@ from src.features.models.dto import (
     UserModelAssignmentRequest,
     ModelFavoriteRequest,
     ModelLibraryNameRequest,
+    IndexingDigestsRequest,
+    IndexingSettingsRequest,
 )
 from src.features.models import (
     ModelIndexCollaborators,
@@ -46,8 +49,10 @@ from src.features.models import (
     ModelDownloadException,
     ModelAssignmentException,
 )
+from src.features.downloads.exceptions import DownloadNotFoundException
 from src.features.models import operations
 from src.features.models.exceptions import (
+    ModelDigestUnavailableException,
     InvalidModelTypeException,
     ModelTypeConflictException,
     ModelTypeNotAssignableException,
@@ -70,7 +75,8 @@ if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
     from src.features.downloads import DownloadQueue
 
-logger = logging.getLogger(__name__)
+
+_NOT_FOUND = {ModelNotFoundException: Fail("model_not_found")}
 
 
 class ModelController(BaseController):
@@ -106,6 +112,11 @@ class ModelController(BaseController):
 
     # --- Query Endpoints ---
 
+    @guarded(
+        {InvalidModelSearch: Fail("invalid_model_search", status=422)},
+        Fail("list_models_failed", "Failed to list models", detail=failure_detail),
+        admin="user",
+    )
     async def list_models(
         self,
         user: User,
@@ -134,94 +145,72 @@ class ModelController(BaseController):
         last_used_from: Optional[str] = None,
         last_used_to: Optional[str] = None,
     ) -> APIResponse:
-        """List all indexed models with optional filtering."""
-        try:
-            search, search_filter = parse_model_search(
-                search=search,
-                q_mode=q_mode,
-                indexed_from=indexed_from,
-                indexed_to=indexed_to,
-                used=used,
-                min_uses=min_uses,
-                last_used_from=last_used_from,
-                last_used_to=last_used_to,
-            )
-        except InvalidModelSearch as exc:
-            self.error_response(error="invalid_model_search", message=str(exc), status_code=422)
-        try:
-            # Parse tag_ids if provided
-            parsed_tag_ids = None
-            if tag_ids:
-                parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()]
+        search, search_filter = parse_model_search(
+            search=search,
+            q_mode=q_mode,
+            indexed_from=indexed_from,
+            indexed_to=indexed_to,
+            used=used,
+            min_uses=min_uses,
+            last_used_from=last_used_from,
+            last_used_to=last_used_to,
+        )
+        parsed_tag_ids = None
+        if tag_ids:
+            parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()]
 
-            params = ListModelsParams(
-                model_type=model_type,
-                tag_ids=parsed_tag_ids,
-                search=search,
-                sort_by=sort_by,
-                sort_order=sort_order,
-                limit=limit,
-                offset=offset,
-                include_tags=include_tags,
-                all_models=all_models,
-                assignment_filter=assignment_filter,
-                assigned_user_id=assigned_user_id,
-                assigned_group_id=assigned_group_id,
-                favorites_only=favorites_only,
-                collection_id=collection_id,
-                in_any_collection=in_any_collection,
-                include_descendants=include_descendants,
-                unsorted=unsorted,
-                search_filter=search_filter,
-            )
+        params = ListModelsParams(
+            model_type=model_type,
+            tag_ids=parsed_tag_ids,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            limit=limit,
+            offset=offset,
+            include_tags=include_tags,
+            all_models=all_models,
+            assignment_filter=assignment_filter,
+            assigned_user_id=assigned_user_id,
+            assigned_group_id=assigned_group_id,
+            favorites_only=favorites_only,
+            collection_id=collection_id,
+            in_any_collection=in_any_collection,
+            include_descendants=include_descendants,
+            unsorted=unsorted,
+            search_filter=search_filter,
+        )
 
-            data = await operations.list_models(self.collaborators, params, user)
-            if self._restricted(user):
-                visible = restrict_model_list(data.get("models") or [])
-                removed = len(data.get("models") or []) - len(visible)
-                data = {**data, "models": visible, "total": max(0, data.get("total", 0) - removed)}
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error listing models: {e}")
-            return self.error_api_response(
-                error="list_models_failed",
-                message=f"Failed to list models: {str(e)}"
-            )
+        data = await operations.list_models(self.collaborators, params, user)
+        if self._restricted(user):
+            visible = restrict_model_list(data.get("models") or [])
+            removed = len(data.get("models") or []) - len(visible)
+            data = {**data, "models": visible, "total": max(0, data.get("total", 0) - removed)}
+        return self.success_response(data=data)
 
+    @guarded(
+        fallback=Fail("get_model_availability_failed", "Failed to get model availability", detail=failure_detail),
+        admin="user",
+    )
     async def get_model_availability(self, model_id: str, user: User = None) -> APIResponse:
-        """Which backends can load this model, and the name each one needs.
-
-        Admin-only: backend topology is operational detail, not something a generating
-        user needs or should be able to enumerate.
-        """
         if not user or user.account_type != AccountType.ADMIN:
             return self.error_response(
                 error="forbidden",
                 message="Model availability is available to administrators only",
                 status_code=403,
             )
-        try:
-            data = await operations.get_model_availability(self.collaborators, model_id)
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting availability for model {model_id}: {e}")
-            return self.error_api_response(
-                error="get_model_availability_failed",
-                message=f"Failed to get model availability: {str(e)}"
-            )
+        data = await operations.get_model_availability(self.collaborators, model_id)
+        return self.success_response(data=data)
 
+    @guarded(fallback=Fail("get_stats_failed", "Failed to get model stats", detail=failure_detail))
     async def get_model_stats(self) -> APIResponse:
-        """Get model indexing statistics."""
-        try:
-            stats = await operations.get_model_stats(self.collaborators)
-            return self.success_response(data=stats)
-        except Exception as e:
-            logger.exception(f"Error getting model stats: {e}")
-            return self.error_api_response(
-                error="get_stats_failed",
-                message=f"Failed to get model stats: {str(e)}"
-            )
+        stats = await operations.get_model_stats(self.collaborators)
+        return self.success_response(data=stats)
 
+    @guarded(
+        {InvalidModelSearch: Fail("invalid_model_search", status=422)},
+        Fail("get_types_failed", "Failed to get model types", detail=failure_detail),
+        admin="user",
+    )
     async def get_model_types(
         self,
         user: User,
@@ -247,20 +236,16 @@ class ModelController(BaseController):
         last_used_to: Optional[str] = None,
         include_tag_counts: bool = False,
     ) -> APIResponse:
-        """Get available model types and their counts."""
-        try:
-            search, search_filter = parse_model_search(
-                search=search,
-                q_mode=q_mode,
-                indexed_from=indexed_from,
-                indexed_to=indexed_to,
-                used=used,
-                min_uses=min_uses,
-                last_used_from=last_used_from,
-                last_used_to=last_used_to,
-            )
-        except InvalidModelSearch as exc:
-            self.error_response(error="invalid_model_search", message=str(exc), status_code=422)
+        search, search_filter = parse_model_search(
+            search=search,
+            q_mode=q_mode,
+            indexed_from=indexed_from,
+            indexed_to=indexed_to,
+            used=used,
+            min_uses=min_uses,
+            last_used_from=last_used_from,
+            last_used_to=last_used_to,
+        )
         parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()] if tag_ids else None
         faceted = bool(
             parsed_tag_ids or search or not search_filter.is_empty or assignment_filter
@@ -280,58 +265,32 @@ class ModelController(BaseController):
             unsorted=unsorted,
             search_filter=search_filter,
         ) if faceted else None
-        try:
-            data = await operations.get_model_types(
-                self.collaborators, user, user_scoped, include_empty, facets, include_tag_counts
-            )
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting model types: {e}")
-            return self.error_api_response(
-                error="get_types_failed",
-                message=f"Failed to get model types: {str(e)}"
-            )
+        data = await operations.get_model_types(
+            self.collaborators, user, user_scoped, include_empty, facets, include_tag_counts
+        )
+        return self.success_response(data=data)
 
+    @guarded(_NOT_FOUND, Fail("get_model_failed", "Failed to get model", detail=failure_detail))
     async def get_model_by_hash(self, sha256: str) -> APIResponse:
-        """Get model by SHA256 hash."""
-        try:
-            data = await operations.get_model_by_hash(self.collaborators, sha256)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error getting model by hash {sha256}: {e}")
-            return self.error_api_response(
-                error="get_model_failed",
-                message=f"Failed to get model: {str(e)}"
-            )
+        data = await operations.get_model_by_hash(self.collaborators, sha256)
+        return self.success_response(data=data)
 
+    @guarded(_NOT_FOUND, Fail("get_model_failed", "Failed to get model", detail=failure_detail), admin="user")
     async def get_model_by_id(self, model_id: str, user: User = None) -> APIResponse:
-        """Get specific model by ID."""
-        try:
-            is_admin = bool(user and user.account_type == AccountType.ADMIN)
-            data = await operations.get_model_by_id(self.collaborators, model_id, user=user, admin=is_admin)
-            if self._restricted(user):
-                full = self.collaborators.catalog.model_repo.get_by_id(model_id, include_providers=True)
-                if full is None or provider_flags_nsfw(full.providers):
-                    raise ModelNotFoundException(f"Model '{model_id}' not found")
-                data = {**data, "model": strip_model_media(data["model"])}
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error getting model {model_id}: {e}")
-            return self.error_api_response(
-                error="get_model_failed",
-                message=f"Failed to get model: {str(e)}"
-            )
+        is_admin = bool(user and user.account_type == AccountType.ADMIN)
+        data = await operations.get_model_by_id(self.collaborators, model_id, user=user, admin=is_admin)
+        if self._restricted(user):
+            full = self.collaborators.catalog.model_repo.get_by_id(model_id, include_providers=True)
+            if full is None or provider_flags_nsfw(full.providers):
+                raise ModelNotFoundException(f"Model '{model_id}' not found")
+            data = {**data, "model": strip_model_media(data["model"])}
+        return self.success_response(data=data)
 
+    @guarded(
+        {**_NOT_FOUND, ModelAccessDeniedException: Fail("access_denied")},
+        Fail("get_generations_failed", "Failed to get model generations", detail=failure_detail),
+        admin="user",
+    )
     async def get_model_generations(
         self,
         model_id: str,
@@ -339,650 +298,424 @@ class ModelController(BaseController):
         limit: int = 20,
         offset: int = 0
     ) -> APIResponse:
-        """Get generations that used a specific model."""
-        try:
-            data = await operations.get_model_generations(self.collaborators, model_id, user, limit, offset)
-            if self._restricted(user):
-                viewable = self.content_safety.viewable_generation_ids(
-                    user.id, [g["id"] for g in data["generations"]]
-                )
-                kept = [g for g in data["generations"] if g["id"] in viewable]
-                data = {**data, "generations": kept, "total": max(0, data["total"] - (len(data["generations"]) - len(kept)))}
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
+        data = await operations.get_model_generations(self.collaborators, model_id, user, limit, offset)
+        if self._restricted(user):
+            viewable = self.content_safety.viewable_generation_ids(
+                user.id, [g["id"] for g in data["generations"]]
             )
-        except ModelAccessDeniedException as e:
-            return self.error_api_response(
-                error="access_denied",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error getting generations for model {model_id}: {e}")
-            return self.error_api_response(
-                error="get_generations_failed",
-                message=f"Failed to get model generations: {str(e)}"
-            )
+            kept = [g for g in data["generations"] if g["id"] in viewable]
+            data = {**data, "generations": kept, "total": max(0, data["total"] - (len(data["generations"]) - len(kept)))}
+        return self.success_response(data=data)
 
     # --- Indexing Endpoints ---
 
+    @guarded(fallback=Fail("count_unindexed_failed", "Failed to count unindexed models", detail=failure_detail))
     async def count_unindexed_models(self) -> APIResponse:
-        """Count model files on disk not yet indexed, by type. No hashing, no writes."""
-        try:
-            data = await operations.count_unindexed(self.collaborators)
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error counting unindexed models: {e}")
-            return self.error_api_response(
-                error="count_unindexed_failed",
-                message=f"Failed to count unindexed models: {str(e)}"
-            )
+        data = await operations.count_unindexed(self.collaborators)
+        return self.success_response(data=data)
 
+    @guarded(fallback=Fail("get_indexing_status_failed", "Failed to get indexing status", detail=failure_detail))
     async def get_indexing_status(self) -> APIResponse:
-        try:
-            data = await operations.get_indexing_status(self.collaborators)
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting indexing status: {e}")
-            return self.error_api_response(
-                error="get_indexing_status_failed",
-                message=f"Failed to get indexing status: {str(e)}"
-            )
+        data = await operations.get_indexing_status(self.collaborators)
+        return self.success_response(data=data)
 
+    @guarded(
+        {ModelIndexingException: Fail("indexing_blocked")},
+        Fail("indexing_failed", "Failed to start indexing", detail=failure_detail),
+    )
     async def index_models(self) -> APIResponse:
-        """Start model indexing process."""
-        try:
-            data = operations.start_indexing(self.collaborators, trigger="manual")
-            return self.success_response(data=data)
-        except ModelIndexingException as e:
-            return self.error_api_response(
-                error="indexing_blocked",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error starting model indexing: {e}")
-            return self.error_api_response(
-                error="indexing_failed",
-                message=f"Failed to start indexing: {str(e)}"
-            )
+        data = operations.rescan_indexing(self.collaborators, trigger="manual")
+        return self.success_response(data=data)
 
+    @guarded(fallback=Fail("indexing_settings_failed", "Failed to update indexing settings", detail=failure_detail))
+    async def update_indexing_settings(self, request: IndexingSettingsRequest) -> APIResponse:
+        data = await asyncio.to_thread(
+            operations.update_indexing_settings, self.collaborators, request.level, request.policy
+        )
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("indexing_pause_failed", "Failed to pause indexing", detail=failure_detail))
+    async def pause_indexing(self) -> APIResponse:
+        data = await asyncio.to_thread(operations.pause_indexing, self.collaborators)
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("indexing_resume_failed", "Failed to resume indexing", detail=failure_detail))
+    async def resume_indexing(self) -> APIResponse:
+        data = await asyncio.to_thread(operations.resume_indexing, self.collaborators)
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("pending_digests_failed", "Failed to list the files waiting to be indexed", detail=failure_detail))
+    async def list_pending_digests(
+        self, query: str, model_type: Optional[str], root_id: Optional[str], offset: int, limit: int
+    ) -> APIResponse:
+        data = await asyncio.to_thread(
+            operations.list_pending_digests, self.collaborators, query, model_type, root_id, offset, limit
+        )
+        return self.success_response(data=data)
+
+    @guarded(fallback=Fail("queue_digests_failed", "Failed to queue the files for indexing", detail=failure_detail))
+    async def queue_digests(self, request: IndexingDigestsRequest) -> APIResponse:
+        data = await asyncio.to_thread(
+            operations.queue_digests, self.collaborators, request.mode, request.model_ids, request.query,
+            request.model_type, request.exclude_model_ids,
+        )
+        return self.success_response(data=data)
+
+    @guarded(
+        {
+            ModelNotFoundException: Fail("model_not_found", status=404),
+            ModelDigestUnavailableException: Fail("model_digest_unavailable", status=422),
+        },
+        Fail("model_digest_failed", "Failed to request the content hash", detail=failure_detail),
+    )
+    async def request_model_digest(self, model_id: str, retry: bool = False) -> APIResponse:
+        data = await asyncio.to_thread(operations.request_model_digest, self.collaborators, model_id, retry)
+        return self.success_response(data=data)
+
+    @guarded(
+        {**_NOT_FOUND, ModelIndexingException: Fail("delete_blocked")},
+        Fail("delete_failed", "Failed to delete model", detail=failure_detail),
+    )
     async def delete_model(self, model_id: str) -> APIResponse:
-        """Delete model from index (does not delete file)."""
-        try:
-            data = operations.delete_model(self.collaborators, model_id)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
-            )
-        except ModelIndexingException as e:
-            return self.error_api_response(
-                error="delete_blocked",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error deleting model {model_id}: {e}")
-            return self.error_api_response(
-                error="delete_failed",
-                message=f"Failed to delete model: {str(e)}"
-            )
+        data = operations.delete_model(self.collaborators, model_id)
+        return self.success_response(data=data)
 
+    @guarded(fallback=Fail("cleanup_failed", "Failed to cleanup models", detail=failure_detail))
     async def cleanup_deleted_models(self) -> APIResponse:
-        """Remove models from index that no longer exist on disk."""
-        try:
-            data = operations.cleanup_deleted_models(self.collaborators)
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error during cleanup: {e}")
-            return self.error_api_response(
-                error="cleanup_failed",
-                message=f"Failed to cleanup models: {str(e)}"
-            )
+        data = operations.cleanup_deleted_models(self.collaborators)
+        return self.success_response(data=data)
 
     # --- Provider Endpoints ---
 
+    @guarded(
+        {ProviderFetchException: Fail("provider_error")},
+        Fail("provider_fetch_failed", "Failed to start provider fetch", detail=failure_detail),
+    )
     async def fetch_model_info(
         self,
         background_tasks: BackgroundTasks,
         request: ModelInfoFetchRequest
     ) -> APIResponse:
-        """Fetch model metadata from marketplace providers."""
-        try:
-            data = operations.fetch_provider_info(self.collaborators, 
-                provider=request.provider,
-                model_ids=request.model_ids,
-                force_refresh=request.force_refresh or False
-            )
+        data = operations.fetch_provider_info(self.collaborators, 
+            provider=request.provider,
+            model_ids=request.model_ids,
+            force_refresh=request.force_refresh or False
+        )
 
-            if request.wait and request.model_ids:
-                result = await operations.run_provider_fetch(
-                    self.collaborators,
-                    provider=request.provider,
-                    model_ids=request.model_ids,
-                    force_refresh=request.force_refresh or False,
-                )
-                completed_data = {**data, "status": "completed", **result}
-                completed_data["message"] = f"{request.provider.title()} info fetch completed"
-                return self.success_response(data=completed_data)
-
-            background_tasks.add_task(
-                operations.run_provider_fetch,
+        if request.wait and request.model_ids:
+            result = await operations.run_provider_fetch(
                 self.collaborators,
                 provider=request.provider,
                 model_ids=request.model_ids,
                 force_refresh=request.force_refresh or False,
             )
-            return self.success_response(data=data)
-        except ProviderFetchException as e:
-            return self.error_api_response(
-                error="provider_error",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error starting provider fetch: {e}")
-            return self.error_api_response(
-                error="provider_fetch_failed",
-                message=f"Failed to start provider fetch: {str(e)}"
-            )
+            completed_data = {**data, "status": "completed", **result}
+            completed_data["message"] = f"{request.provider.title()} info fetch completed"
+            return self.success_response(data=completed_data)
 
+        background_tasks.add_task(
+            operations.run_provider_fetch,
+            self.collaborators,
+            provider=request.provider,
+            model_ids=request.model_ids,
+            force_refresh=request.force_refresh or False,
+        )
+        return self.success_response(data=data)
+
+    @guarded(
+        {**_NOT_FOUND, InvalidTagException: Fail("invalid_tag")},
+        Fail("update_tags_failed", "Failed to update tags", detail=failure_detail),
+    )
     async def update_model_tags(
         self,
         model_id: str,
         request: UpdateTagsRequest
     ) -> APIResponse:
-        """Update tags for a model."""
-        try:
-            data = operations.update_model_tags(self.collaborators, model_id, request.tag_ids)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
-            )
-        except InvalidTagException as e:
-            return self.error_api_response(
-                error="invalid_tag",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error updating tags for model {model_id}: {e}")
-            return self.error_api_response(
-                error="update_tags_failed",
-                message=f"Failed to update tags: {str(e)}"
-            )
+        data = operations.update_model_tags(self.collaborators, model_id, request.tag_ids)
+        return self.success_response(data=data)
 
+    @guarded(_NOT_FOUND, Fail("update_description_failed", "Failed to update description", detail=failure_detail))
     async def update_model_description(
         self,
         model_id: str,
         request: UpdateDescriptionRequest
     ) -> APIResponse:
-        """Update description for a model."""
-        try:
-            data = operations.update_model_description(self.collaborators, model_id, request.description)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error updating description for model {model_id}: {e}")
-            return self.error_api_response(
-                error="update_description_failed",
-                message=f"Failed to update description: {str(e)}"
-            )
+        data = operations.update_model_description(self.collaborators, model_id, request.description)
+        return self.success_response(data=data)
 
+    @guarded(
+        {
+            ModelNotFoundException: Fail("model_not_found", status=404),
+            (InvalidModelTypeException, ModelTypeNotAssignableException): Fail("model_type_not_assignable", status=422),
+            ModelTypeConflictException: Fail("model_type_conflict", status=409),
+        },
+    )
     async def set_model_type(self, model_id: str, request: SetModelTypeRequest, user: User) -> APIResponse:
-        try:
-            data = await asyncio.to_thread(
-                operations.set_model_type, self.collaborators, model_id, request.model_type, user.id
-            )
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            self.error_response(error="model_not_found", message=str(e), status_code=404)
-        except (InvalidModelTypeException, ModelTypeNotAssignableException) as e:
-            self.error_response(error="model_type_not_assignable", message=str(e), status_code=422)
-        except ModelTypeConflictException as e:
-            self.error_response(error="model_type_conflict", message=str(e), status_code=409)
+        data = await asyncio.to_thread(
+            operations.set_model_type, self.collaborators, model_id, request.model_type, user.id
+        )
+        return self.success_response(data=data)
 
+    @guarded(
+        {
+            ModelNotFoundException: Fail("model_not_found", status=404),
+            ModelTypeNotAssignableException: Fail("model_type_not_assignable", status=422),
+            ModelTypeConflictException: Fail("model_type_conflict", status=409),
+        },
+    )
     async def reset_model_type(self, model_id: str) -> APIResponse:
-        try:
-            data = await asyncio.to_thread(operations.reset_model_type, self.collaborators, model_id)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            self.error_response(error="model_not_found", message=str(e), status_code=404)
-        except ModelTypeNotAssignableException as e:
-            self.error_response(error="model_type_not_assignable", message=str(e), status_code=422)
-        except ModelTypeConflictException as e:
-            self.error_response(error="model_type_conflict", message=str(e), status_code=409)
+        data = await asyncio.to_thread(operations.reset_model_type, self.collaborators, model_id)
+        return self.success_response(data=data)
 
+    @guarded(_NOT_FOUND, Fail("update_prompting_guidance_failed", "Failed to update prompting guidance", detail=failure_detail))
     async def update_model_prompting_guidance(
         self,
         model_id: str,
         request: UpdatePromptingGuidanceRequest
     ) -> APIResponse:
-        """Update the admin-authored prompting guidance for a model."""
-        try:
-            data = operations.update_model_prompting_guidance(self.collaborators, model_id, request.prompting_guidance)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error updating prompting guidance for model {model_id}: {e}")
-            return self.error_api_response(
-                error="update_prompting_guidance_failed",
-                message=f"Failed to update prompting guidance: {str(e)}"
-            )
+        data = operations.update_model_prompting_guidance(self.collaborators, model_id, request.prompting_guidance)
+        return self.success_response(data=data)
 
+    @guarded(
+        {**_NOT_FOUND, InvalidModelMetadataException: Fail("invalid_model_metadata")},
+        Fail("update_metadata_failed", "Failed to update metadata", detail=failure_detail),
+    )
     async def update_model_metadata(
         self,
         model_id: str,
         request: UpdateModelMetadataRequest
     ) -> APIResponse:
-        """Update a model's shared attribute values."""
-        try:
-            data = operations.update_model_metadata(self.collaborators, model_id, request.values)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
-            )
-        except InvalidModelMetadataException as e:
-            return self.error_api_response(
-                error="invalid_model_metadata",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error updating metadata for model {model_id}: {e}")
-            return self.error_api_response(
-                error="update_metadata_failed",
-                message=f"Failed to update metadata: {str(e)}"
-            )
+        data = operations.update_model_metadata(self.collaborators, model_id, request.values)
+        return self.success_response(data=data)
 
+    @guarded(
+        {InvalidModelMetadataException: Fail("invalid_model_metadata")},
+        Fail("update_user_attributes_failed", "Failed to update user attributes", detail=failure_detail),
+        admin="user",
+    )
     async def update_model_user_attributes(
         self,
         model_id: str,
         request: UpdateModelUserAttributesRequest,
         user: User,
     ) -> APIResponse:
-        """Update the caller's per-user attribute value overlay for a model."""
-        try:
-            values = self.attributes_manager.update_user_values(model_id, user.id, request.values)
-            self.collaborators.metadata.notify_metadata_changed(model_id, ["attributes"], user.id)
-            return self.success_response(data={"values": values})
-        except InvalidModelMetadataException as e:
-            return self.error_api_response(
-                error="invalid_model_metadata",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error updating user attributes for model {model_id}: {e}")
-            return self.error_api_response(
-                error="update_user_attributes_failed",
-                message=f"Failed to update user attributes: {str(e)}"
-            )
+        values = self.attributes_manager.update_user_values(model_id, user.id, request.values)
+        self.collaborators.metadata.notify_metadata_changed(model_id, ["attributes"], user.id)
+        return self.success_response(data={"values": values})
 
     # --- Attribute definitions (admin-managed, GET is open to any active user) ---
 
+    @guarded(fallback=Fail("list_attributes_failed", "Failed to list attribute definitions", detail=failure_detail), admin="user")
     async def list_attribute_definitions(self, user: User) -> APIResponse:
-        """List attribute definitions. Non-admins never see `admin_only` ones."""
-        try:
-            definitions = self.attribute_definitions.list_all()
-            is_admin = user.account_type == AccountType.ADMIN
-            visible = [d for d in definitions if is_admin or not d.admin_only]
-            return self.success_response(data={"definitions": [d.to_dict() for d in visible]})
-        except Exception as e:
-            logger.exception(f"Error listing attribute definitions: {e}")
-            return self.error_api_response(
-                error="list_attributes_failed",
-                message=f"Failed to list attribute definitions: {str(e)}"
-            )
+        definitions = self.attribute_definitions.list_all()
+        is_admin = user.account_type == AccountType.ADMIN
+        visible = [d for d in definitions if is_admin or not d.admin_only]
+        return self.success_response(data={"definitions": [d.to_dict() for d in visible]})
 
+    @guarded(
+        {InvalidAttributeDefinitionException: Fail("invalid_attribute_definition")},
+        Fail("create_attribute_failed", "Failed to create attribute definition", detail=failure_detail),
+    )
     async def create_attribute_definition(self, request: CreateAttributeDefinitionRequest) -> APIResponse:
-        try:
-            definition = self.attributes_manager.create(request.model_dump())
-            return self.success_response(data={"definition": definition.to_dict()})
-        except InvalidAttributeDefinitionException as e:
-            return self.error_api_response(error="invalid_attribute_definition", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error creating attribute definition: {e}")
-            return self.error_api_response(
-                error="create_attribute_failed",
-                message=f"Failed to create attribute definition: {str(e)}"
-            )
+        definition = self.attributes_manager.create(request.model_dump())
+        return self.success_response(data={"definition": definition.to_dict()})
 
+    @guarded(
+        {
+            AttributeDefinitionNotFoundException: Fail("attribute_not_found"),
+            (InvalidAttributeDefinitionException, SystemAttributeDefinitionException): Fail("invalid_attribute_definition"),
+        },
+        Fail("update_attribute_failed", "Failed to update attribute definition", detail=failure_detail),
+    )
     async def update_attribute_definition(
         self, definition_id: str, request: UpdateAttributeDefinitionRequest
     ) -> APIResponse:
-        try:
-            definition = self.attributes_manager.update(definition_id, request.model_dump(exclude_unset=True))
-            return self.success_response(data={"definition": definition.to_dict()})
-        except AttributeDefinitionNotFoundException as e:
-            return self.error_api_response(error="attribute_not_found", message=str(e))
-        except (InvalidAttributeDefinitionException, SystemAttributeDefinitionException) as e:
-            return self.error_api_response(error="invalid_attribute_definition", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error updating attribute definition {definition_id}: {e}")
-            return self.error_api_response(
-                error="update_attribute_failed",
-                message=f"Failed to update attribute definition: {str(e)}"
-            )
+        definition = self.attributes_manager.update(definition_id, request.model_dump(exclude_unset=True))
+        return self.success_response(data={"definition": definition.to_dict()})
 
+    @guarded(
+        {
+            AttributeDefinitionNotFoundException: Fail("attribute_not_found"),
+            SystemAttributeDefinitionException: Fail("system_attribute_definition"),
+        },
+        Fail("delete_attribute_failed", "Failed to delete attribute definition", detail=failure_detail),
+    )
     async def delete_attribute_definition(self, definition_id: str) -> APIResponse:
-        try:
-            self.attributes_manager.delete(definition_id)
-            return self.success_response(data={"message": "Attribute definition deleted"})
-        except AttributeDefinitionNotFoundException as e:
-            return self.error_api_response(error="attribute_not_found", message=str(e))
-        except SystemAttributeDefinitionException as e:
-            return self.error_api_response(error="system_attribute_definition", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error deleting attribute definition {definition_id}: {e}")
-            return self.error_api_response(
-                error="delete_attribute_failed",
-                message=f"Failed to delete attribute definition: {str(e)}"
-            )
+        self.attributes_manager.delete(definition_id)
+        return self.success_response(data={"message": "Attribute definition deleted"})
 
+    @guarded(
+        {**_NOT_FOUND, ModelIndexingException: Fail("invalid_preview")},
+        Fail("update_preview_failed", "Failed to update preview", detail=failure_detail),
+    )
     async def update_model_preview(
         self,
         model_id: str,
         request: UpdateModelPreviewRequest,
         user_id: Optional[str] = None,
     ) -> APIResponse:
-        """Set or clear the admin-set preview media for a model."""
-        try:
-            preview = request.preview.model_dump() if request.preview else None
-            data = operations.update_model_preview(self.collaborators, model_id, preview, user_id)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(
-                error="model_not_found",
-                message=str(e)
-            )
-        except ModelIndexingException as e:
-            return self.error_api_response(
-                error="invalid_preview",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error updating preview for model {model_id}: {e}")
-            return self.error_api_response(
-                error="update_preview_failed",
-                message=f"Failed to update preview: {str(e)}"
-            )
+        preview = request.preview.model_dump() if request.preview else None
+        data = operations.update_model_preview(self.collaborators, model_id, preview, user_id)
+        return self.success_response(data=data)
 
+    @guarded(_NOT_FOUND, Fail("list_previews_failed", "Failed to list previews", detail=failure_detail), admin="user")
     async def list_model_previews(self, model_id: str, user: User) -> APIResponse:
-        """List a model's admin-set previews, ordered (position 0 = primary).
+        previews = operations.list_model_previews_for_user(self.collaborators, model_id, user)
+        if self._restricted(user):
+            previews = []
+        return self.success_response(data={"previews": previews})
 
-        Any user who can reach the model sees its previews - not admin
-        only. A model outside the caller's access reports the same
-        "model_not_found" error as a missing one (404-not-403).
-        """
-        try:
-            previews = operations.list_model_previews_for_user(self.collaborators, model_id, user)
-            if self._restricted(user):
-                previews = []
-            return self.success_response(data={"previews": previews})
-        except ModelNotFoundException as e:
-            return self.error_api_response(error="model_not_found", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error listing previews for model {model_id}: {e}")
-            return self.error_api_response(
-                error="list_previews_failed",
-                message=f"Failed to list previews: {str(e)}"
-            )
-
+    @guarded(
+        {**_NOT_FOUND, ModelIndexingException: Fail("invalid_preview")},
+        Fail("add_preview_failed", "Failed to add preview", detail=failure_detail),
+    )
     async def add_model_preview(
         self,
         model_id: str,
         request: AddModelPreviewRequest,
         user_id: Optional[str] = None,
     ) -> APIResponse:
-        """Append one preview to a model's preview list."""
-        try:
-            data = operations.add_model_preview(self.collaborators, model_id, request.preview.model_dump(), user_id)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(error="model_not_found", message=str(e))
-        except ModelIndexingException as e:
-            return self.error_api_response(error="invalid_preview", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error adding preview for model {model_id}: {e}")
-            return self.error_api_response(
-                error="add_preview_failed",
-                message=f"Failed to add preview: {str(e)}"
-            )
+        data = operations.add_model_preview(self.collaborators, model_id, request.preview.model_dump(), user_id)
+        return self.success_response(data=data)
 
+    @guarded(_NOT_FOUND, Fail("delete_preview_failed", "Failed to delete preview", detail=failure_detail))
     async def delete_model_preview(self, model_id: str, preview_id: str) -> APIResponse:
-        """Remove one preview from a model's preview list."""
-        try:
-            data = operations.delete_model_preview(self.collaborators, model_id, preview_id)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(error="model_not_found", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error deleting preview {preview_id} for model {model_id}: {e}")
-            return self.error_api_response(
-                error="delete_preview_failed",
-                message=f"Failed to delete preview: {str(e)}"
-            )
+        data = operations.delete_model_preview(self.collaborators, model_id, preview_id)
+        return self.success_response(data=data)
 
+    @guarded(
+        {**_NOT_FOUND, ModelIndexingException: Fail("invalid_reorder")},
+        Fail("reorder_previews_failed", "Failed to reorder previews", detail=failure_detail),
+    )
     async def reorder_model_previews(
         self, model_id: str, request: ReorderModelPreviewsRequest
     ) -> APIResponse:
-        """Reorder a model's preview list."""
-        try:
-            data = operations.reorder_model_previews(self.collaborators, model_id, request.ordered_ids)
-            return self.success_response(data=data)
-        except ModelNotFoundException as e:
-            return self.error_api_response(error="model_not_found", message=str(e))
-        except ModelIndexingException as e:
-            return self.error_api_response(error="invalid_reorder", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error reordering previews for model {model_id}: {e}")
-            return self.error_api_response(
-                error="reorder_previews_failed",
-                message=f"Failed to reorder previews: {str(e)}"
-            )
+        data = operations.reorder_model_previews(self.collaborators, model_id, request.ordered_ids)
+        return self.success_response(data=data)
 
     # --- Library Endpoints ---
 
+    @guarded(
+        {ValueError: Fail("set_favorite_failed")},
+        Fail("set_favorite_failed", "Failed to update favorite", detail=failure_detail),
+        admin="user",
+    )
     async def set_model_favorite(
         self,
         model_id: str,
         request: ModelFavoriteRequest,
         user: User
     ) -> APIResponse:
-        """Set or clear the favorite flag for a model (scoped to the current user)."""
-        try:
-            meta = self.user_model_meta_repository.set_favorite(user.id, model_id, request.is_favorite)
-            return self.success_response(data={
-                "message": "Model favorite updated successfully",
-                "meta": meta.to_dict()
-            })
-        except ValueError as e:
-            return self.error_api_response(error="set_favorite_failed", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error setting favorite for model {model_id}: {e}")
-            return self.error_api_response(
-                error="set_favorite_failed",
-                message=f"Failed to update favorite: {str(e)}"
-            )
+        meta = self.user_model_meta_repository.set_favorite(user.id, model_id, request.is_favorite)
+        return self.success_response(data={
+            "message": "Model favorite updated successfully",
+            "meta": meta.to_dict()
+        })
 
+    @guarded(
+        {ValueError: Fail("set_library_name_failed")},
+        Fail("set_library_name_failed", "Failed to update library name", detail=failure_detail),
+        admin="user",
+    )
     async def set_model_library_name(
         self,
         model_id: str,
         request: ModelLibraryNameRequest,
         user: User
     ) -> APIResponse:
-        """Set or clear a per-user custom display name for a model."""
-        try:
-            # Empty/whitespace name normalizes to a cleared custom name.
-            name = request.name.strip() or None if request.name is not None else None
-            meta = self.user_model_meta_repository.set_custom_name(user.id, model_id, name)
-            self.collaborators.metadata.notify_metadata_changed(model_id, ["name"], user.id)
-            return self.success_response(data={
-                "message": "Model library name updated successfully",
-                "meta": meta.to_dict()
-            })
-        except ValueError as e:
-            return self.error_api_response(error="set_library_name_failed", message=str(e))
-        except Exception as e:
-            logger.exception(f"Error setting library name for model {model_id}: {e}")
-            return self.error_api_response(
-                error="set_library_name_failed",
-                message=f"Failed to update library name: {str(e)}"
-            )
+        name = request.name.strip() or None if request.name is not None else None
+        meta = self.user_model_meta_repository.set_custom_name(user.id, model_id, name)
+        self.collaborators.metadata.notify_metadata_changed(model_id, ["name"], user.id)
+        return self.success_response(data={
+            "message": "Model library name updated successfully",
+            "meta": meta.to_dict()
+        })
 
     # --- Thumbnail Endpoints ---
 
+    @guarded(fallback=Fail("thumbnail_generation_failed", "Failed to start thumbnail generation", detail=failure_detail))
     async def generate_video_thumbnails(
         self,
         background_tasks: BackgroundTasks,
         model_ids: Optional[List[str]] = None
     ) -> APIResponse:
-        """Generate thumbnails from videos for models that don't have images."""
-        try:
-            data = operations.start_thumbnail_generation(self.collaborators, model_ids)
+        data = operations.start_thumbnail_generation(self.collaborators, model_ids)
 
-            # Run thumbnail generation in background
-            async def run_task():
-                await operations.run_thumbnail_generation(self.collaborators, model_ids)
+        async def run_task():
+            await operations.run_thumbnail_generation(self.collaborators, model_ids)
 
-            background_tasks.add_task(asyncio.run, run_task())
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error starting video thumbnail generation: {e}")
-            return self.error_api_response(
-                error="thumbnail_generation_failed",
-                message=f"Failed to start thumbnail generation: {str(e)}"
-            )
+        background_tasks.add_task(asyncio.run, run_task())
+        return self.success_response(data=data)
 
     # --- User Assignment Endpoints ---
 
+    @guarded(fallback=Fail("get_assignments_failed", "Failed to get user model assignments", detail=failure_detail))
     async def get_user_model_assignments(self, user_id: str) -> APIResponse:
-        """Get model assignments for a user (admin only)."""
-        try:
-            data = operations.get_user_model_assignments(self.collaborators, user_id)
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting user model assignments: {e}")
-            return self.error_api_response(
-                error="get_assignments_failed",
-                message=f"Failed to get user model assignments: {str(e)}"
-            )
+        data = operations.get_user_model_assignments(self.collaborators, user_id)
+        return self.success_response(data=data)
 
+    @guarded(fallback=Fail("get_assignments_failed", "Failed to get model assignments", detail=failure_detail))
     async def get_model_assignments(self, model_id: str) -> APIResponse:
-        """Get the users directly assigned to a model (admin only)."""
-        try:
-            data = operations.get_model_assignments(self.collaborators, model_id)
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting model assignments: {e}")
-            return self.error_api_response(
-                error="get_assignments_failed",
-                message=f"Failed to get model assignments: {str(e)}"
-            )
+        data = operations.get_model_assignments(self.collaborators, model_id)
+        return self.success_response(data=data)
 
+    @guarded(fallback=Fail("get_assignment_summary_failed", "Failed to get model assignment summary", detail=failure_detail))
     async def get_model_assignment_summary(self) -> APIResponse:
-        """Direct-user and group assignment counts for every model (admin only)."""
-        try:
-            data = operations.get_model_assignment_summary(self.collaborators)
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting model assignment summary: {e}")
-            return self.error_api_response(
-                error="get_assignment_summary_failed",
-                message=f"Failed to get model assignment summary: {str(e)}"
-            )
+        data = operations.get_model_assignment_summary(self.collaborators)
+        return self.success_response(data=data)
 
+    @guarded(
+        {ModelAssignmentException: Fail("assignment_failed")},
+        Fail("assignment_failed", "Failed to assign model to user", detail=failure_detail),
+    )
     async def assign_model_to_user(
         self,
         request: UserModelAssignmentRequest
     ) -> APIResponse:
-        """Assign a model to a user (admin only)."""
-        try:
-            data = operations.assign_model_to_user(self.collaborators, request.model_id, request.user_id)
-            return self.success_response(data=data)
-        except ModelAssignmentException as e:
-            return self.error_api_response(
-                error="assignment_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error assigning model to user: {e}")
-            return self.error_api_response(
-                error="assignment_failed",
-                message=f"Failed to assign model to user: {str(e)}"
-            )
+        data = operations.assign_model_to_user(self.collaborators, request.model_id, request.user_id)
+        return self.success_response(data=data)
 
+    @guarded(
+        {ModelAssignmentException: Fail("unassignment_failed")},
+        Fail("unassignment_failed", "Failed to unassign model from user", detail=failure_detail),
+    )
     async def unassign_model_from_user(
         self,
         user_id: str,
         model_id: str
     ) -> APIResponse:
-        """Unassign a model from a user (admin only)."""
-        try:
-            data = operations.unassign_model_from_user(self.collaborators, model_id, user_id)
-            return self.success_response(data=data)
-        except ModelAssignmentException as e:
-            return self.error_api_response(
-                error="unassignment_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error unassigning model from user: {e}")
-            return self.error_api_response(
-                error="unassignment_failed",
-                message=f"Failed to unassign model from user: {str(e)}"
-            )
+        data = operations.unassign_model_from_user(self.collaborators, model_id, user_id)
+        return self.success_response(data=data)
 
     # --- Download Endpoints ---
 
+    @guarded(
+        {ModelDownloadException: Fail("download_blocked")},
+        Fail("download_failed", "Failed to start download", detail=failure_detail),
+    )
     async def download_and_index_model(
         self,
         background_tasks: BackgroundTasks,
         request: DownloadModelRequest
     ) -> APIResponse:
-        """Download a model from a URL and index it."""
-        try:
-            data = operations.start_download_and_index(self.collaborators, 
+        data = operations.start_download_and_index(self.collaborators, 
+            name=request.name,
+            link=request.link,
+            size=request.size,
+            sha256=request.sha256,
+            model_type=request.model_type or 'checkpoint'
+        )
+
+        async def run_task():
+            await operations.run_download_and_index(self.collaborators, 
                 name=request.name,
                 link=request.link,
-                size=request.size,
                 sha256=request.sha256,
                 model_type=request.model_type or 'checkpoint'
             )
 
-            # Run download and index in background
-            async def run_task():
-                await operations.run_download_and_index(self.collaborators, 
-                    name=request.name,
-                    link=request.link,
-                    sha256=request.sha256,
-                    model_type=request.model_type or 'checkpoint'
-                )
-
-            background_tasks.add_task(asyncio.run, run_task())
-            return self.success_response(data=data)
-        except ModelDownloadException as e:
-            return self.error_api_response(
-                error="download_blocked",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error starting download: {e}")
-            return self.error_api_response(
-                error="download_failed",
-                message=f"Failed to start download: {str(e)}"
-            )
+        background_tasks.add_task(asyncio.run, run_task())
+        return self.success_response(data=data)
 
     # --- Recommendation Downloads (v2, provider-gated - see docs/presets.md) ---
 
@@ -1031,62 +764,47 @@ class ModelController(BaseController):
 
         return ref, None
 
+    @guarded(fallback=Fail("download_failed", "Failed to queue download", detail=failure_detail), admin="current_user")
     async def queue_recommendation_download(
         self,
         request: RecommendationDownloadRequest,
         current_user: User
     ) -> APIResponse:
-        """Queue a `model` field recommendation for download (admin only).
-
-        Resolves a provider-backed recommendation's URL via the provider registry
-        (using `ref`'s conventional `provider_model_id`/`provider_version_id` keys),
-        or uses `link` directly for a provider-less one, then hands off to the
-        core download queue's existing worker machinery.
-        """
         if current_user.account_type != AccountType.ADMIN:
             return self.error_api_response(
                 error="permission_denied", message="Admin access required"
             )
 
-        try:
-            url = request.link
-            if request.provider:
-                from src.features.providers.registry import ensure_providers_discovered
-                provider_registry = await ensure_providers_discovered()
-                provider_model_id, provider_version_id = self._parse_ref(request.ref)
-                url = await provider_registry.get_download_url(
-                    request.provider,
-                    provider_model_id,
-                    provider_version_id,
-                )
-                if not url:
-                    return self.error_api_response(
-                        error="download_url_unresolved",
-                        message=f"Could not resolve a download URL from provider '{request.provider}'"
-                    )
-
+        url = request.link
+        if request.provider:
+            from src.features.providers.registry import ensure_providers_discovered
+            provider_registry = await ensure_providers_discovered()
+            provider_model_id, provider_version_id = self._parse_ref(request.ref)
+            url = await provider_registry.get_download_url(
+                request.provider,
+                provider_model_id,
+                provider_version_id,
+            )
             if not url:
                 return self.error_api_response(
-                    error="missing_source", message="Either 'provider' + 'ref' or 'link' is required"
+                    error="download_url_unresolved",
+                    message=f"Could not resolve a download URL from provider '{request.provider}'"
                 )
 
-            # `DownloadQueue.queue_model_download` resolves `model_type` against
-            # the configured model depot itself (TYPE_DIR_MAP, contained inside the
-            # depot) - no need to duplicate that resolution here.
-            download = await self.download_queue.queue_model_download(
-                url=url,
-                model_type=request.model_type,
-                checksum_sha256=request.sha256,
-                provider_id=request.provider,
-                created_by=current_user.id,
+        if not url:
+            return self.error_api_response(
+                error="missing_source", message="Either 'provider' + 'ref' or 'link' is required"
             )
 
-            return self.success_response(data={"download_id": download.id})
-        except Exception as e:
-            logger.exception(f"Error queueing recommendation download: {e}")
-            return self.error_api_response(
-                error="download_failed", message=f"Failed to queue download: {str(e)}"
-            )
+        download = await self.download_queue.queue_model_download(
+            url=url,
+            model_type=request.model_type,
+            checksum_sha256=request.sha256,
+            provider_id=request.provider,
+            created_by=current_user.id,
+        )
+
+        return self.success_response(data={"download_id": download.id})
 
     # The download queue's own DownloadStatus is richer (pending/downloading/
     # paused/completed/failed/cancelled) than this endpoint's documented contract
@@ -1101,18 +819,18 @@ class ModelController(BaseController):
         "cancelled": "failed",
     }
 
+    @guarded(
+        {DownloadNotFoundException: Fail("download_not_found")},
+        Fail("download_status_failed", "Failed to get download status", detail=failure_detail),
+    )
     async def get_recommendation_download(self, download_id: str) -> APIResponse:
-        """Poll a recommendation download's status/progress by ID."""
-        try:
-            download = await asyncio.to_thread(self.download_queue.get_download, download_id)
-            status = self._STATUS_MAP.get(download.status.value, download.status.value)
-            return self.success_response(data={
-                "status": status,
-                "progress": download.progress if status != "pending" else None,
-                "error": download.error_message,
-            })
-        except Exception as e:
-            return self.error_api_response(error="download_not_found", message=str(e))
+        download = await asyncio.to_thread(self.download_queue.get_download, download_id)
+        status = self._STATUS_MAP.get(download.status.value, download.status.value)
+        return self.success_response(data={
+            "status": status,
+            "progress": download.progress if status != "pending" else None,
+            "error": download.error_message,
+        })
 
 
 def build_router(container: "AppContainer") -> APIRouter:
@@ -1246,6 +964,44 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/indexing/status", response_model=APIResponse, summary="Get Indexing Status")
     async def get_indexing_status(current_user: User = Depends(get_current_admin_user)):
         return await controller.get_indexing_status()
+
+
+    @router.put("/indexing/settings", response_model=APIResponse, summary="Update Indexing Settings")
+    async def update_indexing_settings(
+        request: IndexingSettingsRequest,
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.update_indexing_settings(request)
+
+
+    @router.post("/indexing/pause", response_model=APIResponse, summary="Pause Background Indexing")
+    async def pause_indexing(current_user: User = Depends(get_current_admin_user)):
+        return await controller.pause_indexing()
+
+
+    @router.post("/indexing/resume", response_model=APIResponse, summary="Resume Background Indexing")
+    async def resume_indexing(current_user: User = Depends(get_current_admin_user)):
+        return await controller.resume_indexing()
+
+
+    @router.get("/indexing/pending", response_model=APIResponse, summary="List Files Waiting To Be Indexed")
+    async def list_pending_digests(
+        query: str = Query("", description="Case-insensitive filename substring"),
+        model_type: Optional[str] = Query(None, description="Only files of this model type"),
+        root_id: Optional[str] = Query(None, description="Only files under this model root"),
+        offset: int = Query(0, ge=0),
+        limit: int = Query(50, ge=1, le=200),
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.list_pending_digests(query, model_type, root_id, offset, limit)
+
+
+    @router.post("/indexing/digests", response_model=APIResponse, summary="Queue Files For Indexing")
+    async def queue_digests(
+        request: IndexingDigestsRequest,
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.queue_digests(request)
 
 
     # Static, so it must be registered before the "/{model_id}" catch-all below -
@@ -1448,6 +1204,15 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Update description for a model (admin only)."""
         return await controller.update_model_description(model_id, request)
+
+
+    @router.post("/{model_id}/digest", response_model=APIResponse, summary="Request A Model's Content Hash")
+    async def request_model_digest(
+        model_id: str,
+        retry: bool = Query(False, description="Try again a file that failed to be read"),
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        return await controller.request_model_digest(model_id, retry)
 
 
     @router.put("/{model_id}/type", response_model=APIResponse, summary="Set Model Type")

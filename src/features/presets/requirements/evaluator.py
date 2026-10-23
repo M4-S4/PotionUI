@@ -227,12 +227,6 @@ class MultiBackendRequirementResults:
         entry = self.backend_entries.get(backend_id) if backend_id is not None else None
         return entry.checked_at if entry is not None else self.host_checked_at
 
-    def host_only_results(self) -> List[RequirementResult]:
-        return list(self.host_results)
-
-    def host_only_specs(self) -> List[Dict[str, Any]]:
-        return [self.specs[i] for i in self.host_indices]
-
 
 async def evaluate_preset_requirements_for_backends(
     registry: RequirementCheckerRegistry,

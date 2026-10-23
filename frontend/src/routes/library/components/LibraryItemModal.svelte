@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import tooltip from '$lib/actions/tooltip';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { parseServerDate } from '$lib/utils/relativeTime';
@@ -156,7 +158,7 @@
 						<dt class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
 							{detail.label}
 						</dt>
-						<dd class="mt-0.5 font-mono tabular-nums text-xs text-fg truncate" title={detail.value}>
+						<dd class="mt-0.5 font-mono tabular-nums text-xs text-fg truncate" use:tooltip={{ text: detail.value, truncateOnly: true }}>
 							{detail.value}
 						</dd>
 					</div>
@@ -168,15 +170,11 @@
 
 		<div class="flex flex-wrap items-center gap-2 pt-2 border-t border-line">
 			{#each editTools as tool (tool.key)}
-				<Button
-					variant="secondary"
-					size="sm"
-					icon={tool.icon}
-					title={tool.title}
-					onclick={() => openEditor(tool.key)}
-				>
-					{tool.label}
-				</Button>
+				<Tooltip text={tool.title}>
+					<Button variant="secondary" size="sm" icon={tool.icon} onclick={() => openEditor(tool.key)}>
+						{tool.label}
+					</Button>
+				</Tooltip>
 			{/each}
 
 			<div class="flex-1"></div>

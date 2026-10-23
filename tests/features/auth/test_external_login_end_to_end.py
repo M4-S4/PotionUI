@@ -124,6 +124,7 @@ class TestExternalLoginEndToEnd(unittest.TestCase):
             login_provider_registry.unregister(definition.id)
         for definition in self._previous_providers:
             login_provider_registry.register(definition)
+        Database.close_pool()
         for leftover in sorted(
             Path(self.temp_dir).rglob("*"), key=lambda p: len(p.parts), reverse=True
         ):
@@ -168,6 +169,7 @@ class TestExternalLoginEndToEnd(unittest.TestCase):
                     "id": stub_plugin.PLUGIN_ID,
                     "label": stub_plugin.LABEL,
                     "start_path": stub_plugin.START_PATH,
+                    "auto_redirect": False,
                 }
             ],
         )

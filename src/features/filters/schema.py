@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-import yaml
 
 from src.platform.imaging.filters import (
     MAX_STEPS,
@@ -22,6 +21,7 @@ from src.platform.imaging.filters import (
     read_cube,
     validate_steps,
 )
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 SCHEMA_VERSION = 1
 FILTER_FILE = "filter.yml"
@@ -278,7 +278,7 @@ def load_filter_dir(
     if size > MAX_FILE_BYTES:
         return None, [error("parse", FILTER_FILE, f"file is {size} bytes; the limit is {MAX_FILE_BYTES}")]
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = load_yaml_file(path)
     except Exception as exc:
         return None, [error("parse", FILTER_FILE, f"could not parse YAML: {exc}")]
 

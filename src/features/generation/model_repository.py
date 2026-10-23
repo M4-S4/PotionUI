@@ -2,6 +2,7 @@ from typing import List, Tuple
 from src.features.generation.records import Generation, GenerationModel
 from src.features.models.records import Model
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 class GenerationModelRepository:
     def create(self, generation_model: GenerationModel) -> GenerationModel:
@@ -9,8 +10,7 @@ class GenerationModelRepository:
         if not generation_model.id:
             generation_model.id = generate_ulid()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO generation_models (
                     id, generation_id, model_id
@@ -33,8 +33,7 @@ class GenerationModelRepository:
         """Create multiple generation-model associations"""
         generation_models = []
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for model_id in model_ids:
                 # Check if association already exists
                 cursor.execute("""
@@ -66,8 +65,7 @@ class GenerationModelRepository:
 
     def get_by_generation(self, generation_id: str, include_model_info: bool = False, include_files: bool = False) -> List[Model]:
         """Get all models for a generation with full model data via JOIN"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT m.* FROM models m
                 JOIN generation_models gm ON m.id = gm.model_id
@@ -94,12 +92,11 @@ class GenerationModelRepository:
         """Get generations that used a specific model, filtered by user.
         Returns a tuple of (generations_list, total_count)."""
         from .file_repository import file_repo
-        from src.platform.database.database import db
 
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             # Get total count
             cursor.execute("""
-                SELECT COUNT(DISTINCT g.id) FROM generations g
+                SELECT COUNT(*) FROM generations g
                 JOIN generation_models gm ON g.id = gm.generation_id
                 WHERE gm.model_id = ? AND g.user_id = ? AND g.status = 'completed'
             """, (model_id, user_id))
@@ -107,11 +104,15 @@ class GenerationModelRepository:
 
             # Get paginated generations
             cursor.execute("""
-                SELECT DISTINCT g.* FROM generations g
-                JOIN generation_models gm ON g.id = gm.generation_id
-                WHERE gm.model_id = ? AND g.user_id = ? AND g.status = 'completed'
-                ORDER BY g.created_at DESC
-                LIMIT ? OFFSET ?
+                SELECT g.* FROM generations g
+                WHERE g.id IN (
+                    SELECT page.id FROM generations page
+                    JOIN generation_models gm ON page.id = gm.generation_id
+                    WHERE gm.model_id = ? AND page.user_id = ? AND page.status = 'completed'
+                    ORDER BY page.created_at DESC, page.id DESC
+                    LIMIT ? OFFSET ?
+                )
+                ORDER BY g.created_at DESC, g.id DESC
             """, (model_id, user_id, limit, offset))
 
             generations = [Generation.from_row(row) for row in cursor.fetchall()]
@@ -121,16 +122,6 @@ class GenerationModelRepository:
                 gen.files = file_repo.get_generation_files(gen.id)
 
             return generations, total
-
-    def delete_by_generation(self, generation_id: str) -> int:
-        """Delete all model associations for a generation"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM generation_models WHERE generation_id = ?",
-                (generation_id,)
-            )
-            return cursor.rowcount
 
 # Global repository instance
 generation_model_repo = GenerationModelRepository()

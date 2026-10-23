@@ -80,15 +80,6 @@ class ControlNetPreprocessorPipe(BasePipe):
     description = "Preprocess images for ControlNet (Canny, Depth, OpenPose, etc.)"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "preprocessors": [],  # List of preprocessor configurations
-            "output_resolution": None,  # Optional resize for output (e.g., [512, 512])
-            "strict": False,
-            "blank_hint": "use it without preprocessing",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """Return specification of configuration parameters this pipe accepts"""
         return [
@@ -329,7 +320,8 @@ class ControlNetPreprocessorPipe(BasePipe):
         generation_outputs(ProgressGenerationOutput(
             state=f"Preprocessing <<NUMBER:{len(images)} images:image>> for ControlNet",
             icon=Icon("image"),
-            progress=Progress(0, 100)
+            progress=Progress(0, 100),
+            bar=False
         ))
 
         processed_images = []
@@ -346,7 +338,8 @@ class ControlNetPreprocessorPipe(BasePipe):
             generation_outputs(ProgressGenerationOutput(
                 state=f"Applying <<EFFECT:{preprocessor_type}:wand>> to image {i+1}/{len(images)}",
                 icon=Icon("wand"),
-                progress=Progress((i * 80) // len(images), 100)
+                progress=Progress((i * 80) // len(images), 100),
+                bar=False
             ))
 
             # Apply the appropriate preprocessor
@@ -404,7 +397,8 @@ class ControlNetPreprocessorPipe(BasePipe):
         generation_outputs(ProgressGenerationOutput(
             state=f"Preprocessed <<NUMBER:{len(processed_images)} control images:check-circle>>",
             icon=Icon("check-circle"),
-            progress=Progress(100, 100)
+            progress=Progress(100, 100),
+            bar=False
         ))
 
         logger.debug(f"[CONTROLNET PREPROCESSOR] Successfully preprocessed {len(processed_images)} images")

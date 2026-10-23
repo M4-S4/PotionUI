@@ -17,6 +17,8 @@ export interface ModelSearchInput {
 	 *  independent of `tagIds`. */
 	anyTagIds?: string[];
 	favoritesOnly?: boolean;
+	modelTypes?: string[];
+	unquantizedOnly?: boolean;
 }
 
 export type ModelSearchRequest =
@@ -25,7 +27,14 @@ export type ModelSearchRequest =
 			presetId: string;
 			modelType: string;
 			search?: string;
-			opts: { limit: number; tagIds?: string; anyTagIds?: string; favoritesOnly?: boolean };
+			opts: {
+				limit: number;
+				tagIds?: string;
+				anyTagIds?: string;
+				favoritesOnly?: boolean;
+				modelTypes?: string;
+				unquantizedOnly?: boolean;
+			};
 	  }
 	| {
 			kind: 'global';
@@ -56,7 +65,14 @@ export function buildModelSearchRequest(input: ModelSearchInput): ModelSearchReq
 			presetId: input.presetId,
 			modelType: input.modelType,
 			search,
-			opts: { limit: input.limit, tagIds, anyTagIds, favoritesOnly }
+			opts: {
+				limit: input.limit,
+				tagIds,
+				anyTagIds,
+				favoritesOnly,
+				modelTypes: input.modelTypes && input.modelTypes.length > 1 ? input.modelTypes.join(',') : undefined,
+				unquantizedOnly: input.unquantizedOnly || undefined
+			}
 		};
 	}
 

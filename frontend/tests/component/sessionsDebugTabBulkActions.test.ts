@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AdminChatSessionSummary } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 const mockGetAdminChatSessions = vi.fn();
 const mockGetAdminChatSessionDetail = vi.fn();
@@ -51,10 +52,6 @@ function mount() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function stubList(sessions: AdminChatSessionSummary[]) {

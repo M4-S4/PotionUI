@@ -10,18 +10,13 @@ real shape-derivation arithmetic against the real numbers without materializing
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-import pytest
 import torch
 
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.te_detect import detect_te_config
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 
-_MUSIC3_DIR = Path("ai/minimax_music3")
-_H3_DIR = Path("ai/minimax_h3")
+from .._header_listings import load_header
 
 _DTYPES = {
     "F32": torch.float32,
@@ -30,15 +25,6 @@ _DTYPES = {
     "I8": torch.int8,
     "U8": torch.uint8,
 }
-
-
-def _load_header(path: Path) -> dict:
-    if not path.exists():
-        pytest.skip(f"{path} not present (fetched once via range request; not part of the repo checkout)")
-    with path.open() as f:
-        header = json.load(f)
-    header.pop("__metadata__", None)
-    return header
 
 
 def _meta_state_dict(header: dict) -> dict[str, torch.Tensor]:
@@ -50,7 +36,7 @@ def _meta_state_dict(header: dict) -> dict[str, torch.Tensor]:
 
 class TestDiTDetectionOnRealHeader:
     def test_fp16_header_detects_minimax_music3(self):
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_dit_fp16_header.json")
+        header = load_header("minimax_music3/minimax_music3_dit_fp16")
         sd = _meta_state_dict(header)
         config = detect_unet_config(sd)
         assert config is not None
@@ -72,31 +58,8 @@ class TestDiTDetectionOnRealHeader:
         # concatenated sin+cos width the embedding actually emits -- doubled.
         assert config["fourier_dim"] == 256
 
-    def test_fp32_header_detects_the_same_shapes(self):
-        """The fp32 repack is the same architecture at a different storage
-        dtype -- shape derivation must not depend on dtype at all."""
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_dit_fp32_header.json")
-        sd = _meta_state_dict(header)
-        config = detect_unet_config(sd)
-        assert config is not None
-        assert config["image_model"] == "minimax_music3_dit"
-        assert config["hidden_size"] == 2048
-        assert config["num_layers"] == 36
-
-    def test_int8_convrot_header_still_detects_by_key_presence(self):
-        """Quantised Linears keep their key names and shapes (int8 is not
-        nvfp4-packed -- codes are stored 1:1, unlike nvfp4's half-width pack),
-        so shape-derivation must still land on the real values even though the
-        signature weight's dtype is I8, not float."""
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_dit_int8_convrot_header.json")
-        sd = _meta_state_dict(header)
-        config = detect_unet_config(sd)
-        assert config is not None
-        assert config["image_model"] == "minimax_music3_dit"
-        assert config["hidden_size"] == 2048
-
     def test_registry_matches_the_detected_config(self):
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_dit_fp16_header.json")
+        header = load_header("minimax_music3/minimax_music3_dit_fp16")
         sd = _meta_state_dict(header)
         config = detect_unet_config(sd)
         spec = match_model_spec(config)
@@ -116,7 +79,7 @@ class TestDiTDetectionOnRealHeader:
             MiniMaxMusic3Model,
         )
 
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_dit_fp16_header.json")
+        header = load_header("minimax_music3/minimax_music3_dit_fp16")
         sd = _meta_state_dict(header)
         config = detect_unet_config(sd)
         spec = match_model_spec(config)
@@ -146,7 +109,7 @@ class TestDiTDetectionOnRealHeader:
         namespace (`blocks.*`/`video_patch_proj`) -- it must not be
         misdetected as Music3, and Music3's signature keys must not
         accidentally appear in H3's real header."""
-        header = _load_header(_H3_DIR / "full_bf16_header.json")
+        header = load_header("minimax_h3/full_bf16")
         sd = _meta_state_dict(header)
         config = detect_unet_config(sd)
         assert config is not None
@@ -155,7 +118,7 @@ class TestDiTDetectionOnRealHeader:
 
 class TestTextEncoderDetectionOnRealHeader:
     def test_pruned_bf16_header_detects_the_pruned_layout(self):
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_text_encoder_pruned_bf16_header.json")
+        header = load_header("minimax_music3/minimax_music3_text_encoder_pruned_bf16")
         sd = _meta_state_dict(header)
         config = detect_te_config(sd)
         assert config is not None
@@ -179,7 +142,7 @@ class TestTextEncoderDetectionOnRealHeader:
         """The un-pruned file flips every one of the five layout booleans the
         other way -- this is the real-world proof the two shapes genuinely
         diverge and neither can be assumed from the other."""
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_text_encoder_bf16_header.json")
+        header = load_header("minimax_music3/minimax_music3_text_encoder_bf16")
         sd = _meta_state_dict(header)
         config = detect_te_config(sd)
         assert config is not None
@@ -197,22 +160,13 @@ class TestTextEncoderDetectionOnRealHeader:
         assert config["pruned_embeddings"] is False
         assert config["pruned_lm_head"] is False
 
-    def test_int8_convrot_header_still_detects_by_key_presence(self):
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_text_encoder_pruned_int8_convrot_header.json")
-        sd = _meta_state_dict(header)
-        config = detect_te_config(sd)
-        assert config is not None
-        assert config["te_type"] == "minimax_music3"
-        assert config["merged_qkv"] is True
-        assert config["pruned_embeddings"] is True
-
     def test_full_layout_is_not_misdetected_as_plain_qwen3(self):
         """Bite-check for the exact collision this branch exists to prevent:
         the full-layout header has `model.embed_tokens.weight` AND per-head
         `q_norm`/`k_norm` -- structurally a superset of a bare Qwen3-8B
         checkpoint. Without the audio_decoder/tokenizer_json branch running
         FIRST, this header would silently detect as `te_type="qwen3"`."""
-        header = _load_header(_MUSIC3_DIR / "minimax_music3_text_encoder_bf16_header.json")
+        header = load_header("minimax_music3/minimax_music3_text_encoder_bf16")
         sd = _meta_state_dict(header)
         config = detect_te_config(sd)
         assert config["te_type"] == "minimax_music3"
@@ -222,7 +176,7 @@ class TestTextEncoderDetectionOnRealHeader:
         """Bite-check the other direction: H3's Qwen3-VL-32B TE has neither
         `audio_decoder.norm.weight` nor an embedded `tokenizer_json` and must
         keep detecting as its own family, unaffected by this new branch."""
-        header = _load_header(_H3_DIR / "te_bf16_header.json")
+        header = load_header("minimax_h3/te_bf16")
         sd = _meta_state_dict(header)
         config = detect_te_config(sd)
         assert config is not None

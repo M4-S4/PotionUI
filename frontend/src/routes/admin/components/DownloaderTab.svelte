@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { createUrlState, hrefWithQuery } from '$lib/utils/urlState';
 	import { logger } from '$lib/utils/logger';
+	import { formatBytes } from '$lib/utils/format';
 	import {
 		downloadStore,
 		downloads,
@@ -127,20 +128,21 @@
 		if (nextSection !== 'all') params.set('section', nextSection);
 		const id = overrides.id !== undefined ? overrides.id : viewId;
 		if (id) params.set('id', id);
-		const query = params.toString();
-		return query ? `${$page.url.pathname}?${query}` : $page.url.pathname;
+		return hrefWithQuery($page.url.pathname, params);
 	}
 
+	const urlState = createUrlState({ href: buildUrl });
+
 	function selectSection(id: DownloadLibrarySection) {
-		void goto(buildUrl({ section: id, id: null }));
+		void urlState.go({ section: id, id: null });
 	}
 
 	function openDownloadId(id: string) {
-		void goto(buildUrl({ id }));
+		void urlState.go({ id });
 	}
 
 	function backToList() {
-		void goto(buildUrl({ id: null }));
+		void urlState.go({ id: null });
 	}
 
 	function destinationNameFor(download: Download): string | null {
@@ -166,8 +168,8 @@
 	}
 
 	function sizeLabel(download: Download): string {
-		if (download.total_bytes) return downloadStore.formatBytes(download.total_bytes);
-		if (download.downloaded_bytes) return downloadStore.formatBytes(download.downloaded_bytes);
+		if (download.total_bytes) return formatBytes(download.total_bytes);
+		if (download.downloaded_bytes) return formatBytes(download.downloaded_bytes);
 		return '—';
 	}
 

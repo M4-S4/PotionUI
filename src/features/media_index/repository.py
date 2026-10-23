@@ -7,6 +7,7 @@ from src.platform.util.ids import generate_ulid
 
 from src.features.media_index.records import MediaIndexQueueItem
 from src.features.media_index.tagger import SystemTagPrediction
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,7 @@ class MediaIndexRepository:
         if not file_ids:
             return 0
         enqueued = 0
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for file_id in file_ids:
                 cursor.execute(
                     """
@@ -61,8 +61,7 @@ class MediaIndexRepository:
         return enqueued
 
     def enqueue_generation_files(self, generation_id: str, pass_type: str) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT f.id FROM files f
@@ -76,8 +75,7 @@ class MediaIndexRepository:
 
     def enqueue_backfill(self, pass_type: str) -> int:
         """Queue every final file that has no queue row for this pass yet."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT f.id FROM files f
@@ -96,8 +94,7 @@ class MediaIndexRepository:
         self, pass_type: str, batch_size: int, max_attempts: int
     ) -> List[MediaIndexQueueItem]:
         """Move up to ``batch_size`` pending items to processing and return them."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE media_index_queue
@@ -130,8 +127,7 @@ class MediaIndexRepository:
     def claim_generation_batch(
         self, generation_id: str, pass_type: str, max_attempts: int
     ) -> List[MediaIndexQueueItem]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE media_index_queue
@@ -161,8 +157,7 @@ class MediaIndexRepository:
             return [MediaIndexQueueItem.from_row(row) for row in cursor.fetchall()]
 
     def mark_done(self, item_id: str) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE media_index_queue
@@ -174,8 +169,7 @@ class MediaIndexRepository:
 
     def mark_failed(self, item_id: str, error: str, max_attempts: int) -> None:
         """Count the attempt; back to pending until attempts exhaust, then failed."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE media_index_queue
@@ -190,8 +184,7 @@ class MediaIndexRepository:
 
     def done_file_ids_for_user(self, user_id: str, pass_type: str) -> List[str]:
         """File ids of a user's queue rows already completed for this pass."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT q.file_id FROM media_index_queue q
@@ -213,8 +206,7 @@ class MediaIndexRepository:
         the old collection while even one file never made it into the new
         one would lose data that must survive a failure.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 SELECT 1 FROM media_index_queue q
@@ -231,8 +223,7 @@ class MediaIndexRepository:
         if not file_ids:
             return {}
         placeholders = ",".join("?" * len(file_ids))
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT id, file_path, file_type, thumbnail_medium
@@ -262,8 +253,7 @@ class MediaIndexRepository:
         query += " GROUP BY pass_type, status"
 
         counts: Dict[str, Dict[str, int]] = {}
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             for row in cursor.fetchall():
                 counts.setdefault(row["pass_type"], {})[row["status"]] = row["count"]
@@ -277,8 +267,7 @@ class MediaIndexRepository:
         """Write `files.thumbnail_small/medium/large` directly - used by the
         mesh-preview render path, which needs to persist a thumbnail outside
         the `generation` feature's own write path (`file_repository.py`)."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 UPDATE files
@@ -302,8 +291,7 @@ class MediaIndexRepository:
         carry the same provenance/confidence semantics; serialization splits
         them back out, and tag filters exclude the rating category.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM media_system_tags WHERE file_id = ?", (file_id,))
             for prediction in tags:
                 cursor.execute(
@@ -338,8 +326,7 @@ class MediaIndexRepository:
             return {}
         placeholders = ",".join("?" * len(file_ids))
         result: Dict[str, Dict[str, Any]] = {}
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT file_id, tag, category, confidence, provenance
@@ -367,8 +354,7 @@ class MediaIndexRepository:
         return result
 
     def stale_file_ids(self, current_provenance: str) -> List[str]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT DISTINCT file_id FROM media_system_tags WHERE provenance != ?",
                 (current_provenance,),
@@ -376,15 +362,13 @@ class MediaIndexRepository:
             return [row["file_id"] for row in cursor.fetchall()]
 
     def delete_not_provenance(self, provenance: str) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM media_system_tags WHERE provenance != ?", (provenance,)
             )
             return cursor.rowcount
 
     def tagged_file_count(self) -> int:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT COUNT(DISTINCT file_id) AS c FROM media_system_tags")
             return cursor.fetchone()["c"]

@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from typing import Any, Dict, List
+from typing import Any, List
 
 import numpy as np
 import torch
@@ -63,6 +63,7 @@ from src.pipelines.pipes.detailer.video_ltx.compositing import composite_tube, r
 from src.pipelines.pipes.detailer.video_ltx.detection import build_frame_detectors, detect_tracks
 from src.pipelines.pipes.detailer.video_ltx.refine import refine_tube_pixels
 from src.pipelines.pipes.detailer.video_ltx.windowing import snap_working_resolution, stabilize_window
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 logger = logging.getLogger(__name__)
 
@@ -113,33 +114,9 @@ class DetailerVideoLtxPipe(BasePipe):
     display_title = "Refining faces and hands"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "device": "cuda",
-            "strength": "balanced",
-            "detect_faces": True,
-            "detect_hands": True,
-            "detection_backend": "mediapipe",
-            "detection_stride": 6,
-            "detection_confidence": 0.5,
-            "max_tracks": 4,
-            "min_track_seconds": 0.5,
-            "iou_threshold": 0.3,
-            "cut_threshold": 0.35,
-            "pad_factor": 1.8,
-            "area_threshold": 0.40,
-            "working_short_side": 512,
-            "color_correction": "wavelet",
-            "feather_border_frac": 0.08,
-            "temporal_ramp_frames": 4,
-            "face_model": "models/mediapipe/face_landmarker.task",
-            "hand_model": "models/mediapipe/hand_landmarker.task",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
             PipeConfigSpec("strength", str, "balanced", "Refinement strength (starting sigma)",
                            required=False, choices=["light", "balanced", "strong"]),
             PipeConfigSpec("detect_faces", bool, True, "Detect and refine faces", required=False),

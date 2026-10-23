@@ -133,6 +133,7 @@
 				class="h-10 w-10 flex-shrink-0 rounded bg-surface-3 object-cover"
 				loading="lazy"
 				decoding="async"
+				referrerpolicy="no-referrer"
 				onerror={() => (thumbFailed = true)}
 			/>
 		{:else}

@@ -9,12 +9,12 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import type {
 	VideoDirectorValue,
 	DirectorCapabilities,
-	DirectorModeCapability,
 	ChainSegment,
 	DirectorPromptSegment
 } from '../../src/lib/types/videoDirector';
 import type { ConsoleShot } from '../../src/lib/components/video-director/console/consoleModel';
 import type { ConsoleSelection } from '../../src/lib/components/video-director/console/consoleSelection';
+import { baseModeCap } from './directorFixtures';
 
 vi.mock('$lib/services/api/index', async (importOriginal) => {
 	const original = await importOriginal<typeof import('$lib/services/api/index')>();
@@ -30,26 +30,6 @@ const { default: ShotStage } = await import('../../src/lib/components/video-dire
 const { default: OverridesDisclosure } = await import('../../src/lib/components/video-director/console/OverridesDisclosure.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const { chainEdgeKeyframeId } = await import('../../src/lib/utils/videoDirector');
-
-function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorModeCapability {
-	return {
-		tips: [],
-		maxDuration: null,
-		audio: false,
-		icLora: false,
-		maxKeyframes: null,
-		perSegmentLoras: false,
-		keyframes: 'none',
-		maxSegments: null,
-		maxFramesPerSegment: null,
-		defaultSegmentDuration: 5,
-		continuation: null,
-		maxOverlapFrames: null,
-		continuationDisabled: false,
-		fpsLocked: false,
-		...overrides
-	};
-}
 
 function baseDoc(): VideoDirectorValue {
 	return {

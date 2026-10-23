@@ -1,3 +1,4 @@
+import copy
 import logging
 from pathlib import Path
 from typing import Dict, Any, List
@@ -18,6 +19,104 @@ from src.pipelines.pipes.detailer.sdxl.detection_processor import BaseDetectionP
 from src.pipelines.pipes._shared.detection import FaceDetector, HandDetector, EyeDetector, TeethDetector, PersonDetector
 
 logger = logging.getLogger(__name__)
+
+
+def _default_detections() -> Dict[str, Any]:
+    std_config = {
+        "confidence": 0.35,
+        "mask_min_ratio": 0.008,
+        "mask_max_ratio": 0.6,
+        "strength": 0.12,
+        "cfg": 5.5,
+        "steps": 25,
+        "padding": 32,
+        "mask_blur": 0.5,
+        "box_color": [0, 0, 0],
+        "box_thickness": 8,
+        "size_threshold": 0.08,
+        "step_reduction_percentage": 0.6,
+        "enable_upscale": True,
+        "upscale_factor": 1.5,
+        "upscale_method": "LANCZOS",
+        "min_size_for_upscale": 96,
+        "sampler": "DPMPP_2M",
+        "scheduler": "karras",
+    }
+    specific = {
+        "face": {
+            "type": "yolo",
+            "model": "models/detection_bbox/face_yolov12m.pt",
+        },
+        "hand": {
+            "type": "yolo",
+            "model": "models/detection_bbox/hand_yolov8n.pt",
+            "confidence": 0.5,
+            "mask_min_ratio": 0.005,
+            "mask_max_ratio": 0.6,
+            "strength": 0.3,
+            "cfg": 7,
+            "steps": 20,
+            "padding": 32,
+            "mask_blur": 2,
+            "box_color": [0, 255, 0],
+        },
+        "eyes": {
+            "enabled": False,
+            "type": "mediapipe",
+            "model": "models/mediapipe/face_landmarker.task",
+            "confidence": 0.5,
+            "strength": 0.15,
+            "cfg": 4.5,
+            "steps": 20,
+            "eye_padding": 10,
+            "eye_v_padding": 15,
+            "mask_blur": 1,
+            "box_color": [255, 255, 0],
+            "box_thickness": 4,
+            "sampler": "DPMPP_2M",
+            "scheduler": "karras",
+            "padding": 20,
+            "clip_skip": 2,
+        },
+        "teeth": {
+            "enabled": False,
+            "type": "mediapipe",
+            "model": "models/mediapipe/face_landmarker.task",
+            "confidence": 0.5,
+            "strength": 0.12,
+            "cfg": 4.5,
+            "steps": 20,
+            "mouth_open_threshold": 0.015,
+            "teeth_padding": 5,
+            "teeth_v_padding": 8,
+            "mask_blur": 0,
+            "box_color": [255, 255, 255],
+            "box_thickness": 4,
+            "sampler": "DPMPP_2M",
+            "scheduler": "karras",
+            "padding": 15,
+            "clip_skip": 2,
+        },
+        "person": {
+            "enabled": False,
+            "type": "yolo",
+            "model": "yolov8m.pt",
+            "confidence": 0.4,
+            "mask_min_ratio": 0.01,
+            "mask_max_ratio": 0.9,
+            "strength": 0.25,
+            "cfg": 5.0,
+            "steps": 20,
+            "padding": 48,
+            "mask_blur": 3,
+            "box_color": [255, 0, 255],
+            "box_thickness": 8,
+            "sampler": "DPMPP_2M",
+            "scheduler": "karras",
+            "clip_skip": 2,
+        },
+    }
+    return {kind: {**copy.deepcopy(std_config), **overrides} for kind, overrides in specific.items()}
 
 
 class ADetailerSDXLPipe(BasePipe):
@@ -44,137 +143,12 @@ class ADetailerSDXLPipe(BasePipe):
         ]
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        # SDXL-optimized defaults
-        std_config = {
-            "confidence": 0.35,
-            "mask_min_ratio": 0.008,
-            "mask_max_ratio": 0.6,
-            "strength": 0.12,
-            "cfg": 5.5,
-            "steps": 25,
-            "padding": 32,
-            "mask_blur": 0.5,
-            "device": "cuda" if torch.cuda.is_available() else "cpu",
-            "box_color": [0, 0, 0],
-            "box_thickness": 8,
-            "size_threshold": 0.08,
-            "step_reduction_percentage": 0.6,
-            "enable_upscale": True,
-            "upscale_factor": 1.5,
-            "upscale_method": "LANCZOS",
-            "min_size_for_upscale": 96,
-            "sampler": "DPMPP_2M",
-            "scheduler": "karras",
-        }
-
-        # SDXL-specific detection configuration
-        config = {
-            "detect": ["face", "hand"],
-            "detections": {
-                "face": {
-                    "type": "yolo",  # Detection backend: yolo or mediapipe
-                    "model": "models/detection_bbox/face_yolov12m.pt",
-                },
-                "hand": {
-                    "type": "yolo",  # Detection backend: yolo or mediapipe
-                    "model": "models/detection_bbox/hand_yolov8n.pt",
-                    "confidence": 0.5,
-                    "mask_min_ratio": 0.005,
-                    "mask_max_ratio": 0.6,
-                    "strength": 0.3,
-                    "cfg": 7,
-                    "steps": 20,
-                    "padding": 32,
-                    "mask_blur": 2,
-                    "box_color": [0, 255, 0],
-                },
-                "eyes": {
-                    "enabled": False,
-                    "type": "mediapipe",  # Eyes always use MediaPipe
-                    "model": "models/mediapipe/face_landmarker.task",
-                    "confidence": 0.5,
-                    "strength": 0.15,
-                    "cfg": 4.5,
-                    "steps": 20,
-                    "eye_padding": 10,
-                    "eye_v_padding": 15,
-                    "mask_blur": 1,
-                    "box_color": [255, 255, 0],
-                    "box_thickness": 4,
-                    "sampler": "DPMPP_2M",
-                    "scheduler": "karras",
-                    "padding": 20,
-                    "clip_skip": 2,
-                },
-                "teeth": {
-                    "enabled": False,
-                    "type": "mediapipe",  # Teeth always use MediaPipe
-                    "model": "models/mediapipe/face_landmarker.task",
-                    "confidence": 0.5,
-                    "strength": 0.12,
-                    "cfg": 4.5,
-                    "steps": 20,
-                    "mouth_open_threshold": 0.015,
-                    "teeth_padding": 5,
-                    "teeth_v_padding": 8,
-                    "mask_blur": 0,
-                    "box_color": [255, 255, 255],
-                    "box_thickness": 4,
-                    "sampler": "DPMPP_2M",
-                    "scheduler": "karras",
-                    "padding": 15,
-                    "clip_skip": 2,
-                },
-                "person": {
-                    "enabled": False,
-                    "type": "yolo",  # Person uses YOLO detection with COCO model
-                    "model": "yolov8m.pt",  # Standard YOLOv8 COCO model (class 0 = person)
-                    "confidence": 0.4,
-                    "mask_min_ratio": 0.01,
-                    "mask_max_ratio": 0.9,
-                    "strength": 0.25,
-                    "cfg": 5.0,
-                    "steps": 20,
-                    "padding": 48,
-                    "mask_blur": 3,
-                    "box_color": [255, 0, 255],
-                    "box_thickness": 8,
-                    "sampler": "DPMPP_2M",
-                    "scheduler": "karras",
-                    "clip_skip": 2,
-                }
-            }
-        }
-
-        # Merge SDXL-optimized defaults
-        config["detections"]["face"].update(std_config)
-        # Merge std_config with hand but keep hand-specific overrides
-        hand_config = config["detections"]["hand"].copy()
-        config["detections"]["hand"].update(std_config)
-        config["detections"]["hand"].update(hand_config)
-        # Merge std_config with eyes but keep eyes-specific overrides
-        eyes_config = config["detections"]["eyes"].copy()
-        config["detections"]["eyes"].update(std_config)
-        config["detections"]["eyes"].update(eyes_config)
-        # Merge std_config with teeth but keep teeth-specific overrides
-        teeth_config = config["detections"]["teeth"].copy()
-        config["detections"]["teeth"].update(std_config)
-        config["detections"]["teeth"].update(teeth_config)
-        # Merge std_config with person but keep person-specific overrides
-        person_config = config["detections"]["person"].copy()
-        config["detections"]["person"].update(std_config)
-        config["detections"]["person"].update(person_config)
-
-        return config
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         """SDXL-specific configuration parameters"""
         return [
             PipeConfigSpec("detect", list, ["face", "hand"], "Types of objects to detect", required=False,
                           choices=["face", "hand", "eyes", "teeth", "person"]),
-            PipeConfigSpec("detections", dict, {}, "Detection configuration for each object type", required=False),
+            PipeConfigSpec("detections", dict, _default_detections(), "Detection configuration for each object type", required=False),
 
             # Common detection parameters
             PipeConfigSpec("confidence", float, 0.35, "Detection confidence threshold", required=False,

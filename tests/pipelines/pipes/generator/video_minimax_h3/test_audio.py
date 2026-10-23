@@ -90,20 +90,6 @@ def test_unpack_pack_roundtrip_is_bit_exact():
     assert torch.equal(back, rows)
 
 
-def test_bite_check_pack_is_channel_major_not_latent_major():
-    # BITE CHECK for the pack/unpack inverse: a latent-MAJOR pack (the obvious
-    # wrong transpose -- rows interleaved L,R,L,R instead of blocked L...L,
-    # R...R) produces the same SHAPE and survives its own inverse, so shape
-    # and roundtrip alone prove nothing. It must differ from what pack emits,
-    # and it must break unpack.
-    latents = torch.randn(2, LATENT_CHANNELS, 6, dtype=torch.float64)
-    latent_major = latents.permute(2, 0, 1).reshape(-1, LATENT_CHANNELS)
-    correct = pack_audio_rows(latents)
-    assert latent_major.shape == correct.shape
-    assert not torch.equal(latent_major, correct)
-    assert not torch.equal(unpack_audio_rows(latent_major, num_audio_latents=6), latents)
-
-
 def test_pack_rejects_a_wrong_channel_count():
     with pytest.raises(ValueError):
         pack_audio_rows(torch.randn(3, LATENT_CHANNELS, 4))

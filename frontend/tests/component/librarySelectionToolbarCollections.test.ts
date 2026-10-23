@@ -7,6 +7,7 @@
 // (both live in libraryStore), so this mounts the real component against the
 // real stores rather than testing an extracted handler.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -49,10 +50,6 @@ function mountToolbar() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function currentLibraryState() {

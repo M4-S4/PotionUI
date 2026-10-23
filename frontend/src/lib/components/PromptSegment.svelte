@@ -1,13 +1,15 @@
 <svelte:options immutable />
 
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import type { Segment, ChipData } from '$lib/types/segments';
-	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
+	import type { VariablesMap, VariableDef, VariableRoll, ConditionReaders } from '$lib/utils/variableDefs';
 	import type { PromptResourceSpec } from '$lib/utils/promptResources';
 	import type { PromptSyntaxSpec } from '$lib/utils/promptSyntax';
 	import InlineChipEditor from './InlineChipEditor.svelte';
 	import Tooltip from './Tooltip.svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import PromptSegmentActionMenu from './PromptSegmentActionMenu.svelte';
 	import PromptSegmentDetailsModal from './PromptSegmentDetailsModal.svelte';
 	import { computeFixedMenuPosition } from '$lib/utils/menuPosition';
@@ -22,7 +24,9 @@
 		segmentDisplayName
 	} from '$lib/utils/segmentFooter';
 	import { segmentMenuActions } from '$lib/utils/segmentActions';
+	import { conditionsAvailable } from '$lib/utils/conditionAccess';
 	import { promptSegmentActionPins } from '$lib/stores/promptSegmentActionPins';
+	import Icon from '$lib/components/Icon.svelte';
 
 	promptSegmentActionPins.init();
 
@@ -34,6 +38,7 @@
 	export let placeholder = 'Enter prompt content... (# for phrasebook)';
 	export let variables: VariablesMap = {};
 	export let variableRolls: Record<string, VariableRoll> = {};
+	export let conditionReaders: ConditionReaders = {};
 	export let variableUsageNumbers: { name: string; ordinal: number; total: number }[] = [];
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
@@ -112,12 +117,14 @@
 	$: suffixText = segment.suffix || '';
 	$: hasAffix = !!prefixText || !!suffixText;
 	$: hasBody = !!segment.content && segment.content.trim().length > 0;
+	$: hasConditions = conditionsAvailable(variables, onVariableDefChange);
 	$: menuActions = segmentMenuActions(segment, {
 		index,
 		total,
 		segmentDisabled,
 		hasPromptSyntax: promptSyntax.length > 0,
-		hasPromptResources: promptResources.length > 0
+		hasPromptResources: promptResources.length > 0,
+		hasConditions
 	});
 	$: pinnedIds = new Set($promptSegmentActionPins.ids);
 	$: pinnedActions = menuActions.filter((action) => pinnedIds.has(action.id));
@@ -209,14 +216,6 @@
 		dragOverPosition = 'none';
 	}
 
-	function handleWindowPointerDown(event: PointerEvent) {
-		if (menuOpen && menuRoot && !menuRoot.contains(event.target as Node)) menuOpen = false;
-	}
-
-	function handleWindowKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && menuOpen) closeMenu();
-	}
-
 	function handleWindowScroll() {
 		if (menuOpen) menuOpen = false;
 	}
@@ -279,6 +278,9 @@
 			case 'insertChoice':
 				inlineEditor?.insertChoiceGroup();
 				break;
+			case 'insertCondition':
+				inlineEditor?.insertCondition();
+				break;
 			case 'insertResource':
 				inlineEditor?.insertResourceTrigger();
 				break;
@@ -297,8 +299,6 @@
 
 <svelte:window
 	on:pointerup={disableDrag}
-	on:pointerdown={handleWindowPointerDown}
-	on:keydown={handleWindowKeydown}
 	on:scroll|capture={handleWindowScroll}
 	on:resize={handleWindowResize}
 />
@@ -336,7 +336,7 @@
 					aria-label={`Drag ${segmentLabel.toLowerCase()} to reorder`}
 					on:pointerdown={enableDrag}
 				>
-					<svg class="icon"><use href="#i-grip" /></svg>
+					<Icon name="composer-grip" className="icon" strokeWidth={1.7} />
 				</button>
 				<span class="index font-mono tabular-nums" aria-hidden="true">{formatSegmentIndex(index)}</span>
 				<span class="type-dot" aria-hidden="true"></span>
@@ -364,11 +364,11 @@
 									class="icon-btn description-icon"
 									aria-label={`Description: ${segment.description}`}
 								>
-									<svg class="icon"><use href="#i-info" /></svg>
+									<Icon name="composer-info" className="icon" strokeWidth={1.7} />
 								</button>
 							</Tooltip>
 						{:else}
-							<span class="head-description segment-description" title={segment.description}>{segment.description}</span>
+							<span class="head-description segment-description" use:tooltip={segment.description}>{segment.description}</span>
 						{/if}
 					{/if}
 				</div>
@@ -404,7 +404,7 @@
 								{#if action.glyph}
 									<span class="icon menu-glyph {action.glyphClass}">{action.glyph}</span>
 								{:else}
-									<svg class="icon"><use href={`#i-${action.icon}`} /></svg>
+									<Icon name={`composer-${action.icon}`} className="icon" strokeWidth={1.7} />
 								{/if}
 							</button>
 						</Tooltip>
@@ -419,7 +419,7 @@
 						disabled={total <= 1}
 						on:click={() => dispatch('remove')}
 					>
-						<svg class="icon"><use href="#i-trash" /></svg>
+						<Icon name="composer-trash" className="icon" strokeWidth={1.7} />
 					</button>
 				</Tooltip>
 
@@ -435,11 +435,12 @@
 							bind:this={menuTriggerBtn}
 							on:click={toggleMenu}
 						>
-							<svg class="icon"><use href="#i-more" /></svg>
+							<Icon name="composer-more" className="icon" strokeWidth={1.7} />
 						</button>
 					</Tooltip>
 
 					{#if menuOpen}
+						<div style="display: contents" use:dismiss={{ onDismiss: () => closeMenu(), ignore: [menuRoot] }}>
 						<PromptSegmentActionMenu
 							{segment}
 							{index}
@@ -450,9 +451,11 @@
 							{pinnedIds}
 							hasPromptSyntax={promptSyntax.length > 0}
 							hasPromptResources={promptResources.length > 0}
+							{hasConditions}
 							on:run={(e) => runAction(e.detail)}
 							on:togglePin={(e) => togglePin(e.detail)}
 						/>
+						</div>
 					{/if}
 				</div>
 			</header>
@@ -487,6 +490,7 @@
 					density={compact ? 'compact' : 'default'}
 					{variables}
 					{variableRolls}
+					{conditionReaders}
 					{variableUsageNumbers}
 					{onVariableDefChange}
 					{onOpenVariableManager}

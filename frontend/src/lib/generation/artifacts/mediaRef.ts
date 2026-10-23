@@ -48,10 +48,3 @@ export function resolveArtifactImageSrc(value: ArtifactImageValue, baseURL = '')
 	if (storageUrl) return `${baseURL}${storageUrl}`;
 	return `data:image/png;base64,${value}`;
 }
-
-/** Whether an artifact has an image to show at all - a saved report can carry
- * a reference where the live message carried a payload, and either can be
- * absent when the recorder dropped it. */
-export function hasArtifactImage(value: ArtifactImageValue): boolean {
-	return Boolean(value) && (isMediaRef(value) || typeof value === 'string');
-}

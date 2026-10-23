@@ -10,7 +10,3 @@ def up():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_generations_batch_id ON generations (batch_id)")
 
     print("Migration 057_generations_batch_id: applied")
-
-
-def down():
-    print("Migration 057_generations_batch_id: no-op (SQLite keeps the added column)")

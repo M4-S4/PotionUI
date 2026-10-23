@@ -1,13 +1,11 @@
 from typing import Any, Dict, List, Optional
 
+from src.platform.http.errors import DomainError
 
-class OrganizeError(Exception):
+
+class OrganizeError(DomainError):
     def __init__(self, code: str, message: str, status_code: int, extra: Optional[Dict[str, Any]] = None):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
-        self.extra = extra or {}
+        super().__init__(code, message, status_code, **(extra or {}))
 
 
 def rule_not_found() -> OrganizeError:

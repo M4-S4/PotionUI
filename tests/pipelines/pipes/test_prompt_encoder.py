@@ -336,12 +336,7 @@ class TestReferenceSelections:
                 PipeInput(input={"text_encoder": clip, "reference_image": ["REF1"]}), lambda o: None,
             )
 
-    def test_bite_check_a_missing_selection_entry_would_also_pass_a_vacuous_subset_assertion(self):
-        # BITE CHECK for the narrowing test above: quantity 2 with only ONE
-        # selection entry supplied must fall back to "every reference" for
-        # the output with no entry -- confirms that assertion is checking a
-        # real narrowing on output 0, not "any list shorter than the full
-        # set counts as narrowed".
+    def test_an_output_with_no_selection_entry_presents_every_reference(self):
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config(quantity=2, reference_selections=[[1]]))
         pipe.process(

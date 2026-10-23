@@ -34,6 +34,7 @@ from src.features.recipes.executors._provider_credentials import (
     resolve_provider_registry,
 )
 from src.features.recipes.executors.base import StepContext, StepResult
+from src.features.recipes.executors._artifact_lookup import same_size_candidates
 from src.features.recipes.executors._slot_description import describe_slot, found_as
 from src.features.recipes.variants import resolve_selection
 from src.platform.runtime.gpu_profile import GpuProfile, detect_gpu_profile
@@ -46,9 +47,11 @@ class ArtifactsPlanExecutor:
         provider_registry_factory=None,
         gpu_profile_provider: Optional[Callable[[], GpuProfile]] = None,
         type_manager: Optional[Any] = None,
+        digests: Optional[Any] = None,
     ):
         self.model_repository = model_repository
         self._type_manager = type_manager
+        self._digests = digests
         self._provider_registry_factory = provider_registry_factory
         self._gpu_profile_provider = gpu_profile_provider or detect_gpu_profile
 
@@ -65,6 +68,7 @@ class ArtifactsPlanExecutor:
         missing: List[Dict[str, Any]] = []
         missing_artifacts: List[Any] = []
         present: List[Dict[str, Any]] = []
+        checking: List[Dict[str, Any]] = []
         for artifact_id in artifact_ids:
             artifact = context.recipe.get_artifact(artifact_id)
             if artifact is None:
@@ -72,7 +76,9 @@ class ArtifactsPlanExecutor:
                     "ARTIFACTS_PLAN_MISCONFIGURED",
                     f"This step references an artifact ('{artifact_id}') the recipe doesn't declare.",
                 )
-            slot, choice, installed = describe_slot(self.model_repository, artifact, gpu, self._type_manager)
+            slot, choice, installed = describe_slot(
+                self.model_repository, artifact, gpu, self._type_manager, self._digests, "background"
+            )
             slots.append(slot)
             chosen = resolve_selection(artifact, choice.variant_id)
             entry = {
@@ -90,6 +96,17 @@ class ArtifactsPlanExecutor:
                     entry["found_as"] = found
                 present.append(entry)
             else:
+                candidates = same_size_candidates(chosen, self._digests)
+                if candidates:
+                    entry["checking_files"] = candidates
+                    checking.append(
+                        {
+                            "id": artifact.id,
+                            "display_name": entry["display_name"],
+                            "files": candidates,
+                            "message": f"Checking whether you already have {entry['display_name']}",
+                        }
+                    )
                 missing.append(entry)
                 missing_artifacts.append(chosen)
 
@@ -109,6 +126,8 @@ class ArtifactsPlanExecutor:
             "slots": slots,
             "gpu": gpu.to_dict(),
         }
+        if checking:
+            consent_request["checking"] = checking
         providers = self._unconfigured_credential_providers(missing_artifacts)
         if providers:
             consent_request["providers"] = providers

@@ -10,7 +10,11 @@ and `generate_ulid()` mints sortable primary keys for them.
 settings.
 """
 
+from typing import Any, Dict, Optional
+
+from src.features.plugins.manifest_settings import resolve_plugin_settings
 from src.features.plugins.repository import PluginRepository
+from src.platform.plugins.registry import PluginRegistry
 from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
@@ -21,7 +25,20 @@ __all__ = [
     "Settings",
     "db",
     "generate_ulid",
+    "plugin_settings",
 ]
+
+
+def plugin_settings(
+    plugin_id: str,
+    repository: Optional[PluginRepository] = None,
+    registry: Optional[PluginRegistry] = None,
+) -> Dict[str, Any]:
+    if registry is None:
+        from src.platform.plugins.runtime_registries import get_global_plugin_registry
+        registry = get_global_plugin_registry()
+    return resolve_plugin_settings(repository or PluginRepository(), registry, plugin_id)
+
 
 
 def __getattr__(name):

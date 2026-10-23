@@ -42,10 +42,7 @@ from src.pipelines.outputs import (
 )
 from src.platform.observability.logger import logger
 from src.platform.runtime.native.errors import SamplingCancelled
-from src.pipelines.pipes.interpolator.rife.encode import (
-    StreamingMp4Writer,
-    mux_audio_from_source,
-)
+from src.platform.util.video_stream import StreamingMp4Writer, mux_audio_from_source
 from vendor.rife import load_ifnet
 from vendor.rife.inference import PreparedFrame, interpolate_prepared, prepare_frame
 
@@ -155,15 +152,6 @@ def _idle_model(model: "torch.nn.Module") -> None:
 class RifeInterpolatorPipe(BasePipe):
     name = "interpolator/rife"
     description = "RIFE 4.x frame interpolation (2x/4x) with audio passthrough"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "model": None,
-            "factor": 2,
-            "flow_scale": 1.0,
-            "keep_audio": True,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

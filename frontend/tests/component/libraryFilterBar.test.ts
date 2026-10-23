@@ -67,6 +67,23 @@ describe('LibraryFilterBar', () => {
 		expect(onQueryChange).toHaveBeenCalledWith('dance');
 	});
 
+	it('leaves `/` to the focused sort select and focuses search from the page body', () => {
+		mountBar();
+		const search = target.querySelector('input[type="search"]') as HTMLInputElement;
+		const select = target.querySelector('select') as HTMLSelectElement;
+		select.focus();
+		const fromSelect = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+		select.dispatchEvent(fromSelect);
+		expect(fromSelect.defaultPrevented).toBe(false);
+		expect(document.activeElement).toBe(select);
+
+		select.blur();
+		const fromBody = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+		document.body.dispatchEvent(fromBody);
+		expect(fromBody.defaultPrevented).toBe(true);
+		expect(document.activeElement).toBe(search);
+	});
+
 	it('calls onSortChange when the sort select changes', () => {
 		const onSortChange = vi.fn();
 		mountBar({ onSortChange });
@@ -94,7 +111,7 @@ describe('LibraryFilterBar', () => {
 		buttonByText('Filters')!.click();
 		flushSync();
 		expect(document.body.querySelector('[data-testid="filters-popover"]')).not.toBeNull();
-		document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
 		flushSync();
 		expect(document.body.querySelector('[data-testid="filters-popover"]')).toBeNull();
 	});

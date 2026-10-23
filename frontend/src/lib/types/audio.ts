@@ -15,19 +15,6 @@ export interface AudioTrack {
 	format?: string; // mp3, wav, flac, etc.
 }
 
-export interface AudioOutput {
-	id?: string;
-	generation_id?: string;
-	tracks: AudioTrack[];
-	metadata?: {
-		prompt?: string;
-		model?: string;
-		duration?: number;
-		sample_rate?: number;
-		created_at?: string;
-	};
-}
-
 export interface AudioData {
 	url: string;
 	originalUrl?: string;

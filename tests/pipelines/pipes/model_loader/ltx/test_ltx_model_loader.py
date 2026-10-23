@@ -14,7 +14,7 @@ from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.pipes.model_loader.ltx.main import ModelLoaderLtxPipe
 from src.pipelines.pipes.model_loader.ltx.bundle import LTXModelBundle
 from src.pipelines.pipes.model_loader.ltx.ltx_clip import LTXClipTextEncoder
-from src.pipelines.pipes.generator.txt2vid_ltx.main import release_idle_te
+from src.pipelines.pipes._shared.video.idle_encoder import release_idle_te
 
 
 class _FakeModels:
@@ -54,12 +54,6 @@ def _resolve_te(out):
     the TE's key/fingerprint/estimate has to ask the clip for it first, exactly
     as `prompt_encoder` does on a projected-conditioning cache miss."""
     return out.output["text_encoder"].te_encoder
-
-
-def test_name_and_outputs():
-    assert ModelLoaderLtxPipe.name == "model_loader"
-    out = {o.name: o.io_type for o in ModelLoaderLtxPipe.outputs()}
-    assert out["model"] == IOType.MODEL and out["text_encoder"] == IOType.TEXT_ENCODER
 
 
 def test_three_component_acquires_plus_projection():

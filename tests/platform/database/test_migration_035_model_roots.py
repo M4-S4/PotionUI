@@ -1,48 +1,25 @@
 import hashlib
-import importlib.util
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.platform.database.database import Database
 from src.platform.util.ids import generate_ulid
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration035ModelRoots(unittest.TestCase):
+class TestMigration035ModelRoots(MigrationCase):
+    MIGRATION = "035_model_roots"
 
     def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.repo_root = Path(tempfile.mkdtemp())
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("035_model_roots", self.db)
-
-        self.cwd_patch = patch("pathlib.Path.cwd", return_value=self.repo_root)
-        self.cwd_patch.start()
-
-    def tearDown(self):
-        self.cwd_patch.stop()
-        Database._instance = None
+        repo = tempfile.TemporaryDirectory()
+        self.addCleanup(repo.cleanup)
+        self.repo_root = Path(repo.name)
+        cwd_patch = patch("pathlib.Path.cwd", return_value=self.repo_root)
+        cwd_patch.start()
+        self.addCleanup(cwd_patch.stop)
+        super().setUp()
 
     def _cursor(self):
         return self.db.get_cursor()

@@ -3,7 +3,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-tool-approval';
-const BEAT = 450;
 const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 let fake: FakeLLMServer;
@@ -89,7 +88,6 @@ test('approving an inline card applies it and the reply streams below the card',
 	await expect(chipInput).toHaveAttribute('contenteditable', 'true');
 	await expect(chipInput).toHaveAttribute('aria-placeholder', 'Reply, or tell it what to change instead…');
 
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'card-pending');
 
 	fake.enqueue({ kind: 'text', text: 'Deleted the e2e-approve-style note from memory.' });
@@ -99,7 +97,6 @@ test('approving an inline card applies it and the reply streams below the card',
 	await expect(card).toContainText('Applied');
 	await expect(page.getByText('Deleted the e2e-approve-style note from memory.')).toBeVisible({ timeout: 30000 });
 	await expect(page.getByText('(fake-llm: no scripted turn left)')).toHaveCount(0);
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'card-applied');
 
 	expect(await memoryNoteIds(page, token), 'note is gone after approve').not.toContain(noteId);
@@ -122,14 +119,12 @@ test('rejecting with a reason sends the reason back and nothing is deleted', asy
 	const reason = card.getByRole('textbox', { name: 'Reason (optional)' });
 	await expect(reason).toBeFocused();
 	await reason.fill('Keep it until the series is finished');
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'card-reject-reason');
 	await reason.press('Enter');
 
 	await expect(card).toHaveAttribute('data-state', 'rejected', { timeout: 30000 });
 	await expect(card).toContainText('"Keep it until the series is finished"');
 	await expect(page.getByText('I kept the e2e-reject-style note.')).toBeVisible({ timeout: 30000 });
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'card-rejected');
 
 	expect(toolResultsSentToModel()).toContain('Keep it until the series is finished');
@@ -154,7 +149,6 @@ test('typing a message while a card is pending rejects it with that message as t
 	await expect(card).toHaveAttribute('data-state', 'rejected', { timeout: 30000 });
 	await expect(card).toContainText('"Actually keep it, just suggest three references"');
 	await expect(page.getByText('Here are three painterly references instead.')).toBeVisible({ timeout: 30000 });
-	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'card-rejected-by-reply');
 
 	expect(await memoryNoteIds(page, token), 'note still exists after replying instead').toContain(noteId);

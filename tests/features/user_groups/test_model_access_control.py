@@ -9,6 +9,7 @@ if project_root not in sys.path:
 from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.models.repository import model_repo
 from src.features.user_groups.repository import user_group_repo
+from tests.fixtures.seed import seed_user
 
 try:
     from src.platform.util.ids import generate_ulid
@@ -43,12 +44,7 @@ class TestUserModelAccessControl(PersistenceTestBase):
     def create_test_user(self, username="testuser"):
         """Create a test user and return user_id."""
         user_id = generate_ulid()
-        with self.db.get_cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO users (id, username, email, password_hash)
-                VALUES (?, ?, ?, ?)
-            """, (user_id, username, f"{username}@test.com", "hash"))
-        return user_id
+        return seed_user(self.db, user_id, username=username)
 
     def create_test_model(self, filename="test_model.safetensors", model_type="checkpoint"):
         """Create a test model and return model ID."""

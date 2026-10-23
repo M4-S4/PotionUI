@@ -1,14 +1,17 @@
+from __future__ import annotations
+
 import logging
 import math
 import re
-from typing import List, Tuple, Any, Optional, Dict
+from typing import TYPE_CHECKING, List, Tuple, Any, Optional, Dict
 
 import torch
-from diffusers.loaders import TextualInversionLoaderMixin
-from transformers import CLIPTokenizer
 
 from src.platform.runtime.primitives.clip import ClipTextEncoder, ConditioningModel
 from src.pipelines.models import BaseModel
+
+if TYPE_CHECKING:
+    from transformers import CLIPTokenizer
 
 
 def resize_embeddings_for_sdxl(embedding_tensor: torch.Tensor, target_dim=768) -> torch.Tensor:
@@ -331,6 +334,8 @@ class SDXLClipTextEncoder(ClipTextEncoder):
             self._load_textual_inversion_embeddings(embedding_files)
 
         # 2) Handle textual inversion conversion if needed
+        from diffusers.loaders import TextualInversionLoaderMixin
+
         if isinstance(self.pipe, TextualInversionLoaderMixin):
             prompt = self.pipe.maybe_convert_prompt(prompt, self.tokenizer)
             negative_prompt = self.pipe.maybe_convert_prompt(negative_prompt, self.tokenizer)

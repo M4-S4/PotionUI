@@ -1,7 +1,10 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { onDestroy } from 'svelte';
 	import { api } from '$lib/services/api/index';
+	import { tagCatalog } from '$lib/stores/tagCatalog';
 	import type { LibraryItem } from '$lib/services/api/library';
 	import Icon from '$lib/components/Icon.svelte';
 	import MediaPickerFrame from './MediaPickerFrame.svelte';
@@ -109,8 +112,7 @@
 
 	async function loadTags() {
 		try {
-			const response = await api.getTags(LIBRARY_TAG_TYPE);
-			if (response.success && response.data) availableTags = response.data.tags as Tag[];
+			availableTags = await tagCatalog.get<Tag>(LIBRARY_TAG_TYPE, { fresh: true });
 		} catch (error) {
 			logger.error('Failed to load library tags:', error);
 		}
@@ -122,14 +124,13 @@
 		loadTags();
 	}
 
-	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSearch = debounce(() => loadItems(1), 300);
 	function handleSearchInput(event: Event) {
 		search = (event.currentTarget as HTMLInputElement).value;
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => loadItems(1), 300);
+		scheduleSearch();
 	}
 
-	onDestroy(() => clearTimeout(searchDebounce));
+	onDestroy(scheduleSearch.cancel);
 
 	function handleTagToggle(tagId: string) {
 		selectedTagIds = selectedTagIds.includes(tagId)
@@ -336,7 +337,7 @@
 									<button
 										type="button"
 										class="p-1.5 text-white/80 hover:text-white bg-black/50 hover:bg-black/70 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-										title="Delete this item"
+										use:tooltip={'Delete this item'}
 										aria-label={`Delete ${libraryItemDisplayName(item)}`}
 										on:click={() => requestDelete(item.id)}
 									>
@@ -347,7 +348,7 @@
 
 							<!-- File name overlay -->
 							<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 pt-4 pointer-events-none">
-								<p class="text-sm font-medium text-white truncate" title={libraryItemDisplayName(item)}>
+								<p class="text-sm font-medium text-white truncate" use:tooltip={{ text: libraryItemDisplayName(item), truncateOnly: true }}>
 									{libraryItemDisplayName(item)}
 								</p>
 							</div>
@@ -355,7 +356,7 @@
 						{#if metadataLine(item)}
 							<p
 								class="mt-1 font-mono tabular-nums text-xs text-fg-subtle truncate"
-								title={metadataLine(item) ?? ''}
+								use:tooltip={{ text: metadataLine(item) ?? '', truncateOnly: true }}
 							>
 								{metadataLine(item)}
 							</p>

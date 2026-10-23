@@ -51,57 +51,6 @@ class TestModelLoaderMayaPipe:
         assert "Maya" in ModelLoaderMayaPipe.description
         assert "text-to-speech" in ModelLoaderMayaPipe.description.lower()
 
-    def test_default_config(self):
-        """Test default configuration."""
-        config = ModelLoaderMayaPipe.get_default_config()
-
-        assert config["model_id"] == "maya-research/maya1"
-        assert config["snac_model"] == "hubertsiuzdak/snac_24khz"
-        assert config["device"] == "cuda"
-        assert config["dtype"] == "bfloat16"
-
-    def test_configuration_specs(self):
-        """Test configuration specifications."""
-        specs = ModelLoaderMayaPipe.configuration()
-
-        spec_names = [spec.name for spec in specs]
-        assert "model_id" in spec_names
-        assert "snac_model" in spec_names
-        assert "device" in spec_names
-        assert "dtype" in spec_names
-
-        # Check device choices
-        device_spec = next(s for s in specs if s.name == "device")
-        assert device_spec.choices == ["cuda", "cpu"]
-
-        # Check dtype choices
-        dtype_spec = next(s for s in specs if s.name == "dtype")
-        assert "bfloat16" in dtype_spec.choices
-        assert "float16" in dtype_spec.choices
-        assert "float32" in dtype_spec.choices
-
-    def test_inputs_specs(self):
-        """Test input specifications."""
-        inputs = ModelLoaderMayaPipe.inputs()
-
-        input_names = [inp.name for inp in inputs]
-        assert "MODELS" in input_names
-
-        models_input = next(inp for inp in inputs if inp.name == "MODELS")
-        assert models_input.io_type == IOType.SERVICE
-        assert models_input.required is False
-        assert models_input.is_array is False
-
-    def test_outputs_specs(self):
-        """Test output specifications."""
-        outputs = ModelLoaderMayaPipe.outputs()
-
-        output_names = [out.name for out in outputs]
-        assert "model" in output_names
-
-        model_output = next(out for out in outputs if out.name == "model")
-        assert model_output.io_type == IOType.MODEL
-        assert model_output.is_array is False
 
     @patch('src.pipelines.pipes.model_loader.maya.main.MayaModel')
     def test_process_loads_new_model(self, mock_maya_model_class, tmp_path):
@@ -210,6 +159,12 @@ class TestModelLoaderMayaPipe:
 
         # Verify new model was returned
         assert result.output["model"] == mock_new_model
+
+    def test_device_and_dtype_choices(self):
+        specs = {spec.name: spec for spec in ModelLoaderMayaPipe.configuration()}
+
+        assert specs["device"].choices == ["cuda", "cpu"]
+        assert set(specs["dtype"].choices) >= {"bfloat16", "float16", "float32"}
 
 
 class TestMayaModel:

@@ -1,5 +1,6 @@
 import asyncio
 from src.features.chat.reply_contract import approval_continuation_message
+from src.features.llm.tools.base import ToolServices
 import copy
 import json
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from fastapi import HTTPException
 from src.features.chat import conversation as conversation_module
 from src.features.chat.dto import ContinueFromRequest, SendMessageRequest
 from src.features.chat.exceptions import ContinuationConflictException, ToolExecutionPendingException
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.repository import ChatRepository
 from src.features.chat.routes import ChatController
 from src.features.chat.runtime import ChatRuntime
@@ -19,20 +20,16 @@ from src.features.chat.tool_transcript import replay_messages
 from src.features.chat.turns import ChatTurnRegistry
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.prompt_variables_tool import ManagePromptVariablesTool
+from tests.fixtures.fake_tab_drafts import make_manager
 from src.features.llm.tools.builtin.run_generation_tool import RunGenerationTool
 from src.features.llm.tools.executor import ToolExecutor, _ToolCallGuard
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.prompt.expander import expand_prompts
 from src.platform.security.user import User
+from tests.fixtures.seed import seed_user
 
 USER_ID = "user-1"
 CONTEXT = {"form_state": {"form_data": {"value": 1}}}
-
-
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 def _call(call_id, name, **arguments):
@@ -131,15 +128,11 @@ class _EchoTool(BaseTool):
 
 @pytest.fixture
 def chat_db(mock_db):
-    with mock_db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, ?, ?)",
-            (USER_ID, "u", "u@example.com", "h", "USER"),
-        )
+    seed_user(mock_db, USER_ID, username="u", email="u@example.com")
     return mock_db
 
 
-def _manager(tools, llm, generation_orchestrator=None):
+def _manager(tools, llm, generation_orchestrator=None, tab_drafts=None):
     registry = ToolRegistry()
     for tool in tools:
         registry.register(tool)
@@ -153,9 +146,9 @@ def _manager(tools, llm, generation_orchestrator=None):
         llm_service=llm,
         response_processor=processor,
         plugin_registry=plugins,
-        chat_mode_registry=_mode_registry(),
+        chat_mode_registry=mode_registry(),
         tool_executor=ToolExecutor(tool_registry=registry, llm_service=llm),
-        generation_orchestrator=generation_orchestrator,
+        tool_services=ToolServices(generation_orchestrator=generation_orchestrator, tab_drafts=tab_drafts),
     )
     session = repo.create_session(user_id=USER_ID, llm_config_id="llm-1", mode="generation")
     return manager, repo, session.id
@@ -273,8 +266,6 @@ class TestResolve:
 
     @pytest.mark.asyncio
     async def test_continuation_asks_for_a_one_sentence_confirmation(self, chat_db):
-        from src.features.chat.reply_contract import APPROVAL_CONTINUATION_NOTE
-
         tool = _SetValueTool()
         manager, _repo, session_id, llm, message_id, _events = await _paused(tool)
         first_system = llm.calls[0]["system"]
@@ -283,10 +274,9 @@ class TestResolve:
         await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 0})
 
         assert llm.calls[-1]["system"] == first_system
-        assert APPROVAL_CONTINUATION_NOTE not in json.dumps(llm.calls[0]["messages"])
+        assert "just resolved the pending" not in json.dumps(llm.calls[0]["messages"])
         last = llm.calls[-1]["messages"][-1]
-        assert last["role"] == "user"
-        assert APPROVAL_CONTINUATION_NOTE in last["content"]
+        assert last == approval_continuation_message("set_value", "c1")
 
     @pytest.mark.asyncio
     async def test_failure_reaches_continuation(self, chat_db):
@@ -375,13 +365,40 @@ class TestContinuation:
                 "role": "tool", "tool_call_id": "c2", "name": "echo",
                 "content": "Not run: waiting for approval of set_value. Call it again if still needed.",
             },
-            approval_continuation_message(),
+            approval_continuation_message("set_value", "c1"),
         ]
 
         reply = _done(events)["assistant_message"]
         assert reply["content"] == "Set to 2."
         assert reply["metadata"]["continued_from"] == {"message_id": message_id, "tool_index": 0}
         assert len(repo.get_messages(session_id)) == 3
+
+    @pytest.mark.asyncio
+    async def test_continuation_keeps_a_group_loaded_earlier_in_the_turn(self, chat_db):
+        from src.features.llm import context_budget
+
+        class _CompactLLM(_ScriptedLLM):
+            def context_capacity_for(self, config):
+                return context_budget.CapacityInfo(8192, "config")
+
+        tool = _SetValueTool()
+        tool.context_group = "extra"
+        llm = _CompactLLM([
+            {"tool_calls": [_call("c0", "use_tools", group="extra")]},
+            {"tool_calls": [_call("c1", "set_value", value=2)]},
+            {"content": "Set to 2."},
+        ])
+        manager, _repo, session_id = _manager([tool, _EchoTool()], llm)
+        events = await _stream(manager, session_id, "set it to 2")
+        message_id = _done(events)["assistant_message"]["id"]
+        await _resolve(manager, session_id, message_id, tool_index=1)
+
+        await _stream(manager, session_id, continue_from={"message_id": message_id, "tool_index": 1})
+
+        names = [[schema["function"]["name"] for schema in call["tools"]] for call in llm.calls]
+        assert names[0] == ["echo", "use_tools"]
+        assert names[1] == ["set_value", "echo"]
+        assert names[2] == ["set_value", "echo"]
 
     @pytest.mark.asyncio
     async def test_continuation_while_pending_is_refused(self, chat_db):
@@ -532,7 +549,7 @@ class TestSendWhilePending:
 class TestHistoryBudget:
     def _runner(self, budget_tokens):
         manager = Mock()
-        manager.settings.get_setting = Mock(return_value=budget_tokens)
+        manager.tool_services.settings.get_setting = Mock(return_value=budget_tokens)
         return conversation_module.ConversationRunner(manager)
 
     def test_trims_whole_rounds_only(self):
@@ -605,7 +622,7 @@ class TestFormStateSyncAcrossChainedApprovals:
             "preset": "preset-sdxl",
             "mode": "txt2img",
             "form_data": {"prompt": "${mood} lighting on the subject"},
-            "variables": [],
+            "tab_id": "tab-1",
         },
     }
 
@@ -616,8 +633,10 @@ class TestFormStateSyncAcrossChainedApprovals:
             {"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]},
             {"tool_calls": [_call("g1", "run_generation")]},
         ])
+        self.drafts, self.notifier = make_manager()
         manager, repo, session_id = _manager(
-            [ManagePromptVariablesTool(), RunGenerationTool()], llm, generation_orchestrator=orchestrator,
+            [ManagePromptVariablesTool(), RunGenerationTool()], llm,
+            generation_orchestrator=orchestrator, tab_drafts=self.drafts,
         )
         events = await _stream(manager, session_id, "pin mood to sunlit, then generate",
                                context_metadata=copy.deepcopy(self._CONTEXT))
@@ -628,16 +647,81 @@ class TestFormStateSyncAcrossChainedApprovals:
         return manager, repo, session_id, orchestrator, _done(events)["assistant_message"]
 
     @pytest.mark.asyncio
-    async def test_chained_run_generation_carries_the_updated_snapshot(self, chat_db):
+    async def test_the_approved_change_lands_in_the_draft_and_is_pushed(self, chat_db):
         _manager_, _repo, _sid, _orchestrator, second = await self._chain()
 
         [run_generation] = second["metadata"]["tool_executions"]
         assert run_generation["tool_name"] == "run_generation"
         assert run_generation["approval_status"] == "pending"
-        assert second["metadata"]["context_metadata"]["form_state"]["variables"] == [{
-            "name": "mood", "type": "choice", "options": ["noir", "sunlit"],
-            "mode": "pin", "pinnedIndex": 1,
-        }]
+        assert "variables" not in second["metadata"]["context_metadata"]["form_state"]
+        assert self.drafts.variables(USER_ID, "tab-1") == {
+            "mood": {"type": "choice", "options": ["noir", "sunlit"], "mode": "pin", "pinnedIndex": 1},
+        }
+        [(pushed_to, message)] = self.notifier.sent
+        assert pushed_to == USER_ID
+        assert message["type"] == "tab_variables_changed"
+        assert message["tab_id"] == "tab-1" and message["rev"] == 1
+        assert message["doc"] == {"variables": self.drafts.variables(USER_ID, "tab-1")}
+
+    @pytest.mark.asyncio
+    async def test_approving_after_switching_tabs_writes_and_pushes_the_tab_it_was_proposed_on(self, chat_db):
+        llm = _ScriptedLLM([{"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]}])
+        drafts, notifier = make_manager()
+        manager, _repo, session_id = _manager([ManagePromptVariablesTool()], llm, tab_drafts=drafts)
+        events = await _stream(manager, session_id, "pin mood", context_metadata=copy.deepcopy(self._CONTEXT))
+        message_id = _done(events)["assistant_message"]["id"]
+        switched = copy.deepcopy(self._CONTEXT)
+        switched["form_state"]["tab_id"] = "tab-2"
+
+        result = await _resolve(manager, session_id, message_id, context_metadata=switched)
+
+        assert result["status"] == "approved"
+        assert "mood" in drafts.variables(USER_ID, "tab-1")
+        assert drafts.find(USER_ID, "tab-2") is None
+        assert [m["tab_id"] for _, m in notifier.sent] == ["tab-1"]
+
+    @pytest.mark.asyncio
+    async def test_follow_up_turn_sees_the_applied_rows_and_a_note_naming_the_approved_call(self, chat_db):
+        llm = _ScriptedLLM([
+            {"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]},
+            {"tool_calls": [_call("e1", "echo")]},
+            {"content": "Pinned mood to sunlit."},
+        ])
+        drafts, _notifier = make_manager()
+        manager, _repo, session_id = _manager([ManagePromptVariablesTool(), _EchoTool()], llm, tab_drafts=drafts)
+        events = await _stream(manager, session_id, "pin mood", context_metadata=copy.deepcopy(self._CONTEXT))
+        message_id = _done(events)["assistant_message"]["id"]
+        await _resolve(manager, session_id, message_id)
+
+        await _stream(manager, session_id, context_metadata=None,
+                      continue_from={"message_id": message_id, "tool_index": 0})
+
+        final = llm.calls[-1]["messages"]
+        applied = next(m for m in final if m.get("tool_call_id") == "v1")
+        payload = json.loads(applied["content"])
+        assert payload["status"] == "applied"
+        assert [row["field_name"] for row in payload["applied_changes"]] == ["${mood}"]
+        assert payload["applied_changes"][0]["new_value"]
+        assert "${mood}" in payload["summary"]
+        note = next(m for m in final if m["role"] == "user" and "just resolved the pending" in m["content"])
+        assert "manage_prompt_variables" in note["content"] and "v1" in note["content"]
+        assert "last tool result" not in note["content"]
+        assert final.index(applied) < final.index(note)
+        assert any(m.get("tool_call_id") == "e1" for m in final)
+
+    @pytest.mark.asyncio
+    async def test_declining_the_change_writes_and_pushes_nothing(self, chat_db):
+        llm = _ScriptedLLM([{"tool_calls": [_call("v1", "manage_prompt_variables", operations=self._VARIABLE_OPS)]}])
+        drafts, notifier = make_manager()
+        manager, _repo, session_id = _manager([ManagePromptVariablesTool()], llm, tab_drafts=drafts)
+        events = await _stream(manager, session_id, "pin mood", context_metadata=copy.deepcopy(self._CONTEXT))
+        message_id = _done(events)["assistant_message"]["id"]
+
+        result = await _resolve(manager, session_id, message_id, approved=False)
+
+        assert result["status"] != "approved"
+        assert drafts.find(USER_ID, "tab-1") is None
+        assert notifier.sent == []
 
     @pytest.mark.asyncio
     async def test_approving_the_chained_run_generation_expands_the_new_variable(self, chat_db):

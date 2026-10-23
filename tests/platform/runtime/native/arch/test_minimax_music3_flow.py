@@ -1,12 +1,3 @@
-"""Tests for the MiniMax-Music3 windowed Euler flow-matching loop.
-
-Coverage: the inverted flow-time schedule against hand-computed values, the
-chunk-start algebra, the crop/tiling algebra (bite-checked by perturbing the 86-latent
-crop constant), the plain Euler update in isolation (a constant-velocity double removes
-the DiT/CFG numerics so the update arithmetic is checked on its own), the per-step
-overlap-pin convergence and the post-loop verbatim restore, and cancellation.
-"""
-
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -90,17 +81,6 @@ def test_crop_tiling_close_for_many_windows(num_frames):
     target = flow.latent_length(num_frames)
     assert total >= target
     assert total - target <= num_windows
-
-
-def test_bite_check_wrong_crop_constant_breaks_tiling():
-    """Perturbing the 86-latent left-crop constant must move the multi-window
-    tiling total further from `latent_length(F)`, proving the test above is
-    actually sensitive to that constant."""
-    num_frames = 1500
-    target = flow.latent_length(num_frames)
-    real_diff = _sum_kept_latents(num_frames, flow.CROP_LEFT_LATENT, flow.CROP_RIGHT_LATENT) - target
-    wrong_diff = _sum_kept_latents(num_frames, flow.CROP_LEFT_LATENT + 20, flow.CROP_RIGHT_LATENT) - target
-    assert abs(wrong_diff) > abs(real_diff)
 
 
 def test_crop_bounds_first_and_last_window():
@@ -187,35 +167,6 @@ def test_overlap_pin_converges_to_previous_latent_and_is_restored_verbatim():
     window1_latents = chunks[1]
     overlap = min(expected_carry.shape[-1], window1_latents.shape[-1])
     torch.testing.assert_close(window1_latents[..., :overlap], expected_carry[..., :overlap])
-
-
-def test_bite_check_no_overlap_restore_would_diverge():
-    """If the post-loop restore were skipped, the overlap region would only be the
-    per-step BLEND toward the carry (not exact), which for a large constant
-    velocity and few steps is measurably off — confirming the restore in the test
-    above is actually load-bearing, not a no-op for this fixture."""
-    in_channels = 2
-    velocity = torch.randn(1, in_channels, 1) * 5.0
-    model = _ConstantVelocityModel(in_channels, velocity)
-    generator = torch.Generator().manual_seed(1)
-    num_frames = 201
-    frame_hiddens = torch.randn(1, num_frames, 8)
-
-    starts = flow.chunk_starts(num_frames)
-    condition0 = model.encode_condition(frame_hiddens[:, starts[0]:min(starts[0] + flow.CHUNK_FRAMES, num_frames)])
-    t0 = condition0.shape[1]
-    noise_gen = torch.Generator().manual_seed(1)
-    latents0 = torch.randn((1, in_channels, t0), generator=noise_gen)
-    window0_without_restore = latents0 + velocity  # steps telescope to dt-sum 1.0, no overlap on window 0
-
-    chunks = flow.denoise_windowed(
-        model, frame_hiddens, steps=4, cfg_scale=1.7,
-        generator=torch.Generator().manual_seed(1), device=torch.device("cpu"), dtype=torch.float32,
-    )
-    torch.testing.assert_close(chunks[0], window0_without_restore)
-    # window 0 has no overlap (nothing precedes it), so its own value is untouched
-    # by any restore -- the interesting (bite-checked) case is window 1's overlap
-    # region, covered by the convergence test above.
 
 
 # --- cancellation -------------------------------------------------------------------

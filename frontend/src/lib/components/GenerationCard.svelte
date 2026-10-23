@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { createEventDispatcher } from 'svelte';
 	import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 	import MediaPreview from './MediaPreview.svelte';
@@ -10,9 +11,10 @@
 import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl';
 	import StarRating from './StarRating.svelte';
 	import FavoriteButton from './FavoriteButton.svelte';
-	import { Badge, CopyButton } from '$lib/components/ui';
+	import { Badge, CopyButton, IconButton } from '$lib/components/ui';
 	import { historyStore } from '$lib/stores/history';
 	import { timeAgo } from '$lib/utils/relativeTime';
+	import { generationRunLabel } from '$lib/utils/generationTime';
 	import { formatBytes, formatSeconds } from '$lib/utils/format';
 	import { nsfwFilterStore, selectableMediaFiles, visibleMediaFiles, isUnratedFile } from '$lib/stores/nsfwFilter';
 	import FailureNotice from '$lib/components/FailureNotice.svelte';
@@ -43,6 +45,9 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 	export let selected: boolean = false;
 	/** Show an always-available selection checkbox (independent of selection mode). */
 	export let showCheckbox: boolean = false;
+	export let disabled: boolean = false;
+	export let interactive: boolean = true;
+	export let label: string | null = null;
 	/**
 	 * The second argument is the selected file ITSELF, never its index: the card's
 	 * carousel walks a filtered (`is_final`, nsfw) and re-ordered
@@ -159,6 +164,8 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 	// fixed-aspect card).
 	$: chromeBucket = tile ? bucketForCardWidth(tile.width) : null;
 	$: menuEnabled = !!(tile && chromeBucket && entryMenu);
+	$: barRunLabel = chromeBucket?.showBarDuration ? generationRunLabel(generation) : null;
+	$: durationReplacesResolution = !!(barRunLabel && chromeBucket?.durationReplacesResolution);
 	$: cardResolution = resolveCardResolution(currentMediaFile, generation.form_data);
 	$: fullResolutionTitle = cardResolution ? `${cardResolution.width}×${cardResolution.height}` : undefined;
 	$: barResolutionText =
@@ -210,7 +217,7 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 		// preview; a plain click there falls through to the preview as usual.
 		const wantsSelection =
 			selectable || !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
-		if (wantsSelection && onSelect) {
+		if (wantsSelection && onSelect && !disabled) {
 			onSelect(generation, currentMediaFile ?? null, event);
 		} else if (mediaFiles.length > 0 || stackEntry) {
 			dispatch('imageClick', { files: generation.files, generationId: generation.id });
@@ -320,6 +327,7 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 
 <div
 	class="group relative"
+	class:opacity-50={disabled}
 	style={tile ? `width: ${tile.width}px` : undefined}
 	data-generation-card
 	role="presentation"
@@ -341,7 +349,7 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 			? 'bg-black'
 			: 'bg-surface-1'} {selected
 			? 'tile-selected border-line-hover'
-			: 'border-line-strong hover:border-line-hover'}"
+			: 'border-line-strong group-hover:border-line-hover'}"
 	>
 		<!-- Selection wash when selected -->
 		{#if selected}
@@ -373,6 +381,7 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 			style={tile ? `height: ${tile.height}px` : undefined}
 			role="button"
 			tabindex="0"
+			aria-label={label ? `Preview ${label}` : undefined}
 			on:click={handleCardClick}
 			on:pointerdown={handlePointerDown}
 			on:pointermove={handlePointerMove}
@@ -492,20 +501,8 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 							/>
 						</div>
 						{#if density.actionMode === 'full'}
-							<button
-								class="bg-black/60 hover:bg-black/80 text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-								on:click={handleViewClick}
-								aria-label="View generation details"
-							>
-								<Icon name="eyes" className="h-3.5 w-3.5" />
-							</button>
-							<button
-								class="bg-black/60 hover:bg-danger-solid text-white rounded p-1.5 backdrop-blur-sm transition-opacity duration-100 opacity-0 group-hover:opacity-100"
-								on:click={handleDeleteClick}
-								aria-label="Delete generation"
-							>
-								<Icon name="trash" className="h-3.5 w-3.5" />
-							</button>
+							<IconButton icon="eyes" label="View generation details" size="xs" variant="overlay" onclick={handleViewClick} class="opacity-0 group-hover:opacity-100" />
+							<IconButton icon="trash" label="Delete generation" size="xs" variant="overlay" onclick={handleDeleteClick} class="opacity-0 group-hover:opacity-100 hover:!bg-danger-solid" />
 						{/if}
 					</div>
 				{/if}
@@ -581,7 +578,7 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 			{#if tile && chromeBucket?.showHoverMeta && generation.status === 'completed' && barHoverMetaParts.length > 0}
 				<div
 					class="absolute bottom-1.5 right-1.5 z-20 max-w-[60%] px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-fg-muted font-mono tabular-nums text-2xs tracking-[0.07em] truncate opacity-0 group-hover:opacity-100 transition-opacity duration-100"
-					title={barHoverMetaParts.join(' · ')}
+					use:tooltip={{ text: barHoverMetaParts.join(' · '), truncateOnly: true }}
 				>
 					{barHoverMetaParts.join(' · ')}
 				</div>
@@ -601,14 +598,14 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 					{#if density.metadataMode === 'full'}
 						<span
 							class="font-mono text-xs text-white/60 truncate min-w-0"
-							title={topSystemTags.join(' · ')}
+							use:tooltip={{ text: topSystemTags.join(' · '), truncateOnly: true }}
 						>
 							{topSystemTags.join(' · ')}
 						</span>
 					{/if}
 					<span
 						class="font-mono tabular-nums text-xs uppercase tracking-[0.07em] text-white/90 truncate min-w-0 shrink-0"
-						title={metaParts.join(' · ')}
+						use:tooltip={{ text: metaParts.join(' · '), truncateOnly: true }}
 					>
 						{metaParts.join(' · ')}
 					</span>
@@ -617,20 +614,8 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 
 			<!-- File navigation -->
 			{#if mediaFiles.length > 1 && density.showCarouselArrows}
-				<button
-					class="absolute left-1.5 top-1/2 -translate-y-1/2 z-30 bg-black/60 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-100 rounded p-1.5"
-					on:click={handlePrevImage}
-					aria-label="Previous image"
-				>
-					<Icon name="chevron-left" className="h-3.5 w-3.5" />
-				</button>
-				<button
-					class="absolute right-1.5 top-1/2 -translate-y-1/2 z-30 bg-black/60 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100 transition-opacity duration-100 rounded p-1.5"
-					on:click={handleNextImage}
-					aria-label="Next image"
-				>
-					<Icon name="chevron-right" className="h-3.5 w-3.5" />
-				</button>
+				<IconButton icon="chevron-left" label="Previous image" size="xs" variant="overlay" onclick={handlePrevImage} class="absolute left-1.5 top-1/2 -translate-y-1/2 z-30 opacity-0 group-hover:opacity-100" />
+				<IconButton icon="chevron-right" label="Next image" size="xs" variant="overlay" onclick={handleNextImage} class="absolute right-1.5 top-1/2 -translate-y-1/2 z-30 opacity-0 group-hover:opacity-100" />
 			{/if}
 			{#if showCarouselCounter}
 				<div
@@ -686,14 +671,14 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 				{:else}
 				<div class="flex items-center gap-1 min-w-0 overflow-hidden">
 					{#if generation.status === 'completed'}
-						{#if chromeBucket.showStars}
+						{#if chromeBucket.showStars && interactive}
 							<StarRating
 								value={generation.rating}
 								tone="default"
 								readonly={!showActions}
 								onChange={handleRatingChange}
 							/>
-						{:else if chromeBucket.showRatingChip}
+						{:else if chromeBucket.showRatingChip || !interactive}
 							<div class="flex items-center gap-1 {generation.rating ? 'text-signal' : 'text-line-hover'}">
 								<svg
 									class="w-2.5 h-2.5"
@@ -714,13 +699,21 @@ import { resolveSplatFormat } from '$lib/components/workbench/renderers/splatUrl
 					{:else}
 						<span
 							class="w-1.5 h-1.5 rounded-full shrink-0 {statusDotClass}"
-							title={generation.status}
+							use:tooltip={generation.status}
 						></span>
 					{/if}
 				</div>
 				<div class="flex items-center gap-1.5 ml-auto shrink-0 font-mono tabular-nums text-2xs tracking-[0.07em]">
-					{#if barResolutionText}
-						<span class="text-fg-muted whitespace-nowrap" title={fullResolutionTitle}>{barResolutionText}</span>
+					{#if barResolutionText && !durationReplacesResolution}
+						<span class="text-fg-muted whitespace-nowrap" use:tooltip={fullResolutionTitle}>{barResolutionText}</span>
+					{/if}
+					{#if barRunLabel}
+						{#if barResolutionText && !durationReplacesResolution}<span class="text-line-hover">·</span>{/if}
+						<Tooltip text="Generation time" position="top" wrapperClass="inline-flex items-center">
+							<span class="inline-flex items-center gap-0.5 text-xs text-fg-muted whitespace-nowrap" data-testid="card-run-time">
+								{#if chromeBucket.durationIcon}<Icon name="clock" className="w-2.5 h-2.5" />{/if}{barRunLabel}
+							</span>
+						</Tooltip>
 					{/if}
 					{#if chromeBucket.showBarTime}
 						<span class="text-line-hover">·</span>

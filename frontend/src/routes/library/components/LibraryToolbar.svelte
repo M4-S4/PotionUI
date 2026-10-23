@@ -1,19 +1,32 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { onDestroy } from 'svelte';
+	import { debounce } from '$lib/utils/time';
 	import { libraryStore } from '$lib/stores/library';
 	import { historyTileSize, type HistoryTileSize } from '$lib/stores/historyTileSize';
 	import { PageHeader, PageTitle, IconButton, Button } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { hasConvertibleLibraryFilters, libraryFilterRule } from '$lib/organize/filterPrefill';
 	import { startRuleFrom } from '$lib/organize/handoff';
+	import CollectionSidebarSheet from '$lib/components/collections/CollectionSidebarSheet.svelte';
+	import LibrarySidebar from './LibrarySidebar.svelte';
+	import SubcollectionFilters from '$lib/components/collections/SubcollectionFilters.svelte';
+	import { libraryCollectionsStore } from '$lib/stores/collections';
 
 	// Self-contained: reads/writes libraryStore directly. Modal-opening
 	// callbacks stay as props since modal state lives on the page.
 	export let onOpenAddTag: () => void;
 	export let onPickFiles: () => void;
 	export let onOpenDeleteByCriteria: () => void;
+	export let sidebarOpen = true;
+	export let onOpenSidebar: () => void = () => {};
 
 	$: state = $libraryStore;
+
+	function setDirectOnly(value: boolean) {
+		libraryStore.setFilter('directOnly', value);
+		libraryStore.load();
+	}
 	$: counts = state.mediaTypeCounts;
 
 	let isMoreMenuOpen = false;
@@ -45,15 +58,14 @@
 	}
 
 	// Search matches the item's original filename server-side, debounced.
-	let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSearch = debounce(() => libraryStore.load(), 300);
 	function handleSearchInput(event: Event) {
 		const value = (event.currentTarget as HTMLInputElement).value;
 		libraryStore.setFilter('search', value);
-		clearTimeout(searchDebounce);
-		searchDebounce = setTimeout(() => libraryStore.load(), 300);
+		scheduleSearch();
 	}
 
-	onDestroy(() => clearTimeout(searchDebounce));
+	onDestroy(scheduleSearch.cancel);
 
 	function handleWindowClick(event: MouseEvent) {
 		const target = event.target as HTMLElement;
@@ -64,7 +76,10 @@
 <svelte:window on:click={handleWindowClick} />
 
 <PageHeader wrap sticky={false}>
-	<div class="flex items-center gap-2 md:gap-4 w-full">
+	<div class="flex flex-wrap items-center gap-2 md:gap-4 w-full">
+		<CollectionSidebarSheet label="Library" collapsed={!sidebarOpen} onExpand={onOpenSidebar}>
+			<LibrarySidebar />
+		</CollectionSidebarSheet>
 		<PageTitle title="Library" count={state.totalCount} countLabel="items" />
 
 		<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
@@ -92,7 +107,7 @@
 						.filters.mediaType === type.value
 						? 'bg-signal/10 text-signal'
 						: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
-					title={type.label}
+					use:tooltip={type.label}
 					aria-label={type.label}
 					aria-pressed={state.filters.mediaType === type.value}
 					on:click={() => handleMediaTypeChange(type.value)}
@@ -108,6 +123,14 @@
 				</button>
 			{/each}
 		</div>
+
+		<SubcollectionFilters
+			class="hidden md:block flex-shrink-0"
+			collections={$libraryCollectionsStore.collections}
+			activeId={state.filters.collectionId}
+			directOnly={!!state.filters.directOnly}
+			onDirectOnlyChange={setDirectOnly}
+		/>
 
 		{#if canMakeRule}
 			<button
@@ -133,7 +156,7 @@
 					<button
 						role="radio"
 						aria-checked={$historyTileSize === size.value}
-						title={size.title}
+						use:tooltip={size.title}
 						class="w-6 py-1 font-mono text-2xs rounded-sm transition-colors duration-100 {$historyTileSize ===
 						size.value
 							? 'bg-signal/10 text-signal'
@@ -145,6 +168,7 @@
 				{/each}
 			</div>
 
+			<LibrarySidebar part="actions" />
 			<IconButton icon="refresh" label="Refresh" onclick={() => libraryStore.load()} />
 
 			<Button

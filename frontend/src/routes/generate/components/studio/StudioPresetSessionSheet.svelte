@@ -1,8 +1,14 @@
 <script lang="ts">
-	import StudioSheet from './StudioSheet.svelte';
+	import StudioSheet from '$lib/components/StudioSheet.svelte';
 	import PresetControls from '../PresetControls.svelte';
 	import SessionPill from '$lib/components/session/SessionPill.svelte';
+	import FormulasButton from '$lib/components/formulas/FormulasButton.svelte';
+	import Icon from '$lib/components/Icon.svelte';
+	import { formAudienceStore } from '$lib/stores/formAudience';
+	import { modeLabel } from '$lib/utils/modeLabel.svelte';
 	import { tabsStore } from '$lib/stores/tabs';
+	import { tabSessionDirty } from '$lib/stores/tabSessionDirty';
+	import { tabShowsUnsavedChanges } from '$lib/tabs/tabDirty';
 	import type { Tab } from '$lib/types/tabs';
 	import type { ReadinessReport } from '$lib/services/api/setup';
 
@@ -21,22 +27,17 @@
 
 	$: tabs = $tabsStore.tabs;
 	$: activeTabId = $tabsStore.activeTabId;
-	$: presetVersion = presets.find((p: any) => p.id === tab.selectedPreset)?.version;
-
-	// Cheap dirty signal for the tab chip strip — `savedSessionSignature ===
-	// null` is sessionTabState.ts's own "historical restore is dirty" baseline.
-	// A full sessionIsDirty() comparison needs each OTHER tab's live
-	// prompt/form state recomputed, which isn't worth doing just to draw a dot.
-	function isTabDirty(candidate: Tab): boolean {
-		return !!candidate.selectedSessionId && candidate.savedSessionSignature === null;
-	}
+	$: presetInfo = presets.find((p: any) => p.id === tab.selectedPreset);
+	$: presetVersion = presetInfo?.version;
+	$: currentModeLabel = modeLabel(tab.selectedMode, availableModes.find((m) => m.id === tab.selectedMode)?.label);
+	$: advancedFields = $formAudienceStore === 'advanced';
 </script>
 
 <StudioSheet maxHeight="88%" ariaLabel="Preset and session" on:close={onClose}>
 	<svelte:fragment slot="header">
 		<div class="flex items-baseline gap-2">
 			<span class="text-sm font-semibold text-fg">Preset &amp; session</span>
-			<span class="font-mono text-2xs uppercase tracking-wide text-fg-subtle">{tab.name}</span>
+			<span class="font-mono text-sm uppercase tracking-wide text-fg-subtle">{tab.name}</span>
 		</div>
 	</svelte:fragment>
 
@@ -52,7 +53,6 @@
 			{onModeChange}
 			{onVariantChange}
 			{onReload}
-			{onFormulaApplied}
 		/>
 
 		<SessionPill
@@ -63,21 +63,46 @@
 			availableModes={availableModes.map((m) => ({ id: m.id, variants: m.variants }))}
 		/>
 
+		<div class="flex gap-1.5" data-testid="preset-session-sheet-tools">
+			<FormulasButton
+				{tab}
+				layout="sheet"
+				presetName={presetInfo?.name ?? ''}
+				presetVersion={presetVersion ?? ''}
+				modeLabel={currentModeLabel}
+				onApplied={onFormulaApplied}
+			/>
+			<button
+				type="button"
+				class="flex h-[42px] flex-1 items-center justify-center gap-1.5 rounded border px-3 text-sm transition-colors {advancedFields
+					? 'border-signal/50 bg-signal/10 text-signal'
+					: 'border-line bg-surface-2 text-fg'}"
+				aria-label="Field visibility: {advancedFields ? 'Advanced' : 'Simple'}"
+				aria-pressed={advancedFields}
+				on:click={() => formAudienceStore.toggle()}
+			>
+				<Icon name="list" className="h-4 w-4 flex-shrink-0" />
+				<span>Fields: {advancedFields ? 'Advanced' : 'Simple'}</span>
+			</button>
+		</div>
+
 		<div>
-			<p class="mb-1.5 font-mono text-2xs uppercase tracking-wide text-fg-subtle">Tabs</p>
+			<p class="mb-1.5 font-mono text-sm uppercase tracking-wide text-fg-subtle">Tabs</p>
 			<div class="flex flex-wrap gap-1.5">
 				{#each tabs as t (t.id)}
 					<button
 						type="button"
-						class="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-2xs font-medium {t.id === activeTabId
+						class="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium {t.id === activeTabId
 							? 'bg-accent text-accent-contrast'
 							: 'bg-surface-2 text-fg-muted'}"
 						on:click={() => tabsStore.setActiveTab(t.id)}
 					>
-						{#if isTabDirty(t)}
-							<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-warning"></span>
+						{#if tabShowsUnsavedChanges(t, $tabSessionDirty)}
+							<span class="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-warning-solid" aria-hidden="true"></span>
+							{t.name}<span class="sr-only">, unsaved changes</span>
+						{:else}
+							{t.name}
 						{/if}
-						{t.name}
 					</button>
 				{/each}
 				<button

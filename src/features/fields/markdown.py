@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -9,10 +8,7 @@ from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
 class Markdown(BaseField):
     """Markdown field for rendering markdown content from inline text or external files"""
 
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'markdown'
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
+    def output(self, field, preset_id: str = None) -> Dict[str, Any]:
         field_info = self.get_field_info(field)
         schema = self.create_base_schema(field_info)
 

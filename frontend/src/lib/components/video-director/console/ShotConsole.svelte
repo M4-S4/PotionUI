@@ -10,6 +10,7 @@
 	// (`checked`, transient -- W3 wires a real run queue against it).
 	//
 	import { untrack } from 'svelte';
+	import { jsonEqual } from '$lib/utils/equal';
 	import type { VideoDirectorValue, DirectorCapabilities, DirectorKeyframe, DirectorPromptSegment } from '$lib/types/videoDirector';
 	import type { Segment } from '$lib/types/segments';
 	import type { DirectorRunState } from '$lib/types/tabs';
@@ -154,7 +155,7 @@
 	let lastEmitted: VideoDirectorValue = untrack(() => doc);
 
 	$effect(() => {
-		if (lastEmitted && JSON.stringify(value) === JSON.stringify(lastEmitted)) return;
+		if (lastEmitted && jsonEqual(value, lastEmitted)) return;
 		const next = untrack(() => project(value));
 		doc = next;
 		lastEmitted = next;
@@ -164,7 +165,7 @@
 		const caps = capabilities;
 		untrack(() => {
 			const next = toModelessDirectorValue(normalizeDirectorValue(doc, caps), caps);
-			if (JSON.stringify(next) !== JSON.stringify(doc)) doc = next;
+			if (!jsonEqual(next, doc)) doc = next;
 		});
 	});
 
@@ -174,7 +175,7 @@
 			doc = { ...doc, mode: derivedMode };
 			return;
 		}
-		if (JSON.stringify(doc) === JSON.stringify(lastEmitted)) return;
+		if (jsonEqual(doc, lastEmitted)) return;
 		lastEmitted = doc;
 		untrack(() => onChange(doc));
 	});

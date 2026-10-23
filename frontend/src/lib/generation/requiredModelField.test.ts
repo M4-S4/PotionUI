@@ -51,6 +51,38 @@ describe('missingRequiredModelField', () => {
 	});
 });
 
+describe('missingRequiredModelField for required tags fields', () => {
+	const tagsField = { type: 'tags', name: 'style', title: 'Style tags', required: true } as FieldConfig;
+
+	it('blocks while a required tags field is empty in any value shape', () => {
+		const blocked = { name: 'style', label: 'Style tags' };
+		expect(missingRequiredModelField([tagsField], {})).toEqual(blocked);
+		expect(missingRequiredModelField([tagsField], { style: '' })).toEqual(blocked);
+		expect(missingRequiredModelField([tagsField], { style: '  ' })).toEqual(blocked);
+		expect(missingRequiredModelField([tagsField], { style: { genre: [], mood: [] } })).toEqual(blocked);
+	});
+
+	it('passes once a tag is picked and ignores optional tags fields', () => {
+		expect(missingRequiredModelField([tagsField], { style: 'pop, female' })).toBeNull();
+		expect(missingRequiredModelField([tagsField], { style: { genre: ['pop'] } })).toBeNull();
+		expect(missingRequiredModelField([{ ...tagsField, required: false }], { style: '' })).toBeNull();
+	});
+});
+
+describe('missingRequiredModelField tags exemptions', () => {
+	const tagsField = { type: 'tags', name: 'style', title: 'Style tags', required: true } as FieldConfig;
+
+	it('ignores hidden and locked tags fields', () => {
+		expect(missingRequiredModelField([{ ...tagsField, visible: false }], {})).toBeNull();
+		expect(missingRequiredModelField([{ ...tagsField, readonly: true }], {})).toBeNull();
+	});
+
+	it('reports a required tags field nested in a section', () => {
+		const section = { type: 'section', name: 's', children: [tagsField] } as FieldConfig;
+		expect(missingRequiredModelField([section], {})).toEqual({ name: 'style', label: 'Style tags' });
+	});
+});
+
 describe('published missing model', () => {
 	it('is only trusted for the schema key it was published for', () => {
 		publishMissingModel('t', 'a-txt2img-', { name: 'model', label: 'Model' });

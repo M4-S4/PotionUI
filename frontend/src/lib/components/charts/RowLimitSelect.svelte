@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	/**
 	 * Row-count selector for a single Stats-page section.
 	 * Meant to be passed as `ChartCard`'s `headerExtra` snippet. Persists via
@@ -30,7 +31,7 @@
 	{value}
 	onchange={handleChange}
 	aria-label="Rows to show"
-	title="Rows to show"
+	use:tooltip={'Rows to show'}
 >
 	{#each STATS_ROW_LIMIT_OPTIONS as option (option)}
 		<option value={option}>{option}</option>

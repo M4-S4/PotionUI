@@ -1,47 +1,18 @@
-import importlib.util
 import sqlite3
-import sys
-import tempfile
-import unittest
-from pathlib import Path
 
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+class TestMigration048GenerationIdempotencyKey(MigrationCase):
+    MIGRATION = "048_generation_idempotency_key"
 
-
-class TestMigration048GenerationIdempotencyKey(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(temp.name) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("048_generation_idempotency_key", self.db)
+    def pre_state(self):
         with self.db.get_cursor() as cursor:
             for user_id in ("u1", "u2"):
                 cursor.execute(
                     "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
                     (user_id, user_id, f"{user_id}@example.test"),
                 )
-
-    def tearDown(self):
-        Database._instance = None
 
     def _insert(self, generation_id, user_id="u1", key=None):
         with self.db.get_cursor() as cursor:
@@ -98,11 +69,3 @@ class TestMigration048GenerationIdempotencyKey(unittest.TestCase):
 
         with self.assertRaises(sqlite3.IntegrityError):
             self._insert("g2", key="k")
-
-    def test_down_removes_the_uniqueness(self):
-        self.migration.up()
-        self._insert("g1", key="k")
-
-        self.migration.down()
-
-        self._insert("g2", key="k")

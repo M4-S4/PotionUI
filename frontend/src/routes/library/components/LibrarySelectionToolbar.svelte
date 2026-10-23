@@ -1,11 +1,12 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { libraryStore } from '$lib/stores/library';
 	import { libraryCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { api } from '$lib/services/api/index';
-	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { createFlashMessage } from '$lib/utils/flashMessage';
 	import Icon from '$lib/components/Icon.svelte';
 	import SelectionActionBar from '$lib/components/collections/SelectionActionBar.svelte';
+	import { createMembershipActions } from '$lib/components/collections/scopeActions';
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 	import {
 		buildLibraryToolContext,
@@ -38,60 +39,20 @@
 		return groupToolsFor(context, { surface: 'bar' });
 	}
 
-	async function handleAddToCollection(collectionId: string): Promise<boolean> {
-		if (selectedIds.length === 0) return false;
-		try {
-			const response = await api.addUploadsToCollection(collectionId, selectedIds, 'library');
-			if (response.success) {
-				await collectionsStore.load();
-				const added = response.data?.added ?? selectedIds.length;
-				libraryStore.clearSelection();
-				flash(`Added ${added} to collection`);
-				return true;
-			}
-			flash('Failed to add to collection');
-			return false;
-		} catch (e) {
-			logger.error('Add to collection failed:', getErrorMessage(e));
-			flash('Failed to add to collection');
-			return false;
-		}
-	}
+	const { addToCollection: handleAddToCollection, removeFromCollection, createAndAdd: handleCreateAndAdd } =
+		createMembershipActions({
+			getSelectedIds: () => selectedIds,
+			add: (collectionId, ids) => api.addUploadsToCollection(collectionId, ids, 'library'),
+			remove: (collectionId, ids) => api.removeUploadsFromCollection(collectionId, ids, 'library'),
+			create: (name) => collectionsStore.create(name),
+			reloadCollections: () => collectionsStore.load(),
+			clearSelection: () => libraryStore.clearSelection(),
+			afterRemove: () => libraryStore.load(),
+			flash
+		});
 
-	async function handleRemoveFromCollection(): Promise<void> {
-		const collectionId = activeCollectionId;
-		if (!collectionId || selectedIds.length === 0) return;
-		try {
-			const response = await api.removeUploadsFromCollection(collectionId, selectedIds, 'library');
-			if (response.success) {
-				await collectionsStore.load();
-				const removed = response.data?.removed ?? selectedIds.length;
-				libraryStore.clearSelection();
-				flash(`Removed ${removed} from collection`);
-				await libraryStore.load();
-				return;
-			}
-			flash('Failed to remove from collection');
-		} catch (e) {
-			logger.error('Remove from collection failed:', getErrorMessage(e));
-			flash('Failed to remove from collection');
-		}
-	}
-
-	async function handleCreateAndAdd(name: string): Promise<boolean> {
-		try {
-			const created = await collectionsStore.create(name);
-			const collection = created.success ? created.data?.collection : undefined;
-			if (!collection) {
-				flash('Failed to create collection');
-				return false;
-			}
-			return await handleAddToCollection(collection.id);
-		} catch (e) {
-			logger.error('Create collection failed:', getErrorMessage(e));
-			flash('Failed to create collection');
-			return false;
-		}
+	function handleRemoveFromCollection(): Promise<void> {
+		return removeFromCollection(activeCollectionId);
 	}
 </script>
 
@@ -111,7 +72,7 @@
 		{#if activeCollectionId}
 			<button
 				class="px-3 py-1.5 text-sm text-fg-muted hover:text-fg hover:bg-surface-2 rounded transition-colors flex items-center gap-1.5"
-				title="Remove the selected items from this collection"
+				use:tooltip={'Remove the selected items from this collection'}
 				on:click={handleRemoveFromCollection}
 			>
 				<Icon name="minus" className="w-4 h-4" />

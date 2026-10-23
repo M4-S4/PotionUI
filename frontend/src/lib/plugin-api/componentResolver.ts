@@ -139,9 +139,3 @@ async function loadPluginComponent(
 		return null;
 	}
 }
-
-/** Clears the module cache and the published revisions. Test-only escape hatch. */
-export function _clearComponentCache(): void {
-	moduleCache.clear();
-	revisions.clear();
-}

@@ -76,9 +76,6 @@ class OpenModelDBProvider(MarketplaceProviderBase):
             return False
         return True
 
-    def get_settings_schema(self) -> Dict[str, Any]:
-        return {"type": "object", "properties": {}, "required": []}
-
     def get_download_headers(self) -> Dict[str, str]:
         return {}
 

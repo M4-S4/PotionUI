@@ -3,6 +3,7 @@ import { api } from '$lib/services/api/index';
 import { authStore } from '$lib/stores/auth';
 import { getWsUrl } from './wsUrl';
 import { BaseWebSocket, type BaseWebSocketMessage } from './BaseWebSocket';
+import { generationIdOf } from '$lib/generation/messages/wire';
 
 export type WebSocketMessage = BaseWebSocketMessage & {
 	generation_id?: string;
@@ -54,19 +55,7 @@ export class WebSocketService extends BaseWebSocket {
 			return;
 		}
 
-		// Extract generation ID - completion messages have it in data.id, others at top level
-		let generationId = wsMessage.generation_id;
-		if (
-			wsMessage.type === 'generation_complete' ||
-			wsMessage.type === 'generation_error' ||
-			wsMessage.type === 'generation_cancelled'
-		) {
-			const data = wsMessage.data as Record<string, unknown> | undefined;
-			generationId =
-				(data?.id as string) ||
-				(data?.generation_id as string) ||
-				wsMessage.generation_id;
-		}
+		const generationId = generationIdOf(wsMessage);
 
 		if (generationId) {
 			const handlers = this.subscriptions.get(generationId);

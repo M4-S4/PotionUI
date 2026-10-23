@@ -1,0 +1,13 @@
+fields:
+  - name: "keep_patterns"
+    type: "string"
+    formula: "quantize"
+    label: "Extra Keep Patterns"
+    audience: "advanced"
+    default: ""
+    ai_hint: "Tensor-name globs, one per line, kept at full precision on top of the built-in keep list (norms, embeddings, modulation, input and output layers)."
+    configuration:
+      input_type: "textarea"
+      rows: 3
+      mono: true
+      placeholder: "blocks.0.*"

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import dismiss from '$lib/actions/dismiss';
 	import { api, type PhrasebookStateFilter } from '$lib/services/api/index';
 	import { PageHeader, PageTitle, Alert, Badge, Button, IconButton, Kbd, Spinner, Switch } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -6,6 +7,7 @@
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
+	import { isTypingInField } from '$lib/utils/editableTarget';
 	import { phrasebookStore } from '$lib/stores/phrasebook';
 	import type { PhrasebookFindMode, PhrasebookFindScope } from '$lib/types/api';
 	import { isSearching, nonDefaultFilterCount, type FindFilters } from '../phrasebookSearch';
@@ -122,9 +124,7 @@
 
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
-		const target = e.target as HTMLElement | null;
-		const tag = target?.tagName;
-		if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return;
+		if (isTypingInField(e)) return;
 		e.preventDefault();
 		inputEl?.focus();
 		inputEl?.select();
@@ -197,26 +197,6 @@
 		importOpen = false;
 	}
 
-	function handleWindowPointerDown(e: PointerEvent) {
-		const target = e.target as Node;
-		if (filtersOpen && !filtersTrigger?.contains(target) && !filtersPopoverEl?.contains(target)) {
-			closeFilters();
-		}
-		if (importOpen && !importTrigger?.contains(target) && !importPopoverEl?.contains(target)) {
-			closeImport();
-		}
-	}
-
-	function handlePopoverKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape') return;
-		if (filtersOpen || importOpen) {
-			e.preventDefault();
-			e.stopPropagation();
-			closeFilters();
-			closeImport();
-		}
-	}
-
 	function resetFilters() {
 		onChange({
 			caseSensitive: false,
@@ -262,7 +242,7 @@
 	});
 </script>
 
-<svelte:window onkeydown={(e) => { handleWindowKeydown(e); handlePopoverKeydown(e); }} onpointerdown={handleWindowPointerDown} />
+<svelte:window onkeydown={handleWindowKeydown} />
 
 <PageHeader sticky={false}>
 	<div class="flex items-center gap-3 w-full" data-phrasebook-header>
@@ -337,6 +317,7 @@
 					use:portal
 					use:overlayLayer
 					bind:this={filtersPopoverEl}
+					use:dismiss={{ onDismiss: closeFilters, ignore: [filtersTrigger] }}
 					class="fixed z-overlay w-72 bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-3 flex flex-col gap-3"
 					style={popoverStyle}
 					role="dialog"
@@ -471,6 +452,7 @@
 						use:portal
 						use:overlayLayer
 						bind:this={importPopoverEl}
+						use:dismiss={{ onDismiss: closeImport, ignore: [importTrigger] }}
 						class="fixed z-overlay w-80 bg-surface-1 border border-line-strong rounded-xl shadow-overlay p-3 flex flex-col gap-3"
 						style={importPopoverStyle}
 						role="dialog"

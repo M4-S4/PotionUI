@@ -15,6 +15,7 @@ from src.features.generation.repository import generation_repo
 from src.features.generation.routes import GenerationController
 from src.features.generation.status_tracker import GenerationStatusTracker
 from src.pipelines.outputs import CostGenerationOutput, ProgressGenerationOutput
+from tests.fixtures.seed import seed_user
 
 AMOUNT = "0.0731"
 WORDS = ("cost", "price", "pricing", "amount_usd", "usd", AMOUNT)
@@ -28,10 +29,7 @@ def assert_no_cost(payload):
 
 @pytest.fixture
 def generation(mock_db):
-    with mock_db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES ('u1', 'u1', 'u1@example.test', 'x', 'USER')"
-        )
+    seed_user(mock_db)
     created = generation_repo.create(Generation(id="g1", preset_id="p", form_data={"prompt": "a cat"}, user_id="u1", backend_id="b1"))
     GenerationCostRepository().record(
         "g1", backend_id="b1", model_id="m1", user_id="u1", amount_usd=Decimal(AMOUNT), source="provider", detail={"task": "txt2img"},

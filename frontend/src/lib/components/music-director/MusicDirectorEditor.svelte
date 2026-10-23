@@ -19,6 +19,7 @@
 	// content/presets/marketplace/MiniMax-Music3/preset.yml's
 	// `vars.music_director.form_owns_settings`.
 	import { untrack } from 'svelte';
+	import { jsonEqual } from '$lib/utils/equal';
 	import type { MediaRef } from '$lib/types/tabs';
 	import type { Segment } from '$lib/types/segments';
 	import type { MusicDirectorCapabilities, MusicDirectorValue } from '$lib/types/musicDirector';
@@ -48,7 +49,7 @@
 	let lastEmitted: MusicDirectorValue = untrack(() => doc);
 
 	$effect(() => {
-		if (lastEmitted && JSON.stringify(value) === JSON.stringify(lastEmitted)) return;
+		if (lastEmitted && jsonEqual(value, lastEmitted)) return;
 		const next = normalizeMusicDirectorValue(value, capabilities);
 		doc = next;
 		lastEmitted = next;
@@ -60,7 +61,7 @@
 			doc = { ...doc, mode: derived };
 			return;
 		}
-		if (JSON.stringify(doc) === JSON.stringify(lastEmitted)) return;
+		if (jsonEqual(doc, lastEmitted)) return;
 		lastEmitted = doc;
 		onChange(doc);
 	});

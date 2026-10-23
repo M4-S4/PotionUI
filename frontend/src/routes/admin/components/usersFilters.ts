@@ -1,7 +1,7 @@
 import type { User } from '$lib/stores/auth';
 import { parseServerDate } from '$lib/utils/relativeTime';
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import type { SortOption } from '$lib/components/library/librarySection';
 import { isUsageSort } from '$lib/plans/usage';
 
 export type UserAccountTypeFilter = 'all' | 'USER' | 'ADMIN';
@@ -42,36 +42,16 @@ const FIELDS: readonly FilterFieldDescriptor<UsersFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<UsersFilters>({
+export const usersFilters = createFilterCodec<UsersFilters>({
 	defaults: DEFAULT_USERS_FILTERS,
 	fields: FIELDS,
 	sortValues: ['username', 'created']
 });
 
 export function usersFiltersFromSearchParams(params: URLSearchParams): UsersFilters {
-	const filters = codec.fromSearchParams(params);
+	const filters = usersFilters.fromSearchParams(params);
 	const rawSort = params.get('sort_by');
 	return rawSort && isUsageSort(rawSort) ? { ...filters, sortBy: rawSort } : filters;
-}
-
-export function usersFiltersToSearchParams(filters: UsersFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
-export function usersFilterChips(filters: UsersFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearUsersFilterChip(filters: UsersFilters, key: string): UsersFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllUsersFilters(filters: UsersFilters): UsersFilters {
-	return codec.clearAll(filters);
-}
-
-export function usersFilterActiveCount(filters: UsersFilters): number {
-	return codec.activeCount(filters);
 }
 
 function userTimestamp(user: User): number {

@@ -1,11 +1,7 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson } from './helpers';
 
 const JOURNEY = 'model-layout-folders-panel';
-
-async function fulfillJson(route: Route, data: unknown, status = 200) {
-	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
-}
 
 type Binding = { model_type: string; subdir: string; is_write: boolean; scan_headers?: boolean };
 

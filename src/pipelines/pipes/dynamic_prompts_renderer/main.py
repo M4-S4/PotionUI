@@ -16,7 +16,7 @@ artifacts so the concrete prompt each image ran with is visible in the pipeline
 view/history exactly like the seed.
 """
 
-from typing import Dict, Any, List
+from typing import List
 
 from src.pipelines.outputs import RenderedPromptGenerationOutput, ProgressGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
@@ -72,13 +72,6 @@ class DynamicPromptsRenderedPipe(BasePipe):
             ))
 
         return PipeOutput(output={})
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "pairs": [],
-            "quantity": 1,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

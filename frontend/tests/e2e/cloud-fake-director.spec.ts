@@ -1,6 +1,8 @@
 import { test, expect, type Page } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet } from './helpers';
+import { chunk } from './mediaFieldHelpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'cloud-fake-director';
 const BACKEND_NAME = 'E2E Fake Cloud';
@@ -9,25 +11,6 @@ const DIRECTOR = 'Fake Director';
 const DIRECTOR_START = 'Fake Director Start';
 const DIRECTOR_TEXT = 'Fake Director Text';
 const SLUGS = ['fake~fake~director-1', 'fake~fake~director-start-1', 'fake~fake~director-text-1'];
-const BEAT = 400;
-
-function crc32(buf: Buffer): number {
-	let c = ~0;
-	for (const b of buf) {
-		c ^= b;
-		for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
-	}
-	return ~c >>> 0;
-}
-
-function chunk(type: string, data: Buffer): Buffer {
-	const head = Buffer.alloc(4);
-	head.writeUInt32BE(data.length);
-	const body = Buffer.concat([Buffer.from(type), data]);
-	const tail = Buffer.alloc(4);
-	tail.writeUInt32BE(crc32(body));
-	return Buffer.concat([head, body, tail]);
-}
 
 function fixturePng(width: number, height: number): Buffer {
 	const rows: Buffer[] = [];
@@ -51,12 +34,6 @@ function fixturePng(width: number, height: number): Buffer {
 		chunk('IDAT', deflateSync(Buffer.concat(rows))),
 		chunk('IEND', Buffer.alloc(0))
 	]);
-}
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
 }
 
 async function backendId(page: Page, token: string): Promise<string> {
@@ -96,8 +73,8 @@ async function openFakeVideo(page: Page, mode: 'txt2video' | 'img2video' = 'txt2
 	const needsPreset = await choose.waitFor({ state: 'visible', timeout: 10000 }).then(() => true, () => false);
 	if (needsPreset) {
 		await choose.click();
-		await page.getByText(PRESET_NAME, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, PRESET_NAME).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 	}
 	if (mode === 'img2video') {
 		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
@@ -113,7 +90,6 @@ async function pickModel(page: Page, label: string) {
 	await field(page, 'model').locator('input').first().click();
 	await page.getByText(label, { exact: true }).last().click();
 	await expect(limits(page).locator('[data-model-name]')).toHaveText(label, { timeout: 15000 });
-	await page.waitForTimeout(BEAT);
 }
 
 async function typeInShot(page: Page, text: string) {
@@ -124,7 +100,7 @@ async function typeInShot(page: Page, text: string) {
 		const collapsed = root.locator('[role="button"][aria-label^="Expand "]').first();
 		if (await collapsed.count()) {
 			await collapsed.click();
-			await page.waitForTimeout(250);
+			await editor.waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
 		}
 	}
 	if (!(await editor.isVisible().catch(() => false))) {
@@ -133,27 +109,23 @@ async function typeInShot(page: Page, text: string) {
 	}
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(BEAT);
 }
 
 async function setShotSeconds(page: Page, seconds: number) {
 	const input = director(page).locator('input[aria-label="Shot duration in seconds"]');
 	await input.fill(String(seconds));
 	await input.press('Enter');
-	await page.waitForTimeout(BEAT);
 }
 
 async function buildFilm(page: Page, prompts: string[], seconds: number) {
 	for (let i = 1; i < prompts.length; i++) {
 		await director(page).getByRole('button', { name: '+ Add shot' }).click();
-		await page.waitForTimeout(150);
 	}
 	await typeInShot(page, prompts[0]);
 	await setShotSeconds(page, seconds);
 	for (let i = 1; i < prompts.length; i++) {
 		const collapsed = director(page).locator('[role="button"][aria-label^="Expand "]');
 		await (i === 1 ? collapsed.first() : collapsed.last()).click();
-		await page.waitForTimeout(250);
 		await typeInShot(page, prompts[i]);
 		await setShotSeconds(page, seconds);
 	}
@@ -255,7 +227,6 @@ test.describe('Video Director for a cloud video preset', () => {
 
 		for (let i = 0; i < 4; i++) {
 			await director(page).getByRole('button', { name: '+ Add shot' }).click();
-			await page.waitForTimeout(150);
 		}
 		await expect(director(page).getByText(/5 shots? · [\d.]+ s/)).toBeVisible({ timeout: 10000 });
 		await expect(director(page).locator('[data-model-notices]')).toHaveCount(0);
@@ -266,7 +237,10 @@ test.describe('Video Director for a cloud video preset', () => {
 		await expect(notices).toContainText('Fake Director makes up to 4 shots in one film. Your film has 5, so shot 5 would not be made.');
 		await expect(notices).toContainText('Fake Director renders shots of 2, 4 and 6 s.');
 		await expect(page.getByText('Change these, or pick another model, to generate.')).toBeVisible();
-		await expect(page.getByText("Can't generate yet")).toBeVisible();
+		const deckTitle = page.locator('[data-deck-title]');
+		await expect(deckTitle).toBeVisible();
+		await expect(deckTitle).toHaveText("Can't generate yet");
+		await expect(page.locator('[data-deck-literal]')).toHaveText("Can't generate yet");
 		await expect(generateButton(page)).toHaveCount(0);
 		await noHorizontalOverflow(page);
 		await screenshot(page, JOURNEY, 'does-not-fit-1440');
@@ -428,16 +402,14 @@ test.describe('Video Director for a cloud video preset on a phone', () => {
 		const needsPreset = await trigger.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
 		if (needsPreset) {
 			await trigger.click();
-			await page.locator('[role="listbox"][aria-label="Presets"]').getByText(PRESET_NAME, { exact: true }).click();
-			await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+			await presetOption(page, PRESET_NAME).click();
+			await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		}
 		await page.keyboard.press('Escape');
 		await page.getByRole('button', { name: 'Settings', exact: true }).click();
 		await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible({ timeout: 5000 });
-		await page.waitForTimeout(1200);
 		await field(page, 'model').locator('input').first().click();
 		await page.getByText(DIRECTOR, { exact: true }).last().click();
-		await page.waitForTimeout(BEAT);
 		await page.keyboard.press('Escape');
 
 		await page.getByRole('button', { name: 'Prompt', exact: true }).click();
@@ -445,7 +417,6 @@ test.describe('Video Director for a cloud video preset on a phone', () => {
 		await expect(limits(page)).toContainText(DIRECTOR);
 		for (let i = 0; i < 3; i++) {
 			await director(page).getByRole('button', { name: '+ Add shot' }).click();
-			await page.waitForTimeout(150);
 		}
 		await setShotSeconds(page, 5);
 		await expect(director(page).locator('[data-model-notices]')).toBeVisible();

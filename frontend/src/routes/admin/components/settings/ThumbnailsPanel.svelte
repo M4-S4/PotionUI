@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte';
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
+	import { createVisiblePoll } from '$lib/utils/visiblePoll';
 	import * as adminApi from '$lib/services/admin-api';
 	import type { ThumbnailProfileName, ThumbnailStats } from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
@@ -54,7 +55,7 @@
 	let regenerating = $state(false);
 	let cancelling = $state(false);
 
-	let pollHandle: ReturnType<typeof setInterval> | null = null;
+	const jobPoll = createVisiblePoll(pollJob, 2000);
 
 	let selectedProfile = $derived(stats ? matchProfile(values, stats.profiles) : 'custom');
 	let job = $derived(stats?.job ?? null);
@@ -64,7 +65,7 @@
 	let staleCount = $derived(stats?.counts.stale ?? 0);
 
 	onMount(load);
-	onDestroy(stopPolling);
+	onDestroy(() => jobPoll.stop());
 
 	// The shared save bar persists our keys on its own schedule - once it
 	// does, `savedSnapshot` (the tab's `snapshot`) moves and stats (stale
@@ -91,7 +92,7 @@
 			syncPolling();
 		} catch (e: any) {
 			logger.error('Failed to load thumbnail settings:', e);
-			error = e.response?.data?.message || e.message || 'Failed to load thumbnail settings.';
+			error = getApiErrorMessage(e, 'Failed to load thumbnail settings.');
 		} finally {
 			loading = false;
 		}
@@ -133,14 +134,14 @@
 			confirmOpen = false;
 			if (response.success && response.data) {
 				stats = stats ? { ...stats, job: response.data } : stats;
-				startPolling();
+				jobPoll.start();
 			} else {
 				toasts.error(response.message ?? 'Failed to start regeneration.');
 			}
 		} catch (e: any) {
 			confirmOpen = false;
 			const status = e?.response?.status;
-			const message = e.response?.data?.message || e.message || 'Failed to start regeneration.';
+			const message = getApiErrorMessage(e, 'Failed to start regeneration.');
 			toasts.error(message);
 			if (status === 409) await load();
 		} finally {
@@ -156,28 +157,16 @@
 				stats = stats ? { ...stats, job: response.data } : stats;
 			}
 		} catch (e: any) {
-			toasts.error(e.response?.data?.message || e.message || 'Failed to cancel regeneration.');
+			toasts.error(getApiErrorMessage(e, 'Failed to cancel regeneration.'));
 		} finally {
 			cancelling = false;
 		}
 	}
 
-	function startPolling() {
-		stopPolling();
-		pollHandle = setInterval(pollJob, 2000);
-	}
-
-	function stopPolling() {
-		if (pollHandle !== null) {
-			clearInterval(pollHandle);
-			pollHandle = null;
-		}
-	}
-
 	function syncPolling() {
 		const status = stats?.job?.status;
-		if (status === 'running' || status === 'cancelling') startPolling();
-		else stopPolling();
+		if (status === 'running' || status === 'cancelling') jobPoll.start();
+		else jobPoll.stop();
 	}
 
 	async function pollJob() {
@@ -187,7 +176,7 @@
 			const nextJob = response.data ?? null;
 			stats = stats ? { ...stats, job: nextJob } : stats;
 			if (!nextJob || (nextJob.status !== 'running' && nextJob.status !== 'cancelling')) {
-				stopPolling();
+				jobPoll.stop();
 				await load();
 			}
 		} catch (e) {

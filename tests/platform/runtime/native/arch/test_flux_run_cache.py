@@ -33,6 +33,7 @@ import torch
 from src.platform.runtime.native.engine import NativeGenerator, NativeModel, RunCache
 
 from .test_flux_model import TINY_FLUX1, TINY_FLUX2, _build_ready
+from .run_cache_hits import count_hits
 
 STEPS = (0.9, 0.5, 0.1)
 
@@ -364,21 +365,39 @@ def test_a_bumped_revision_invalidates_the_prepared_branch():
     xs = _latents()
     context = torch.randn(2, 6, 32, generator=torch.Generator().manual_seed(15))
     revision = [1]
+    prepared = []
 
     with _cached(m, revision) as cache, _count_prep(m) as counts, torch.no_grad():
+        counted_prepare = m._prepare_branch
+
+        def capture(*a, **kw):
+            result = counted_prepare(*a, **kw)
+            prepared.append(result)
+            return result
+
+        m._prepare_branch = capture
         t = torch.full((2,), STEPS[0])
         before = m(xs[0], t, context)
         assert torch.equal(m(xs[0], t, context), before)
         assert counts["prepare_branch"] == 1
 
-        with torch.no_grad():
-            m.txt_in.weight.add_(0.05)
+        def project():
+            return m.txt_in(m.txt_norm(context) if m.txt_norm is not None else context)
+
+        old_projection = project()
+        m.txt_in.weight.add_(0.05)
+        new_projection = project()
+        assert not torch.equal(new_projection, old_projection)
         revision[0] = 2
         after = m(xs[0], t, context)
 
         assert counts["prepare_branch"] == 2, "a stale projection answered after the edge"
-        assert not torch.equal(after, before)
+        assert torch.equal(prepared[0].txt, old_projection)
+        assert torch.equal(prepared[1].txt, new_projection)
         assert len(cache) == 1, "the superseded entry is dropped, not merely bypassed"
+
+        m.run_cache = None
+        assert torch.equal(after, m(xs[0], t, context))
 
 
 # --- (d) unidentifiable input --------------------------------------------
@@ -451,3 +470,16 @@ def test_without_a_run_cache_the_forward_is_unchanged():
     out = _run(m, xs, torch.randn(2, 6, 32, generator=torch.Generator().manual_seed(19)))[0]
     assert out.shape == xs[0].shape
     assert torch.isfinite(out).all()
+
+
+def test_every_step_after_the_first_hits_the_branch_entry():
+    m = _build_ready(TINY_FLUX2)
+    g = torch.Generator().manual_seed(8)
+    xs = _latents()
+    kwargs = {"context": torch.randn(2, 6, 32, generator=g), "attention_mask": MASK}
+
+    with _cached(m) as cache:
+        hits = count_hits(cache)
+        _run(m, xs, **kwargs)
+
+    assert hits["flux.branch"] == len(STEPS) - 1

@@ -5,6 +5,7 @@ level functions, `PromptEnhancementCollaborators` as their leading arg - no
 class holds them together (see `collaborators.py`'s docstring).
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -66,10 +67,14 @@ async def enhance_stream(
     yield {"type": "stage_end", "stage": "enhance:ideate"}
 
     yield {"type": "stage_start", "stage": "enhance:write"}
-    candidates = []
-    for direction in directions[:n_candidates]:
-        text = await _write(collaborators, llm_id, brief, context, direction)
-        candidates.append({"text": text, "direction": direction})
+    chosen = directions[:n_candidates]
+    try:
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(_write(collaborators, llm_id, brief, context, d)) for d in chosen]
+    except ExceptionGroup as eg:
+        raise eg.exceptions[0] from None
+    texts = [task.result() for task in tasks]
+    candidates = [{"text": text, "direction": direction} for text, direction in zip(texts, chosen)]
     yield {"type": "stage_end", "stage": "enhance:write"}
 
     yield {
@@ -172,24 +177,31 @@ async def _gather(
 
     model_info = _gather_model_grounding(collaborators, form_state)
     preset_guide = _gather_preset_guide(collaborators, form_state)
-    concepts = await _decompose_concepts(collaborators, llm_id, brief)
 
     approved: List[Any] = []
     community: List[Any] = []
     if collaborators.prompt_database:
-        approved = await _search_prompts(
-            collaborators, user_id, [brief], model_id,
-            limit_per_query=MAX_APPROVED_EXEMPLARS,
-            total_cap=MAX_APPROVED_EXEMPLARS,
-            source_provider=APPROVED_SOURCE_PROVIDER,
-            mode=mode,
-        )
+        try:
+            async with asyncio.TaskGroup() as group:
+                concepts_task = group.create_task(_decompose_concepts(collaborators, llm_id, brief))
+                approved_task = group.create_task(_search_prompts(
+                    collaborators, user_id, [brief], model_id,
+                    limit_per_query=MAX_APPROVED_EXEMPLARS,
+                    total_cap=MAX_APPROVED_EXEMPLARS,
+                    source_provider=APPROVED_SOURCE_PROVIDER,
+                    mode=mode,
+                ))
+        except ExceptionGroup as eg:
+            raise eg.exceptions[0] from None
+        concepts, approved = concepts_task.result(), approved_task.result()
         community = await _search_prompts(
             collaborators, user_id, concepts or [brief], model_id,
             limit_per_query=2,
             total_cap=MAX_COMMUNITY_EXEMPLARS,
             exclude=approved,
         )
+    else:
+        concepts = await _decompose_concepts(collaborators, llm_id, brief)
 
     rejection_reasons: List[str] = []
     if collaborators.feedback_repository:

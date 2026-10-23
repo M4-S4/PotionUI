@@ -1,14 +1,13 @@
 import asyncio
-import email.utils
 import json
 import logging
-import math
 import ssl
 import time
-from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 import aiohttp
+
+from src.plugin_api.cloud import parse_retry_after
 
 from . import PLUGIN_VERSION
 
@@ -68,29 +67,6 @@ class SourceAnswerTooLarge(SourceUnavailable):
 
 def source_label(source_id: str) -> str:
     return SOURCE_LABELS.get(source_id, source_id)
-
-
-def parse_retry_after(value: Optional[str]) -> Optional[float]:
-    if value is None:
-        return None
-    value = str(value).strip()
-    if not value:
-        return None
-    try:
-        seconds = float(value)
-    except ValueError:
-        pass
-    else:
-        return max(0.0, seconds) if math.isfinite(seconds) else None
-    try:
-        when = email.utils.parsedate_to_datetime(value)
-    except (TypeError, ValueError, IndexError):
-        return None
-    if when is None:
-        return None
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
 def upstream_message(body: bytes) -> Optional[str]:

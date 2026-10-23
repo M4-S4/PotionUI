@@ -98,13 +98,6 @@ def setup_function(_):
 
 # -- metadata --------------------------------------------------------------
 
-def test_name_inputs_outputs():
-    assert GeneratorQwenPipe.name == "generator"
-    inputs = {i.name: i for i in GeneratorQwenPipe.inputs()}
-    assert inputs["conditioning"].io_type == IOType.CONDITIONING
-    assert inputs["model"].io_type == IOType.MODEL
-    assert GeneratorQwenPipe.outputs()[0].io_type == IOType.IMAGE
-
 
 def test_default_steps_and_guidance():
     cfg = GeneratorQwenPipe.get_default_config()
@@ -383,6 +376,16 @@ def test_edit_mode_multi_reference_encodes_each_in_upload_order_anchored_to_firs
     assert abs((third_px.shape[1] / third_px.shape[0]) - (96 / 32)) < 0.05
     assert second_px.shape[0] % 16 == 0 and second_px.shape[1] % 16 == 0
     assert third_px.shape[0] % 16 == 0 and third_px.shape[1] % 16 == 0
+
+
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+@patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
+def test_edit_mode_does_not_cap_the_reference_count():
+    images = [Image.new("RGB", (64, 64), color=(i, i, i)) for i in range(12)]
+    pipe = _make_pipe(mode="edit")
+    pipe.process(_edit_pipe_input(images=images), lambda o: None)
+
+    assert len(_FakeGenerator.instances[-1].encode_image_calls) == 12
 
 
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)

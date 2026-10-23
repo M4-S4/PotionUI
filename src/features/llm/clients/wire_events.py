@@ -17,6 +17,10 @@ class TextDelta:
 
 
 @dataclass(frozen=True)
+class ThinkingDelta:
+    text: str
+
+@dataclass(frozen=True)
 class ToolCallDelta:
     """One fragment of a tool call, in the OpenAI indexed-streaming shape.
 

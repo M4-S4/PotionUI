@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { formatBytes, formatDate } from './formatters';
+	import { formatBytes } from '$lib/utils/format';
+	import { formatDate } from './formatters';
 	import MetadataCard, { type MetadataRow } from './MetadataCard.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge } from '$lib/components/ui';
@@ -27,7 +28,7 @@
 					}
 				]
 			: []),
-		{ label: 'Size', value: formatBytes(fileSize) },
+		{ label: 'Size', value: fileSize ? formatBytes(fileSize) : 'Unknown' },
 		...(indexedAt ? [{ label: 'Indexed', value: formatDate(indexedAt) }] : [])
 	] satisfies MetadataRow[];
 </script>

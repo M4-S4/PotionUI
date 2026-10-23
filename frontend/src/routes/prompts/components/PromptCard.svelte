@@ -1,6 +1,8 @@
 <script lang="ts">
+	import LibraryCard, { stop } from './LibraryCard.svelte';
+	import LibraryCardMenu from './LibraryCardMenu.svelte';
 	import type { Prompt } from '$lib/types/segments';
-	import { Button, IconButton } from '$lib/components/ui';
+	import { Button } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { parseVariableUsageTokens } from '$lib/utils/promptVariables';
@@ -32,7 +34,23 @@
 	} = $props();
 
 	let menuOpen = $state(false);
-	let menuEl: HTMLDivElement | undefined = $state();
+
+	const menuItems = [
+		{ id: 'copy', label: 'Copy prompt', icon: 'copy' },
+		{ id: 'duplicate', label: 'Duplicate', icon: 'copy' },
+		{ id: 'collection', label: 'Add to collection', icon: 'folder' },
+		{ id: 'export', label: 'Export', icon: 'download' },
+		{ id: 'sep', label: '', separator: true },
+		{ id: 'delete', label: 'Delete', icon: 'trash', danger: true }
+	];
+
+	function handleMenuSelect(id: string) {
+		if (id === 'copy') onCopy(prompt);
+		else if (id === 'duplicate') onDuplicate(prompt);
+		else if (id === 'collection') onAddToCollection(prompt);
+		else if (id === 'export') onExport(prompt);
+		else if (id === 'delete') onDelete(prompt);
+	}
 
 	const title = $derived(promptCardTitle(prompt));
 	const negative = $derived(prompt.usage_hint === 'negative');
@@ -49,62 +67,15 @@
 		const when = prompt.last_used_at || prompt.created_at;
 		return when ? timeAgo(when) : null;
 	});
-
-	function closeMenu() {
-		menuOpen = false;
-	}
-
-	function handleWindowClick(event: MouseEvent) {
-		if (menuOpen && menuEl && !menuEl.contains(event.target as Node)) closeMenu();
-	}
-
-	function handleCardClick() {
-		onOpen(prompt);
-	}
-
-	function handleCardKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter') {
-			event.preventDefault();
-			onOpen(prompt);
-		} else if (event.key === ' ') {
-			event.preventDefault();
-			onToggleSelect(prompt);
-		}
-	}
-
-	function stop(fn: () => void) {
-		return (event: Event) => {
-			event.stopPropagation();
-			fn();
-		};
-	}
 </script>
 
-<svelte:window onclick={handleWindowClick} />
-
-<div
-	class="group relative flex min-w-0 gap-3 rounded-lg border p-3 shadow-raised transition-colors {selected
-		? 'border-signal bg-signal/[0.06] shadow-[0_0_0_1px_rgb(var(--signal))]'
-		: 'border-line-strong bg-surface-1 hover:border-line-hover'}"
-	role="button"
-	tabindex="0"
-	data-prompt-card
-	aria-label={title.text}
-	onclick={handleCardClick}
-	onkeydown={handleCardKeydown}
+<LibraryCard
+	kind="prompt"
+	label={title.text}
+	{selected}
+	onOpen={() => onOpen(prompt)}
+	onToggleSelect={() => onToggleSelect(prompt)}
 >
-	<button
-		type="button"
-		class="mt-1 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-opacity {selected
-			? 'border-accent bg-accent text-accent-contrast opacity-100'
-			: 'border-line-hover bg-surface-2 text-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}"
-		onclick={stop(() => onToggleSelect(prompt))}
-		aria-label={selected ? 'Deselect prompt' : 'Select prompt'}
-		aria-pressed={selected}
-	>
-		{#if selected}<Icon name="check" className="h-3 w-3" strokeWidth={3} />{/if}
-	</button>
-
 	{#if thumbnailUrl}
 		<div class="relative h-24 w-24 flex-shrink-0 overflow-hidden rounded bg-surface-3">
 			<img src={thumbnailUrl} alt="" class="h-full w-full object-cover" loading="lazy" decoding="async" />
@@ -139,85 +110,7 @@
 			<div class="flex flex-shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
 				<Button size="xs" variant="primary" onclick={stop(() => onUse(prompt))}>Use</Button>
 				<Button size="xs" variant="secondary" onclick={stop(() => onOpen(prompt))}>Edit</Button>
-				<div class="relative" bind:this={menuEl}>
-					<Tooltip text="More actions">
-						<IconButton
-							icon="more"
-							label="More actions"
-							size="sm"
-							ariaExpanded={menuOpen}
-							onclick={stop(() => (menuOpen = !menuOpen))}
-						/>
-					</Tooltip>
-					{#if menuOpen}
-						<div
-							class="absolute right-0 top-[calc(100%+4px)] z-30 min-w-[180px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 py-1 shadow-floating"
-							role="menu"
-						>
-							<button
-								type="button"
-								role="menuitem"
-								class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
-								onclick={stop(() => {
-									closeMenu();
-									onCopy(prompt);
-								})}
-							>
-								<Icon name="copy" className="h-3.5 w-3.5" />
-								Copy prompt
-							</button>
-							<button
-								type="button"
-								role="menuitem"
-								class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
-								onclick={stop(() => {
-									closeMenu();
-									onDuplicate(prompt);
-								})}
-							>
-								<Icon name="copy" className="h-3.5 w-3.5" />
-								Duplicate
-							</button>
-							<button
-								type="button"
-								role="menuitem"
-								class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
-								onclick={stop(() => {
-									closeMenu();
-									onAddToCollection(prompt);
-								})}
-							>
-								<Icon name="folder" className="h-3.5 w-3.5" />
-								Add to collection
-							</button>
-							<button
-								type="button"
-								role="menuitem"
-								class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
-								onclick={stop(() => {
-									closeMenu();
-									onExport(prompt);
-								})}
-							>
-								<Icon name="download" className="h-3.5 w-3.5" />
-								Export
-							</button>
-							<div class="my-1 border-t border-line"></div>
-							<button
-								type="button"
-								role="menuitem"
-								class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-danger hover:bg-danger/10"
-								onclick={stop(() => {
-									closeMenu();
-									onDelete(prompt);
-								})}
-							>
-								<Icon name="trash" className="h-3.5 w-3.5" />
-								Delete
-							</button>
-						</div>
-					{/if}
-				</div>
+				<LibraryCardMenu items={menuItems} onselect={handleMenuSelect} bind:open={menuOpen} />
 			</div>
 		</div>
 
@@ -262,4 +155,4 @@
 			</span>
 		</div>
 	</div>
-</div>
+</LibraryCard>

@@ -17,13 +17,16 @@ def swap_sampler():
 
     @contextmanager
     def _swap(key: str, fn):
+        order = sampler_registry.definitions()
         original = sampler_registry.get(key)
         sampler_registry.unregister(key)
         sampler_registry.register(replace(original, sample=fn))
         try:
             yield
         finally:
-            sampler_registry.unregister(key)
-            sampler_registry.register(original)
+            for definition in order:
+                sampler_registry.unregister(definition.key)
+            for definition in order:
+                sampler_registry.register(definition)
 
     return _swap

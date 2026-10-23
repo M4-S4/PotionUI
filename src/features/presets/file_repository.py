@@ -14,25 +14,7 @@ class FilePresetRepository:
         self.preset_loader = preset_loader
 
     def find_preset_by_id(self, preset_id: str):
-        """
-        Find a preset template by its ID.
-
-        Args:
-            preset_id: The ID of the preset to find
-
-        Returns:
-            The preset template if found, None otherwise
-        """
-        if not preset_id:
-            return None
-
-        # Ensure presets are loaded (lazy loading)
-        self.preset_loader._ensure_loaded()
-
-        for preset_template in self.preset_loader.presets:
-            if preset_template.id == preset_id:
-                return preset_template
-        return None
+        return self.preset_loader.get(preset_id)
 
     def preset_to_info(
         self, preset_template, include_gallery: bool = False, include_styles: bool = False
@@ -98,14 +80,6 @@ class FilePresetRepository:
         Returns:
             A list of preset info dictionaries
         """
-        # Ensure presets are loaded (lazy loading)
-        self.preset_loader._ensure_loaded()
-
-        presets = []
-        # The preset_loader.presets is now a simple list
-        for preset_template in self.preset_loader.presets:
-            preset_info = self.preset_to_info(preset_template)
-            presets.append(preset_info.model_dump())
-        return presets
+        return [self.preset_to_info(preset_template).model_dump() for preset_template in self.preset_loader.all()]
 
 

@@ -35,7 +35,7 @@ from src.features.generation.thumbnail_profile import (
 )
 from src.platform.database.rows import now_iso, now_utc
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.generation.records import Generation, File
 from src.features.generation.repository import GenerationRepository
@@ -303,19 +303,15 @@ class GenerationHistoryArchive:
         generation = self._query._get_generation_or_raise(generation_id, user_id, include_files=True)
 
         # Execute before_delete hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             GENERATION_HOOKS.before_delete,
             {
                 "generation_id": generation_id,
                 "user_id": user_id,
                 "preset_id": generation.preset_id
-            }
+            },
+            "Deletion blocked by plugin", error=GenerationDeleteFailedException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Deletion blocked by plugin")
-            logger.warning(f"Generation deletion blocked: {reason}")
-            raise GenerationDeleteFailedException(reason)
 
         # Get file count from database
         db_files = self.generation_repo.get_files(generation_id, user_id=user_id)
@@ -383,19 +379,15 @@ class GenerationHistoryArchive:
             }
 
         # Execute before_bulk_delete hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             GENERATION_HOOKS.before_bulk_delete,
             {
                 "generation_ids": generation_ids,
                 "user_id": user_id,
                 "count": len(generation_ids)
-            }
+            },
+            "Bulk deletion blocked by plugin", error=GenerationDeleteFailedException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Bulk deletion blocked by plugin")
-            logger.warning(f"Bulk generation deletion blocked: {reason}")
-            raise GenerationDeleteFailedException(reason)
 
         deleted_count = 0
         failed_count = 0
@@ -941,8 +933,7 @@ class GenerationHistoryArchive:
         from src.features.presets.templates import default_form_name, sorted_forms
 
         try:
-            preset_loader._ensure_loaded()
-            preset = next((p for p in preset_loader.presets if p.id == preset_id), None)
+            preset = preset_loader.get(preset_id)
         except Exception:
             logger.exception("preset lookup failed while resolving legacy bundle model-reference fields")
             return None
@@ -1132,19 +1123,15 @@ class GenerationHistoryArchive:
             raise UploadFailedException("No files provided")
 
         # Execute before_upload hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             GENERATION_HOOKS.before_upload,
             {
                 "user_id": user_id,
                 "file_count": len(files),
                 "tag_ids": tag_ids
-            }
+            },
+            "Upload blocked by plugin", error=UploadFailedException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Upload blocked by plugin")
-            logger.warning(f"Generation upload blocked: {reason}")
-            raise UploadFailedException(reason)
 
         if self.limit_guard is not None:
             sizes = await self._incoming_sizes(files)
@@ -1276,19 +1263,15 @@ class GenerationHistoryArchive:
         self._query._validate_tag_ids(tag_ids, user_id)
 
         # Execute before_update_tags hook
-        hook_data, blocked = execute_hook(self.plugins,
+        run_veto_hook(self.plugins,
             GENERATION_HOOKS.before_update_tags,
             {
                 "generation_id": generation_id,
                 "user_id": user_id,
                 "tag_ids": tag_ids
-            }
+            },
+            "Tag update blocked by plugin", error=InvalidTagException,
         )
-
-        if blocked:
-            reason = hook_data.get("block_reason", "Tag update blocked by plugin")
-            logger.warning(f"Generation tag update blocked: {reason}")
-            raise InvalidTagException(reason)
 
         from src.features.tags.repository import tag_repo
         success = tag_repo.set_generation_tags(generation_id, tag_ids)

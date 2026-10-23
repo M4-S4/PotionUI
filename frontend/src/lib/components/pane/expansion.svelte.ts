@@ -53,6 +53,11 @@ export class ExpansionState {
 		this.#commit(next);
 	}
 
+	clear(): void {
+		if (this.ids.size === 0) return;
+		this.#commit(new Set());
+	}
+
 	expandMany(ids: string[]): void {
 		const next = new Set(this.ids);
 		let changed = false;

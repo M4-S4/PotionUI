@@ -1,8 +1,11 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button } from '$lib/components/ui';
+	import { primaryModifier } from '$lib/utils/platform';
 	import { describeDropTarget, describeFormats, type MediaKind } from './mediaLoaderConfig';
 	import type { MediaSource } from './mediaFieldSources';
+
+	const modifier = primaryModifier();
 
 	let {
 		kinds,
@@ -41,7 +44,7 @@
 			<Button variant="secondary" size="xs" onclick={() => onSource('browse')}>Browse</Button>
 		</div>
 		<p class="font-mono text-xs tabular-nums {pasteArmed ? 'text-signal' : 'text-fg-subtle'}">
-			{pasteArmed ? 'Paste armed · press Ctrl V' : formats}
+			{pasteArmed ? `Paste armed · press ${modifier} V` : formats}
 		</p>
 		<div class="flex flex-wrap items-center justify-center gap-1">
 			{#if showPaste}

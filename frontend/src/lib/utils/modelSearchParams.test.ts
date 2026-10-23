@@ -95,4 +95,41 @@ describe('buildModelSearchRequest', () => {
 		});
 		expect(preset).toMatchObject({ opts: { favoritesOnly: true } });
 	});
+
+	it('joins several model types and the unquantized filter on the preset branch only', () => {
+		const preset = buildModelSearchRequest({
+			modelType: 'diffusion_model',
+			modelTypes: ['diffusion_model', 'unet', 'text_encoder'],
+			unquantizedOnly: true,
+			presetId: 'p1',
+			limit: 10
+		});
+		expect(preset).toMatchObject({
+			kind: 'preset',
+			modelType: 'diffusion_model',
+			opts: { modelTypes: 'diffusion_model,unet,text_encoder', unquantizedOnly: true }
+		});
+
+		const global = buildModelSearchRequest({
+			modelType: 'diffusion_model',
+			modelTypes: ['diffusion_model', 'unet'],
+			unquantizedOnly: true,
+			limit: 10
+		});
+		expect(global).toMatchObject({ kind: 'global', params: { model_type: 'diffusion_model' } });
+		expect(JSON.stringify(global)).not.toContain('unet');
+	});
+
+	it('keeps the single-type request untouched when model_types is absent or holds one type', () => {
+		const none = buildModelSearchRequest({ modelType: 'lora', presetId: 'p1', limit: 10 });
+		expect(none).toMatchObject({ opts: { modelTypes: undefined, unquantizedOnly: undefined } });
+
+		const one = buildModelSearchRequest({
+			modelType: 'lora',
+			modelTypes: ['lora'],
+			presetId: 'p1',
+			limit: 10
+		});
+		expect(one).toMatchObject({ opts: { modelTypes: undefined } });
+	});
 });

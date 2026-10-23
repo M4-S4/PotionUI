@@ -5,14 +5,8 @@ from unittest.mock import Mock, AsyncMock
 from typing import AsyncGenerator, List
 
 from src.features.chat.runtime import ChatRuntime
-from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from tests.fixtures.chat_modes import mode_registry
 from src.features.chat.title_generator import ChatTitleGenerator
-
-
-def _mode_registry() -> ChatModeRegistry:
-    registry = ChatModeRegistry()
-    registry.register(build_generation_mode())
-    return registry
 
 
 def _message(role: str, content: str) -> Mock:
@@ -160,7 +154,7 @@ class TestStreamTitleEvent:
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
-            chat_mode_registry=_mode_registry(),
+            chat_mode_registry=mode_registry(),
         )
 
         session = _session()

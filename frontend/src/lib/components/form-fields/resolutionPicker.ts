@@ -12,17 +12,6 @@ export interface ResolutionOptionLike {
 	tier?: string;
 }
 
-/** "1024x1024" -> { width: 1024, height: 1024 }, or null if unparseable. */
-export function parseResolutionValue(value: string): { width: number; height: number } | null {
-	if (!value || typeof value !== 'string') return null;
-	const parts = value.split('x');
-	if (parts.length !== 2) return null;
-	const width = parseInt(parts[0], 10);
-	const height = parseInt(parts[1], 10);
-	if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
-	return { width, height };
-}
-
 /** An option's tier, falling back the same way the backend normalizer does
  * (own tier -> group -> "Standard") so a stale/partial payload still groups. */
 export function optionTier(opt: ResolutionOptionLike): string {

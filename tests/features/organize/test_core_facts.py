@@ -201,6 +201,9 @@ def segmented(seed, manager):
     ("contains", "potion", ["in_state"]),
     ("contains", "dog", []),
     ("not_contains", "potion", ["in_form"]),
+    ("contains", "po", ["in_state"]),
+    ("contains", "magic potion", ["in_state"]),
+    ("not_contains", "ca", ["in_state"]),
 ])
 def test_prompt_fact_reads_prompt_state(segmented, manager, operator, value, expected):
     conditions = [{"fact": "prompt", "operator": operator, "value": value}]

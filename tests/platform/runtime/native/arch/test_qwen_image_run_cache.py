@@ -22,6 +22,7 @@ import torch
 from src.platform.runtime.native.engine import RunCache
 
 from .test_qwen_image_model import TINY, _build_ready
+from .run_cache_hits import count_hits
 
 STEPS = (0.9, 0.5, 0.1)
 
@@ -387,3 +388,14 @@ def test_entry_is_released_when_the_run_cache_is_cleared():
         assert len(cache) == 1
     assert len(cache) == 0
     assert m.run_cache is None
+
+
+def test_every_step_after_the_first_hits_the_fixed_entry():
+    m = _build_ready(TINY)
+    x, context = _inputs()
+
+    with _cached(m) as cache:
+        hits = count_hits(cache)
+        _run(m, x, context)
+
+    assert hits["qwen_image.fixed"] == len(STEPS) - 1

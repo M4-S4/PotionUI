@@ -33,6 +33,9 @@ from .qwen3 import (
     Flux3TextEncoder, MiniMaxH3TextEncoder, Qwen3Model, Qwen3TextEncoder, Qwen3VLTextEncoder, ZImageTextEncoder,
 )
 from .qwen25_vl import Qwen25VLModel, Qwen25VLTextEncoder
+from .qwen35 import (
+    FULL_ATTENTION, LINEAR_ATTENTION, LINEAR_KEY_HEAD_DIM, MossImageTextEncoder, Qwen35Model,
+)
 from .t5xxl import T5XXLModel, T5XXLTextEncoder, UMT5TextEncoder
 from .tokenization import (
     CLIPLTokenizerWrap,
@@ -40,6 +43,7 @@ from .tokenization import (
     Flux3Tokenizer,
     Gemma4Tokenizer,
     MiniMaxH3Tokenizer,
+    MossImageTokenizer,
     Qwen3Tokenizer,
     Qwen3VLTokenizer,
     Qwen25VLTokenizer,
@@ -106,6 +110,12 @@ _SPECS: dict[str, TESpec] = {
         # stripped before load, so only the LM weights remain.
         model_class=Qwen25VLModel,
         expected_unexpected_keys={"visual.*", "lm_head.weight", *_QUANT_SIDECAR},
+    ),
+    "qwen35": TESpec(
+        family="qwen35",
+        variant="qwen35_9b",
+        model_class=Qwen35Model,
+        expected_unexpected_keys={"model.visual.*", "mtp.*", "lm_head.*", *_QUANT_SIDECAR},
     ),
     "gemma3": TESpec(
         family="gemma3",
@@ -263,6 +273,40 @@ def _build_config(te_config: dict[str, Any], sd: dict[str, torch.Tensor]) -> dic
                 config["vision_intermediate_size"] = int(v_gate.shape[0])
             config["vision_num_layers"] = count_blocks(sd, "visual.blocks.{}.")
 
+    elif te_type == "qwen35":
+        layer_types = config["layer_types"]
+        gate = sd.get("model.layers.0.mlp.gate_proj.weight")
+        if gate is not None:
+            config["intermediate_size"] = int(gate.shape[0])
+        if FULL_ATTENTION in layer_types:
+            full = layer_types.index(FULL_ATTENTION)
+            qn = sd.get(f"model.layers.{full}.self_attn.q_norm.weight")
+            q = sd.get(f"model.layers.{full}.self_attn.q_proj.weight")
+            k = sd.get(f"model.layers.{full}.self_attn.k_proj.weight")
+            if qn is not None:
+                head_dim = int(qn.shape[0])
+                config["head_dim"] = head_dim
+                if q is not None:
+                    config["num_attention_heads"] = int(q.shape[0]) // (2 * head_dim)
+                if k is not None:
+                    config["num_key_value_heads"] = int(k.shape[0]) // head_dim
+        if LINEAR_ATTENTION in layer_types:
+            lin = f"model.layers.{layer_types.index(LINEAR_ATTENTION)}.linear_attn."
+            a_log = sd.get(lin + "A_log")
+            norm = sd.get(lin + "norm.weight")
+            qkv = sd.get(lin + "in_proj_qkv.weight")
+            conv = sd.get(lin + "conv1d.weight")
+            if a_log is not None and norm is not None and qkv is not None:
+                num_v_heads = int(a_log.shape[0])
+                head_v_dim = int(norm.shape[0])
+                key_total = (int(qkv.shape[0]) - num_v_heads * head_v_dim) // 2
+                config["linear_num_value_heads"] = num_v_heads
+                config["linear_value_head_dim"] = head_v_dim
+                config["linear_key_head_dim"] = LINEAR_KEY_HEAD_DIM
+                config["linear_num_key_heads"] = key_total // LINEAR_KEY_HEAD_DIM
+            if conv is not None:
+                config["linear_conv_kernel_dim"] = int(conv.shape[-1])
+
     elif te_type == "gemma3":
         gate = sd.get("model.layers.0.mlp.gate_proj.weight")
         if gate is not None:
@@ -375,6 +419,7 @@ def _convert_wan_umt5(sd: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
 
 _HF_LANGUAGE_PREFIX = "model.language_model."
+QWEN35_STRIP_PREFIXES = ("model.visual.", "mtp.", "lm_head.")
 
 
 def _normalise_hf_qwen3vl_keys(sd: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -445,6 +490,8 @@ def _load_one(
             k: v for k, v in sd.items()
             if (vision or not k.startswith("visual.")) and k != "lm_head.weight"
         }
+    elif te_type == "qwen35":
+        sd = {k: v for k, v in sd.items() if not k.startswith(QWEN35_STRIP_PREFIXES)}
     elif te_type == "umt5":
         # Drop the embedded SentencePiece blob (loaded from the bundled asset), then
         # remap Wan-native keys to the ComfyUI T5 layout the arch expects.
@@ -550,6 +597,8 @@ def _make_encoder(te_type: str, variant: str, module: Any, device: str | torch.d
                 "(internal plumbing: _make_encoder must be reached via _load_one)"
             )
         return Gemma4TextEncoder(module, Gemma4Tokenizer(tok_bytes), variant=variant, device=device)
+    if te_type == "qwen35":
+        return MossImageTextEncoder(module, MossImageTokenizer(), variant=variant, device=device)
     if te_type == "clip_l":
         return CLIPLTextEncoder(module, CLIPLTokenizerWrap(), device=device)
     raise NativeEngineUnsupportedError(f"no encoder wrapper for '{te_type}'")  # pragma: no cover

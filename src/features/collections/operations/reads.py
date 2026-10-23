@@ -8,6 +8,7 @@ directly before previewing a change.
 """
 from src.features.collections.records import Collection
 from src.features.collections.repository import CollectionRepository
+from src.platform.http.errors import NotFoundError
 
 
 def get_collection(collection_repository: CollectionRepository, collection_id: str, user_id: str, scope: str) -> Collection:
@@ -19,5 +20,5 @@ def get_collection(collection_repository: CollectionRepository, collection_id: s
     """
     collection = collection_repository.get_by_id(collection_id, scope, user_id)
     if not collection:
-        raise ValueError("Collection not found or access denied")
+        raise NotFoundError("collection_not_found", "Collection not found or access denied")
     return collection

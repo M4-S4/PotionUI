@@ -50,7 +50,40 @@ export function releaseLayer(tier: LayerTier, z: number): void {
 	if (idx !== -1) open.splice(idx, 1);
 }
 
+export interface DismissLayer {
+	node: HTMLElement;
+}
+
+let dismissLayers: DismissLayer[] = [];
+
+export function registerDismissLayer<T extends DismissLayer>(layer: T): T {
+	dismissLayers.push(layer);
+	return layer;
+}
+
+export function unregisterDismissLayer(layer: DismissLayer): void {
+	const idx = dismissLayers.indexOf(layer);
+	if (idx !== -1) dismissLayers.splice(idx, 1);
+}
+
+export function topDismissLayer(): DismissLayer | undefined {
+	return dismissLayers[dismissLayers.length - 1];
+}
+
+export function isTopDismissLayer(layer: DismissLayer): boolean {
+	return topDismissLayer() === layer;
+}
+
+export function hasOpenDismissLayer(): boolean {
+	return dismissLayers.length > 0;
+}
+
+export function openDismissLayers(): readonly DismissLayer[] {
+	return dismissLayers;
+}
+
 export function resetLayerStackForTests(): void {
+	dismissLayers = [];
 	for (const tier of Object.keys(openLayers) as LayerTier[]) {
 		openLayers[tier] = [];
 	}

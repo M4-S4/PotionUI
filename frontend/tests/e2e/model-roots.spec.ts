@@ -1,11 +1,7 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson } from './helpers';
 
 const JOURNEY = 'model-roots';
-
-async function fulfillJson(route: Route, data: unknown, status = 200) {
-	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
-}
 
 function homeRoot(overrides: Record<string, unknown> = {}) {
 	return {
@@ -104,6 +100,11 @@ async function mockReadiness(page: Page) {
 			checks: [{ area: 'service', status: 'ready', code: 'SERVICE_OK', message: 'Service is healthy.', action: null }]
 		})
 	);
+}
+
+async function expectNoHorizontalOverflow(page: Page) {
+	const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+	expect(overflow).toBeLessThanOrEqual(0);
 }
 
 async function gotoSetup(page: Page) {
@@ -285,7 +286,6 @@ test.describe('model roots - admin folders', () => {
 		await gotoAdminFolders(page);
 		await expect(page.getByText('Offline')).toBeVisible();
 		await page.getByText('Offline').hover();
-		await page.waitForTimeout(300);
 		await screenshot(page, JOURNEY, 'admin-offline-root');
 	});
 
@@ -402,6 +402,8 @@ test.describe('model roots - phone', () => {
 		await mockIndexingStatus(page);
 		await mockReadiness(page);
 		await gotoSetup(page);
+		await expect(page.getByLabel('Folder path')).toBeVisible();
+		await expectNoHorizontalOverflow(page);
 		await screenshot(page, JOURNEY, 'wizard-phone');
 	});
 });

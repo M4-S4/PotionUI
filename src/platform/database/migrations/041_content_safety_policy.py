@@ -153,25 +153,3 @@ def up():
         _seed_restricted_group(cursor)
         seeded = _seed_ratings_from_tags(cursor, now)
     print(f"Migration {_NAME}: content safety policy installed, {seeded} rating(s) carried into the ledger")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        for key, _, _, _ in _SETTINGS:
-            cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
-        cursor.execute("DELETE FROM user_groups WHERE id = ?", (_RESTRICTED_GROUP_ID,))
-        if "content_policy" in _column_names(cursor, "user_groups"):
-            cursor.execute("ALTER TABLE user_groups DROP COLUMN content_policy")
-        cursor.execute("DROP TABLE IF EXISTS content_safety_events")
-        cursor.execute("DROP TABLE IF EXISTS content_ratings")
-        cursor.execute("SELECT 1 FROM settings WHERE key = 'nsfw'")
-        if cursor.fetchone() is None:
-            now = now_iso()
-            cursor.execute(
-                """
-                INSERT INTO settings (id, key, value, value_type, description, type, created_at, updated_at)
-                VALUES (?, 'nsfw', 'false', 'boolean', 'Allow NSFW content generation', 'USER', ?, ?)
-                """,
-                (generate_ulid(), now, now),
-            )
-    print(f"Migration {_NAME}: content safety policy removed")

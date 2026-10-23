@@ -131,6 +131,47 @@ async def test_deleting_a_grid_cancels_active_cells_and_removes_cells_and_grid(h
 
 
 @pytest.mark.asyncio
+async def test_a_grid_whose_cells_fail_to_delete_is_kept_so_no_cell_is_orphaned(harness, monkeypatch):
+    grid = await make_grid(harness)
+    monkeypatch.setattr(
+        harness.history,
+        "bulk_delete",
+        lambda ids, user_id: {"deleted_count": len(ids) - 1, "failed_count": 1, "failed_ids": ["gen-003"]},
+    )
+
+    with pytest.raises(GridError) as refused:
+        await harness.service.delete(grid["id"], harness.users["u1"])
+
+    assert refused.value.code == "grid_delete_incomplete"
+    assert refused.value.extra == {"failed_ids": ["gen-003"]}
+    assert len(harness.rows("generation_grids")) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_admin_deleting_someone_elses_grid_keeps_it_when_cells_fail_and_can_retry(harness, monkeypatch):
+    grid = await make_grid(harness)
+    real = harness.history.admin_bulk_delete
+    monkeypatch.setattr(
+        harness.history,
+        "admin_bulk_delete",
+        lambda ids, admin_id: {"deleted_count": 0, "failed_count": 1, "failed_ids": ["gen-001"]},
+    )
+
+    with pytest.raises(GridError) as refused:
+        await harness.service.delete(grid["id"], harness.users["admin"])
+
+    assert refused.value.code == "grid_delete_incomplete"
+    assert len(harness.rows("generation_grids")) == 1
+    assert len(harness.rows("generations")) == 6
+
+    monkeypatch.setattr(harness.history, "admin_bulk_delete", real)
+    await harness.service.delete(grid["id"], harness.users["admin"])
+
+    assert harness.rows("generation_grids") == []
+    assert harness.rows("generations") == []
+
+
+@pytest.mark.asyncio
 async def test_a_stranger_cannot_delete_a_grid_and_nothing_is_touched(harness):
     grid = await make_grid(harness)
 

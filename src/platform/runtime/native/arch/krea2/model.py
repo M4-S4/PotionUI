@@ -69,6 +69,7 @@ CFG (raw model) is the sampler's job — this module runs a single stream.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, NamedTuple
 
 import torch
@@ -77,7 +78,6 @@ from einops import rearrange, repeat
 from torch import Tensor
 
 from ...base import NativeArchModule
-from ...cache_identity import identity_usable, tensor_identity
 from ...cancellation import raise_if_cancelled
 from .config import Krea2Config
 from .layers import (
@@ -94,6 +94,7 @@ from .layers import (
     ref_attn_bias,
     temb,
 )
+from .text_fusion import enhanced_fusion, fusion_key
 
 
 class _BranchInputs(NamedTuple):
@@ -324,7 +325,8 @@ class Krea2(NativeArchModule):
 
     def _branch_inputs(self, x: Tensor, context: Tensor, txt_mask: Tensor | None,
                        refs: list[Tensor], nag_context: Tensor | None,
-                       nag_txt_mask: Tensor | None, nag: dict | None) -> _BranchInputs:
+                       nag_txt_mask: Tensor | None, nag: dict | None,
+                       text_fusion: dict | None = None) -> _BranchInputs:
         """Position ids, joint key-padding mask and fused text for one branch.
 
         Every one of them is a property of the guidance branch and the weights,
@@ -344,25 +346,24 @@ class Krea2(NativeArchModule):
         """
         cache = getattr(self, "run_cache", None)
         nag_on = nag_context is not None and _nag_active(nag)
-        key = None
-        if cache is not None:
-            ids = (tensor_identity(context), tensor_identity(txt_mask),
-                   tensor_identity(nag_context if nag_on else None),
-                   tensor_identity(nag_txt_mask if nag_on else None))
-            if identity_usable(*ids):
-                b, _, h, w = x.shape
-                # cache.revision is read here, per lookup, never hoisted across
-                # steps: a step-windowed LoRA applies and restores at step
-                # boundaries WITHIN a run, and the fused text is computed with
-                # the weights in effect at the time.
-                key = ("krea2.branch", cache.revision, x.dtype, x.device, b, h, w,
-                       tuple(tuple(r.shape[-2:]) for r in refs), nag_on, *ids)
-                hit = cache.get(key)
-                if hit is not None:
-                    return hit
+        fusion = fusion_key(text_fusion)
+        build = partial(self._build_branch, x, context, txt_mask, refs, nag_context, nag_txt_mask, nag_on, text_fusion)
+        if cache is None:
+            return build()
+        b, _, h, w = x.shape
+        return cache.memo(
+            "krea2.branch",
+            (context, txt_mask, nag_context if nag_on else None, nag_txt_mask if nag_on else None),
+            (x.dtype, x.device, b, h, w, tuple(tuple(r.shape[-2:]) for r in refs), nag_on, fusion),
+            build,
+        )
 
+    def _build_branch(self, x: Tensor, context: Tensor, txt_mask: Tensor | None,
+                      refs: list[Tensor], nag_context: Tensor | None,
+                      nag_txt_mask: Tensor | None, nag_on: bool,
+                      text_fusion: dict | None = None) -> _BranchInputs:
         pos, mask = self._stream_geometry(x, context.shape[1], txt_mask, refs)
-        fused = self.prepare_context(context, mask)
+        fused = self.prepare_context(context, mask, text_fusion)
         nag_fused = None
         if nag_on:
             # ``prepare_context`` expects an already-bool mask (``_stream_geometry``
@@ -370,12 +371,9 @@ class Krea2(NativeArchModule):
             # ``nag_txt_mask`` arrives raw from the caller (e.g. an int64
             # tokenizer mask), so coerce it here the same way.
             nag_bool = nag_txt_mask.to(torch.bool) if nag_txt_mask is not None else None
-            nag_fused = self.prepare_context(nag_context, nag_bool)
-        branch = _BranchInputs(pos, mask, fused, nag_fused, {}, context, txt_mask,
-                               nag_context, nag_txt_mask)
-        if key is not None:
-            cache.put(key, branch)
-        return branch
+            nag_fused = self.prepare_context(nag_context, nag_bool, text_fusion)
+        return _BranchInputs(pos, mask, fused, nag_fused, {}, context, txt_mask,
+                             nag_context, nag_txt_mask)
 
     def unpatchify(self, out: Tensor, h_: int, w_: int) -> Tensor:
         """Inverse of the patchify in :meth:`build_stream_inputs`."""
@@ -398,7 +396,8 @@ class Krea2(NativeArchModule):
         t_emb = self.tmlp(temb(t, self.config.tdim, device=t.device, dtype=dtype))
         return t_emb, self.tproj(t_emb)
 
-    def prepare_context(self, te_hidden: Tensor, mask: Tensor | None = None) -> Tensor:
+    def prepare_context(self, te_hidden: Tensor, mask: Tensor | None = None,
+                        text_fusion: dict | None = None) -> Tensor:
         """Fuse per-layer TE hidden states -> ``(B, L_seq, features)``.
 
         ``te_hidden`` is ``(B, L_seq, txtlayers, txtdim)`` — the layers axis sits
@@ -412,7 +411,14 @@ class Krea2(NativeArchModule):
         if mask is not None:
             txtmask = mask[:, :txt_len][:, None, None, :]
         fused = self.txtfusion(te_hidden, mask=txtmask)
-        return self.txtmlp(fused)
+        settings = fusion_key(text_fusion)
+        if settings is None:
+            return self.txtmlp(fused)
+        strength, scale = settings
+        if strength > 0.0:
+            fused = enhanced_fusion(self.txtfusion, te_hidden, fused, txtmask, strength)
+        out = self.txtmlp(fused)
+        return out if scale == 1.0 else out * scale
 
     def _rotary(self, memo: dict | None, key: tuple, pos: Tensor, dtype: torch.dtype) -> Tensor:
         """Build the final cast rotary table for ``pos`` and record it in ``memo``.
@@ -567,7 +573,8 @@ class Krea2(NativeArchModule):
                 ref_boost: float = 1.0, ref_boost_a: float = 1.0,
                 ref_boost_mask: Tensor | None = None,
                 nag_context: Tensor | None = None, nag: dict | None = None,
-                nag_attention_mask: Tensor | None = None, **kwargs) -> Tensor:
+                nag_attention_mask: Tensor | None = None,
+                text_fusion: dict | None = None, **kwargs) -> Tensor:
         """Flat denoise adapter so ``NativeGenerator.sample`` drives Krea-2 like
         Flux/Qwen (composes the helper contract internally, matching diffusers'
         single flat ``forward`` in effect if not in literal shape).
@@ -621,7 +628,7 @@ class Krea2(NativeArchModule):
 
         img_tokens = self._pack_tokens(x, refs)
         branch = self._branch_inputs(x, context, attention_mask, refs,
-                                     nag_context, nag_attention_mask, nag)
+                                     nag_context, nag_attention_mask, nag, text_fusion)
         t_emb, tvec = self.prepare_timestep(t, x.dtype)
         p = self.config.patch
         attn_bias = self._maybe_ref_bias(

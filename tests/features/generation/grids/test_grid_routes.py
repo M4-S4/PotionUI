@@ -4,6 +4,7 @@ import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
+from src.bootstrap.errors import register_error_handlers
 from src.features.generation.grids.routes import build_router
 from src.features.plans.errors import LimitExceeded
 from src.platform.security.current_user import get_current_active_user
@@ -17,6 +18,7 @@ ADMIN = {"x-user": "admin"}
 @pytest.fixture
 def client(harness):
     app = FastAPI()
+    register_error_handlers(app)
     app.include_router(build_router(SimpleNamespace(_generation_grid_service=harness.service)))
 
     def current_user(request: Request):

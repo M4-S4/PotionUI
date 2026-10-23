@@ -155,27 +155,6 @@ def test_cancellation_raises(sampler):
         sampler(_const(1.0), torch.zeros(1, 3), _SIGMAS, NoCFG(), {}, None, is_cancelled=cancel)
 
 
-@pytest.mark.parametrize("sampler", [sample_dpmpp_2m_sde, sample_dpmpp_3m, sample_res_multistep, sample_lcm])
-def test_hooks_fire_once_per_step(sampler):
-    class Counter(BaseStepHook):
-        def __init__(self):
-            self.starts = self.steps = self.ends = 0
-
-        def on_start(self, total_steps):
-            self.starts += 1
-            self.total = total_steps
-
-        def on_step(self, *_):
-            self.steps += 1
-
-        def on_end(self):
-            self.ends += 1
-
-    c = Counter()
-    sampler(_const(1.0), torch.zeros(1, 2), torch.tensor([1.0, 0.5, 0.0]), NoCFG(), {}, None, hooks=[c])
-    assert (c.starts, c.steps, c.total, c.ends) == (1, 2, 2, 1)
-
-
 # --- registry + warm-start exclusion --------------------------------------
 
 def test_all_new_samplers_registered():

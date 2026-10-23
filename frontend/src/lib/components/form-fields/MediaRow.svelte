@@ -5,13 +5,14 @@
 	import ToolsMenu from '$lib/components/tools/ToolsMenu.svelte';
 	import { Button, IconButton, Input } from '$lib/components/ui';
 	import type { MediaTool, MediaToolGroup } from '$lib/tools/tools';
+	import { primaryModifier } from '$lib/utils/platform';
 	import { mediaItemKey } from '$lib/utils/promptResources';
 	import MediaSourceMenu from './MediaSourceMenu.svelte';
 	import type { MediaSource } from './mediaFieldSources';
 	import {
 		ADD_LABELS,
 		GROUP_TITLES,
-		dropInGroup,
+		createReorderHandlers,
 		formatCount,
 		nudgeInGroup,
 		type GroupLayout,
@@ -22,6 +23,8 @@
 	import { isDropAllowed, NO_DRAG, type DragState } from './mediaLoaderReorder';
 
 	type Item = Record<string, unknown>;
+
+	const modifier = primaryModifier();
 
 	let {
 		multiple,
@@ -89,31 +92,12 @@
 		return metaLine(meta, kind) ?? '';
 	}
 
-	function startDrag(event: DragEvent, group: MediaGroup<Item>, kindIndex: number) {
-		drag = { laneKey: group.kind, fromIndex: kindIndex, overIndex: kindIndex };
-		if (event.dataTransfer) {
-			event.dataTransfer.effectAllowed = 'move';
-			event.dataTransfer.setData('text/plain', String(kindIndex));
-		}
-	}
-
-	function dragOver(event: DragEvent, group: MediaGroup<Item>, kindIndex: number) {
-		if (drag.laneKey !== group.kind) return;
-		event.preventDefault();
-		if (drag.overIndex !== kindIndex) drag = { ...drag, overIndex: kindIndex };
-	}
-
-	function drop(event: DragEvent, group: MediaGroup<Item>, kindIndex: number) {
-		event.preventDefault();
-		event.stopPropagation();
-		if (!isDropAllowed(drag, group.kind, kindIndex)) {
-			drag = NO_DRAG;
-			return;
-		}
-		const result = dropInGroup(items, group, drag.fromIndex as number, kindIndex);
-		drag = NO_DRAG;
-		commit(result.items, result.flatIndex);
-	}
+	const { startDrag, dragOver, drop } = createReorderHandlers<Item>({
+		getDrag: () => drag,
+		setDrag: (next) => (drag = next),
+		getItems: () => items,
+		commit
+	});
 
 	async function commit(next: Item[], flatIndex: number) {
 		onReorder(next, flatIndex);
@@ -281,7 +265,7 @@
 				{/snippet}
 			</MediaSourceMenu>
 			<span class="min-w-0 truncate font-mono text-xs text-fg-subtle">
-				{pasteArmed ? 'Paste armed · Ctrl V' : dragging ? 'Release to add' : 'or drop here'}
+				{pasteArmed ? `Paste armed · ${modifier} V` : dragging ? 'Release to add' : 'or drop here'}
 			</span>
 		</div>
 	{/if}

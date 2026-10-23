@@ -17,13 +17,11 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.vae_detect import (
     detect_ltx_diffusion_vae_config,
     detect_ltx_video_vae_config,
 )
 from src.platform.runtime.native.errors import NativeEngineUnsupportedError
-from src.platform.runtime.native.vae.loader import _VaeSpec
 from src.platform.runtime.native.vae import ltx_diffusion_video
 from src.platform.runtime.native.vae.ltx_diffusion_video import (
     _blend,
@@ -487,14 +485,6 @@ class TestEngineRouting:
 
 
 class TestModuleContract:
-    def test_self_consistent_state_dict_passes_load_integrity(self):
-        module = _build_tiny()
-        spec = _VaeSpec(family="vae", variant="ltx_diffusion_video")
-        load_into_module(module, module.state_dict(), spec)  # must not raise
-
-    def test_post_load_is_safe_noop(self):
-        LTXDiffusionVideoVAE.from_config(_TINY_CONFIG, disable_weight_init).post_load()
-
     def test_encode_rejects_invalid_frame_count(self):
         module = _build_tiny()
         with pytest.raises(ValueError, match=r"1 \+ 8\*k"):

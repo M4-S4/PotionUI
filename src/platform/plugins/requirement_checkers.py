@@ -23,10 +23,12 @@ them removed via `unregister_source` when disabled.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from src.platform.plugins.sourced_registry import DuplicateRegistrationError, SourcedRegistry
 
 
-class DuplicateRequirementCheckerError(ValueError):
+class DuplicateRequirementCheckerError(DuplicateRegistrationError):
     """Raised when registering a requirement type name that is already registered."""
 
 
@@ -41,37 +43,13 @@ class RequirementCheckerRegistration:
     source: str = "core"
 
 
-class RequirementCheckerRegistry:
+class RequirementCheckerRegistry(SourcedRegistry[RequirementCheckerRegistration]):
     """Registry mapping requirement `type:` name -> `RequirementCheckerRegistration`."""
 
-    def __init__(self):
-        self._by_type: Dict[str, RequirementCheckerRegistration] = {}
+    key_attr = "type_name"
+    label = "Requirement checker"
+    duplicate_error = DuplicateRequirementCheckerError
 
-    def register(self, registration: RequirementCheckerRegistration) -> None:
-        """Register a checker. Raises `DuplicateRequirementCheckerError` on name collision."""
-        if registration.type_name in self._by_type:
-            raise DuplicateRequirementCheckerError(
-                f"Requirement checker already registered: '{registration.type_name}'"
-            )
-        self._by_type[registration.type_name] = registration
-
-    def unregister_source(self, source: str) -> None:
-        """Remove every checker registered by `source` (e.g. a plugin id)."""
-        for type_name in [
-            type_name for type_name, reg in self._by_type.items() if reg.source == source
-        ]:
-            del self._by_type[type_name]
-
-    def get(self, type_name: str) -> Optional[RequirementCheckerRegistration]:
-        """Look up a checker by its requirement `type:` name, or `None` if
-        nothing is registered for it - an unregistered type is not an error
-        here (see `evaluate_preset_requirements`'s "unknown" handling), only
-        the linter treats it as one."""
-        return self._by_type.get(type_name)
-
-    def all(self) -> List[RequirementCheckerRegistration]:
-        """Return every registered checker."""
-        return list(self._by_type.values())
 
 
 # Module-level singleton shared by the plugin enable/disable path and preset

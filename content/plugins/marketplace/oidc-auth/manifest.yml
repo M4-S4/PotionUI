@@ -59,3 +59,8 @@ settings:
     label: "Redirect URI Override"
     description: "Overrides the callback URL PotionUI sends the issuer. Leave blank to derive it from the incoming request's scheme/host (honouring X-Forwarded-Proto/X-Forwarded-Host); set this explicitly in any deployment behind a reverse proxy. Must exactly match a redirect URI registered at the issuer with no wildcards, e.g. https://potionui.example.com/api/plugins/oidc-auth/callback."
     required: false
+  - name: "auto_redirect"
+    type: "boolean"
+    label: "Sign in with the identity provider automatically"
+    description: "Send signed-out visitors straight to the identity provider instead of showing the PotionUI login page. The local username and password form stays available at /login?local=1 for recovery; keep that address handy in case the identity provider is down or misconfigured."
+    default: false

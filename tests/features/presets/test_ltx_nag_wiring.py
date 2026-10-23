@@ -20,11 +20,13 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
 from src.features.video_director.normalize import derive_ltx_media_fields
+
+from ._bound_form import bound_form_data
+from tests.fixtures.form_lookup import field_by_name
 
 PRESET_DIR = Path("content/presets/marketplace/LTX-2")
 
@@ -42,9 +44,9 @@ _NAG_ON = {"nag_scale": 1.35, "nag_tau": 4.0, "nag_alpha": 0.25}
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/LTX-2")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("/LTX-2")), None)
     if template is None:
-        pytest.skip("LTX-2 preset not present")
+        pytest.fail("LTX-2 preset not present")
     return template
 
 
@@ -69,11 +71,8 @@ def _process(ltx_template, form_over=None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        ltx_template, "video", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "video", "form_data": dict(bound.values)}
+    form_data = bound_form_data(ltx_template, "video", form_data)
+    generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
     return processor.process(ltx_template, generation_data)
 
 
@@ -153,17 +152,6 @@ def test_upscale_off_stage2_config_still_unrendered(ltx_template):
 
 # -- form definition --------------------------------------------------------
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 @pytest.fixture(scope="module")
 def enhance_tab():
     # NAG lives on the Enhance tab now, not Advanced (Krea-2 canon layout --
@@ -177,7 +165,7 @@ def enhance_tab():
     ("nag_alpha", 0.5, 0.0, 1.0, 0.05),
 ])
 def test_nag_sliders_match_wan_shape_and_ranges(enhance_tab, name, default, min_v, max_v, step):
-    field = _field_by_name(enhance_tab["fields"], name)
+    field = field_by_name(enhance_tab["fields"], name)
     assert field is not None
     assert field["type"] == "slider"
     assert field["default"] == default
@@ -189,7 +177,7 @@ def test_nag_sliders_match_wan_shape_and_ranges(enhance_tab, name, default, min_
 def test_nag_scale_min_equals_off_value(enhance_tab):
     # A min below 1.0 would let the user pick a value the pipe treats as "off"
     # while the slider suggests it is doing something.
-    field = _field_by_name(enhance_tab["fields"], "nag_scale")
+    field = field_by_name(enhance_tab["fields"], "nag_scale")
     assert field["configuration"]["min"] == field["default"] == 1.0
 
 
@@ -197,7 +185,7 @@ def test_nag_scale_description_explains_the_cfg_one_case(enhance_tab):
     # The reason to reach for NAG at all. `description` was stripped repo-wide
     # by the canon pass -- this guidance now lives in `ai_hint` only, and
     # `description` must be ABSENT so the canon can't silently regress.
-    field = _field_by_name(enhance_tab["fields"], "nag_scale")
+    field = field_by_name(enhance_tab["fields"], "nag_scale")
     assert "description" not in field
     ai_hint = field["ai_hint"]
     assert "CFG 1.0" in ai_hint

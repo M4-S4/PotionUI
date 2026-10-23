@@ -314,8 +314,10 @@ class TrueCFG:
         guidance_rescale: float = 0.0,
         interval: tuple[float, float] | None = None,
         reference_mask: Tensor | None = None,
+        uncond_skip_layers: frozenset[int] = frozenset(),
     ) -> None:
         self.scale = scale
+        self.uncond_skip_layers = frozenset(uncond_skip_layers)
         self.cfg_zero_star = cfg_zero_star
         self.zero_init_steps = zero_init_steps
         self.apg_eta = apg_eta
@@ -385,6 +387,8 @@ class TrueCFG:
         if self._skip_uncond(sigma, scale, uncond):
             self.last_uncond_v = None  # no uncond branch ran -- see reset_momentum
             return cond_v
+        if self.uncond_skip_layers:
+            uncond = {**uncond, "skip_layers": self.uncond_skip_layers}
         uncond_v = model_fn(x, sigma, uncond)
         if self.cfg_zero_star:
             alpha = _cfg_zero_star_alpha(cond_v, uncond_v)

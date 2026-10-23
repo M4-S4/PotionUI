@@ -10,15 +10,6 @@ class TestFile(unittest.TestCase):
         self.preset_loader = Mock()
         self.file_field = File(self.preset_loader)
     
-    def test_can_handle(self):
-        """Test that file field handler correctly identifies file fields"""
-        self.assertTrue(self.file_field.can_handle('file'))
-        self.assertFalse(self.file_field.can_handle('text'))
-        self.assertFalse(self.file_field.can_handle('image'))
-        self.assertFalse(self.file_field.can_handle('checkbox'))
-        self.assertFalse(self.file_field.can_handle(''))
-        self.assertFalse(self.file_field.can_handle(None))
-    
     def test_output_basic_file(self):
         """Test output transformation for basic file field"""
         field = {
@@ -114,28 +105,6 @@ class TestFile(unittest.TestCase):
         self.assertEqual(result['default'], '/default/path.txt')
         self.assertEqual(result['accept'], '.txt')
         self.assertFalse(result['multiple'])
-    
-    
-    
-    
-    
-    
-    def test_map_field(self):
-        """Test that map_field delegates to output"""
-        field = {
-            'type': 'file',
-            'name': 'test_file',
-            'configuration': {
-                'accept': '*/*',
-                'multiple': True
-            }
-        }
-        
-        # map_field should return same result as output
-        output_result = self.file_field.output(field, 'preset_id')
-        map_result = self.file_field.map_field(field, 'preset_id')
-        
-        self.assertEqual(output_result, map_result)
     
     def test_complex_file_configurations(self):
         """Test complex file field configurations"""

@@ -1,8 +1,10 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	// `.shot-card` -- the expanded, active shot. Card head carries every fact
 	// (no per-shot Generate, no info band, per note09-decisions.md); the body
 	//
 	import type { Snippet } from 'svelte';
+	import dismiss from '$lib/actions/dismiss';
 	import type { ConsoleShot } from './consoleModel';
 	import { badgeMeta, BADGE_TONE_CLASS } from './badgeMeta';
 	import ConsoleIcon from './ConsoleIcon.svelte';
@@ -56,10 +58,6 @@
 	let menuOpen = $state(false);
 	let menuRoot: HTMLDivElement | undefined = $state();
 
-	function handleWindowClick(event: MouseEvent) {
-		if (menuOpen && menuRoot && !menuRoot.contains(event.target as Node)) menuOpen = false;
-	}
-
 	function commitDuration(e: Event) {
 		const input = e.currentTarget as HTMLInputElement;
 		const seconds = parseFloat(input.value);
@@ -108,8 +106,6 @@
 	}
 </script>
 
-<svelte:window onclick={handleWindowClick} />
-
 <div class="rounded-md border border-line bg-surface-1">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
@@ -142,7 +138,7 @@
 		</button>
 
 		<span class="font-mono text-[11px] text-fg">{shot.number}</span>
-		<span class="max-w-[220px] truncate text-[13px] font-semibold text-fg" title={shot.title}>{shot.title}</span>
+		<span class="max-w-[220px] truncate text-[13px] font-semibold text-fg" use:tooltip={{ text: shot.title, truncateOnly: true }}>{shot.title}</span>
 
 		<span class="inline-flex items-center gap-[5px] font-mono text-[10px] uppercase tracking-[0.04em] {BADGE_TONE_CLASS[meta.tone]}">
 			<ConsoleIcon name={meta.icon} class="h-[11px] w-[11px]" />
@@ -236,7 +232,7 @@
 				{#if timingUnknown}
 					<span
 						class="text-xs uppercase tracking-[0.04em]"
-						title="Motion latents unknown -- showing the requested length, not the generator's real output"
+						use:tooltip={"Motion latents unknown -- showing the requested length, not the generator's real output"}
 					>
 						requested
 					</span>
@@ -259,6 +255,7 @@
 					<div
 						class="absolute right-0 top-full z-10 mt-1 w-40 rounded-lg border border-line-strong bg-surface-2 py-1 shadow-floating"
 						role="menu"
+						use:dismiss={{ onDismiss: () => (menuOpen = false), ignore: [menuRoot] }}
 					>
 						<button
 							type="button"

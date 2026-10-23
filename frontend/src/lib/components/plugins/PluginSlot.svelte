@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { logger } from '$lib/utils/logger';
 	import { onDestroy, onMount } from 'svelte';
 	import { pluginStore, frontendHooks, type PluginHook } from '$lib/stores/plugins';
@@ -188,7 +189,7 @@
 					<button
 						class="plugin-action-button"
 						on:click={() => handleActionClick(component, hook)}
-						title={component.tooltip || ''}
+						use:tooltip={component.tooltip || ''}
 						disabled={component.disabled || false}
 					>
 						{#if component.icon}
@@ -206,7 +207,7 @@
 						href={component.href || '#'}
 						class="plugin-link"
 						target={component.target || '_self'}
-						title={component.tooltip || ''}
+						use:tooltip={component.tooltip || ''}
 					>
 						{#if component.icon}
 							<span class="icon">{component.icon}</span>

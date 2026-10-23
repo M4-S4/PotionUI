@@ -182,16 +182,16 @@ describe('labels and icons', () => {
 	});
 
 	it('picks an icon from the preview shape', () => {
-		expect(actionCardIcon(execution({ preview: { action: 'a', items: [], kind: 'generation' } }))).toBe('i-sparkles');
-		expect(actionCardIcon(execution({ preview: { action: 'a', items: [], kind: 'text_edit' } }))).toBe('i-edit');
+		expect(actionCardIcon(execution({ preview: { action: 'a', items: [], kind: 'generation' } }))).toBe('chat-sparkles');
+		expect(actionCardIcon(execution({ preview: { action: 'a', items: [], kind: 'text_edit' } }))).toBe('chat-edit');
 		expect(
 			actionCardIcon(
 				execution({
 					result: { success: true, data: JSON.stringify({ proposed_changes: [{ field_name: 'steps', old_value: 1, new_value: 2 }] }) }
 				})
 			)
-		).toBe('i-sliders');
-		expect(actionCardIcon(execution())).toBe('i-tools');
+		).toBe('chat-sliders');
+		expect(actionCardIcon(execution())).toBe('chat-tools');
 	});
 
 	it('words a refused continuation from the server message, then the code', () => {

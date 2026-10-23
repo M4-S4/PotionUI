@@ -229,7 +229,7 @@
 	.stage:active {
 		cursor: grabbing;
 	}
-	.stage:focus-visible {
+	:global(:where(html:not([data-input='pointer']))) .stage:focus-visible {
 		outline: 2px solid rgb(var(--signal));
 		outline-offset: 2px;
 	}

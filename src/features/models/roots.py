@@ -419,7 +419,7 @@ class ModelRootsManager:
             self._repository.set_write(root_id, model_type, spec.subdir)
 
         self._resolver.invalidate()
-        self._indexing.cancel_and_restart(trigger="roots_change")
+        self._indexing.rescan(trigger="roots_change")
         return self._root_view(root_id)
 
     def update_root(
@@ -546,7 +546,7 @@ class ModelRootsManager:
         finally:
             self._resolver.invalidate()
             if touches_disk:
-                self._indexing.cancel_and_restart(trigger="roots_change")
+                self._indexing.rescan(trigger="roots_change")
         return self._root_view(root_id)
 
     def set_binding_scan_headers(self, root_id: str, model_type: str, subdir: str, enabled: bool) -> Dict[str, Any]:
@@ -557,7 +557,7 @@ class ModelRootsManager:
             raise InvalidBindingError(model_type, subdir)
         self._repository.set_scan_headers(root_id, model_type, enabled, subdir)
         self._resolver.invalidate()
-        self._indexing.cancel_and_restart(trigger="roots_change")
+        self._indexing.rescan(trigger="roots_change")
         return self._root_view(root_id)
 
     def delete_root(self, root_id: str) -> None:
@@ -572,7 +572,7 @@ class ModelRootsManager:
         self._hand_back_all_writes(root_id)
         self._repository.delete_root(root_id)
         self._resolver.invalidate()
-        self._indexing.cancel_and_restart(trigger="roots_change")
+        self._indexing.rescan(trigger="roots_change")
 
     def reorder(self, model_type: Optional[str], root_ids: Sequence[str]) -> None:
         root_ids = list(root_ids)
@@ -605,7 +605,7 @@ class ModelRootsManager:
             )
 
         self._resolver.invalidate()
-        self._indexing.cancel_and_restart(trigger="roots_change")
+        self._indexing.reproject(trigger="roots_change")
 
     def set_write_root(self, model_type: Optional[str], root_id: str, subdir: Optional[str] = None) -> Dict[str, Any]:
         row = self._repository.get_root(root_id)
@@ -648,7 +648,7 @@ class ModelRootsManager:
             self._repository.set_write(root_id, a_type, subdir)
 
         self._resolver.invalidate()
-        self._indexing.cancel_and_restart(trigger="roots_change")
+        self._indexing.reproject(trigger="roots_change")
         return self._root_view(root_id)
 
     def probe_root(self, root_id: str) -> Dict[str, Any]:

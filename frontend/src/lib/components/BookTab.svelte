@@ -9,6 +9,7 @@
 	export let isActive: boolean;
 	export let canDelete: boolean = true;
 	export let isGenerating: boolean = false;
+	export let unsaved: boolean = false;
 	export let color: string | null = null;
 
 	const dispatch = createEventDispatcher();
@@ -194,6 +195,12 @@
 				/>
 			{:else}
 				<span class="tab-name">{name}</span>
+				{#if unsaved}
+					<Tooltip text="Unsaved changes" position="bottom" delay={150} wrapperClass="flex items-center">
+						<span class="unsaved-mark" data-testid="tab-unsaved"><span class="unsaved-dot"></span></span>
+					</Tooltip>
+					<span class="sr-only">, unsaved changes</span>
+				{/if}
 			{/if}
 		</div>
 
@@ -343,6 +350,22 @@
 		height: 7px;
 		border-radius: 50%;
 		flex-shrink: 0;
+	}
+
+	.unsaved-mark {
+		display: flex;
+		width: 14px;
+		height: 14px;
+		align-items: center;
+		justify-content: center;
+		margin-right: -4px;
+	}
+
+	.unsaved-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: rgb(var(--warning-solid));
 	}
 
 	.tab-name {

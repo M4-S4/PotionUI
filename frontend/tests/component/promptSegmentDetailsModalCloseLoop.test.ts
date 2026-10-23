@@ -10,7 +10,7 @@
 // a real 150ms motionDuration keeps the dialog node mounted a beat after
 // `isOpen` flips false, which is exactly the window a premature "hidden"
 // check could miss.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 
 const { default: PromptSegment } = await import('$lib/components/PromptSegment.svelte');
 const { createClassComponent } = await import('svelte/legacy');
@@ -29,21 +29,25 @@ function segment() {
 }
 
 let target: HTMLDivElement;
-let component: ReturnType<typeof createClassComponent> | undefined;
 
 function mount() {
 	target = document.createElement('div');
 	document.body.appendChild(target);
-	component = createClassComponent({
+	createClassComponent({
 		component: PromptSegment as never,
 		target,
 		props: { segment: segment(), index: 0, total: 3 }
 	});
 }
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
 afterEach(() => {
 	target?.remove();
 	document.body.innerHTML = '';
+	vi.useRealTimers();
 });
 
 function openMoreMenu() {
@@ -55,7 +59,7 @@ function openMoreMenu() {
 
 function detailsMenuItem() {
 	return Array.from(document.querySelectorAll('[role="menuitem"]')).find(
-		(el) => (el.textContent || '').trim() === 'Details'
+		(el) => (el.textContent || '').trim() === 'Details…'
 	) as HTMLButtonElement;
 }
 
@@ -67,13 +71,13 @@ async function clickDetails() {
 
 function dialog() {
 	return Array.from(document.querySelectorAll('[role="dialog"]')).find(
-		(el) => el.getAttribute('aria-label') === 'Segment details'
+		(el) => document.getElementById(el.getAttribute('aria-labelledby') ?? '')?.textContent === 'Segment details'
 	) as HTMLElement | undefined;
 }
 
 function saveButton(scope: HTMLElement) {
 	return Array.from(scope.querySelectorAll('button')).find((b) =>
-		(b.textContent || '').includes('Save details')
+		(b.textContent || '').trim().startsWith('Save')
 	) as HTMLButtonElement;
 }
 
@@ -81,11 +85,11 @@ function saveButton(scope: HTMLElement) {
 // synchronous flush — this is the exact gap a real click-then-click e2e
 // sequence has to survive too.
 function wait(ms: number) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+	return vi.advanceTimersByTimeAsync(ms);
 }
 
 describe('PromptSegmentDetailsModal close loop', () => {
-	it('Save details actually removes the dialog before the next Details click, which is not intercepted', async () => {
+	it('Save actually removes the dialog before the next Details click, which is not intercepted', async () => {
 		mount();
 
 		await clickDetails();

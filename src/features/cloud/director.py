@@ -128,10 +128,6 @@ def director_overlay(spec: Optional[CloudModelSpec]) -> Optional[Dict[str, Any]]
     return overlay
 
 
-def shot_task(has_image: bool) -> str:
-    return IMAGE_TO_VIDEO if has_image else TEXT_TO_VIDEO
-
-
 def estimate_shots(spec: CloudModelSpec, shots: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     if not shots:
         raise DirectorEstimateError("Add at least one shot to estimate.")

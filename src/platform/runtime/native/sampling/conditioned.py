@@ -12,17 +12,21 @@ the sampler here, with the schedule/guidance/sampler machinery shared with
 from __future__ import annotations
 
 import logging
-import math
 
 import torch
 
 from .cfg import SkipLayerGuidance, TrueCFG
-from .denoise_loop import _CachingGuidance, make_guidance
-from .registry import sampler_registry
-from .flow_schedule import build_sigmas
+from .denoise_loop import (
+    fp32_trajectory_forward,
+    log_step_cache_totals,
+    make_guidance,
+    resolve_sampler,
+    schedule_from_settings,
+    warn_discarded_guidance_scale,
+    wrap_step_cache,
+)
 from .hooks import with_numerics_watchdog
 from ..cancellation import cancellation_scope
-from .step_cache import StepCacheSet
 
 logger = logging.getLogger(__name__)
 
@@ -45,20 +49,9 @@ def conditioned_sigmas(
     ``detail_end``) from ``sampling_settings``; all default to build_sigmas's
     own no-op defaults, so existing callers are unaffected.
     """
-    return build_sigmas(
-        steps,
-        shift=sampling_settings.get("shift"),
-        base_shift=sampling_settings.get("base_shift"),
-        max_shift=sampling_settings.get("max_shift"),
-        dynamic_shift=sampling_settings.get("dynamic_shift"),
-        fixed_mu=sampling_settings.get("fixed_mu"),
-        image_seq_len=image_seq_len,
-        denoise=denoise_strength,
-        schedule=sampling_settings.get("schedule"),
-        schedule_options=sampling_settings.get("schedule_options"),
-        detail_strength=sampling_settings.get("detail_strength", 0.0),
-        detail_start=sampling_settings.get("detail_start", 0.1),
-        detail_end=sampling_settings.get("detail_end", 0.9),
+    return schedule_from_settings(
+        steps, sampling_settings,
+        image_seq_len=image_seq_len, denoise_strength=denoise_strength,
     )
 
 
@@ -139,11 +132,7 @@ def denoise_prenoised(
     (``guidance_scale``/``cfg_zero_star``/``zero_init_steps`` are ignored) and
     the ``step_cache_options`` wrapping is skipped (the override is used as-is).
     """
-    if not sampler_registry.has(sampler_name):
-        raise ValueError(
-            f"unknown sampler {sampler_name!r}; available: {sorted(sampler_registry.keys())}"
-        )
-    sampler = sampler_registry.get(sampler_name).sample
+    sampler = resolve_sampler(sampler_name)
 
     if sigmas is None:
         sigmas = conditioned_sigmas(steps, sampling_settings)
@@ -164,15 +153,7 @@ def denoise_prenoised(
         # cfg/steps/sampler while quality_mode's guider won the actual
         # sampling strategy -- exactly what check_guider_mode_conflict()
         # guards against upstream; this is defense-in-depth.
-        if not math.isclose(float(guidance_scale), 1.0):
-            override_cfg = getattr(getattr(guidance_override, "video_params", None), "cfg_scale", None)
-            logger.warning(
-                "denoise_prenoised: guidance_override (%s) is active and discards the passed "
-                "guidance_scale=%.3f (override's own cfg=%s) -- check for conflicting "
-                "quality_mode/distilled_mode config",
-                type(guidance_override).__name__, float(guidance_scale),
-                f"{override_cfg:.3f}" if override_cfg is not None else "n/a",
-            )
+        warn_discarded_guidance_scale(logger, "denoise_prenoised", guidance_override, guidance_scale)
         if getattr(model_forward, "mask", None) is not None and getattr(model_forward, "has_conditioning", False):
             logger.warning(
                 "denoise_prenoised: guidance_override (%s) is active alongside a conditioned "
@@ -188,12 +169,7 @@ def denoise_prenoised(
         guidance = make_guidance(sampling_settings, guidance_scale, cfg_zero_star, zero_init_steps, sigmas=sigmas)
         _attach_reference_mask(guidance, model_forward, x_init)
 
-        cache_set = StepCacheSet(step_cache_options) if step_cache_options else None
-        if cache_set is not None and cache_set.enabled:
-            guidance = _CachingGuidance(guidance, cache_set, total_steps=len(sigmas) - 1,
-                                        model_forward=model_forward)
-        else:
-            cache_set = None
+        guidance, cache_set = wrap_step_cache(guidance, step_cache_options, model_forward, len(sigmas) - 1)
 
     logger.debug(
         "denoise_prenoised: sampler=%s steps=%d guidance=%s sigma0=%.5f",
@@ -202,11 +178,7 @@ def denoise_prenoised(
 
     # FP32 trajectory fix: wrap model_forward to cast at the boundary (same as
     # denoise_loop.py — sampler sees fp32, model receives traj_dtype).
-    def model_forward_fp32(x_fp32: Tensor, sigma_fp32: Tensor, conditioning: dict) -> Tensor:
-        x_model = x_fp32.to(traj_dtype)
-        sigma_model = sigma_fp32.to(traj_dtype)
-        v_model = model_forward(x_model, sigma_model, conditioning)
-        return v_model.float()
+    model_forward_fp32 = fp32_trajectory_forward(model_forward, traj_dtype)
 
     watched_hooks = with_numerics_watchdog(hooks, sampler_name, sampler_options)
     with cancellation_scope(is_cancelled) as scope:
@@ -222,13 +194,7 @@ def denoise_prenoised(
             sampler_options=sampler_options,
         )
 
-    if cache_set is not None:
-        totals = cache_set.totals()
-        logger.debug(
-            "FBCache: skipped %d of %d model forwards (rel_threshold=%.3f)",
-            totals["skipped"], totals["skipped"] + totals["computed"],
-            cache_set.options["rel_threshold"],
-        )
+    log_step_cache_totals(logger, cache_set)
 
     # Cast the final latent back to the original dtype (one final rounding).
     return latent.to(traj_dtype)

@@ -3,7 +3,7 @@ text (with a dry-run preview), toggle active, move between categories,
 delete. Every function works through a `PhrasebookBatchContext`, so a
 request is validated up front and written in one transaction."""
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Sequence
 
 from src.features.phrasebook.hooks import PHRASEBOOK_HOOKS
 from src.features.phrasebook.operations.matching import (

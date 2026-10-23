@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Follow-up to the mode-row grid change (54a4592e), which regresses on
 // Krea-2 with the krea2-edit plugin enabled: a real preset with a
@@ -9,24 +10,8 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // This journey enables krea2-edit through the real admin API so the repro is
 // the actual bug surface, not a synthetic stand-in.
 const JOURNEY = 'fe90-mode-row-krea2';
-const BEAT = 400;
 const KREA2_PRESET_ID = '4TK1KBQZ2XMB8ME0PTMXS1YJQP';
 const PLUGIN_ID = 'krea2-edit';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 test('mode row — Krea-2 with krea2-edit enabled (plugin-contributed mode)', async ({ page }) => {
 	await loginAsOwner(page);
@@ -69,11 +54,10 @@ test('mode row — Krea-2 with krea2-edit enabled (plugin-contributed mode)', as
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(krea2.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, krea2.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	await expect(page.locator('[role="tablist"]').first()).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	await screenshot(page, JOURNEY, '01-generate-full');
 
@@ -88,5 +72,5 @@ test('mode row — Krea-2 with krea2-edit enabled (plugin-contributed mode)', as
 	await expect(modeSelect).toBeVisible();
 	await modeSelect.getByRole('button').first().click();
 	await expect(page.getByRole('option', { name: new RegExp(editMode!.label) })).toBeVisible();
-	await page.getByTestId('preset-header-row').screenshot({ path: shotPath(JOURNEY, '03-mode-row') });
+	await page.getByTestId('context-bar').screenshot({ path: shotPath(JOURNEY, '03-mode-row') });
 });

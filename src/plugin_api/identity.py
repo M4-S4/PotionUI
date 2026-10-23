@@ -30,7 +30,7 @@ accepting the connection:
 Check `user.account_type == AccountType.ADMIN` to restrict a route to admins.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.features.auth.external_login import ExternalLoginError, ExternalSession
 from src.platform.plugins.login_providers import (
@@ -78,13 +78,19 @@ def get_user(user_id: str) -> Optional[User]:
     return get_container().user_repository.get_by_id(user_id)
 
 
-def register_login_provider(id: str, label: str, start_path: str) -> None:
+def register_login_provider(
+    id: str,
+    label: str,
+    start_path: str,
+    auto_redirect: Optional[Callable[[], bool]] = None,
+) -> None:
     login_provider_registry.register(
         LoginProviderDefinition(
             id=id,
             label=label,
             start_path=start_path,
             source=source_from_start_path(start_path) or id,
+            auto_redirect=auto_redirect,
         )
     )
 

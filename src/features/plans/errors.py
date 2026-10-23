@@ -1,21 +1,14 @@
 from typing import Any, Dict, List, Optional
 
-from fastapi import HTTPException
+from src.platform.http.base_controller import PassThrough
+from src.platform.http.errors import DomainError
 
 
-class PlanError(Exception):
-    def __init__(self, code: str, message: str, status_code: int = 400, **extra: Any):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.status_code = status_code
-        self.extra = extra
-
-    def payload(self) -> Dict[str, Any]:
-        return {"success": False, "error": self.code, "message": self.message, **self.extra}
+class PlanError(DomainError):
+    pass
 
 
-class LimitExceeded(Exception):
+class LimitExceeded(PassThrough):
     error = "limit_exceeded"
     status_code = 403
 
@@ -66,6 +59,3 @@ class LimitExceeded(Exception):
             "contact_line": self.contact_line,
             "kinds": [dict(refusal) for refusal in self.refusals],
         }
-
-    def http(self) -> HTTPException:
-        return HTTPException(status_code=self.status_code, detail=self.payload())

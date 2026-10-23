@@ -20,6 +20,7 @@ from typing import AsyncIterator, List, Optional
 
 import httpx
 
+from src.platform.http.tls import client_ssl_context
 from src.platform.worker_protocol import (
     ArtifactRefV1,
     ExecutionPackageV1,
@@ -127,7 +128,7 @@ class WorkerTransport:
         return f"{self._base_url}{path}"
 
     def _client(self, *, timeout: httpx.Timeout) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=timeout, transport=self._transport)
+        return httpx.AsyncClient(timeout=timeout, transport=self._transport, verify=client_ssl_context())
 
     async def handshake(self) -> WorkerInfoV1:
         try:

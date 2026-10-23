@@ -1,6 +1,7 @@
 import { writable, derived, type Readable } from 'svelte/store';
 import type { Tab, GenerationState } from '$lib/types/tabs';
-import { saveTabsToLocalStorage, loadTabsFromLocalStorage, debounce } from './tabPersistence';
+import { saveTabsToLocalStorage, loadTabsFromLocalStorage } from './tabPersistence';
+import { debounce } from '$lib/utils/time';
 import { DEFAULT_PROMPT_PANEL_WIDTH } from './generationLayout';
 import { randomUUID } from '$lib/utils/uuid';
 import { getGlobalSoundDefault } from '$lib/utils/soundSettings';
@@ -8,6 +9,7 @@ import { tabClaimedGenerationIds } from '$lib/generation/messages/ownership';
 import { retireOrphanedGenerationIds } from '$lib/generation/messages/generationOutputs';
 import { formulaApplied } from './formulaApplied';
 import { mirrorActivePrompt } from '$lib/generation/promptBatch';
+import { adoptLegacyVariables } from './tabDraftOutbox';
 
 function createInitialGenerationState(): GenerationState {
 	return {
@@ -121,6 +123,7 @@ function tabsRelevantToPersistenceChanged(prev: TabsState, next: TabsState): boo
 function createTabsStore() {
 	// Try to load from localStorage, fallback to default tab
 	const persisted = loadTabsFromLocalStorage();
+	const legacyVariables = persisted ? adoptLegacyVariables(persisted.tabs) : {};
 	// Older builds could persist duplicate ids (same-millisecond Date.now());
 	// regenerate any colliding id so keyed each blocks never see duplicates.
 	const seenIds = new Set<string>();
@@ -169,7 +172,7 @@ function createTabsStore() {
 					directorRunLinks: p.directorRunLinks,
 					musicDirector: p.musicDirector,
 					formData: p.formData ?? {},
-					variables: p.variables ?? {},
+					variables: legacyVariables[p.id] ?? {},
 					modeStateByMode: p.modeStateByMode ?? {},
 					seed: p.seed
 				};
@@ -396,10 +399,6 @@ export const activeTab = selectorStore(
 // can never point at a tab that finished (or drop a tab that started) due to
 // a handler forgetting to clear/set a shared lock.
 export const generatingTab = selectorStore(($store) => $store.tabs.find((t) => t.generation.isGenerating) || null);
-
-export const isAnyTabGenerating = derived(tabsStore, ($store) => {
-	return $store.tabs.some((t) => t.generation.isGenerating);
-});
 
 export const isActiveTabGenerating = derived(activeTab, ($activeTab) => {
 	return !!$activeTab?.generation.isGenerating;

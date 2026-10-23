@@ -3,7 +3,6 @@
 	import { libraryStore } from '$lib/stores/library';
 	import { libraryCollectionsStore as collectionsStore } from '$lib/stores/collections';
 	import { toasts } from '$lib/stores/toast';
-	import Icon from '$lib/components/Icon.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import CreateTagModal from '$lib/components/modals/CreateTagModal.svelte';
 	import DeleteByCriteriaModal from '$lib/components/modals/DeleteByCriteriaModal.svelte';
@@ -141,31 +140,19 @@
 	<!-- Left folder-tree panel (collapsible), pinned while the gallery scrolls -->
 	{#if sidebarOpen}
 		<aside
-			class="hidden md:block w-60 flex-shrink-0 self-stretch min-h-screen border-r border-line bg-surface-1 z-20"
+			class="hidden md:block w-[272px] flex-shrink-0 self-stretch min-h-screen border-r border-line bg-surface-1 z-20"
 		>
 			<div class="sticky top-0 h-screen overflow-hidden">
 				<LibrarySidebar onCollapse={() => (sidebarOpen = false)} />
 			</div>
-		</aside>
-	{:else}
-		<aside
-			class="hidden md:block w-8 flex-shrink-0 self-stretch min-h-screen border-r border-line bg-surface-1 z-20"
-		>
-			<button
-				class="sticky top-0 flex h-screen w-full flex-col items-center gap-2 pt-3 text-fg-subtle hover:text-fg hover:bg-surface-2 transition-colors"
-				on:click={() => (sidebarOpen = true)}
-				title="Show folders"
-				aria-label="Show folders"
-			>
-				<Icon name="chevron-right" className="w-4 h-4" />
-				<Icon name="folder" className="w-4 h-4" />
-			</button>
 		</aside>
 	{/if}
 
 	<div class="flex-1 min-w-0">
 		<div class="sticky top-0 z-30">
 			<LibraryToolbar
+				{sidebarOpen}
+				onOpenSidebar={() => (sidebarOpen = true)}
 				onOpenAddTag={() => (showAddTagModal = true)}
 				onPickFiles={pickFiles}
 				onOpenDeleteByCriteria={() => (showDeleteByCriteriaModal = true)}

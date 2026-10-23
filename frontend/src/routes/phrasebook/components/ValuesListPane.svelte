@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { api } from '$lib/services/api/index';
 	import { Badge, IconButton } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
@@ -104,11 +105,12 @@
 						class="p-1.5 rounded transition-colors {value.is_active
 							? 'text-success hover:bg-success/10'
 							: 'text-fg-subtle hover:bg-surface-3'}"
-						title="{value.is_active ? 'Deactivate' : 'Activate'} value"
+						use:tooltip={`${value.is_active ? 'Deactivate' : 'Activate'} value`}
 						onclick={(e) => {
 							e.stopPropagation();
 							phrasebookStore.handleToggleValueActive(value.id);
 						}}
+						aria-label={`${value.is_active ? 'Deactivate' : 'Activate'} value`}
 					>
 						<Icon name={value.is_active ? 'check' : 'close'} className="w-4 h-4" />
 					</button>

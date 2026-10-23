@@ -12,8 +12,7 @@ import yaml
 from src.platform.plugins import runtime_registries
 from src.platform.plugins.hooks import hooks_registry
 from src.platform.plugins.registry import PluginRegistry
-
-ROOT = Path(__file__).resolve().parents[3]
+from tests.bootstrap.lifespan_support import lifespan
 
 
 class TestPluginReadyHook(unittest.TestCase):
@@ -131,11 +130,9 @@ class TestPluginReadyHook(unittest.TestCase):
         self.assertEqual(self._events(), ["plugin-a:ready:plugin-a"])
 
     def test_the_lifespan_fires_the_hook_once_right_after_the_reconciliation(self):
-        tree = ast.parse((ROOT / "src/bootstrap/app.py").read_text())
-        lifespan = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "lifespan")
         calls = [
             (n.lineno, n.func.attr)
-            for n in ast.walk(lifespan)
+            for n in ast.walk(lifespan())
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
         ]
         names = [name for _, name in sorted(calls)]

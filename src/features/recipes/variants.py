@@ -25,18 +25,26 @@ class VariantChoice:
     reason: str
 
 
+def _rule_covers_generation(rule: RecipeVariantRule, gpu: GpuProfile) -> bool:
+    return not rule.generations or gpu.generation in rule.generations
+
+
 def _rule_matches(rule: RecipeVariantRule, gpu: GpuProfile) -> bool:
     if rule.min_vram_gb is not None and gpu.vram_class_gb < rule.min_vram_gb:
         return False
-    if rule.generations and gpu.generation not in rule.generations:
-        return False
-    return True
+    return _rule_covers_generation(rule, gpu)
 
 
 def _rules_match(variant: RecipeArtifactVariant, gpu: GpuProfile) -> bool:
     if not variant.recommended_for:
         return True
     return any(_rule_matches(rule, gpu) for rule in variant.recommended_for)
+
+
+def _covers_generation(variant: RecipeArtifactVariant, gpu: GpuProfile) -> bool:
+    if not variant.recommended_for:
+        return True
+    return any(_rule_covers_generation(rule, gpu) for rule in variant.recommended_for)
 
 
 def _generation_names(generations: Iterable[str]) -> str:
@@ -47,7 +55,7 @@ def _rule_miss_note(variant: RecipeArtifactVariant, gpu: GpuProfile) -> str:
     vram_mins = [
         rule.min_vram_gb
         for rule in variant.recommended_for
-        if rule.min_vram_gb is not None and (not rule.generations or gpu.generation in rule.generations)
+        if rule.min_vram_gb is not None and _rule_covers_generation(rule, gpu)
     ]
     if vram_mins:
         return f"Best with {_format_gb(min(vram_mins))} of VRAM or more"
@@ -93,8 +101,7 @@ def _pick_for_gpu(artifact: RecipeArtifact, gpu: GpuProfile) -> VariantChoice:
         if assessments[variant.id].recommended:
             return VariantChoice(variant.id, f"Fits your {vram}")
     supported = [v for v in artifact.variants if assessments[v.id].supported]
-    fast = [v for v in supported if assessments[v.id].fast]
-    pool = fast or supported
+    pool = [v for v in supported if _covers_generation(v, gpu)] or supported
     if not pool:
         return VariantChoice(default.id, f"Nothing here runs natively on {gpu.generation_label}, so this uses the recipe's default")
     smallest = min(pool, key=_size_key)

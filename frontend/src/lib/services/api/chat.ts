@@ -1,7 +1,6 @@
 import type { AxiosInstance } from 'axios';
 import type {
 	APIResponse,
-	ChatMessageResponse,
 	ChatMessagesPageResponse,
 	ChatSessionResponse,
 	ChatSessionWithMessagesResponse,
@@ -118,10 +117,6 @@ async function readSseStream(
 export interface StreamRejectionError extends Error {
 	httpStatus: number;
 	code?: string;
-}
-
-export function isStreamRejection(err: unknown): err is StreamRejectionError {
-	return err instanceof Error && typeof (err as Partial<StreamRejectionError>).httpStatus === 'number';
 }
 
 async function streamRejection(response: Response): Promise<StreamRejectionError> {

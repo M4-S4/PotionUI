@@ -17,6 +17,7 @@ behind its own caller's uncommitted write until the busy timeout expired.
 
 import sqlite3
 from typing import Iterable, List, Optional
+from src.platform.database import get_cursor
 
 _UPSERT = """
     INSERT INTO history_revisions (user_id, revision, updated_at)
@@ -71,8 +72,7 @@ def read_history_revision(user_id: Optional[str]) -> Optional[int]:
     if not user_id:
         return None
 
-    from src.platform.database.database import db
-    with db.get_cursor() as cursor:
+    with get_cursor() as cursor:
         cursor.execute(
             "SELECT revision FROM history_revisions WHERE user_id = ?", (user_id,)
         )

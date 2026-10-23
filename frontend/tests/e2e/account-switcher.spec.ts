@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, SIGNED_OUT } from './helpers';
+
+test.use({ storageState: SIGNED_OUT });
 
 const JOURNEY = 'account-switcher';
 const TABS_KEY = 'potionui_tabs_state';

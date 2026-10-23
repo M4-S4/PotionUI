@@ -93,7 +93,7 @@ export const PROMPT_PANE_READABLE_MIN_WIDTH = 640;
 export const WORKBENCH_COMFORT_WIDTH = 480;
 export const WORKBENCH_FLOOR_WIDTH = 320;
 export const FORM_RAIL_WIDTH = 12;
-export const PANE_HANDLE_WIDTH = 4;
+export const PANE_HANDLE_WIDTH = 12;
 export const WORKBENCH_RAIL_WIDTH = 32;
 export const FORM_MAX_VIEWPORT_SHARE = 0.45;
 

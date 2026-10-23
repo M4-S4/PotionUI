@@ -10,7 +10,6 @@ import base64
 import logging
 from pathlib import Path
 from io import BytesIO
-from typing import Optional
 
 from PIL import Image
 

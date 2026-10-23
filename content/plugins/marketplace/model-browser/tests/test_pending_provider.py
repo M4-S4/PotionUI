@@ -134,7 +134,6 @@ async def test_it_is_ready_without_settings_and_never_handles_a_download(provide
     assert await provider.initialize({"api_key": "ignored"}) is True
     assert await provider.test_connection() is True
     assert await provider.shutdown() is None
-    assert provider.get_settings_schema() == {"type": "object", "properties": {}, "required": []}
     assert provider.get_download_headers() == {}
     assert provider.matches_download_url(DOWNLOAD_URL) is False
     assert provider.matches_download_url("https://huggingface.co/a/b/resolve/main/c.safetensors") is False

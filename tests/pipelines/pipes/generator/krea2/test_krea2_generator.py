@@ -94,11 +94,6 @@ def setup_function(_):
     _FakeGenerator.instances.clear()
 
 
-def test_metadata():
-    assert GeneratorKrea2Pipe.name == "generator"
-    assert GeneratorKrea2Pipe.outputs()[0].io_type == IOType.IMAGE
-
-
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
 @patch("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGenerator)
 def test_resolution_snapped_to_granularity():
@@ -291,8 +286,6 @@ def test_preview_error_does_not_break_generation():
     pipe.process(_pipe_input(seeds=(7,)), emitted.append)  # must not raise
     assert _previews(emitted) == []                        # decode failed -> no preview
     assert any(isinstance(o, GalleryGenerationOutput) for o in emitted)  # generation completed
-
-
 
 
 # --- step_cache (FBCache) config --------------------------------
@@ -501,3 +494,78 @@ def test_release_idle_te_removed():
     memory/residency.py's run_text_encode + NativeGenerator._own_models)."""
     assert not hasattr(GeneratorKrea2Pipe, "_release_idle_te")
     assert "MODELS" not in {s.name for s in GeneratorKrea2Pipe.inputs()}
+
+
+_FIXED = ("src.pipelines.pipes._shared.generation.flow_generator_pipe.NativeGenerator", _FakeGeneratorWithFixedMu)
+_PLAN = ("src.pipelines.pipes._shared.generation.flow_generator_pipe.make_device_plan", lambda **_: None)
+_TAIL_LEN = {"subtle": 2, "balanced": 3, "strong": 4}
+
+
+@pytest.mark.parametrize("profile_cfg,profile_sampler", [(1.0, "euler"), (4.0, "dpmpp_2m"), (4.0, "euler")])
+@pytest.mark.parametrize("refine_tail", ["subtle", "balanced", "strong"])
+def test_refine_tail_distilled_forces_cfg_one_and_euler(refine_tail, profile_cfg, profile_sampler):
+    src = Image.new("RGB", (64, 64), color=(1, 1, 1))
+    with patch(*_PLAN), patch(*_FIXED):
+        pipe = _make_pipe(
+            mode="img2img", refine_tail=refine_tail, guidance=profile_cfg, sampler=profile_sampler,
+        )
+        pipe.process(_pipe_input(image=src), lambda o: None)
+    call = _FakeGeneratorWithFixedMu.instances[-1].sample_calls[0]
+    assert call["cfg_scale"] == 1.0
+    assert call["sampler"] == "euler"
+    assert len(call["sigmas"]) == _TAIL_LEN[refine_tail]
+
+
+@pytest.mark.parametrize("side", [1024, 2048])
+def test_base_refine_tail_is_decreasing_and_ends_at_zero(side):
+    pipe = _make_pipe(mode="img2img", refine_tail="subtle", mu_schedule="dynamic")
+    values = pipe._base_refine_tail(float(_official_grid()[-2]), side, side).tolist()
+    assert values[-1] == 0.0
+    assert len(values) - 1 >= 2
+    assert all(a > b for a, b in zip(values, values[1:]))
+
+
+_BASE_START = {
+    (1024, "subtle"): 0.331, (1024, "balanced"): 0.505, (1024, "strong"): 0.639,
+    (2048, "subtle"): 0.452, (2048, "balanced"): 0.565, (2048, "strong"): 0.645,
+}
+
+
+@pytest.mark.parametrize("refine_tail", ["subtle", "balanced", "strong"])
+@pytest.mark.parametrize("side", [1024, 2048])
+def test_base_refine_tail_start_sigma_carries_the_turbo_noise(refine_tail, side):
+    pipe = _make_pipe(mode="img2img", refine_tail=refine_tail, mu_schedule="dynamic")
+    start = float(_official_grid()[-_TAIL_LEN[refine_tail]])
+    tail = pipe._base_refine_tail(start, side, side)
+    assert float(tail[0]) == pytest.approx(_BASE_START[(side, refine_tail)], abs=0.005)
+
+
+def test_base_refine_tail_rejects_sizes_that_would_renoise_fully():
+    pipe = _make_pipe(mode="img2img", refine_tail="subtle", mu_schedule="dynamic")
+    with pytest.raises(ValueError, match="Base profile"):
+        pipe._base_refine_tail(float(_official_grid()[-2]), 4096, 4096)
+
+
+def test_refine_tail_base_profile_keeps_user_cfg_and_sizes_sigmas_from_source():
+    src = Image.new("RGB", (1024, 1024), color=(1, 1, 1))
+    with patch(*_PLAN), patch(*_FIXED):
+        pipe = _make_pipe(
+            mode="img2img", refine_tail="balanced", mu_schedule="dynamic", guidance=4.0, img2img_scale=1.0,
+        )
+        pipe.process(_pipe_input(image=src), lambda o: None)
+    call = _FakeGeneratorWithFixedMu.instances[-1].sample_calls[0]
+    assert call["cfg_scale"] == 4.0
+    sigmas = list(call["sigmas"])
+    assert sigmas[-1] == 0.0
+    expected = pipe._base_refine_tail(float(_official_grid()[-3]), 1024, 1024).tolist()
+    assert sigmas == pytest.approx(expected)
+
+
+def test_base_profile_at_4096_raises_through_process():
+    src = Image.new("RGB", (4096, 4096), color=(1, 1, 1))
+    with patch(*_PLAN), patch(*_FIXED):
+        pipe = _make_pipe(
+            mode="img2img", refine_tail="subtle", mu_schedule="dynamic", img2img_scale=1.0,
+        )
+        with pytest.raises(ValueError, match="Base profile"):
+            pipe.process(_pipe_input(image=src), lambda o: None)

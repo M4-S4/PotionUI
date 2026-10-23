@@ -562,6 +562,7 @@ class GenerationProfiler:
     ) -> Optional[list[dict]]:
         try:
             import torch as _torch
+            from src.platform.runtime.native.memory.pinned_arena import is_host_pinned
         except Exception:
             return []
         try:
@@ -602,7 +603,7 @@ class GenerationProfiler:
                     is_pinned = None
                     if device_kind == "cpu":
                         try:
-                            is_pinned = bool(obj.is_pinned())
+                            is_pinned = is_host_pinned(obj)
                         except Exception:
                             is_pinned = None
 

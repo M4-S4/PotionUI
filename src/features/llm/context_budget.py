@@ -18,10 +18,11 @@ first call, purely to report an honest pre-flight number into the persisted
 context ledger (see ``ConversationRunner._build_context_ledger``) — same
 function, same numbers, not a second heuristic.
 
-Capacity is read from explicit configuration only (``provider_options`` —
-either the generic ``context_window`` key or, for an Ollama config, the
-existing ``num_ctx`` knob already wired into the request). Nothing here ever
-infers a model's window from its name or parameter count: an unconfigured
+Capacity comes from explicit configuration (``provider_options`` — either the
+generic ``context_window`` key or, for an Ollama config, the existing
+``num_ctx`` knob already wired into the request), else from what the provider
+itself reported (``capacity_source="discovered"``). Nothing here ever
+infers a model's window from its name or parameter count: an unknown
 capacity is reported honestly as ``capacity_source="unknown"`` with a
 conservative, clearly-labelled default (see ``UNKNOWN_CAPACITY_TOKENS``)
 rather than a guess dressed up as a fact.
@@ -75,9 +76,10 @@ import json
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Literal, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from src.features.llm.model_listing import DiscoveredWindow
     from src.features.llm.repository import LLMConfig
 
 logger = logging.getLogger(__name__)
@@ -106,6 +108,8 @@ FRAMING_TOKENS_PER_MESSAGE = 4
 # from the model.
 UNKNOWN_CAPACITY_TOKENS = 8192
 
+OLLAMA_TRAINED_WINDOW_CAP_TOKENS = 32768
+
 # Per-image allowance used when the provider has no known per-image token
 # cost of its own — deliberately conservative (near OpenAI's documented
 # low-detail image cost) since undercounting here is what lets a request
@@ -124,6 +128,12 @@ THINKING_ALLOWANCE_FRACTION = 0.10
 THINKING_ALLOWANCE_CAP_TOKENS = 4096
 
 _OLLAMA_THINK_LEVELS = ("low", "medium", "high")
+
+TOOL_TIER_COMPACT = "compact"
+TOOL_TIER_STANDARD = "standard"
+TOOL_TIER_LARGE = "large"
+COMPACT_TOOL_TIER_BELOW_TOKENS = 24576
+LARGE_TOOL_TIER_ABOVE_TOKENS = 65536
 
 TokenCounter = Callable[[str], int]
 # A whole-request counter: (system_message, kept_messages, tool_schemas) ->
@@ -147,7 +157,7 @@ class CapacityInfo:
     """The effective context-window size for one call, and where it came from."""
 
     capacity_tokens: int
-    source: str  # "config" | "provider_metadata" | "unknown"
+    source: Literal["config", "discovered", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -231,15 +241,24 @@ class ContextBudgetExceededError(Exception):
         )
 
 
-def resolve_capacity(config: "LLMConfig") -> CapacityInfo:
+def effective_discovered_tokens(config_type: Optional[str], discovered: "DiscoveredWindow") -> int:
+    if config_type == "ollama" and discovered.kind == "trained":
+        return min(discovered.tokens, OLLAMA_TRAINED_WINDOW_CAP_TOKENS)
+    return discovered.tokens
+
+
+def resolve_capacity(config: "LLMConfig", discovered: Optional["DiscoveredWindow"] = None) -> CapacityInfo:
     """The effective context-window size for *config*.
 
-    Reads explicit configuration only, in order:
+    Reads configuration first, then the window the provider reported
+    (*discovered*), in order:
     1. ``provider_options.context_window`` — generic, any provider type.
     2. ``provider_options.num_ctx`` — the existing Ollama context-size knob
        (see ``ollama_wire.OLLAMA_OPTION_KEYS``), honoured here too so setting
        it continues to mean the same thing it already does on the wire.
-    3. ``UNKNOWN_CAPACITY_TOKENS``, labelled ``capacity_source="unknown"`` —
+    3. *discovered* — labelled ``capacity_source="discovered"``; for Ollama a
+       trained window is capped at ``OLLAMA_TRAINED_WINDOW_CAP_TOKENS``.
+    4. ``UNKNOWN_CAPACITY_TOKENS``, labelled ``capacity_source="unknown"`` —
        never a guess derived from the model's name or parameter count.
     """
     provider_opts = getattr(config, "provider_options", None) or {}
@@ -253,7 +272,20 @@ def resolve_capacity(config: "LLMConfig") -> CapacityInfo:
         if _is_positive_number(num_ctx):
             return CapacityInfo(int(num_ctx), "config")
 
+    if discovered is not None:
+        return CapacityInfo(effective_discovered_tokens(getattr(config, "type", None), discovered), "discovered")
+
     return CapacityInfo(UNKNOWN_CAPACITY_TOKENS, "unknown")
+
+
+def tool_tier(capacity: CapacityInfo) -> str:
+    if capacity.source == "unknown":
+        return TOOL_TIER_STANDARD
+    if capacity.capacity_tokens < COMPACT_TOOL_TIER_BELOW_TOKENS:
+        return TOOL_TIER_COMPACT
+    if capacity.capacity_tokens > LARGE_TOOL_TIER_ABOVE_TOKENS:
+        return TOOL_TIER_LARGE
+    return TOOL_TIER_STANDARD
 
 
 def resolve_image_token_override(config: "LLMConfig") -> Optional[int]:
@@ -272,12 +304,8 @@ def resolve_native_tools(tools: Optional[List[Dict[str, Any]]], *, force_prompt_
     return bool(tools) and not force_prompt_tools
 
 
-def resolve_ollama_think_default(*, native_tools: bool) -> bool:
-    return False if native_tools else True
-
-
 def resolve_thinking_enabled(
-    config: "LLMConfig", options_override: Optional[Dict[str, Any]] = None, *, native_tools: bool = False,
+    config: "LLMConfig", options_override: Optional[Dict[str, Any]] = None,
 ) -> bool:
     provider_type = getattr(config, "type", None)
     provider_opts = getattr(config, "provider_options", None) or {}
@@ -287,8 +315,6 @@ def resolve_thinking_enabled(
         value = options_override.get("think")
         if value is None:
             value = provider_opts.get("think")
-        if value is None:
-            return resolve_ollama_think_default(native_tools=native_tools)
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
@@ -613,6 +639,7 @@ def enforce_budget(
     final_units = trim.kept_units
     final_fits = trim.fits
     final_history_and_system_tokens = system_count.tokens + trim.used_tokens
+    history_tokens: Optional[int] = trim.used_tokens
     chat_template_extra_dropped = 0
     exact_includes_tools = False
 
@@ -642,6 +669,8 @@ def enforce_budget(
             accounting = "chat_template_shrunk" if chat_template_extra_dropped else "chat_template"
             final_units = kept_units
             final_history_and_system_tokens = exact_combined
+            if chat_template_extra_dropped:
+                history_tokens = None
             final_fits = exact_combined + image_count <= available_total
             exact_includes_tools = True
         else:
@@ -665,6 +694,7 @@ def enforce_budget(
             )
             final_units = fallback_trim.kept_units
             final_history_and_system_tokens = system_count.tokens + fallback_trim.used_tokens
+            history_tokens = fallback_trim.used_tokens
             final_fits = fallback_trim.fits
 
     final_messages = [m for unit in final_units for m in unit]
@@ -697,7 +727,9 @@ def enforce_budget(
         # split back into a history-only share without a second tokenize
         # pass; `estimated_tokens` is the authoritative total, this is
         # diagnostic granularity only.
-        "history_tokens": count_messages(final_messages, counter).tokens,
+        "history_tokens": (
+            history_tokens if history_tokens is not None else count_messages(final_messages, counter).tokens
+        ),
         "messages_total": total_messages,
         "messages_sent": final_message_count,
         "messages_dropped": total_messages - final_message_count,

@@ -30,8 +30,7 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 
-from ...text_encoders._functional import optimized_attention
-from ._nn import GatedMLP, RMSNorm
+from ...text_encoders._functional import GatedMLP, RMSNorm, optimized_attention
 from .cfg_sampling import guided_top_k_sample_id
 from .config import MiniMaxMusic3TextEncoderConfig
 
@@ -146,7 +145,7 @@ class _DepthBlock(nn.Module):
     def __init__(self, cfg: MiniMaxMusic3TextEncoderConfig, merged_qkv: bool, merged_mlp: bool, operations, device=None, dtype=None) -> None:
         super().__init__()
         self.self_attn = _DepthAttention(cfg, merged_qkv, operations, device=device, dtype=dtype)
-        self.mlp = GatedMLP(cfg.hidden_size, cfg.decoder_intermediate_size, merged_mlp, operations, device=device, dtype=dtype)
+        self.mlp = GatedMLP(cfg.hidden_size, cfg.decoder_intermediate_size, operations, merged=merged_mlp, device=device, dtype=dtype)
         self.input_layernorm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
         self.post_attention_layernorm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
 

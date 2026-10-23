@@ -9,6 +9,7 @@
 		supports_vision: boolean;
 		disable_system_prompt: boolean;
 		memory_reflection: boolean;
+		show_thinking: boolean;
 		system_message: string;
 		temperature: number;
 		max_tokens: number;
@@ -25,6 +26,7 @@
 	import { DetailSection, DetailField, DETAIL_INSET_CLASS } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
 	import LLMModelCombobox from './llm/LLMModelCombobox.svelte';
+	import LLMContextWindow from './llm/LLMContextWindow.svelte';
 
 	/**
 	 * Shared Model / Prompting / Sampling / Capabilities / Ollama Options /
@@ -70,7 +72,6 @@
 		keep_alive: { default: '0', type: 'text', label: 'Keep Alive', description: 'How long to keep model in memory (e.g., "5m", "1h", -1 for indefinite, 0 to unload)' },
 		num_gpu: { default: null, type: 'number', label: 'GPU Layers', description: 'Number of GPU layers to use (leave empty for auto)' },
 		num_thread: { default: null, type: 'number', label: 'CPU Threads', description: 'Number of CPU threads (leave empty for auto)' },
-		num_ctx: { default: 2048, type: 'number', label: 'Context Size', description: 'Context window size in tokens' },
 		num_batch: { default: 512, type: 'number', label: 'Batch Size', description: 'Batch size for prompt processing' },
 		seed: { default: null, type: 'number', label: 'Seed', description: 'Random seed for reproducibility (leave empty for random)' },
 		top_k: { default: 40, type: 'number', label: 'Top-K', description: 'Limits token selection to top K options' },
@@ -85,14 +86,7 @@
 		]},
 		mirostat_tau: { default: 5.0, type: 'number', label: 'Mirostat Tau', description: 'Target entropy for Mirostat' },
 		mirostat_eta: { default: 0.1, type: 'number', label: 'Mirostat Eta', description: 'Learning rate for Mirostat' },
-		// Automatic (the default) is distinct from an explicit Enabled — the
-		// current automatic behavior turns thinking off while native tool
-		// calls are on the wire and on otherwise; an explicit choice below
-		// always wins over that, tool calls or not. Named levels are legacy
-		// automatic behavior's opposite number: not every model supports a
-		// graded level, and not every model can disable thinking at all.
-		think: { default: null, type: 'select', label: 'Thinking Mode', description: 'Automatic follows this provider\'s default (off during native tool calls, on otherwise). An explicit choice always applies instead, tool calls or not. Which levels — or disabling thinking at all — a model actually honours depends on the model.', options: [
-			{ value: null, label: 'Automatic' },
+		think: { default: false, type: 'select', label: 'Thinking Mode', description: 'Whether the model reasons before it answers. Enabled turns it on; Low, Medium and High set the effort for models that support graded reasoning. Which levels a model honours, and whether it can think at all, depends on the model.', options: [
 			{ value: true, label: 'Enabled' },
 			{ value: false, label: 'Disabled' },
 			{ value: 'low', label: 'Low' },
@@ -113,7 +107,6 @@
 			{ value: true, label: 'Enabled' },
 			{ value: false, label: 'Disabled' }
 		]},
-		context_window: { default: null, type: 'number', label: 'Context window (tokens)', description: 'The capacity the context budget preflight uses for this config — not a promise the model actually fits that many tokens. Leave blank for a conservative unknown-capacity default.' },
 		// Explicit tuning controls, not an automatically selected preset or a
 		// guaranteed repetition fix — see LLM-E01 for effectiveness comparisons.
 		// Left blank, none is passed to generate() and the model's own
@@ -125,7 +118,6 @@
 	};
 
 	const openaiOptions = {
-		context_window: { default: null, type: 'number', label: 'Context window (tokens)', description: 'The capacity the context budget preflight uses for this config — not a promise the model actually fits that many tokens. Set it to the server\'s context size (e.g. llama-server -c). Leave blank for a conservative unknown-capacity default.' },
 		top_p: { default: null, type: 'number', label: 'Top-P', description: 'Nucleus sampling threshold (0-1). Leave blank to use the model default.' },
 		presence_penalty: { default: null, type: 'number', label: 'Presence Penalty', description: 'Penalizes tokens already present in the text so far (-2 to 2). Leave blank to use the model default.' },
 		frequency_penalty: { default: null, type: 'number', label: 'Frequency Penalty', description: 'Penalizes tokens by how often they already appear (-2 to 2). Leave blank to use the model default.' },
@@ -398,6 +390,31 @@
 	</div>
 {/snippet}
 
+{#snippet contextWindowInput()}
+	<LLMContextWindow
+		id="{idPrefix}-context-window"
+		type={draft.type}
+		model={draft.model}
+		baseUrl={draft.base_url}
+		apiKey={draft.api_key}
+		configId={apiKeySet ? configId : null}
+		value={draft.provider_options.context_window ?? undefined}
+		onchange={(next) => {
+			delete draft.provider_options.num_ctx;
+			setProviderOption('context_window', next, next === undefined);
+		}}
+	/>
+	{#if draft.type === 'ollama'}
+		<p class="text-xs text-fg-subtle mt-1">A bigger window uses more GPU memory, shared with image generation.</p>
+	{/if}
+{/snippet}
+
+{#snippet contextWindowFields()}
+	{@render field('Context window (tokens)', `${idPrefix}-context-window`, contextWindowInput, {
+		help: 'How many tokens a conversation can hold before it is trimmed. Leave blank to detect.'
+	})}
+{/snippet}
+
 {#snippet capabilityFields()}
 	<div class="flex flex-wrap items-center gap-x-6 gap-y-3">
 		{#if mode === 'create'}
@@ -414,9 +431,16 @@
 			<Switch label="Memory Reflection" bind:checked={draft.memory_reflection} />
 			<span class="text-sm font-medium text-fg-muted">Memory Reflection</span>
 		</label>
+		<label class="flex items-center gap-2">
+			<Switch label="Show thinking to users" bind:checked={draft.show_thinking} />
+			<span class="text-sm font-medium text-fg-muted">Show thinking to users</span>
+		</label>
 	</div>
 	<p class="text-xs text-fg-subtle mt-1">
 		Memory reflection extracts durable facts from the conversation into memory notes — costs one extra LLM call per conversation.
+	</p>
+	<p class="text-sm text-fg-subtle mt-1">
+		Show thinking puts the model's reasoning in a foldable block above each chat reply and keeps it with the message. It only displays what the model produces: choose a thinking level (Enabled, Low, Medium or High) in this provider's options for the model to produce reasoning.
 	</p>
 {/snippet}
 
@@ -496,9 +520,6 @@
 
 {#snippet ollamaFields()}
 	{@render optionsFields(ollamaOptions, 'ollama')}
-	{#if draft.provider_options.num_ctx == null}
-		<p class="text-xs text-warning/70 mt-3">Context Size is blank: Ollama then uses its own default (4,096 tokens on GPUs under 24 GB in recent versions), too small for tool-calling chats such as the assistant modes.</p>
-	{/if}
 {/snippet}
 
 {#snippet openaiFields()}
@@ -582,6 +603,7 @@
 	{@render section('Model', true, modelFields)}
 	{@render section('Prompting', false, promptingFields, promptingHeaderExtra)}
 	{@render section('Sampling', false, samplingFields)}
+	{@render section('Context', false, contextWindowFields)}
 	{@render section('Capabilities', false, capabilityFields)}
 	{#if draft.type === 'openai'}
 		{@render section('OpenAI Options', false, openaiFields)}

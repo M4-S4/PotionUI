@@ -5,6 +5,7 @@
 	import { IconButton } from '$lib/components/ui';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
+	import dismiss, { type DismissReason } from '$lib/actions/dismiss';
 	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 	import { MAX_BATCH_IMAGES, promptTitle } from '$lib/generation/promptBatch';
 	import type { PromptTabData } from '$lib/types/tabs';
@@ -97,21 +98,14 @@
 		onRename(index, renameDraft);
 	}
 
-	function handleWindowPointer(event: MouseEvent) {
-		if (!open) return;
-		const target = event.target as Node;
-		if (menuEl?.contains(target) || triggerEl?.contains(target)) return;
-		closeMenu(false);
+	function handleDismiss(reason: DismissReason) {
+		if (reason === 'outside') closeMenu(false);
+		else if (renaming !== null) renaming = null;
+		else closeMenu();
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
 		if (!open) return;
-		if (event.key === 'Escape') {
-			event.preventDefault();
-			if (renaming !== null) renaming = null;
-			else closeMenu();
-			return;
-		}
 		if (renaming !== null) return;
 		if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
 		const rows = [...(menuEl?.querySelectorAll<HTMLElement>('[data-row-main]') ?? [])];
@@ -131,7 +125,7 @@
 	}
 </script>
 
-<svelte:window onmousedown={handleWindowPointer} onkeydown={handleKeydown} onresize={() => open && reposition()} onscrollcapture={() => open && reposition()} />
+<svelte:window onkeydown={handleKeydown} onresize={() => open && reposition()} onscrollcapture={() => open && reposition()} />
 
 <button
 	bind:this={triggerEl}
@@ -165,6 +159,7 @@
 		use:portal
 		use:overlayLayer
 		bind:this={menuEl}
+		use:dismiss={{ onDismiss: handleDismiss, ignore: [triggerEl] }}
 		role="dialog"
 		aria-label="Prompts"
 		class="fixed flex flex-col overflow-hidden rounded-xl border border-line-hover bg-surface-2 shadow-overlay"

@@ -16,6 +16,7 @@ Every family below except SDXL runs on the native engine ([Native Engine v2](../
 - [Flux1 / Flux2 (Klein)](flux.md) — text-to-image, image-to-image
 - [FLUX 3 Image Klein](flux3.md) — text-to-image, multi-reference edit
 - [Krea-2](krea2.md) — text-to-image, image-to-image
+- [MOSS-Image](moss_image.md) — text-to-image
 - [Qwen-Image](qwen_image.md) — text-to-image, image-to-image
 - [Z-Image](z_image.md) — text-to-image, image-to-image
 - [Anima](anima.md) — text-to-image, image-to-image

@@ -5,11 +5,7 @@ import pytest
 from src.features.backends.backend_config import NATIVE_ENGINE, NATIVE_LOCAL_DRIVER
 from src.features.backends.routes import BackendController
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator
-from tests.features.models.test_indexing_scheduling import (
-    CountingScanner,
-    OpenPlugins,
-    ThreadSpawner,
-)
+from tests.features.models.fakes import CountingScanner, OpenPlugins, ThreadSpawner
 
 
 @pytest.mark.asyncio

@@ -10,11 +10,14 @@ protocol.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
+from functools import partial
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional, Tuple
 
 import httpx
 
+from src.plugin_api.providers import client_ssl_context
 from src.plugin_api.compute import (
     STAGE_CREATING,
     STAGE_PREPARING,
@@ -47,16 +50,13 @@ NETWORK_VOLUME_CREATE = "__create__"
 NETWORK_VOLUME_NONE = "__none__"
 
 
-async def default_readiness_probe(base_url: str, worker_token: str) -> bool:
-    """GET /v1/worker through the RunPod HTTP proxy - the same handshake
-    route `docs/remote-native.md`'s route table documents."""
+async def worker_answers(client: httpx.AsyncClient, base_url: str, worker_token: str) -> bool:
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(
-                f"{base_url}/v1/worker",
-                headers={"Authorization": f"Bearer {worker_token}"},
-            )
-            return response.status_code == 200
+        response = await client.get(
+            f"{base_url}/v1/worker",
+            headers={"Authorization": f"Bearer {worker_token}"},
+        )
+        return response.status_code == 200
     except httpx.HTTPError:
         return False
 
@@ -122,7 +122,7 @@ class RunPodProvisioningManager:
         self._client = client
         self._resources = resources
         self._repo = plugin_repository
-        self._readiness_probe = readiness_probe or default_readiness_probe
+        self._readiness_probe = readiness_probe
         self._sleep = sleep
         self._pod_start_timeout_seconds = pod_start_timeout_seconds
         self._poll_interval_seconds = poll_interval_seconds
@@ -247,26 +247,35 @@ class RunPodProvisioningManager:
             except RunPodNotFoundError as exc:
                 raise RunPodAPIError(0, f"Pod {pod.id} disappeared while starting") from exc
 
+    @asynccontextmanager
+    async def _probing(self) -> AsyncIterator[ReadinessProbe]:
+        if self._readiness_probe is not None:
+            yield self._readiness_probe
+            return
+        async with httpx.AsyncClient(timeout=10.0, verify=client_ssl_context()) as client:
+            yield partial(worker_answers, client)
+
     async def _wait_for_worker(self, base_url: str, worker_token: str, report: ProgressReporter) -> bool:
         """Probes the worker handshake up to `_handshake_attempts` times,
         `_handshake_interval_seconds` apart. Reports every failed attempt; a
         successful attempt reports `STAGE_READY` instead of one more
         `STAGE_WAITING_WORKER` report for that same attempt."""
-        for attempt in range(1, self._handshake_attempts + 1):
-            if await self._readiness_probe(base_url, worker_token):
-                await report(ProvisionProgress(STAGE_READY, "Worker is up", 100))
-                return True
+        async with self._probing() as probe:
+            for attempt in range(1, self._handshake_attempts + 1):
+                if await probe(base_url, worker_token):
+                    await report(ProvisionProgress(STAGE_READY, "Worker is up", 100))
+                    return True
 
-            elapsed = int(attempt * self._handshake_interval_seconds)
-            percent = min(90, 70 + round(20 * attempt / self._handshake_attempts))
-            await report(ProvisionProgress(
-                STAGE_WAITING_WORKER,
-                f"Waiting for the worker to answer (attempt {attempt}/{self._handshake_attempts}, {elapsed}s)",
-                percent,
-            ))
+                elapsed = int(attempt * self._handshake_interval_seconds)
+                percent = min(90, 70 + round(20 * attempt / self._handshake_attempts))
+                await report(ProvisionProgress(
+                    STAGE_WAITING_WORKER,
+                    f"Waiting for the worker to answer (attempt {attempt}/{self._handshake_attempts}, {elapsed}s)",
+                    percent,
+                ))
 
-            if attempt < self._handshake_attempts:
-                await self._sleep(self._handshake_interval_seconds)
+                if attempt < self._handshake_attempts:
+                    await self._sleep(self._handshake_interval_seconds)
 
         await report(ProvisionProgress(
             STAGE_WAITING_WORKER,
@@ -338,7 +347,8 @@ class RunPodProvisioningManager:
 
         worker_port = pod_record.meta.get("worker_port", 7690)
         base_url = _proxy_url(pod.id, worker_port)
-        ready = await self._readiness_probe(base_url, token)
+        async with self._probing() as probe:
+            ready = await probe(base_url, token)
         if ready:
             return ReconcileOutcome(STATUS_RUNNING, f"Pod {pod.id} RUNNING, worker answered")
         return ReconcileOutcome(STATUS_UNREACHABLE, f"Pod {pod.id} RUNNING but the worker handshake failed")

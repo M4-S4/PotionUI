@@ -80,14 +80,6 @@ def mock_router(mock_backend):
 
 
 @pytest.fixture
-def mock_connection_manager():
-    from src.platform.websocket.connection_hub import ConnectionHub
-    manager = Mock(spec=ConnectionHub)
-    manager.broadcast_to_generation = AsyncMock()
-    return manager
-
-
-@pytest.fixture
 def mock_settings():
     from src.platform.settings.settings import Settings
     manager = Mock(spec=Settings)

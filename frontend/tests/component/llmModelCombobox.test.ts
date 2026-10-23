@@ -177,6 +177,7 @@ function draft(type: string) {
 		supports_vision: false,
 		disable_system_prompt: false,
 		memory_reflection: true,
+		show_thinking: false,
 		system_message: '',
 		temperature: 0.7,
 		max_tokens: 1000,

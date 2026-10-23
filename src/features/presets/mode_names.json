@@ -134,5 +134,21 @@
   "catalog": {
     "label": "Catalog",
     "icon": "list"
+  },
+  "quantize": {
+    "label": "Quantize",
+    "icon": "cpu"
+  },
+  "merge_into_model": {
+    "label": "Merge into Model",
+    "icon": "layers"
+  },
+  "merge_and_quantize": {
+    "label": "Merge and Quantize",
+    "icon": "boxes"
+  },
+  "merge_loras": {
+    "label": "Merge LoRAs",
+    "icon": "lora"
   }
 }

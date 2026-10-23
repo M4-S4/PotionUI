@@ -55,6 +55,7 @@ async function mockBackends(page: Page, handler: (route: Route) => Promise<void>
 }
 
 async function mountWidget(page: Page, isAdmin = true): Promise<void> {
+	await page.waitForLoadState('networkidle');
 	const token = await ownerToken(page);
 	await page.evaluate(async ({ authToken, admin }) => {
 		const module = await import(/* @vite-ignore */ `${location.origin}/api/plugins/system-monitor/assets/SystemMonitorWidget.js`);

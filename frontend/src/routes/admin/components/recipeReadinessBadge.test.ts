@@ -84,6 +84,34 @@ describe('deriveRecipeReadiness', () => {
 		expect(deriveRecipeReadiness(readiness).kind).toBe('indexing');
 	});
 
+	it('reads RECIPE_MODELS_VERIFYING as a "checking" badge, not "missing models"', () => {
+		const readiness = report({ content: 'degraded' });
+		const contentCheck = readiness.checks.find((c) => c.area === 'content')!;
+		contentCheck.code = 'RECIPE_MODELS_VERIFYING';
+		contentCheck.message = "Checking whether 2 files you already have are this recipe's models. Check back shortly.";
+
+		const badge = deriveRecipeReadiness(readiness);
+		expect(badge.kind).toBe('checking');
+		expect(badge.label).toBe('Checking models…');
+		expect(badge.variant).toBe('info');
+	});
+
+	it('still reads RECIPE_MODELS_MISSING as missing models, even when it mentions files not compared yet', () => {
+		const readiness = report({ content: 'degraded' });
+		const contentCheck = readiness.checks.find((c) => c.area === 'content')!;
+		contentCheck.code = 'RECIPE_MODELS_MISSING';
+		contentCheck.message = '1 model is missing. 3 files of the same size exist but have not been compared yet.';
+
+		expect(deriveRecipeReadiness(readiness).kind).toBe('missing-models');
+	});
+
+	it('prefers needs backend over checking when both are blocking', () => {
+		const readiness = report({ execution: 'not_ready', content: 'degraded' });
+		readiness.checks.find((c) => c.area === 'content')!.code = 'RECIPE_MODELS_VERIFYING';
+
+		expect(deriveRecipeReadiness(readiness).kind).toBe('needs-backend');
+	});
+
 	it('prefers needs backend over indexing when both are blocking', () => {
 		const readiness = report({ execution: 'not_ready', content: 'degraded' });
 		const contentCheck = readiness.checks.find((c) => c.area === 'content')!;

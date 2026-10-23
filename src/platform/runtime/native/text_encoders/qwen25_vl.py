@@ -38,9 +38,8 @@ import torch.nn as nn
 
 from ..base import NativeArchModule
 from ..errors import NativeEngineUnsupportedError
-from ._functional import optimized_attention
-from .base import NativeTextEncoder, _module_to, _module_unload
-from .qwen3 import _MLP, _RMSNorm, _apply_rope
+from ._functional import GatedMLP, RMSNorm, apply_rope_qk, optimized_attention
+from .base import NativeTextEncoder
 from .qwen_vl_vision import (
     ROPE_DIMS,
     Qwen2VLVisionTower,
@@ -120,7 +119,7 @@ class _AttentionVL(nn.Module):
         xq = self.q_proj(x).view(b, s, self.num_heads, self.head_dim).transpose(1, 2)
         xk = self.k_proj(x).view(b, s, self.num_kv_heads, self.head_dim).transpose(1, 2)
         xv = self.v_proj(x).view(b, s, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        xq, xk = _apply_rope(xq, xk, cos, sin)
+        xq, xk = apply_rope_qk(xq, xk, cos, sin)
         xk = xk.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
         xv = xv.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
         out = optimized_attention(xq, xk, xv, self.num_heads, mask=mask, skip_reshape=True)
@@ -131,9 +130,9 @@ class _BlockVL(nn.Module):
     def __init__(self, cfg: Qwen25VLConfig, operations, device=None, dtype=None) -> None:
         super().__init__()
         self.self_attn = _AttentionVL(cfg, operations, device=device, dtype=dtype)
-        self.mlp = _MLP(cfg, operations, device=device, dtype=dtype)
-        self.input_layernorm = _RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
-        self.post_attention_layernorm = _RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
+        self.mlp = GatedMLP(cfg.hidden_size, cfg.intermediate_size, operations, device=device, dtype=dtype)
+        self.input_layernorm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
+        self.post_attention_layernorm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
 
     def forward(self, x, cos, sin, mask):
         x = x + self.self_attn(self.input_layernorm(x), cos, sin, mask)
@@ -149,7 +148,7 @@ class _Qwen25VLTransformer(nn.Module):
         self.cfg = cfg
         self.embed_tokens = operations.Embedding(cfg.vocab_size, cfg.hidden_size, device=device, dtype=dtype)
         self.layers = nn.ModuleList([_BlockVL(cfg, operations, device=device, dtype=dtype) for _ in range(cfg.num_hidden_layers)])
-        self.norm = _RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
+        self.norm = RMSNorm(cfg.hidden_size, cfg.rms_norm_eps, device=device, dtype=dtype)
         self.register_buffer("inv_freq", torch.empty(cfg.head_dim // 2), persistent=False)
 
     def recompute_inv_freq(self) -> None:
@@ -260,14 +259,6 @@ class Qwen25VLTextEncoder(NativeTextEncoder):
         self.role = variant
         self._device = torch.device(device)
         self._has_vision = hasattr(module, "visual")
-
-    def to(self, device: str | torch.device) -> "Qwen25VLTextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
 
     @torch.inference_mode()
     def encode(self, texts: list[str], images: list[torch.Tensor] | None = None) -> dict[str, torch.Tensor]:

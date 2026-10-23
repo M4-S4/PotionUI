@@ -10,12 +10,6 @@ class TestCheckboxGroupField(unittest.TestCase):
         self.preset_loader = Mock()
         self.checkbox_field = CheckboxGroup(self.preset_loader)
     
-    def test_can_handle(self):
-        """Test that checkbox group field handles 'checkbox_group' type"""
-        self.assertTrue(self.checkbox_field.can_handle('checkbox_group'))
-        self.assertFalse(self.checkbox_field.can_handle('select'))
-        self.assertFalse(self.checkbox_field.can_handle('slider'))
-    
     
     
     

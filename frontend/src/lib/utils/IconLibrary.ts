@@ -1,3 +1,5 @@
+import { spriteFilledGlyphs, spriteGlyphs } from './iconGlyphs';
+
 // Centralized icon library with all custom and heroicons
 // Usage: import { iconPaths } from './IconLibrary'
 // Then: <Icon name="generation" />
@@ -6,6 +8,8 @@ import { writable, type Readable } from 'svelte/store';
 
 // Icons can have single path (string) or multiple paths (string array)
 export const iconPaths: Record<string, string | string[]> = {
+	...spriteGlyphs,
+
 	// Actions
 	plus: 'M12 4v16m8-8H4',
 	minus: 'M6 12h12',
@@ -222,13 +226,50 @@ export const iconPaths: Record<string, string | string[]> = {
 	braces: [
 		'M8 21c-2 0-3-1-3-3v-4c0-1-1-2-2-2c1 0 2-1 2-2V6c0-2 1-3 3-3',
 		'M16 3c2 0 3 1 3 3v4c0 1 1 2 2 2c-1 0-2 1-2 2v4c0 2-1 3-3 3'
-	]
+	],
+	github: [
+		'M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4',
+		'M9 18c-4.51 2-5-2-7-2'
+	],
+	reddit: [
+		'M5 13a7 5 0 1 0 14 0a7 5 0 1 0 -14 0',
+		'M9 12.5v.5',
+		'M15 12.5v.5',
+		'M9.5 16c1.5 1 3.5 1 5 0',
+		'M12 8l1.2-4.5 4.300 1',
+		'M19.500 11a1.800 1.800 0 1 0 1.500-3',
+		'M4.500 11a1.800 1.800 0 1 1-1.500-3'
+	],
+	discord: [
+		'M8 5.500c2.500-1 5.500-1 8 0',
+		'M8 5.500c-2 1-3.500 4-4 9 1.500 2 3.500 3 5 3l1-2',
+		'M16 5.500c2 1 3.500 4 4 9-1.500 2-3.500 3-5 3l-1-2',
+		'M8 15c2.500 1 5.500 1 8 0',
+		'M9 11.500v.5',
+		'M15 11.500v.5'
+	],
+	'sidebar-collapse': ['M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M9 4v16', 'm16 9-3 3 3 3'],
+	'sidebar-expand': ['M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z', 'M9 4v16', 'm13 9 3 3-3 3']
 };
 
 // Helper function to get icon path(s) by name
 export function getIconPath(name: string | undefined): string | string[] | null {
 	if (!name) return null;
 	return iconPaths[name] || null;
+}
+
+export function getFilledIconPaths(name: string | undefined): string[] {
+	if (!name) return [];
+	return spriteFilledGlyphs[name] ?? [];
+}
+
+export function iconSvgMarkup(name: string): string {
+	const stroked = [getIconPath(name) ?? []].flat();
+	const lines = [
+		...stroked.map((d) => `\t<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${d}" />`),
+		...getFilledIconPaths(name).map((d) => `\t<path fill="currentColor" stroke="none" d="${d}" />`)
+	];
+	return `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">\n${lines.join('\n')}\n</svg>`;
 }
 
 // Helper function to check if an icon exists

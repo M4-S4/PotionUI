@@ -8,8 +8,9 @@ found"/"blocked" (the controller converts that to an HTTP response).
 import logging
 
 from src.features.sessions.repository import SessionRepository
+from src.platform.http.errors import AccessDeniedError, NotFoundError
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.hooks import execute_hook, run_veto_hook
 from src.features.sessions.hooks import SESSION_HOOKS
 
 logger = logging.getLogger(__name__)
@@ -28,12 +29,12 @@ def delete_session(session_repository: SessionRepository, plugin_registry: Plugi
     session = session_repository.get_by_id(session_id)
 
     if not session:
-        raise ValueError("Session not found")
+        raise NotFoundError("session_not_found", "Session not found")
 
     if session.user_id != user_id:
-        raise ValueError("Access denied to this session")
+        raise AccessDeniedError("session_access_denied", "Access denied to this session")
 
-    hook_data, blocked = execute_hook(
+    run_veto_hook(
         plugin_registry,
         SESSION_HOOKS.before_delete,
         {
@@ -42,12 +43,8 @@ def delete_session(session_repository: SessionRepository, plugin_registry: Plugi
             "name": session.name,
             "user_id": user_id,
         },
+        "Session deletion blocked",
     )
-
-    if blocked:
-        reason = hook_data.get("block_reason", "Session deletion blocked")
-        logger.warning(f"Session deletion blocked by plugin: {reason}")
-        raise ValueError(reason)
 
     session_name = session.name
     success = session_repository.delete(session_id)

@@ -109,7 +109,7 @@ class TestGenerateWithHistoryOllamaOptionsOverride:
         payload = mock_client.post.call_args[1]["json"]
         assert payload["options"]["temperature"] == 0.5
         assert payload["options"]["num_predict"] == 200
-        assert payload["think"] is True
+        assert payload["think"] is False
 
 
 class TestGenerateWithHistoryOpenAISamplingPassthrough:

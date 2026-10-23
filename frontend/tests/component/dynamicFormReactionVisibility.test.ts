@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetFormSchema: vi.fn() }
@@ -79,10 +80,6 @@ const SCHEMA = {
 	}
 };
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function mountForm() {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
@@ -97,15 +94,15 @@ function mountForm() {
 		field,
 		choose: async (label: string) => {
 			field('switch')!.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]')!.click();
-			await settle();
+			await settle(10);
 			Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
 				.find((el) => el.textContent?.trim() === label)!
 				.click();
-			await settle();
+			await settle(10);
 		},
 		toggle: async () => {
 			field('toggle')!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
-			await settle();
+			await settle(10);
 		},
 		destroy: () => {
 			unmount(host);
@@ -131,7 +128,7 @@ afterEach(() => {
 describe('Reaction visibility on the Generate form follows the value just chosen', () => {
 	it('shows and hides on every change of a select, not one change late', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		expect(mounted.field('by_switch')).toBeNull();
 
 		await mounted.choose('Reveal');
@@ -148,7 +145,7 @@ describe('Reaction visibility on the Generate form follows the value just chosen
 
 	it('shows a field exactly while its checkbox is ticked, and the box shows the stored value', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		await mounted.choose('Reveal');
 		const box = () => mounted!.field('toggle')!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
 
@@ -166,7 +163,7 @@ describe('Reaction visibility on the Generate form follows the value just chosen
 
 	it('applies a value a reaction sets before deciding what is visible', async () => {
 		mounted = mountForm();
-		await settle();
+		await settle(10);
 		await mounted.choose('Reveal');
 		await mounted.toggle();
 		expect(mounted.field('by_toggle')).toBeTruthy();

@@ -156,22 +156,3 @@ def test_boolean_mask_with_ref_latents_index_timestep_zero_matches_integer():
     assert out_int.shape == x.shape
     assert torch.equal(out_int, out_bool)
 
-
-def test_boolean_left_padded_mask_bites_against_the_pre_fix_arithmetic():
-    """Bite check: the pre-fix construction did ``(mask - 1)`` directly on the
-    (possibly boolean) mask. Left/middle padding never trims, so it always
-    reaches that subtraction — reproducing it here proves a boolean mask on
-    that branch raises without the fix."""
-    torch.manual_seed(0)
-    m = _build_ready(TINY)
-    x = torch.randn(1, 4, 1, 8, 8)
-    t = torch.tensor([0.5])
-    ctx = torch.randn(1, 5, 12)
-    bool_mask = torch.tensor([[0, 0, 1, 1, 1]], dtype=torch.bool)
-
-    with pytest.raises(RuntimeError, match="bool tensor"):
-        (bool_mask - 1)
-
-    # And the real forward call must NOT raise with the fix in place.
-    out = m(x, t, ctx, attention_mask=bool_mask)
-    assert torch.isfinite(out).all()

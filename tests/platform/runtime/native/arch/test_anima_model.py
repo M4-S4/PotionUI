@@ -18,7 +18,7 @@ from src.platform.runtime.native.arch.anima.model import Anima
 from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
-from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 # Exact config _detect_anima derives from the real anima_aestheticV10b header
 # (2048-wide / 28-block t2i, in_channels 16).
@@ -50,15 +50,11 @@ TINY = {
 }
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build_ready(config) -> Anima:
     """Build on meta, assign small random weights, load through the integrity gate
     (which runs ``post_load``), and return an eval-ready module."""
     with torch.device("meta"):
-        m = Anima.from_config(config, _fp32_ops())
+        m = Anima.from_config(config, fp32_ops())
     sd = {}
     for k, v in m.state_dict().items():
         real = torch.empty(tuple(v.shape))
@@ -74,7 +70,7 @@ def _build_ready(config) -> Anima:
 
 def _meta_shapes(config) -> dict:
     with torch.device("meta"):
-        m = Anima.from_config(config, _fp32_ops())
+        m = Anima.from_config(config, fp32_ops())
     return {k: torch.empty(tuple(v.shape), device="meta") for k, v in m.state_dict().items()}
 
 
@@ -106,7 +102,7 @@ def test_attention_dispatcher_matches_direct_sdpa():
     from vendor.gpl.comfyui.anima.layers import _AdapterAttention, _Attention
 
     torch.manual_seed(0)
-    ops = _fp32_ops()
+    ops = fp32_ops()
 
     attn = _Attention(query_dim=32, context_dim=None, n_heads=4, head_dim=8, operations=ops)
     for p in attn.parameters():
@@ -155,7 +151,7 @@ def test_forward_accepts_and_ignores_generic_kwargs():
 
 def test_post_load_recomputes_nonpersistent_rope_buffers():
     with torch.device("meta"):
-        m = Anima.from_config(TINY, _fp32_ops())
+        m = Anima.from_config(TINY, fp32_ops())
     # Before load, meta construction leaves the non-persistent buffers on meta.
     assert m.pos_embedder.dim_spatial_range.device.type == "meta"
     assert m.llm_adapter.rotary_emb.inv_freq.device.type == "meta"
@@ -204,7 +200,7 @@ def test_detect_spec_from_config_roundtrip():
     assert spec.clip_targets == ["qwen3_06b"]
     assert spec.vae_target == "qwen_image"
     with torch.device("meta"):
-        rebuilt = Anima.from_config(config, _fp32_ops())
+        rebuilt = Anima.from_config(config, fp32_ops())
     assert set(rebuilt.state_dict().keys()) == set(_meta_shapes(TINY).keys())
 
 
@@ -226,7 +222,7 @@ def test_detection_no_collision_with_other_families():
 
 def test_is_native_arch_module():
     with torch.device("meta"):
-        m = Anima.from_config(TINY, _fp32_ops())
+        m = Anima.from_config(TINY, fp32_ops())
     assert isinstance(m, NativeArchModule)
     assert m.patch_size == TINY["patch_spatial"]  # engine helpers read `.patch_size`
 

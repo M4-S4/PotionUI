@@ -7,6 +7,7 @@
 	is a helper surface (see camera_shot.py `input` returning None).
 -->
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { toasts } from '$lib/stores/toast';
 	import { insertTriggerIntoActivePrompt } from '$lib/utils/promptInsertion';
 	import { copyText } from '$lib/utils/clipboard';
@@ -21,7 +22,7 @@
 	} from '$lib/utils/cameraShot';
 	import CameraOrbit from './CameraOrbit.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button } from '$lib/components/ui';
+	import { Button, IconButton } from '$lib/components/ui';
 
 	// Standard field props. This field is display-only, so `value`/`onChange` are
 	// intentionally unused.
@@ -145,7 +146,7 @@
 								)
 									? 'bg-signal/10 text-signal border-signal/40'
 									: 'bg-surface-2 text-fg-muted border-line hover:text-fg hover:border-line-hover'}"
-								title={shot.phrase}
+								use:tooltip={shot.phrase}
 								aria-pressed={selection.includes(shot.key)}
 								on:click={() => toggle(shot.key)}
 							>
@@ -169,13 +170,7 @@
 					<div class="text-2xs uppercase tracking-wide text-fg-subtle mb-1">Phrase</div>
 					<p class="text-sm text-fg leading-relaxed break-words">{phrase}</p>
 				</div>
-				<button
-					class="shrink-0 text-fg-subtle hover:text-fg-muted p-1 -m-1"
-					aria-label="Clear selection"
-					on:click={clearSelection}
-				>
-					<Icon name="close" className="w-4 h-4" />
-				</button>
+				<IconButton icon="close" label="Clear selection" size="xs" onclick={clearSelection} class="shrink-0 -m-1" />
 			</div>
 			<div class="flex gap-2 justify-end mt-3">
 				<Button size="xs" variant="secondary" icon={phraseCopied ? 'check' : 'copy'} onclick={copyPhrase}>

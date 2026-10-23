@@ -1,8 +1,10 @@
 import hashlib
 import json
 import re
+from dataclasses import replace
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timedelta, timezone
+from src.features.generation.history_filter import HistoryFilter
 from src.features.generation.records import Generation, File, GenerationFile
 from src.features.generation.history_revision_repository import (
     bump_history_revision,
@@ -10,9 +12,10 @@ from src.features.generation.history_revision_repository import (
     read_history_revision,
 )
 from .file_repository import file_repo
-from .prompt_text import prompt_contains_params, prompt_contains_sql
+from .prompt_text import prompt_search_sql
 from src.platform.util.ids import generate_ulid
 from src.platform.database.collection_tree import membership_clause, unsorted_clause
+from src.platform.database import get_cursor
 
 # The format SQLite's CURRENT_TIMESTAMP uses for created_at/updated_at. Timestamps written
 # from Python must match it so that the lexicographic date filters in `_date_cond` (which
@@ -94,8 +97,7 @@ class GenerationRepository:
             bump_history_revision(cursor, generation.user_id)
 
     def batch_member_ids(self, batch_id: str, user_id: str) -> List[str]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT id FROM generations WHERE batch_id = ? AND user_id = ? ORDER BY rowid",
                 (batch_id, user_id),
@@ -103,8 +105,7 @@ class GenerationRepository:
             return [row["id"] for row in cursor.fetchall()]
 
     def get_by_idempotency_key(self, user_id: str, idempotency_key: str) -> Optional[Generation]:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM generations WHERE user_id = ? AND idempotency_key = ?",
                 (user_id, idempotency_key)
@@ -114,8 +115,7 @@ class GenerationRepository:
 
     def get_by_id(self, generation_id: str, user_id: Optional[str] = None, include_files: bool = False) -> Optional[Generation]:
         """Get generation by ID, optionally filtered by user"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute("SELECT * FROM generations WHERE id = ? AND user_id = ?", (generation_id, user_id))
             else:
@@ -136,21 +136,20 @@ class GenerationRepository:
 
     def _build_filters(
         self, alias: str = 'g', *,
+        flt: HistoryFilter,
         group_grids: bool = False,
-        grid_id: Optional[str] = None,
-        **filters: Any,
     ) -> Tuple[List[str], List[Any]]:
-        conditions, params = self._build_base_filters(alias, **filters)
+        conditions, params = self._build_base_filters(alias, flt)
         a = f"{alias}." if alias else ""
-        if grid_id:
+        if flt.grid_id:
             conditions.append(f"{a}grid_id = ?")
-            params.append(grid_id)
+            params.append(flt.grid_id)
         elif group_grids:
             representative = (
                 f"(SELECT r0.id FROM generations r0 WHERE r0.grid_id = {a}grid_id "
                 f"ORDER BY r0.grid_y, r0.grid_x LIMIT 1)"
             )
-            rep_conditions, rep_params = self._build_base_filters('r', **filters)
+            rep_conditions, rep_params = self._build_base_filters('r', flt)
             rep_where = " AND ".join(rep_conditions) if rep_conditions else "1 = 1"
             conditions.append(
                 f"({a}grid_id IS NULL OR {a}id = {representative} OR NOT EXISTS ("
@@ -159,63 +158,31 @@ class GenerationRepository:
             params.extend(rep_params)
         return conditions, params
 
-    def _build_base_filters(
-        self, alias: str = 'g', *,
-        user_id: Optional[str] = None,
-        status: Optional[str] = None,
-        error_category: Optional[str] = None,
-        media_type: Optional[str] = None,
-        created_from: Optional[str] = None,
-        created_to: Optional[str] = None,
-        completed_from: Optional[str] = None,
-        completed_to: Optional[str] = None,
-        search: Optional[str] = None,
-        mode: Optional[str] = None,
-        preset_id: Optional[str] = None,
-        model_name: Optional[str] = None,
-        min_rating: Optional[int] = None,
-        favorites_only: bool = False,
-        used_phrasebook_value_id: Optional[str] = None,
-        system_tag: Optional[str] = None,
-        generation_ids: Optional[List[str]] = None,
-        tag_ids: Optional[List[str]] = None,
-        collection_id: Optional[str] = None,
-        include_descendants: bool = True,
-        unsorted: bool = False,
-    ) -> Tuple[List[str], List[Any]]:
-        """Build WHERE conditions + params shared by get_all and count_by_status.
-
-        `alias` is the table alias used in the enclosing query (e.g. 'g').
-        Returns (conditions, params) in matching order.
-
-        Every condition is a scalar predicate on the `generations` row - tag and
-        collection membership are semi-joins, not JOINs - so the result set is one
-        row per generation and neither caller needs DISTINCT to undo fan-out.
-        """
+    def _build_base_filters(self, alias: str, flt: HistoryFilter) -> Tuple[List[str], List[Any]]:
         a = f"{alias}." if alias else ""
         conditions: List[str] = []
         params: List[Any] = []
 
-        if media_type:
+        if flt.media_type:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM generation_files gf
                 JOIN files f ON gf.file_id = f.id
                 WHERE gf.generation_id = {a}id
                 AND f.file_type = ?
             )""")
-            params.append(media_type.upper())
+            params.append(flt.media_type.upper())
 
-        if user_id:
+        if flt.user_id:
             conditions.append(f"{a}user_id = ?")
-            params.append(user_id)
+            params.append(flt.user_id)
 
-        if status:
+        if flt.status:
             conditions.append(f"{a}status = ?")
-            params.append(status)
+            params.append(flt.status)
 
-        if error_category:
+        if flt.error_category:
             conditions.append(f"{a}error_code = ?")
-            params.append(error_category)
+            params.append(flt.error_category)
 
         def _date_cond(value, column, op, day_suffix):
             if not value:
@@ -224,88 +191,88 @@ class GenerationRepository:
             conditions.append(f"datetime({a}{column}) {op} datetime(?)")
             params.append(bound)
 
-        _date_cond(created_from, 'created_at', '>=', ' 00:00:00')
-        _date_cond(created_to, 'created_at', '<=', ' 23:59:59')
-        _date_cond(completed_from, 'completed_at', '>=', ' 00:00:00')
-        _date_cond(completed_to, 'completed_at', '<=', ' 23:59:59')
+        _date_cond(flt.created_from, 'created_at', '>=', ' 00:00:00')
+        _date_cond(flt.created_to, 'created_at', '<=', ' 23:59:59')
+        _date_cond(flt.completed_from, 'completed_at', '>=', ' 00:00:00')
+        _date_cond(flt.completed_to, 'completed_at', '<=', ' 23:59:59')
 
-        if mode:
+        if flt.mode:
             conditions.append(f"{a}mode = ?")
-            params.append(mode)
+            params.append(flt.mode)
 
-        if preset_id:
+        if flt.preset_id:
             conditions.append(f"{a}preset_id = ?")
-            params.append(preset_id)
+            params.append(flt.preset_id)
 
-        if min_rating:
+        if flt.min_rating:
             conditions.append(f"{a}rating >= ?")
-            params.append(min_rating)
+            params.append(flt.min_rating)
 
-        if favorites_only:
+        if flt.favorites_only:
             conditions.append(f"{a}is_favorite = 1")
 
-        if model_name:
+        if flt.model_name:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM generation_models gm
                 JOIN models m ON gm.model_id = m.id
                 WHERE gm.generation_id = {a}id
                 AND m.filename LIKE ?
             )""")
-            params.append(f"%{model_name}%")
+            params.append(f"%{flt.model_name}%")
 
-        if used_phrasebook_value_id:
+        if flt.used_phrasebook_value_id:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM generation_segment_phrasebook ga
                 WHERE ga.generation_id = {a}id
                 AND ga.phrasebook_value_id = ?
             )""")
-            params.append(used_phrasebook_value_id)
+            params.append(flt.used_phrasebook_value_id)
 
-        if tag_ids:
-            placeholders = ','.join('?' * len(tag_ids))
+        if flt.tag_ids:
+            placeholders = ','.join('?' * len(flt.tag_ids))
             conditions.append(f"""{a}id IN (
                 SELECT gt.generation_id FROM generation_tags gt
                 WHERE gt.tag_id IN ({placeholders})
                 GROUP BY gt.generation_id
                 HAVING COUNT(DISTINCT gt.tag_id) = ?
             )""")
-            params.extend(tag_ids)
-            params.append(len(tag_ids))
+            params.extend(flt.tag_ids)
+            params.append(len(flt.tag_ids))
 
-        if collection_id:
+        if flt.collection_id:
             conditions.append(membership_clause(
                 tree_table="collections", member_table="collection_generations",
                 item_column="generation_id", item_ref=f"{a}id",
-                include_descendants=include_descendants,
+                include_descendants=flt.include_descendants,
             ))
-            params.append(collection_id)
+            params.append(flt.collection_id)
 
-        if unsorted:
+        if flt.unsorted:
             conditions.append(unsorted_clause(
                 tree_table="collections", member_table="collection_generations",
                 item_column="generation_id", item_ref=f"{a}id", scope_column="scope",
             ))
-            params.extend([user_id or "", "history"])
+            params.extend([flt.user_id or "", "history"])
 
-        if system_tag:
+        if flt.system_tag:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM media_system_tags mst
                 WHERE mst.generation_id = {a}id
                 AND mst.category != 'rating'
                 AND LOWER(mst.tag) = LOWER(?)
             )""")
-            params.append(system_tag)
+            params.append(flt.system_tag)
 
-        if generation_ids is not None:
-            if generation_ids:
-                placeholders = ','.join('?' * len(generation_ids))
+        if flt.generation_ids is not None:
+            if flt.generation_ids:
+                placeholders = ','.join('?' * len(flt.generation_ids))
                 conditions.append(f"{a}id IN ({placeholders})")
-                params.extend(generation_ids)
+                params.extend(flt.generation_ids)
             else:
                 conditions.append("1 = 0")
 
-        if search:
-            search_conditions, search_params = self._build_search(search, alias)
+        if flt.search:
+            search_conditions, search_params = self._build_search(flt.search, alias)
             conditions.extend(search_conditions)
             params.extend(search_params)
 
@@ -335,15 +302,16 @@ class GenerationRepository:
         params: List[Any] = []
         for term, negate in self._parse_search_terms(search):
             like = f"%{term}%"
+            prompt_sql, prompt_params = prompt_search_sql(term, alias)
             clause = (
-                f"(({prompt_contains_sql(alias)}) OR {a}preset_id LIKE ? OR EXISTS ("
+                f"({prompt_sql} OR {a}preset_id LIKE ? OR EXISTS ("
                 f"SELECT 1 FROM generation_models gm JOIN models m ON gm.model_id = m.id "
                 f"WHERE gm.generation_id = {a}id AND m.filename LIKE ?))"
             )
             if negate:
                 clause = f"NOT {clause}"
             conditions.append(clause)
-            params.extend([*prompt_contains_params(term), like, like])
+            params.extend([*prompt_params, like, like])
         return conditions, params
 
     def _resolve_sort(self, sort_by: Optional[str], sort_dir: Optional[str]) -> str:
@@ -359,37 +327,12 @@ class GenerationRepository:
 
     # --- Listing ----------------------------------------------------------------
 
-    def get_all(self, user_id: Optional[str] = None, limit: Optional[int] = None, offset: int = 0,
-                status: Optional[str] = None, error_category: Optional[str] = None,
-                include_files: bool = False,
-                include_tags: bool = False, tag_ids: Optional[List[str]] = None,
-                created_from: Optional[str] = None, created_to: Optional[str] = None,
-                completed_from: Optional[str] = None, completed_to: Optional[str] = None,
-                media_type: Optional[str] = None,
-                search: Optional[str] = None, mode: Optional[str] = None,
-                preset_id: Optional[str] = None, model_name: Optional[str] = None,
-                min_rating: Optional[int] = None, favorites_only: bool = False,
-                collection_id: Optional[str] = None,
-                include_descendants: bool = True, unsorted: bool = False,
-                used_phrasebook_value_id: Optional[str] = None,
-                system_tag: Optional[str] = None,
-                generation_ids: Optional[List[str]] = None,
-                group_grids: bool = False, grid_id: Optional[str] = None,
-                sort_by: Optional[str] = None, sort_dir: Optional[str] = None) -> List[Generation]:
-        """Get all generations with optional filtering, searching and sorting."""
-
-        conditions, params = self._build_filters(
-            'g', user_id=user_id, status=status, error_category=error_category, media_type=media_type,
-            created_from=created_from, created_to=created_to,
-            completed_from=completed_from, completed_to=completed_to,
-            search=search, mode=mode, preset_id=preset_id, model_name=model_name,
-            min_rating=min_rating, favorites_only=favorites_only,
-            used_phrasebook_value_id=used_phrasebook_value_id,
-            system_tag=system_tag, generation_ids=generation_ids,
-            tag_ids=tag_ids, collection_id=collection_id,
-            include_descendants=include_descendants, unsorted=unsorted,
-            group_grids=group_grids, grid_id=grid_id,
-        )
+    def get_all(self, flt: Optional[HistoryFilter] = None, *, limit: Optional[int] = None, offset: int = 0,
+                include_files: bool = False, include_tags: bool = False, group_grids: bool = False,
+                sort_by: Optional[str] = None, sort_dir: Optional[str] = None,
+                **filters: Any) -> List[Generation]:
+        flt = HistoryFilter.resolve(flt, filters)
+        conditions, params = self._build_filters('g', flt=flt, group_grids=group_grids)
 
         query = "SELECT g.* FROM generations g"
         if conditions:
@@ -401,14 +344,13 @@ class GenerationRepository:
             query += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             generations = [Generation.from_row(row) for row in cursor.fetchall()]
 
             if include_files:
                 generation_ids = [generation.id for generation in generations]
-                files_by_generation = file_repo.get_generation_files_bulk(generation_ids, user_id=user_id)
+                files_by_generation = file_repo.get_generation_files_bulk(generation_ids, user_id=flt.user_id)
                 for generation in generations:
                     generation.files = files_by_generation[generation.id]
 
@@ -421,45 +363,21 @@ class GenerationRepository:
 
             return generations
 
-    def count_by_status(self, user_id: Optional[str] = None, status: Optional[str] = None,
-                        tag_ids: Optional[List[str]] = None,
-                        error_category: Optional[str] = None,
-                        created_from: Optional[str] = None, created_to: Optional[str] = None,
-                        completed_from: Optional[str] = None, completed_to: Optional[str] = None,
-                        media_type: Optional[str] = None,
-                        search: Optional[str] = None, mode: Optional[str] = None,
-                        preset_id: Optional[str] = None, model_name: Optional[str] = None,
-                        min_rating: Optional[int] = None, favorites_only: bool = False,
-                        collection_id: Optional[str] = None,
-                        include_descendants: bool = True, unsorted: bool = False,
-                        used_phrasebook_value_id: Optional[str] = None,
-                        system_tag: Optional[str] = None,
-                        group_grids: bool = False, grid_id: Optional[str] = None) -> int:
-        """Count generations matching the same filters as get_all (for pagination total)."""
-
-        conditions, params = self._build_filters(
-            'g', user_id=user_id, status=status, error_category=error_category, media_type=media_type,
-            created_from=created_from, created_to=created_to,
-            completed_from=completed_from, completed_to=completed_to,
-            search=search, mode=mode, preset_id=preset_id, model_name=model_name,
-            min_rating=min_rating, favorites_only=favorites_only,
-            used_phrasebook_value_id=used_phrasebook_value_id,
-            system_tag=system_tag,
-            tag_ids=tag_ids, collection_id=collection_id,
-            include_descendants=include_descendants, unsorted=unsorted,
-            group_grids=group_grids, grid_id=grid_id,
-        )
+    def count_by_status(self, flt: Optional[HistoryFilter] = None, *, group_grids: bool = False,
+                        **filters: Any) -> int:
+        flt = HistoryFilter.resolve(flt, filters)
+        conditions, params = self._build_filters('g', flt=flt, group_grids=group_grids)
 
         query = "SELECT COUNT(*) FROM generations g"
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return cursor.fetchone()[0]
 
-    def matching_generation_ids(self, generation_ids: List[str], **filters: Any) -> List[str]:
+    def matching_generation_ids(self, generation_ids: List[str], flt: Optional[HistoryFilter] = None,
+                                **filters: Any) -> List[str]:
         """Which of `generation_ids` pass the same filters as `count_by_status`.
 
         Projected to ids, not rows, so a caller holding a candidate set (a
@@ -474,6 +392,7 @@ class GenerationRepository:
         if not generation_ids:
             return []
 
+        flt = HistoryFilter.resolve(flt, filters)
         ordered: List[str] = []
         seen = set()
         for generation_id in generation_ids:
@@ -482,11 +401,10 @@ class GenerationRepository:
                 ordered.append(generation_id)
 
         matched = set()
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for start in range(0, len(ordered), _ID_FILTER_BATCH):
                 batch = ordered[start:start + _ID_FILTER_BATCH]
-                conditions, params = self._build_filters('g', generation_ids=batch, **filters)
+                conditions, params = self._build_filters('g', flt=replace(flt, generation_ids=batch))
                 query = "SELECT g.id FROM generations g"
                 if conditions:
                     query += " WHERE " + " AND ".join(conditions)
@@ -532,8 +450,7 @@ class GenerationRepository:
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             row = cursor.fetchone()
 
@@ -551,8 +468,7 @@ class GenerationRepository:
         Scoped to `user_id` the same way the history endpoints are - a prompt
         id alone can't leak another user's generations through this side door.
         """
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM generations WHERE source_prompt_id = ? AND user_id = ? "
                 "AND status = 'completed' ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -570,8 +486,7 @@ class GenerationRepository:
 
     def count_by_source_prompt(self, prompt_id: str, user_id: str) -> int:
         """Total completed generations for `get_by_source_prompt`'s pagination."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) FROM generations WHERE source_prompt_id = ? AND user_id = ? "
                 "AND status = 'completed'",
@@ -590,8 +505,7 @@ class GenerationRepository:
         if not prompt_ids:
             return {}
         placeholders = ','.join('?' * len(prompt_ids))
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT source_prompt_id, COUNT(*) AS usage_count, MAX(created_at) AS last_used_at "
                 f"FROM generations WHERE source_prompt_id IN ({placeholders}) AND user_id = ? "
@@ -612,8 +526,7 @@ class GenerationRepository:
         if not prompt_ids:
             return {}
         placeholders = ','.join('?' * len(prompt_ids))
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT g.source_prompt_id AS prompt_id, COUNT(*) AS generation_count, "
                 f"(SELECT f2.id "
@@ -646,8 +559,7 @@ class GenerationRepository:
 
     def update_rating(self, generation_id: str, rating: int, user_id: Optional[str] = None) -> bool:
         """Set the star rating (0-5) for a generation."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute(
                     "UPDATE generations SET rating = ? WHERE id = ? AND user_id = ?",
@@ -666,8 +578,7 @@ class GenerationRepository:
     def set_favorite(self, generation_id: str, is_favorite: bool, user_id: Optional[str] = None) -> bool:
         """Toggle the favorite flag for a generation."""
         value = 1 if is_favorite else 0
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if user_id:
                 cursor.execute(
                     "UPDATE generations SET is_favorite = ? WHERE id = ? AND user_id = ?",
@@ -690,8 +601,7 @@ class GenerationRepository:
         user_filter = " WHERE user_id = ?" if user_id else ""
         user_params: List[Any] = [user_id] if user_id else []
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             # Modes
             cursor.execute(
                 f"SELECT mode, COUNT(*) AS c FROM generations{user_filter} "
@@ -753,9 +663,8 @@ class GenerationRepository:
         A generation cancelled while still queued never ran, so it keeps a NULL `started_at`
         and its duration falls back to `created_at`.
         """
-        from src.platform.database.database import db
         failure = failure or {}
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FMT)
 
             if status == 'running':
@@ -798,8 +707,7 @@ class GenerationRepository:
         """Record the router's decision trace for this generation. Best-effort,
         same call shape as `update_preset_version` - the caller wraps this in
         its own try/except so a serialization hiccup never fails the run."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE generations SET routing_decision = ? WHERE id = ?",
                 (json.dumps(routing_decision), generation_id)
@@ -808,8 +716,7 @@ class GenerationRepository:
 
     def update_preset_version(self, generation_id: str, preset_version: str) -> bool:
         """Record which preset version actually rendered this generation's pipeline."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 "UPDATE generations SET preset_version = ? WHERE id = ?",
                 (preset_version, generation_id)
@@ -818,8 +725,7 @@ class GenerationRepository:
 
     def update_progress(self, generation_id: str, progress: float) -> bool:
         """Update generation progress"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 UPDATE generations
                 SET progress = ?
@@ -830,8 +736,7 @@ class GenerationRepository:
 
     def delete(self, generation_id: str) -> bool:
         """Delete generation and its files"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             # Read the owner first: after the DELETE there is no row to resolve.
             cursor.execute("SELECT user_id FROM generations WHERE id = ?", (generation_id,))
             row = cursor.fetchone()
@@ -909,8 +814,7 @@ class GenerationRepository:
 
         query = "SELECT g.id, g.user_id FROM generations g WHERE " + " AND ".join(conditions)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [(row[0], row[1]) for row in cursor.fetchall()]
 
@@ -923,8 +827,7 @@ class GenerationRepository:
         file_repo.associate_with_generation(generation_id, created_file.id)
 
         # A new file changes the card the history renders (thumbnail, media type).
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             bump_history_revision_for_generation(cursor, generation_id)
 
         return created_file
@@ -935,10 +838,6 @@ class GenerationRepository:
     def get_files(self, generation_id: str, user_id: Optional[str] = None, file_type: Optional[str] = None, is_final: Optional[bool] = None) -> List[File]:
         """Get files for a generation (delegates to file_repo)"""
         return file_repo.get_generation_files(generation_id, user_id=user_id, file_type=file_type, is_final=is_final)
-
-    def get_active_generations(self, user_id: Optional[str] = None) -> List[Generation]:
-        """Get all active (pending/running) generations"""
-        return self.get_all(user_id=user_id, status='pending') + self.get_all(user_id=user_id, status='running')
 
     def reconcile_interrupted_generations(self) -> int:
         """Fail every generation still `pending`/`running` at boot.
@@ -953,9 +852,8 @@ class GenerationRepository:
         `update_generations_updated_at` trigger bumps `updated_at` for touched rows only.
         """
         from src.features.generation.status_tracker import GenerationState
-        from src.platform.database.database import db
 
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FMT)
             # The owners have to be read before the UPDATE: afterwards no row
             # still matches the pending/running predicate that identifies them.

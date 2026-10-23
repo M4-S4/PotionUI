@@ -1,0 +1,86 @@
+{
+  "version": 2,
+  "id": "condition_in_prompt_proposal",
+  "title": "Proposing a <<if>> condition on a number variable via an update_segment version",
+  "mode": "generation",
+  "tool_names": [
+    "get_form_state",
+    "get_current_segments"
+  ],
+  "context": {
+    "form_facts": {
+      "prompt": "portrait of a woman, auburn hair"
+    }
+  },
+  "user_turns": [
+    "Add a condition so that when age is above 65 she gets grey hair."
+  ],
+  "canned_tool_responses": {
+    "get_form_state": {
+      "preset_id": "sdxl/base",
+      "mode": "txt2img",
+      "prompt_variables": [
+        "age: number from 18 to 90 in steps of 1 — shuffles each generation"
+      ]
+    }
+  },
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "get_form_state"
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "<<if $age > 65>>",
+        "<<else>>",
+        "<<end>>"
+      ]
+    },
+    {
+      "type": "final_answer_not_contains",
+      "phrases": [
+        "<<if $age>65>>",
+        "{% if"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 1
+    }
+  ],
+  "live_supported": true,
+  "live_context_metadata": {
+    "form_state": {
+      "preset": "sdxl/base",
+      "mode": "txt2img",
+      "form_data": {
+        "prompt": "portrait of a woman, auburn hair"
+      },
+      "tab_id": "chat-eval-tab"
+    },
+    "segments": [
+      {
+        "index": 0,
+        "id": "seg1",
+        "type": "content",
+        "enabled": true,
+        "content": "portrait of a woman, auburn hair"
+      }
+    ]
+  },
+  "live_tab_drafts": {
+    "chat-eval-tab": {
+      "variables": {
+        "age": {
+          "type": "number",
+          "min": 18,
+          "max": 90,
+          "step": 1,
+          "mode": "shuffle",
+          "value": 18
+        }
+      }
+    }
+  }
+}

@@ -12,18 +12,12 @@ against a fresh run of this migration - see the squash's PR description for
 the diff. This test pins that same contract going forward.
 """
 
-import importlib.util
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase, load_migration
 
 EXPECTED_TABLES = {
     'automation_run_nodes', 'automation_runs', 'automations', 'backends',
@@ -71,38 +65,10 @@ EXPECTED_LITERAL_SETTING_IDS = {
 }
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
+class TestMigration001BaselineFreshInstall(MigrationCase):
+    MIGRATION = "001_baseline"
+    PREREQUISITES = ()
 
-
-class TestMigration001BaselineFreshInstall(unittest.TestCase):
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(self.temp_dir) / "test.sqlite"
-        self.db._initialized = True
-        # The runner always creates this before running any pending
-        # migration - reproduce that so up() sees the real precondition.
-        with self.db.get_connection() as conn:
-            conn.execute("""
-                CREATE TABLE applied_migrations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    migration_name TEXT UNIQUE NOT NULL,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()
-        self.migration = _load_migration("001_baseline", self.db)
-
-    def tearDown(self):
-        Database._instance = None
 
     def test_creates_the_full_table_set(self):
         self.migration.up()
@@ -219,9 +185,8 @@ class TestMigration001BaselineGuard(unittest.TestCase):
                 "INSERT INTO applied_migrations (migration_name) VALUES ('013_create_settings')"
             )
             conn.commit()
-        self.migration = _load_migration("001_baseline", self.db)
+        self.migration = load_migration("001_baseline", self.db)
 
-    def tearDown(self):
         Database._instance = None
 
     def test_skips_schema_creation_on_a_pre_squash_database(self):

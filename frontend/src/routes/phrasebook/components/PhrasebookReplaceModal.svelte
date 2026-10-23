@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
-	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import { debounce } from '$lib/utils/time';
+	import ConfirmDialog from '$lib/components/modals/ConfirmDialog.svelte';
 	import { Badge, Input, Spinner } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
@@ -36,12 +35,11 @@
 	let applying = $state(false);
 	let error = $state<string | null>(null);
 	let requestSeq = 0;
-	let timer: ReturnType<typeof setTimeout> | null = null;
+	const schedulePreview = debounce(() => loadPreview(), 250);
+	let dialog: ReturnType<typeof ConfirmDialog>;
 
 	let labelsById = $derived(new Map(values.map((v) => [v.id, v.label])));
 	let valueIds = $derived(values.map((v) => v.id));
-
-	const settlementGate = createConfirmSettlementGate();
 
 	function params(): PhrasebookReplaceParams | null {
 		const fields: PhrasebookReplaceParams['fields'] = [];
@@ -87,14 +85,6 @@
 		}
 	}
 
-	function schedulePreview() {
-		if (timer) clearTimeout(timer);
-		timer = setTimeout(() => {
-			timer = null;
-			loadPreview();
-		}, 250);
-	}
-
 	$effect(() => {
 		if (!isOpen) return;
 		untrack(() => {
@@ -103,32 +93,32 @@
 			inValue = filters.inValue;
 			preview = null;
 			error = null;
-			settlementGate.reset();
 			loadPreview();
 		});
 		return () => {
 			requestSeq++;
-			if (timer) clearTimeout(timer);
-			timer = null;
+			schedulePreview.cancel();
 		};
 	});
 
 	async function apply() {
 		const body = params();
-		if (!body || applying) return;
+		if (!body || applying) return false;
 		applying = true;
 		error = null;
 		try {
 			const response = await api.runPhrasebookBatch('replace', valueIds, { ...body });
 			if (response.success && response.data) {
 				onApplied(response.data);
-			} else {
-				error = response.message || response.error || 'Replace failed';
+				return true;
 			}
+			error = response.message || response.error || 'Replace failed';
+			return false;
 		} catch (e) {
 			const detail = apiErrorDetail(e);
 			error = detail?.message ?? 'Replace failed';
 			if (!detail) logger.error('Replace failed:', e);
+			return false;
 		} finally {
 			applying = false;
 		}
@@ -136,33 +126,18 @@
 
 	let changed = $derived(preview?.changed ?? 0);
 	let unchanged = $derived(preview?.unchanged.length ?? 0);
-
-	function handleCancel() {
-		settlementGate.settle(onClose);
-	}
-
-	function handleConfirm() {
-		settleIfEligible(settlementGate, !previewing && changed > 0 && !applying, apply);
-	}
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (!isOpen || applying) return;
-		const { action, suppress } = getConfirmKeyboardAction(e);
-		if (action === 'cancel') handleCancel();
-		else if (action === 'confirm') handleConfirm();
-		if (suppress) e.preventDefault();
-	}
 </script>
 
-<svelte:window on:keydown|capture={handleKeydown} />
-
-<BaseModal
+<ConfirmDialog
+	bind:this={dialog}
 	{isOpen}
 	title="Replace in {values.length} value{values.length === 1 ? '' : 's'}"
 	size="lg"
-	closeable={!applying}
-	handleEscapeKey={false}
-	on:close={handleCancel}
+	busy={applying}
+	confirmLabel="Apply"
+	confirmDisabled={previewing || changed === 0}
+	onConfirm={apply}
+	onCancel={onClose}
 >
 	<div class="flex flex-col gap-4 p-4 md:p-6" data-replace-modal>
 		<div class="flex items-center gap-2 flex-wrap text-xs text-fg-muted">
@@ -184,7 +159,7 @@
 				onkeydown={(e: KeyboardEvent) => {
 					if (e.key === 'Enter') {
 						e.preventDefault();
-						handleConfirm();
+						dialog.confirm();
 					}
 				}}
 				disabled={applying}
@@ -239,14 +214,4 @@
 			</p>
 		{/if}
 	</div>
-
-	<svelte:fragment slot="footer">
-		<ConfirmFooter
-			confirmLabel="Apply"
-			busy={applying}
-			confirmDisabled={previewing || changed === 0}
-			onCancel={handleCancel}
-			onConfirm={handleConfirm}
-		/>
-	</svelte:fragment>
-</BaseModal>
+</ConfirmDialog>

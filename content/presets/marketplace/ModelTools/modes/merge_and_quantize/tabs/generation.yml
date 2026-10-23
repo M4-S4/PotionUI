@@ -1,0 +1,74 @@
+fields:
+  - name: "model"
+    type: "model"
+    formula: "models"
+    label: "Model"
+    required: true
+    ai_hint: "A safetensors DiT model or full checkpoint of a supported family. fp8 sources are expanded to bf16 before the LoRAs are added."
+    configuration:
+      model_type: "diffusion_model"
+      model_types: [diffusion_model, unet, checkpoint]
+      placeholder: "Select a model..."
+      allow_info_modal: true
+
+  - name: "loras"
+    type: "lora_picker"
+    formula: "loras"
+    label: "LoRAs"
+    required: true
+    default: []
+    ai_hint: "At least one LoRA; merged in full precision before quantizing. LoKr works; LoHa, DoRA, convolution and text-encoder LoRAs are refused."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a LoRA..."
+      allow_info_modal: true
+      show_triggers: false
+      strength_min: -4.0
+      strength_max: 4.0
+      strength_step: 0.05
+      strength_default: 1.0
+      max_items: 8
+
+  - name: "quant_format"
+    type: "select"
+    formula: "quantize"
+    label: "Quantization Format"
+    required: true
+    default: "fp8_e4m3"
+    ai_hint: "fp8 e4m3 is the safe default. Text encoders take fp8 or nvfp4 only. Layers whose shape a format cannot hold stay in full precision."
+    configuration:
+      options:
+        - value: "fp8_e4m3"
+          label: "fp8 e4m3"
+          sub_label: "Half size; fast on RTX 40/50 with fp8 matmul on"
+        - value: "fp8_e5m2"
+          label: "fp8 e5m2"
+          sub_label: "Half size, coarser than e4m3; no speedup here"
+        - value: "int8"
+          label: "int8"
+          sub_label: "Half size, low error; no speedup here; not for text encoders"
+        - value: "int8_convrot"
+          label: "int8 ConvRot"
+          sub_label: "int8 rotated for ComfyUI's int8 kernels; not for text encoders"
+        - value: "nvfp4"
+          label: "nvfp4"
+          sub_label: "Quarter size; fast on RTX 50 with nvfp4 matmul on, slower elsewhere"
+        - value: "int4_convrot"
+          label: "int4 ConvRot"
+          sub_label: "Quarter-size file; loads as int8 here; not for text encoders"
+
+  - name: "output_name"
+    type: "string"
+    label: "Output File Name"
+    default: ""
+    ai_hint: "Plain file name without folders. Leave empty to derive it from the inputs, for example flux-dev-fp8 or flux-dev+style. .safetensors is added for you."
+    configuration:
+      placeholder: "Derived from the inputs when empty"
+      pattern: '^[^\\/:*?"<>|]*$'
+      pattern_message: "A file name cannot contain / \\ : * ? \" < > |"
+
+  - name: "overwrite"
+    type: "checkbox"
+    label: "Overwrite Existing File"
+    default: false
+    ai_hint: "Off by default: a run is refused when the output name already exists. The output can never replace one of its own inputs. The drive must keep 10% (at least 2 GiB) free after the write."

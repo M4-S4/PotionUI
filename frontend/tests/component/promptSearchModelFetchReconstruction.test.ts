@@ -26,7 +26,6 @@ vi.mock('$lib/services/downloaderWebsocket', () => ({
 
 vi.mock('$lib/stores/downloads', () => ({
 	downloadStore: {
-		formatBytes: (n: number) => `${n} B`,
 		queueHfRepoDownload: vi.fn()
 	}
 }));

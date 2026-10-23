@@ -114,15 +114,12 @@ async def test_generate_text_only_uses_the_generate_endpoint(monkeypatch, client
         "prompt": "say hi",
         "stream": False,
         "keep_alive": 0,
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
 
 
 async def test_generate_carries_a_saved_named_thinking_level_on_the_generate_endpoint(monkeypatch, client):
-    """The bare generate endpoint has no per-call override, so the saved
-    explicit level is the only choice it can honour; it must reach the root
-    `think` field verbatim rather than the legacy automatic default."""
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_GENERATE_REPLY)])
 
     await client.generate("say hi", make_config("ollama", provider_options={"think": "high"}), "SYS")
@@ -144,7 +141,7 @@ async def test_generate_with_an_image_switches_to_the_chat_endpoint(monkeypatch,
         "system": "SYS",
         "stream": False,
         "keep_alive": 0,
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
 
@@ -169,14 +166,14 @@ async def test_provider_options_reach_the_options_object_and_the_root_keys(monke
 async def test_generate_with_history_pins_payload_and_trace(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("ollama"), "SYS")
+    await client.generate_with_tools(HISTORY, make_config("ollama"), "SYS")
 
     assert capture.body == {
         "model": "golden-model",
         "messages": PLAIN_MESSAGES,
         "stream": False,
         "keep_alive": 0,
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
     assert strip(capture.trace, "duration_ms") == {
@@ -185,7 +182,9 @@ async def test_generate_with_history_pins_payload_and_trace(monkeypatch, client)
         "request_system": "SYS",
         "request_messages": PLAIN_MESSAGES,
         "request_params": DEFAULT_OPTIONS,
+        "request_tools": None,
         "response_text": "canned reply",
+        "response_tool_calls": None,
         "prompt_tokens": 20,
         "completion_tokens": 10,
     }
@@ -195,7 +194,7 @@ async def test_override_wins_over_provider_options(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
     config = make_config("ollama", provider_options=PROVIDER_OPTIONS)
 
-    await client.generate_with_history(HISTORY, config, "SYS", options_override=OVERRIDE)
+    await client.generate_with_tools(HISTORY, config, "SYS", options_override=OVERRIDE)
 
     assert capture.body["options"] == {
         "temperature": 0.1,
@@ -213,7 +212,7 @@ async def test_saved_min_p_reaches_the_options_object(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
     config = make_config("ollama", provider_options={"min_p": 0.05})
 
-    await client.generate_with_history(HISTORY, config, "SYS")
+    await client.generate_with_tools(HISTORY, config, "SYS")
 
     assert capture.body["options"]["min_p"] == 0.05
 
@@ -222,7 +221,7 @@ async def test_per_call_min_p_override_wins_over_saved_provider_option(monkeypat
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
     config = make_config("ollama", provider_options={"min_p": 0.05})
 
-    await client.generate_with_history(HISTORY, config, "SYS", options_override={"min_p": 0.2})
+    await client.generate_with_tools(HISTORY, config, "SYS", options_override={"min_p": 0.2})
 
     assert capture.body["options"]["min_p"] == 0.2
 
@@ -232,7 +231,7 @@ async def test_per_call_min_p_override_reaches_the_streamed_request_too(monkeypa
     config = make_config("ollama", provider_options={"min_p": 0.05})
 
     await collect(
-        client.stream_with_history(HISTORY, config, "SYS", options_override={"min_p": 0.2})
+        client.stream_with_tools(HISTORY, config, "SYS", options_override={"min_p": 0.2})
     )
 
     assert capture.body["options"]["min_p"] == 0.2
@@ -241,7 +240,7 @@ async def test_per_call_min_p_override_reaches_the_streamed_request_too(monkeypa
 async def test_history_image_attaches_to_the_last_user_message(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("ollama"), "SYS", image_data=IMAGE_B64)
+    await client.generate_with_tools(HISTORY, make_config("ollama"), "SYS", image_data=IMAGE_B64)
 
     assert capture.body["messages"][3] == {
         "role": "user",
@@ -253,7 +252,7 @@ async def test_history_image_attaches_to_the_last_user_message(monkeypatch, clie
 async def test_empty_system_message_sends_no_system_turn(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("ollama"), "")
+    await client.generate_with_tools(HISTORY, make_config("ollama"), "")
 
     assert capture.body["messages"] == PLAIN_MESSAGES[1:]
 
@@ -261,14 +260,14 @@ async def test_empty_system_message_sends_no_system_turn(monkeypatch, client):
 async def test_stream_with_history_pins_payload(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [_ndjson()])
 
-    await collect(client.stream_with_history(HISTORY, make_config("ollama"), "SYS"))
+    await collect(client.stream_with_tools(HISTORY, make_config("ollama"), "SYS"))
 
     assert capture.body == {
         "model": "golden-model",
         "messages": PLAIN_MESSAGES,
         "stream": True,
         "keep_alive": 0,
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
 
@@ -285,7 +284,6 @@ async def test_native_tools_payload_and_trace(monkeypatch, client):
         "messages": NATIVE_TOOL_MESSAGES,
         "stream": False,
         "keep_alive": 0,
-        # Thinking is forced off whenever native tools are on the wire.
         "think": False,
         "options": DEFAULT_OPTIONS,
         "tools": tool_schemas(),
@@ -338,8 +336,7 @@ async def test_force_prompt_tools_rewrites_the_conversation_as_text(monkeypatch,
         ],
         "stream": False,
         "keep_alive": 0,
-        # No native tools on the wire, so thinking stays on.
-        "think": True,
+        "think": False,
         "options": DEFAULT_OPTIONS,
     }
     assert "tools" not in capture.body
@@ -347,13 +344,13 @@ async def test_force_prompt_tools_rewrites_the_conversation_as_text(monkeypatch,
     assert capture.trace["request_tools"] is None
 
 
-async def test_tools_omitted_keeps_thinking_on(monkeypatch, client):
+async def test_tools_omitted_leaves_thinking_off(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
 
     await client.generate_with_tools(tool_history(), make_config("ollama"), "SYS")
 
     assert "tools" not in capture.body
-    assert capture.body["think"] is True
+    assert capture.body["think"] is False
     assert capture.trace["request_tools"] is None
 
 
@@ -375,15 +372,41 @@ async def test_stream_with_tools_pins_payload(monkeypatch, client):
     }
 
 
-# --- explicit think survives native tool calls (buffered and streaming) ---
-#
-# Before this fix, build_ollama_chat_request hard-coded
-# `"think": False if native_tools else think_enabled`, discarding any
-# explicit saved/per-call choice the instant `tools` was non-empty. These pin
-# that an explicit value now always wins, tools or not, while the
-# unspecified-plus-tools case above (test_native_tools_payload_and_trace,
-# test_stream_with_tools_pins_payload) still resolves to the legacy
-# automatic `False` default.
+async def test_a_saved_null_think_goes_out_as_false_without_tools(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": None})
+
+    await client.generate_with_tools(tool_history(), config, "SYS")
+
+    assert capture.body["think"] is False
+
+
+async def test_a_saved_null_think_goes_out_as_false_with_native_tools(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": None})
+
+    await client.generate_with_tools(tool_history(), config, "SYS", tools=tool_schemas())
+
+    assert capture.body["think"] is False
+
+
+async def test_a_saved_null_think_goes_out_as_false_on_the_generate_endpoint(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_GENERATE_REPLY)])
+    config = make_config("ollama", provider_options={"think": None})
+
+    await client.generate("say hi", config, "SYS")
+
+    assert capture.body["think"] is False
+
+
+async def test_a_null_per_call_override_leaves_the_saved_value(monkeypatch, client):
+    capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
+    config = make_config("ollama", provider_options={"think": "high"})
+
+    await client.generate_with_tools(HISTORY, config, "SYS", options_override={"think": None})
+
+    assert capture.body["think"] == "high"
+
 
 async def test_explicit_true_survives_native_tools_buffered(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY)])
@@ -457,10 +480,10 @@ async def test_stream_and_buffered_history_send_the_same_request(monkeypatch, cl
     capture = install_wire_capture(monkeypatch, [json_response(OLLAMA_REPLY), _ndjson()])
     config = make_config("ollama", provider_options=PROVIDER_OPTIONS)
 
-    await client.generate_with_history(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
+    await client.generate_with_tools(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
     buffered = capture.body
     await collect(
-        client.stream_with_history(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
+        client.stream_with_tools(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
     )
     streamed = capture.body
 

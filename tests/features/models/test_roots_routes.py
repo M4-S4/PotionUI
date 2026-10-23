@@ -13,18 +13,7 @@ from src.platform.filesystem.model_roots import HOME_ROOT_ID, ModelRootResolver,
 from src.platform.filesystem.model_roots_repository import ModelRootRepository
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import AccountType, User
-
-
-class FakeIndexingCoordinator:
-    def __init__(self):
-        self.calls = []
-
-    def cancel_and_restart(self, trigger="location_change"):
-        self.calls.append(trigger)
-        return {"state": "idle"}
-
-    def status(self):
-        return {"state": "idle"}
+from tests.features.models.fakes import FakeIndexingCoordinator
 
 
 @pytest.fixture

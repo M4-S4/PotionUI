@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { Backend, EngineDescriptor } from '$lib/services/admin-api';
+import type { EngineDescriptor } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	indexBackendModels: vi.fn(),
@@ -32,10 +33,6 @@ const ENGINES: EngineDescriptor[] = [
 
 function ok<T>(data: T) {
 	return { success: true, data };
-}
-
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function selectOption(el: Element | null, value: string) {
@@ -73,9 +70,9 @@ async function openCreateModal() {
 		component.$destroy();
 		target.remove();
 	};
-	await settle();
+	await settle(10);
 	clickButtonWithText(target, 'Add backend');
-	await settle();
+	await settle(10);
 }
 
 describe('Backends admin: the create form takes its time limit from the chosen driver', () => {
@@ -83,7 +80,7 @@ describe('Backends admin: the create form takes its time limit from the chosen d
 		await openCreateModal();
 
 		selectOption(document.querySelector('#create-backend-engine'), 'cloud.fake');
-		await settle();
+		await settle(10);
 
 		expect(timeoutInput().value).toBe('1800');
 	});
@@ -92,9 +89,9 @@ describe('Backends admin: the create form takes its time limit from the chosen d
 		await openCreateModal();
 
 		selectOption(document.querySelector('#create-backend-engine'), 'cloud.fake');
-		await settle();
+		await settle(10);
 		selectOption(document.querySelector('#create-backend-engine'), 'native.remote');
-		await settle();
+		await settle(10);
 
 		expect(timeoutInput().value).toBe('300');
 	});

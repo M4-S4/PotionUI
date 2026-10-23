@@ -4,9 +4,8 @@ import { generationMessageRegistry } from '$lib/registries/generationMessageRegi
 import { retireGeneration } from '$lib/generation/messages/generationOutputs';
 import { MessageCoalescer } from '$lib/generation/messageCoalescer';
 import { observeGenerationMessage } from '$lib/generation/compare/compareStore.svelte';
+import { TERMINAL_TYPES, generationIdOf } from '$lib/generation/messages/wire';
 import '$lib/generation/messages';
-
-const TERMINAL_MESSAGE_TYPES = new Set(['generation_complete', 'generation_error', 'generation_cancelled']);
 
 export interface DispatchDeps {
 	/** Unsubscribes the WebSocket from a generation id (complete/error/cancelled). */
@@ -15,47 +14,28 @@ export interface DispatchDeps {
 
 const warnedUnknownTypes = new Set<string>();
 
-/**
- * Finds the tab that owns a generation by matching generation_id/id against
- * every tab's currentGeneration, or — for a queued generation that isn't the
- * tab's "current" one (e.g. a second enqueue while another is still running)
- * — against that tab's `generation.queue[]`. Returns null if no tab currently
- * owns it.
- */
-export function findTabByGenerationId(generationId: string | undefined): string | null {
+function findTabForGeneration(generationId: string | undefined) {
 	if (!generationId) return null;
 
 	let currentTabs: any[] = [];
 	const unsub = tabsStore.subscribe((s) => (currentTabs = s.tabs));
 	unsub();
 
-	const tab = currentTabs.find(
+	return currentTabs.find(
 		(t) =>
 			t.generation.currentGeneration?.generation_id === generationId ||
 			t.generation.currentGeneration?.id === generationId ||
 			t.generation.cancelledGenerationId === generationId ||
 			(t.generation.queue || []).some((q: { generation_id: string }) => q.generation_id === generationId)
-	);
-
-	return tab?.id || null;
+	) ?? null;
 }
 
-/**
- * Dispatches an incoming generation WebSocket message to the registered
- * handler for its type. Owns the id-extraction quirk (completion/error/cancel
- * messages carry the id inside `data.id`, others carry it at the top level)
- * and the tab-resolution lookup, both done once here rather than per handler.
- */
-export function dispatchGenerationMessage(message: WebSocketMessage, deps: DispatchDeps): void {
-	let generationId = message.generation_id;
+export function findTabByGenerationId(generationId: string | undefined): string | null {
+	return findTabForGeneration(generationId)?.id || null;
+}
 
-	if (
-		message.type === 'generation_complete' ||
-		message.type === 'generation_error' ||
-		message.type === 'generation_cancelled'
-	) {
-		generationId = (message as any).data?.id || (message as any).data?.generation_id || message.generation_id;
-	}
+export function dispatchGenerationMessage(message: WebSocketMessage, deps: DispatchDeps): void {
+	const generationId = generationIdOf(message);
 
 	try {
 		observeGenerationMessage(message as { type: string; [key: string]: unknown });
@@ -63,16 +43,9 @@ export function dispatchGenerationMessage(message: WebSocketMessage, deps: Dispa
 		console.error('[Compare] Failed to apply a generation message to the grid:', error);
 	}
 
-	const targetTabId = findTabByGenerationId(generationId);
-	if (!targetTabId) {
-		// A terminal event for a generation nothing owns any more (its last
-		// tab was already removed, or reconcile.ts already resolved it) still
-		// has to release ITS resources -- the complete/error handler that
-		// would normally do this never runs without a tab. Non-terminal
-		// events (gallery_update, status, ...) for an unowned id are simply
-		// dropped, same as before: there is no display to update and no cache
-		// worth creating for a generation nothing is watching.
-		if (TERMINAL_MESSAGE_TYPES.has(message.type) && generationId) {
+	const targetTab = findTabForGeneration(generationId);
+	if (!targetTab) {
+		if (TERMINAL_TYPES.has(message.type) && generationId) {
 			retireGeneration(generationId, deps.unsubscribe);
 			return;
 		}
@@ -82,12 +55,6 @@ export function dispatchGenerationMessage(message: WebSocketMessage, deps: Dispa
 		});
 		return;
 	}
-
-	let currentTabs: any[] = [];
-	const unsub = tabsStore.subscribe((s) => (currentTabs = s.tabs));
-	unsub();
-	const targetTab = currentTabs.find((t) => t.id === targetTabId);
-	if (!targetTab) return;
 
 	const handler = generationMessageRegistry.get(message.type);
 	if (!handler) {
@@ -99,7 +66,7 @@ export function dispatchGenerationMessage(message: WebSocketMessage, deps: Dispa
 	}
 
 	handler.handle(message, {
-		tabId: targetTabId,
+		tabId: targetTab.id,
 		tab: targetTab,
 		tabsStore,
 		generationId,

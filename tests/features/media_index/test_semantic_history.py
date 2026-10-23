@@ -120,7 +120,7 @@ class TestSemanticOrdering(SemanticHistoryTestBase):
             self._hit("f1", "gen1", 0.28),
         ])
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert [g["id"] for g in result["generations"]] == ["gen3", "gen1"]
         assert result["total"] == 2
@@ -135,7 +135,7 @@ class TestSemanticOrdering(SemanticHistoryTestBase):
             self._hit("f2", "gen1", 0.29),
         ])
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert [g["id"] for g in result["generations"]] == ["gen1"]
         assert result["total"] == 1
@@ -144,7 +144,7 @@ class TestSemanticOrdering(SemanticHistoryTestBase):
         self._generation_with_file("gen1", "f1")
         query = self._semantic_query(hits=[self._hit("f1", "gen1", 0.3)])
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert [f["id"] for f in result["generations"][0]["files"]] == ["f1"]
 
@@ -158,7 +158,7 @@ class TestSemanticPagination(SemanticHistoryTestBase):
         query = self._semantic_query(hits=hits)
 
         page = query.get_history(
-            self.user_id, limit=2, offset=2, include_tags=False, semantic_query="castle"
+            user_id=self.user_id, limit=2, offset=2, include_tags=False, semantic_query="castle"
         )
 
         assert [g["id"] for g in page["generations"]] == ["gen3", "gen4"]
@@ -170,7 +170,7 @@ class TestSemanticEdgeCases(SemanticHistoryTestBase):
         self._generation_with_file("gen1", "f1")
         query = self._semantic_query(hits=[])
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert result["generations"] == []
         assert result["total"] == 0
@@ -179,7 +179,7 @@ class TestSemanticEdgeCases(SemanticHistoryTestBase):
         self._generation_with_file("gen1", "f1")
         query = GenerationHistoryQuery(self.generation_repo, media_index_repository=self.repo)
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert result["generations"] == []
         assert result["total"] == 0
@@ -188,7 +188,7 @@ class TestSemanticEdgeCases(SemanticHistoryTestBase):
         self._generation_with_file("gen1", "f1")
         query = self._semantic_query(error=RuntimeError("model exploded"))
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert result["generations"] == []
         assert result["total"] == 0
@@ -197,7 +197,7 @@ class TestSemanticEdgeCases(SemanticHistoryTestBase):
         self._generation_with_file("gen1", "f1")
         query = self._semantic_query(hits=[])
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="   ")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="   ")
 
         assert [g["id"] for g in result["generations"]] == ["gen1"]
         assert self.search_manager.calls == []
@@ -213,7 +213,7 @@ class TestSemanticFilterIntersection(SemanticHistoryTestBase):
         ])
 
         result = query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -229,7 +229,7 @@ class TestSemanticFilterIntersection(SemanticHistoryTestBase):
             self._hit("f1", "gen1", 0.30),
         ])
 
-        result = query.get_history(self.user_id, include_tags=False, semantic_query="castle")
+        result = query.get_history(user_id=self.user_id, include_tags=False, semantic_query="castle")
 
         assert [g["id"] for g in result["generations"]] == ["gen1"]
 
@@ -248,7 +248,7 @@ class TestSemanticWidensPastCappedTopK(SemanticHistoryTestBase):
         query = self._semantic_query(hits=self._ranked(6, {5}))
 
         result = query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -260,7 +260,7 @@ class TestSemanticWidensPastCappedTopK(SemanticHistoryTestBase):
         query = self._semantic_query(hits=self._ranked(12, {5, 10}))
 
         result = query.get_history(
-            self.user_id, limit=1, offset=0, include_tags=False,
+            user_id=self.user_id, limit=1, offset=0, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -272,7 +272,7 @@ class TestSemanticWidensPastCappedTopK(SemanticHistoryTestBase):
         query = self._semantic_query(hits=self._ranked(10, set()))
 
         result = query.get_history(
-            self.user_id, include_tags=False,
+            user_id=self.user_id, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -291,7 +291,7 @@ class TestSemanticTotalIsExact(SemanticHistoryTestBase):
         query = self._semantic_query(hits=hits)
 
         first_page = query.get_history(
-            self.user_id, limit=2, offset=0, include_tags=False,
+            user_id=self.user_id, limit=2, offset=0, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -300,7 +300,7 @@ class TestSemanticTotalIsExact(SemanticHistoryTestBase):
         assert [call["limit"] for call in self.search_manager.calls] == [TOP_K]
 
         last_page = query.get_history(
-            self.user_id, limit=2, offset=10, include_tags=False,
+            user_id=self.user_id, limit=2, offset=10, include_tags=False,
             semantic_query="castle", status="completed",
         )
 
@@ -316,10 +316,10 @@ class TestSemanticTotalIsExact(SemanticHistoryTestBase):
         query = self._semantic_query(hits=hits)
 
         semantic_result = query.get_history(
-            self.user_id, include_tags=False, semantic_query="castle", status="completed",
+            user_id=self.user_id, include_tags=False, semantic_query="castle", status="completed",
         )
         non_semantic_result = query.get_history(
-            self.user_id, include_tags=False, status="completed",
+            user_id=self.user_id, include_tags=False, status="completed",
         )
 
         assert semantic_result["total"] == non_semantic_result["total"] == 5

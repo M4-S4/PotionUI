@@ -5,8 +5,9 @@
 // summary from the response, writes edits through onSettingChange (the three
 // keys ride the shared System Settings save bar, this panel has no save of
 // its own), and triggers a manual run via the dedicated run endpoint.
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import type { HousekeepingOverview, HousekeepingRun } from '$lib/services/admin-api';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/admin-api', () => ({
 	getHousekeeping: vi.fn(),
@@ -49,10 +50,6 @@ function overview(overrides: Partial<HousekeepingOverview> = {}): HousekeepingOv
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function mountPanel(settings: Record<string, unknown> = {}, savedSnapshot = '{}') {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
@@ -78,10 +75,15 @@ function mountPanel(settings: Record<string, unknown> = {}, savedSnapshot = '{}'
 
 let mounted: ReturnType<typeof mountPanel> | undefined;
 
+beforeEach(() => {
+	vi.useFakeTimers();
+});
+
 afterEach(() => {
 	mounted?.destroy();
 	mounted = undefined;
 	vi.clearAllMocks();
+	vi.useRealTimers();
 });
 
 describe('HousekeepingPanel', () => {
@@ -160,7 +162,7 @@ describe('HousekeepingPanel', () => {
 		expect(input).toBeTruthy();
 		input!.value = '30';
 		input!.dispatchEvent(new Event('input', { bubbles: true }));
-		await new Promise((resolve) => setTimeout(resolve, 350));
+		await vi.advanceTimersByTimeAsync(350);
 
 		expect(adminApi.previewHousekeepingGenerations).toHaveBeenCalledWith({
 			older_than_days: 30,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, List, Optional
 
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeInput, PipeInputSpec
 from src.pipelines.outputs import TextGenerationOutput
@@ -35,15 +35,6 @@ class GeneratorPixal3DPipe(GeneratorTrellis2Pipe):
 
     _family_pipe = "generator/pixal3d"
     _loader_pipe = "model_loader/pixal3d"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            **super().get_default_config(),
-            "camera_fov_mode": FOV_MANUAL,
-            "camera_fov": DEFAULT_FOV_DEG,
-            "export_frame": EXPORT_FRAMES[0],
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

@@ -1,29 +1,13 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { loginAsOwner, screenshot } from './helpers';
 import { installAndSelectImagePreset } from './presetPreamble';
+import { makeModelFieldsOptional } from './generationMocks';
 
 const JOURNEY = 'segment-variables';
 
 test.afterEach(async ({ page }) => {
 	await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
-
-async function makeModelFieldsOptional(page: Page) {
-	const relax = (node: unknown): void => {
-		if (Array.isArray(node)) return node.forEach(relax);
-		if (node && typeof node === 'object') {
-			const record = node as Record<string, unknown>;
-			if (record.type === 'model' && 'required' in record) record.required = false;
-			Object.values(record).forEach(relax);
-		}
-	};
-	await page.route(/\/api\/presets\/[^/]+\/form(\?.*)?$/, async (route) => {
-		const response = await route.fetch();
-		const body = await response.json();
-		relax(body);
-		await route.fulfill({ response, json: body });
-	});
-}
 
 async function openGeneratePage(page: Page): Promise<boolean> {
 	await loginAsOwner(page);
@@ -42,7 +26,7 @@ async function segmentEditor(page: Page): Promise<Locator> {
 }
 
 async function openVariableManager(page: Page): Promise<Locator> {
-	const button = page.getByRole('button', { name: 'Variables' });
+	const button = page.getByRole('button', { name: /^Variables/ });
 	try {
 		await button.waitFor({ state: 'visible', timeout: 10000 });
 	} catch {
@@ -63,7 +47,7 @@ async function openVariableManagerResponsive(page: Page): Promise<Locator> {
 		await pill.first().click();
 		await expect(sheet).toBeVisible();
 	}
-	await page.locator('[data-toolbar-action="variables"] button').first().click();
+	await page.getByRole('button', { name: /^Variables/ }).first().click();
 	const modal = page.getByRole('dialog', { name: 'Prompt variables', exact: true });
 	await expect(modal).toBeVisible({ timeout: 10000 });
 	return modal;

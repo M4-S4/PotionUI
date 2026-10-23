@@ -117,12 +117,7 @@ class FilePathResolver:
         if not self.preset_loader:
             raise ValueError("Preset loader not configured")
 
-        # Find preset by ID
-        preset = None
-        for preset_template in self.preset_loader.presets:
-            if preset_template.id == preset_id:
-                preset = preset_template
-                break
+        preset = self.preset_loader.get(preset_id)
 
         if not preset:
             raise ValueError(f"Preset not found: {preset_id}")

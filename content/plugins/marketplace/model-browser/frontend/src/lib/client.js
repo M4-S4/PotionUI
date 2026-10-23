@@ -170,11 +170,9 @@ export function listDownloads(api, { all, limit } = {}) {
 	return callPlugin(api, 'get', `/downloads${query ? `?${query}` : ''}`);
 }
 
-async function callCore(api, path, { method = 'GET', body } = {}) {
-	const token = typeof api?.getToken === 'function' ? api.getToken() : null;
+async function callCore(path, { method = 'GET', body } = {}) {
 	const headers = { Accept: 'application/json' };
-	if (token) headers.Authorization = `Bearer ${token}`;
-	const init = { method, headers, credentials: 'include', cache: 'no-store' };
+	const init = { method, headers };
 	if (body !== undefined) {
 		headers['Content-Type'] = 'application/json';
 		init.body = JSON.stringify(body);
@@ -182,7 +180,7 @@ async function callCore(api, path, { method = 'GET', body } = {}) {
 
 	let response;
 	try {
-		response = await fetch(path, init);
+		response = await globalThis.__potionui.api.fetch(path, init);
 	} catch (err) {
 		return { ok: false, error: thrownError(err) };
 	}
@@ -196,12 +194,12 @@ async function callCore(api, path, { method = 'GET', body } = {}) {
 	return unwrap(payload, retryAfter);
 }
 
-export function setNsfwMode(api, mode, key) {
-	return callCore(api, `/api/settings/${encodeSegment(key)}`, { method: 'PUT', body: { value: mode } });
+export function setNsfwMode(mode, key) {
+	return callCore(`/api/settings/${encodeSegment(key)}`, { method: 'PUT', body: { value: mode } });
 }
 
-export async function listRemoteBackends(api) {
-	const result = await callCore(api, '/api/backends');
+export async function listRemoteBackends() {
+	const result = await callCore('/api/backends');
 	if (!result.ok) return result;
 	const backends = Array.isArray(result.data) ? result.data : [];
 	return {

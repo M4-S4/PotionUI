@@ -9,6 +9,7 @@ from src.features.presets import PresetTemplateLoader
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
+from tests.fixtures.form_lookup import field_by_name
 
 
 def make_context(**kwargs) -> ToolContext:
@@ -54,10 +55,6 @@ def sdxl(marketplace_loader):
     return matches[0]
 
 
-def _field_by_name(fields, name):
-    return next(f for f in fields if f["name"] == name)
-
-
 class TestGetPresetInfoRealPreset:
     def _tool(self):
         return GetPresetInfoTool()
@@ -79,7 +76,7 @@ class TestGetPresetInfoRealPreset:
         assert data["mode"] == "txt2img"
 
         fields = data["form_fields"]
-        steps = _field_by_name(fields, "steps")
+        steps = field_by_name(fields, "steps")
         assert steps["type"] == "slider"
         assert steps["default"] == 20
         assert steps["min"] == 1
@@ -87,7 +84,7 @@ class TestGetPresetInfoRealPreset:
         assert steps["step"] == 1
         assert "More steps" in steps["ai_hint"]
 
-        sampler = _field_by_name(fields, "sampler")
+        sampler = field_by_name(fields, "sampler")
         assert sampler["options_count"] == 11
 
     @pytest.mark.asyncio

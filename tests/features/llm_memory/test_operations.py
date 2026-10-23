@@ -21,137 +21,43 @@ def make_note(**overrides):
 
 
 class TestWriteNote:
-    def test_writes_global_note(self):
+    @pytest.mark.parametrize("key,content,scope,scope_ref", [
+        pytest.param("test_key", "test content", None, None, id="writes_global_note"),
+        pytest.param("model_quirk", "Needs low CFG", "model", "model-1", id="writes_model_scoped_note"),
+        pytest.param("preset_quirk", "Prefers 30 steps", "preset", "preset-1", id="writes_preset_scoped_note"),
+        pytest.param(
+            "captioning_habit", "Captions one image at a time", "mode", "lora-dataset",
+            id="writes_mode_scoped_note",
+        ),
+    ])
+    def test_writes_note_with_its_scope(self, key, content, scope, scope_ref):
         repo = MagicMock()
-        note = make_note()
+        note = make_note(scope=scope or "global", scope_ref=scope_ref)
         repo.upsert.return_value = note
+        kwargs = {} if scope is None else {"scope": scope, "scope_ref": scope_ref}
 
-        result = operations.write_note(
-            repo,
-            user_id="user-1",
-            key="test_key",
-            content="test content",
-        )
+        result = operations.write_note(repo, user_id="user-1", key=key, content=content, **kwargs)
 
         assert result == note
         repo.upsert.assert_called_once()
         call_arg = repo.upsert.call_args[0][0]
         assert call_arg.user_id == "user-1"
-        assert call_arg.key == "test_key"
-        assert call_arg.content == "test content"
-        assert call_arg.scope == "global"
-        assert call_arg.scope_ref is None
+        assert call_arg.key == key
+        assert call_arg.content == content
+        assert call_arg.scope == (scope or "global")
+        assert call_arg.scope_ref == scope_ref
 
-    def test_writes_model_scoped_note(self):
-        repo = MagicMock()
-        note = make_note(scope="model", scope_ref="model-1")
-        repo.upsert.return_value = note
-
-        result = operations.write_note(
-            repo,
-            user_id="user-1",
-            key="model_quirk",
-            content="Needs low CFG",
-            scope="model",
-            scope_ref="model-1",
-        )
-
-        assert result == note
-        call_arg = repo.upsert.call_args[0][0]
-        assert call_arg.scope == "model"
-        assert call_arg.scope_ref == "model-1"
-
-    def test_writes_preset_scoped_note(self):
-        repo = MagicMock()
-        note = make_note(scope="preset", scope_ref="preset-1")
-        repo.upsert.return_value = note
-
-        result = operations.write_note(
-            repo,
-            user_id="user-1",
-            key="preset_quirk",
-            content="Prefers 30 steps",
-            scope="preset",
-            scope_ref="preset-1",
-        )
-
-        assert result == note
-        call_arg = repo.upsert.call_args[0][0]
-        assert call_arg.scope == "preset"
-        assert call_arg.scope_ref == "preset-1"
-
-    def test_writes_mode_scoped_note(self):
-        repo = MagicMock()
-        note = make_note(scope="mode", scope_ref="lora-dataset")
-        repo.upsert.return_value = note
-
-        result = operations.write_note(
-            repo,
-            user_id="user-1",
-            key="captioning_habit",
-            content="Captions one image at a time",
-            scope="mode",
-            scope_ref="lora-dataset",
-        )
-
-        assert result == note
-        call_arg = repo.upsert.call_args[0][0]
-        assert call_arg.scope == "mode"
-        assert call_arg.scope_ref == "lora-dataset"
-
-    def test_mode_scope_requires_scope_ref(self):
+    @pytest.mark.parametrize("scope,match", [
+        pytest.param("mode", "scope_ref is required", id="mode_scope_requires_scope_ref"),
+        pytest.param("model", "scope_ref is required", id="model_scope_requires_scope_ref"),
+        pytest.param("preset", "scope_ref is required", id="preset_scope_requires_scope_ref"),
+        pytest.param("invalid", "Invalid scope", id="invalid_scope_raises_error"),
+    ])
+    def test_rejects_scope_without_scope_ref_or_unknown_scope(self, scope, match):
         repo = MagicMock()
 
-        with pytest.raises(ValueError, match="scope_ref is required"):
-            operations.write_note(
-                repo,
-                user_id="user-1",
-                key="test",
-                content="test",
-                scope="mode",
-            )
-
-        repo.upsert.assert_not_called()
-
-    def test_model_scope_requires_scope_ref(self):
-        repo = MagicMock()
-
-        with pytest.raises(ValueError, match="scope_ref is required"):
-            operations.write_note(
-            repo,
-                user_id="user-1",
-                key="test",
-                content="test",
-                scope="model",
-            )
-
-        repo.upsert.assert_not_called()
-
-    def test_preset_scope_requires_scope_ref(self):
-        repo = MagicMock()
-
-        with pytest.raises(ValueError, match="scope_ref is required"):
-            operations.write_note(
-            repo,
-                user_id="user-1",
-                key="test",
-                content="test",
-                scope="preset",
-            )
-
-        repo.upsert.assert_not_called()
-
-    def test_invalid_scope_raises_error(self):
-        repo = MagicMock()
-
-        with pytest.raises(ValueError, match="Invalid scope"):
-            operations.write_note(
-            repo,
-                user_id="user-1",
-                key="test",
-                content="test",
-                scope="invalid",
-            )
+        with pytest.raises(ValueError, match=match):
+            operations.write_note(repo, user_id="user-1", key="test", content="test", scope=scope)
 
         repo.upsert.assert_not_called()
 

@@ -68,6 +68,7 @@ class BaseGenerationOutputHandler(ABC):
         # every handler, including ones that never save anything.
         self.storage_driver = storage_driver
         self.model_locator = model_locator
+        self.model_file_indexer = None
         self._thumbnail_profile = None
 
     @property
@@ -150,11 +151,6 @@ class BaseGenerationOutputHandler(ABC):
                 self.generation_id, self.image_counter, exc_info=True,
             )
         self._counter_seeded = True
-
-    @abstractmethod
-    def can_handle(self, output: GenerationOutput) -> bool:
-        """Check if this handler can process the given output."""
-        pass
 
     @abstractmethod
     def handle(self, output: GenerationOutput) -> Dict[str, Any]:

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { jsonEqual } from '$lib/utils/equal';
 	import RelayTimeline from './RelayTimeline.svelte';
 	import type { PromptRelayValue, PromptRelayTimeline } from '$lib/types/tabs';
 
@@ -29,7 +30,7 @@
 	// clobbering local edits on every re-render).
 	$: {
 		const next = normalize(value);
-		if (JSON.stringify(next) !== JSON.stringify(val)) {
+		if (!jsonEqual(next, val)) {
 			val = next;
 		}
 	}

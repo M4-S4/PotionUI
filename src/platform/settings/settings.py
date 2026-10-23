@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 from src.platform.settings.repository import SettingRepository
@@ -37,9 +38,9 @@ class Settings:
             if not setting:
                 return False
             
-            from src.platform.settings.records import Setting
             from src.platform.settings.runtime_flags import apply_saved_setting
-            str_value = Setting.serialize_value(value, setting.value_type)
+            from src.platform.settings.records import Setting
+            str_value = Setting.serialize_for_storage(key, value, setting.value_type)
             saved = self.setting_repository.update_setting_value(setting.id, str_value)
             if saved:
                 apply_saved_setting(key, value)
@@ -82,6 +83,10 @@ class Settings:
     def get_file_storage_directory(self, user_id: Optional[str] = None) -> str:
         """Get the base file storage directory"""
         return self.get_setting('file_storage_directory', 'storage', user_id)
+
+    def storage_file(self, name: str) -> Optional[Path]:
+        storage_dir = self.get_file_storage_directory()
+        return Path(storage_dir) / name if storage_dir else None
 
     def get_generations_directory(self, user_id: Optional[str] = None) -> str:
         """Get the generations directory path"""

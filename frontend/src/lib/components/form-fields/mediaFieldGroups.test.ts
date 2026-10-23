@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
 	buildMediaGroups,
 	clampSelection,
+	createReorderHandlers,
 	describeHandle,
 	displayOrder,
 	dropInGroup,
@@ -12,6 +13,7 @@ import {
 	nudgeInGroup
 } from './mediaFieldGroups';
 import type { MediaKind } from './mediaLoaderConfig';
+import { NO_DRAG, type DragState } from './mediaLoaderReorder';
 
 type Item = { id: string; kind: MediaKind };
 
@@ -194,5 +196,71 @@ describe('describeHandle', () => {
 
 	it('falls back to the kind name and no tooltip without a spec', () => {
 		expect(describeHandle('image', 4, null, 0)).toEqual({ long: 'Picture 4', short: 'P4', uses: 0, tooltip: '' });
+	});
+});
+
+describe('createReorderHandlers', () => {
+	const flat = items('i1 v1 i2 v2 i3');
+	const groups = buildMediaGroups(flat, mixed, { maxItems: null, maxItemsByKind: {} }, kindOf);
+
+	function setup() {
+		let drag: DragState = NO_DRAG;
+		const commit = vi.fn();
+		const handlers = createReorderHandlers<Item>({
+			getDrag: () => drag,
+			setDrag: (next) => (drag = next),
+			getItems: () => flat,
+			commit
+		});
+		return { handlers, commit, current: () => drag };
+	}
+
+	function dragEvent() {
+		const data: Record<string, string> = {};
+		return {
+			preventDefault: vi.fn(),
+			stopPropagation: vi.fn(),
+			dataTransfer: { effectAllowed: '', setData: (k: string, v: string) => (data[k] = v) },
+			data
+		} as unknown as DragEvent & { data: Record<string, string>; preventDefault: ReturnType<typeof vi.fn> };
+	}
+
+	it('starts a drag in the lane of the grabbed group', () => {
+		const { handlers, current } = setup();
+		const event = dragEvent();
+		handlers.startDrag(event, groups[0], 1);
+		expect(current()).toEqual({ laneKey: 'image', fromIndex: 1, overIndex: 1 });
+		expect(event.data['text/plain']).toBe('1');
+	});
+
+	it('only tracks the hovered slot inside the dragged lane', () => {
+		const { handlers, current } = setup();
+		handlers.startDrag(dragEvent(), groups[0], 0);
+		const other = dragEvent();
+		handlers.dragOver(other, groups[1], 1);
+		expect(other.preventDefault).not.toHaveBeenCalled();
+		expect(current().overIndex).toBe(0);
+		const same = dragEvent();
+		handlers.dragOver(same, groups[0], 2);
+		expect(same.preventDefault).toHaveBeenCalled();
+		expect(current().overIndex).toBe(2);
+	});
+
+	it('commits a reorder on a same-lane drop and clears the drag', () => {
+		const { handlers, commit, current } = setup();
+		handlers.startDrag(dragEvent(), groups[0], 0);
+		handlers.drop(dragEvent(), groups[0], 2);
+		expect(commit).toHaveBeenCalledTimes(1);
+		expect(commit.mock.calls[0][0].map((i: Item) => i.id)).toEqual(['i2', 'v1', 'i3', 'v2', 'i1']);
+		expect(commit.mock.calls[0][1]).toBe(4);
+		expect(current()).toEqual(NO_DRAG);
+	});
+
+	it('ignores a drop onto another lane and clears the drag', () => {
+		const { handlers, commit, current } = setup();
+		handlers.startDrag(dragEvent(), groups[0], 0);
+		handlers.drop(dragEvent(), groups[1], 1);
+		expect(commit).not.toHaveBeenCalled();
+		expect(current()).toEqual(NO_DRAG);
 	});
 });

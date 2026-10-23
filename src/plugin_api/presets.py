@@ -58,6 +58,7 @@ from src.features.presets.linter import (
 from src.features.presets.requirements.contracts import (
     RequirementAction,
     RequirementChecker,
+    RequirementBackendInfo,
     RequirementContext,
     RequirementResult,
 )
@@ -84,6 +85,7 @@ __all__ = [
     "PresetMedia",
     "RequirementAction",
     "RequirementChecker",
+    "RequirementBackendInfo",
     "RequirementContext",
     "RequirementResult",
     "bind_director_media",

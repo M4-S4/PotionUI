@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { debounce } from '$lib/utils/time';
 	import { createEventDispatcher, onMount, onDestroy, getContext, tick, mount, unmount } from 'svelte';
 	import { api, type PhrasebookCategory, type PhrasebookValue } from '$lib/services/api/index';
 	import type { ChipData } from '$lib/types/segments';
@@ -12,6 +13,13 @@
 	import { buildPromptPickerContext } from '$lib/utils/promptPickerContext';
 	import InlineChip from './InlineChip.svelte';
 	import ChoiceGroupChip from './ChoiceGroupChip.svelte';
+	import ConditionChip from './ConditionChip.svelte';
+	import ConditionEditorModal from './ConditionEditorModal.svelte';
+	import { writable } from 'svelte/store';
+	import { conditionTagWarnings, countConditionBlocks, defaultConditionRaw, isConditionRaw } from '$lib/utils/conditionTags';
+	import { CONDITION_TRIGGER, detectConditionTrigger, isTypedCharacter } from '$lib/utils/conditionTrigger';
+	import { conditionsAvailable } from '$lib/utils/conditionAccess';
+	import { topDismissLayer } from '$lib/actions/layerStack';
 	import VariableUsageChip from './VariableUsageChip.svelte';
 	import PromptResourceChip from './PromptResourceChip.svelte';
 	import {
@@ -33,7 +41,6 @@
 	import { countChoiceGroups } from '$lib/utils/choiceGroups';
 	import {
 		detectVariableTrigger,
-		filterVariableNames,
 		variableUsageSyntax,
 		countVariableUsages
 	} from '$lib/utils/promptVariables';
@@ -62,6 +69,7 @@
 		type VariablesMap,
 		type VariableDef,
 		type VariableRoll,
+		type ConditionReaders,
 		type ChoiceVariableMode
 	} from '$lib/utils/variableDefs';
 	import { EMPTY_RESOURCE_NUMBERING, RESOURCE_NUMBERING_CONTEXT_KEY, type ResourceNumbering } from '$lib/utils/resourceNumbering';
@@ -73,9 +81,12 @@
 		collectTextNodeSpans,
 		resourceContainerSpan,
 		chipContainerSpan,
-		atomicDeletionTarget
+		atomicDeletionTarget,
+		rangeOutsideAtomics
 	} from './chipEditorDom';
-	import { getCaretCharOffset, placeCaretAtCharOffset } from './chipEditorCaret';
+	import { getCaretCharOffset, placeCaretAtCharOffset, triggerCharOffset } from './chipEditorCaret';
+	import { variablePickerRows } from '$lib/utils/variablePicker';
+	import { stepIndex } from '$lib/utils/listNavigation';
 	import { variablePreview, getChipValueMap, getChipsHash, hashVariableRolls } from './chipEditorHelpers';
 
 	// Track mounted chip components for cleanup
@@ -104,6 +115,7 @@
 	// Tab.variableRolls), deliberately separate from `variables` itself.
 	// Usage chips read it to show "$name · value".
 	export let variableRolls: Record<string, VariableRoll> = {};
+	export let conditionReaders: ConditionReaders = {};
 	export let variableUsageNumbers: { name: string; ordinal: number; total: number }[] = [];
 	// A `${name}` usage renders as a chip whose popover edits the variable's
 	// DEFINITION (mode/pin, or create when undefined) — that edit has to bubble
@@ -159,7 +171,7 @@
 	let phrasebookTriggerNode: Text | null = null; // The text node containing the # trigger
 	let phrasebookTriggerOffset = -1; // Position of # in that text node
 	let phrasebookSwitchChipId: string | null = null;
-	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	const scheduleSuggestions = debounce((path: string) => fetchPhrasebookSuggestions(path), 200);
 	let phrasebookCache = new Map<string, any>();
 
 	// `$variable` picker state — mirrors the # phrasebook state above, but the
@@ -177,14 +189,16 @@
 	// phrasebook dropdown below has the same mismatch). Only `id`/`label`/
 	// `value` are read by the selection handler below.
 	$: variableSuggestions = isVariablePickerOpen
-		? filterVariableNames(Object.keys(variables), variableQuery).map((name) => ({
-				id: name,
+		? variablePickerRows(variables, variableQuery).map((row) => ({
+				id: row.name,
 				category_id: '',
-				label: name,
-				value: variablePreview(name, variables),
+				label: row.name,
+				value: variablePreview(row.name, variables),
 				sort_order: 0,
 				created_at: '',
-				updated_at: ''
+				updated_at: '',
+				badge: row.typeLabel,
+				description: [row.mode, row.preview].filter(Boolean).join(' \u00b7 ')
 			}))
 		: [];
 
@@ -209,6 +223,21 @@
 	// Count of balanced groups in `value` as of the last input, used to notice
 	// "the user just typed a `}` that closed a new group" without diffing text.
 	let lastGroupCount = 0;
+	let pendingOpenCondition: { raw: string; nth: number } | null = null;
+	let lastCaretOffset: number | null = null;
+	let openConditionSlotId: string | null = null;
+	let isConditionTriggerOpen = false;
+	let conditionTriggerStart = -1;
+	let conditionTriggerRaw = '';
+	const conditionContext = writable<{ variables: VariablesMap; rolls: Record<string, VariableRoll> }>({
+		variables: {},
+		rolls: {}
+	});
+	$: conditionContext.set({ variables, rolls: variableRolls });
+
+	function countGroupLikes(text: string): number {
+		return countChoiceGroups(text) + countConditionBlocks(text);
+	}
 
 	// Variable-usage chip state — mirrors the group state above exactly.
 	// `${name}` has no persistent id/map of its own either: the container's
@@ -240,50 +269,9 @@
 	let browseModalTrigger: '#' | '$' | '@' | '/' | null = null;
 	let browseContext = { before: '', after: '' };
 
-	function triggerCharIndexInText(triggerNode: Text | null, triggerNodeOffset: number): number | null {
-		if (!editorRef || !triggerNode || triggerNodeOffset < 0) return null;
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function walk(node: Node): boolean {
-			if (foundTrigger) return true;
-			if (node === triggerNode) {
-				triggerIndex += triggerNodeOffset;
-				foundTrigger = true;
-				return true;
-			}
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1;
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (walk(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (walk(child)) break;
-		}
-		return foundTrigger ? triggerIndex : null;
-	}
-
 	function openBrowseModal(trigger: '#' | '$' | '@' | '/', triggerNode: Text | null, triggerNodeOffset: number, typedLength: number) {
 		const { value: fullText } = extractContentFromDOM(editorRef, chips);
-		const triggerIndex = triggerCharIndexInText(triggerNode, triggerNodeOffset);
+		const triggerIndex = triggerCharOffset(editorRef, chips, triggerNode, triggerNodeOffset);
 		browseContext =
 			triggerIndex === null
 				? { before: '', after: '' }
@@ -462,7 +450,7 @@
 
 	function refreshSyntaxHighlights(text: string) {
 		if (!editorRef) return;
-		const matches = findSyntaxMatches(text, promptSyntax);
+		const matches = [...findSyntaxMatches(text, promptSyntax), ...conditionTagWarnings(text)];
 		if (matches.length === 0) {
 			clearOwnerSyntaxHighlightRanges(syntaxHighlightOwner);
 			return;
@@ -482,7 +470,7 @@
 	// Input Handling
 	// =====================
 
-	function handleInput() {
+	function handleInput(event?: Event) {
 		if (isInternalUpdate) return;
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
@@ -491,13 +479,14 @@
 		detectVariablePickerTrigger();
 		detectResourceTrigger();
 		detectSyntaxTrigger();
+		if (event) openTypedCondition(event);
 
 		// A group/variable container is contentEditable=false, so the user can
 		// only ever be typing in plain text here — a newly-*higher* count means
 		// a `}` was just typed that closed a brand-new `{a|b|c}` or `${name}`.
 		// Rebuild to chip-ify it — close the brace, create a chip, for both
 		// token kinds.
-		const groupsNow = countChoiceGroups(newValue);
+		const groupsNow = countGroupLikes(newValue);
 		const variablesNow = countVariableUsages(newValue);
 		const justClosedGroup = groupsNow > lastGroupCount;
 		const justClosedVariable = variablesNow > lastVariableUsageCount;
@@ -519,15 +508,11 @@
 		if (isVariablePickerOpen) {
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				variableSelectedIndex = variableSuggestions.length
-					? (variableSelectedIndex + 1) % variableSuggestions.length
-					: 0;
+				variableSelectedIndex = stepIndex(variableSelectedIndex, 1, variableSuggestions.length);
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				variableSelectedIndex = variableSelectedIndex === 0
-					? Math.max(variableSuggestions.length - 1, 0)
-					: variableSelectedIndex - 1;
+				variableSelectedIndex = stepIndex(variableSelectedIndex, -1, variableSuggestions.length);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -552,12 +537,11 @@
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				phrasebookSelectedIndex = (phrasebookSelectedIndex + 1) % totalItems;
+				phrasebookSelectedIndex = stepIndex(phrasebookSelectedIndex, 1, totalItems);
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				phrasebookSelectedIndex =
-					phrasebookSelectedIndex === 0 ? totalItems - 1 : phrasebookSelectedIndex - 1;
+				phrasebookSelectedIndex = stepIndex(phrasebookSelectedIndex, -1, totalItems);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -579,11 +563,11 @@
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				resourceSelectedIndex = totalItems ? (resourceSelectedIndex + 1) % totalItems : 0;
+				resourceSelectedIndex = stepIndex(resourceSelectedIndex, 1, totalItems);
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				resourceSelectedIndex = resourceSelectedIndex === 0 ? Math.max(totalItems - 1, 0) : resourceSelectedIndex - 1;
+				resourceSelectedIndex = stepIndex(resourceSelectedIndex, -1, totalItems);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -605,11 +589,11 @@
 
 			if (e.key === 'ArrowDown') {
 				e.preventDefault();
-				syntaxSelectedIndex = totalItems ? (syntaxSelectedIndex + 1) % totalItems : 0;
+				syntaxSelectedIndex = stepIndex(syntaxSelectedIndex, 1, totalItems);
 				return;
 			} else if (e.key === 'ArrowUp') {
 				e.preventDefault();
-				syntaxSelectedIndex = syntaxSelectedIndex === 0 ? Math.max(totalItems - 1, 0) : syntaxSelectedIndex - 1;
+				syntaxSelectedIndex = stepIndex(syntaxSelectedIndex, -1, totalItems);
 				return;
 			} else if (e.key === 'Enter' && !e.ctrlKey) {
 				e.preventDefault();
@@ -731,11 +715,7 @@
 				isPhrasebookOpen = true;
 
 				// Debounce API call
-				if (debounceTimer) clearTimeout(debounceTimer);
-
-				debounceTimer = setTimeout(() => {
-					fetchPhrasebookSuggestions(path);
-				}, 200);
+				scheduleSuggestions(path);
 				return;
 			}
 		}
@@ -781,11 +761,12 @@
 		const totalCategories = phrasebookCategories.length;
 
 		if (phrasebookSelectedIndex < totalCategories) {
-			handleSelectCategory(phrasebookCategories[phrasebookSelectedIndex]);
-		} else {
-			const valueIndex = phrasebookSelectedIndex - totalCategories;
-			handleSelectValue(phrasebookSuggestions[valueIndex]);
+			const category = phrasebookCategories[phrasebookSelectedIndex];
+			if (category) handleSelectCategory(category);
+			return;
 		}
+		const value = phrasebookSuggestions[phrasebookSelectedIndex - totalCategories];
+		if (value) handleSelectValue(value);
 	}
 
 	function handleSelectCategory(category: DropdownAutocompleteCategory) {
@@ -931,49 +912,8 @@
 		}
 		if (!editorRef || !phrasebookTriggerNode || phrasebookTriggerOffset < 0) return;
 
-		// Calculate the trigger index in the full extracted text
-		// by counting characters up to the trigger node + offset
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function countCharsUntilTrigger(node: Node): boolean {
-			if (foundTrigger) return true;
-
-			if (node === phrasebookTriggerNode) {
-				triggerIndex += phrasebookTriggerOffset;
-				foundTrigger = true;
-				return true;
-			}
-
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					// Chip contributes its encoded path length
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1; // newline
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (countCharsUntilTrigger(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (countCharsUntilTrigger(child)) break;
-		}
-
-		if (!foundTrigger) return;
+		const triggerIndex = triggerCharOffset(editorRef, chips, phrasebookTriggerNode, phrasebookTriggerOffset);
+		if (triggerIndex === null) return;
 
 		// Extract current content preserving existing chip markers
 		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
@@ -1144,10 +1084,7 @@
 		phrasebookTriggerOffset = -1;
 		phrasebookSwitchChipId = null;
 
-		if (debounceTimer) {
-			clearTimeout(debounceTimer);
-			debounceTimer = null;
-		}
+		scheduleSuggestions.cancel();
 	}
 
 	// =====================
@@ -1407,45 +1344,10 @@
 		const triggerNodeOffset = resourceTriggerOffset;
 		const typedLength = 1 + resourceQuery.length;
 
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function countCharsUntilTrigger(node: Node): boolean {
-			if (foundTrigger) return true;
-			if (node === triggerNode) {
-				triggerIndex += triggerNodeOffset;
-				foundTrigger = true;
-				return true;
-			}
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1;
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (countCharsUntilTrigger(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (countCharsUntilTrigger(child)) break;
-		}
+		const triggerIndex = triggerCharOffset(editorRef, chips, triggerNode, triggerNodeOffset);
 
 		closeResourcePicker();
-		if (!foundTrigger) return;
+		if (triggerIndex === null) return;
 
 		applyResourceSelection(triggerIndex, triggerIndex + typedLength, field, itemKey);
 	}
@@ -1520,45 +1422,10 @@
 		const triggerNodeOffset = syntaxTriggerOffset;
 		const typedLength = 1 + syntaxQuery.length;
 
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function countCharsUntilTrigger(node: Node): boolean {
-			if (foundTrigger) return true;
-			if (node === triggerNode) {
-				triggerIndex += triggerNodeOffset;
-				foundTrigger = true;
-				return true;
-			}
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1;
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (countCharsUntilTrigger(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (countCharsUntilTrigger(child)) break;
-		}
+		const triggerIndex = triggerCharOffset(editorRef, chips, triggerNode, triggerNodeOffset);
 
 		closeSyntaxPicker();
-		if (!foundTrigger) return;
+		if (triggerIndex === null) return;
 
 		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
 		const insertResult = applySyntaxInsert(spec.insert ?? spec.token, pendingSyntaxSelection);
@@ -1605,21 +1472,38 @@
 	// The mock's segment footer offers explicit "Phrasebook / Variable / Choice"
 	// buttons, alongside typing `#`/`${`/`{` — a way IN to the exact same
 	// pickers/chip-ification this editor already owns, not a second mechanism.
-	// Caret-relative when the editor already has a selection inside it (so a
-	// mid-sentence insert works), end-of-content otherwise.
 
-	function insertTextAtCaret(text: string): void {
-		if (!editorRef) return;
+	function rememberCaret() {
+		if (!editorRef || isInternalUpdate) return;
+		const selection = window.getSelection();
+		if (!selection?.rangeCount) return;
+		const range = selection.getRangeAt(0);
+		if (!editorRef.contains(range.commonAncestorContainer)) return;
+		const caret = rangeOutsideAtomics(range, editorRef);
+		caret.collapse(false);
+		lastCaretOffset = getCaretCharOffset(editorRef, chips, caret) ?? lastCaretOffset;
+	}
+
+	function insertionRange(editor: HTMLElement): Range {
+		const selection = window.getSelection();
+		const current = selection?.rangeCount ? selection.getRangeAt(0) : null;
+		if (current && editor.contains(current.commonAncestorContainer)) return rangeOutsideAtomics(current, editor);
+		if (lastCaretOffset !== null) {
+			placeCaretAtCharOffset(editor, chips, lastCaretOffset);
+			const placed = window.getSelection();
+			if (placed?.rangeCount) return placed.getRangeAt(0).cloneRange();
+		}
+		const end = document.createRange();
+		end.selectNodeContents(editor);
+		end.collapse(false);
+		return end;
+	}
+
+	function insertTextAtCaret(text: string): Text | null {
+		if (!editorRef) return null;
+		const range = insertionRange(editorRef);
 		editorRef.focus();
 		const selection = window.getSelection();
-		let range: Range;
-		if (selection && selection.rangeCount && editorRef.contains(selection.getRangeAt(0).commonAncestorContainer)) {
-			range = selection.getRangeAt(0);
-		} else {
-			range = document.createRange();
-			range.selectNodeContents(editorRef);
-			range.collapse(false);
-		}
 		range.deleteContents();
 		const textNode = document.createTextNode(text);
 		range.insertNode(textNode);
@@ -1633,6 +1517,7 @@
 		range.collapse(true);
 		selection?.removeAllRanges();
 		selection?.addRange(range);
+		return textNode;
 	}
 
 	/** Put the caret in the body without changing it — the card's read-only
@@ -1661,6 +1546,74 @@
 	/** Insert a two-option `{a|b}` choice group at the caret and chip-ify it
 	 *  immediately — the same rebuild `handleInput` already does the instant a
 	 *  user's own typing closes a `}`. */
+	export function insertCondition(): void {
+		if (isDisabled || !editorRef) return;
+		const selection = window.getSelection();
+		const selected =
+			selection && !selection.isCollapsed && editorRef.contains(selection.anchorNode)
+				? selection.toString()
+				: '';
+		const raw = defaultConditionRaw(variables, selected.replace(/<<|>>/g, ''));
+		const inserted = insertTextAtCaret(raw);
+		if (!inserted) return;
+		const nth = Array.from(editorRef.querySelectorAll<HTMLElement>('.choice-group-container')).filter(
+			(el) => el.dataset.groupRaw === raw && !!(el.compareDocumentPosition(inserted) & Node.DOCUMENT_POSITION_FOLLOWING)
+		).length;
+		pendingOpenCondition = { raw, nth };
+		handleInput();
+		pendingOpenCondition = null;
+	}
+
+	function openTypedCondition(event: Event) {
+		if (!editorRef || event.target !== editorRef || !isTypedCharacter(event, '<')) return;
+		if (isDisabled || !conditionsAvailable(variables, onVariableDefChange)) return;
+		const top = topDismissLayer();
+		if (top && !top.node.contains(editorRef)) return;
+		const selection = window.getSelection();
+		if (!selection?.rangeCount) return;
+		const range = selection.getRangeAt(0);
+		const node = range.startContainer;
+		if (node.nodeType !== Node.TEXT_NODE) return;
+		const match = detectConditionTrigger(node.textContent ?? '', range.startOffset);
+		const caret = getCaretCharOffset(editorRef, chips);
+		if (!match || caret === null) return;
+		conditionTriggerStart = caret - (match.end - match.start);
+		conditionTriggerRaw = defaultConditionRaw(variables);
+		isConditionTriggerOpen = true;
+	}
+
+	function takeTypedConditionStart(): number | null {
+		const start = conditionTriggerStart;
+		isConditionTriggerOpen = false;
+		conditionTriggerStart = -1;
+		conditionTriggerRaw = '';
+		if (!editorRef) return null;
+		const { value: current } = extractContentFromDOM(editorRef, chips);
+		return current.slice(start, start + CONDITION_TRIGGER.length) === CONDITION_TRIGGER ? start : null;
+	}
+
+	function handleTypedConditionSave(raw: string) {
+		const start = takeTypedConditionStart();
+		if (!editorRef) return;
+		editorRef.focus();
+		if (start !== null) {
+			selectCharRange(start, start + CONDITION_TRIGGER.length);
+		} else {
+			placeCaretAtCharOffset(editorRef, chips, extractContentFromDOM(editorRef, chips).value.length);
+		}
+		if (insertTextAtCaret(raw)) handleInput();
+	}
+
+	function handleTypedConditionCancel() {
+		const start = takeTypedConditionStart();
+		if (start === null) return;
+		tick().then(() => {
+			if (!editorRef) return;
+			editorRef.focus();
+			placeCaretAtCharOffset(editorRef, chips, start + CONDITION_TRIGGER.length);
+		});
+	}
+
 	export function insertChoiceGroup(): void {
 		if (isDisabled) return;
 		insertTextAtCaret('{option one|option two}');
@@ -1705,45 +1658,10 @@
 		const triggerNodeOffset = variableTriggerOffset;
 		const typedLength = 1 + variableQuery.length; // "$" + whatever was typed after it
 
-		let triggerIndex = 0;
-		let foundTrigger = false;
-
-		function countCharsUntilTrigger(node: Node): boolean {
-			if (foundTrigger) return true;
-			if (node === triggerNode) {
-				triggerIndex += triggerNodeOffset;
-				foundTrigger = true;
-				return true;
-			}
-			if (node.nodeType === Node.TEXT_NODE) {
-				triggerIndex += (node.textContent || '').length;
-			} else if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
-				if (el.dataset.groupRaw !== undefined) {
-					triggerIndex += el.dataset.groupRaw.length;
-				} else if (el.dataset.variableRaw !== undefined) {
-					triggerIndex += el.dataset.variableRaw.length;
-				} else if (el.dataset.resourceMarker !== undefined) {
-					triggerIndex += el.dataset.resourceMarker.length;
-				} else if (el.dataset.chipId && chips[el.dataset.chipId]) {
-					triggerIndex += encodePathForText(chips[el.dataset.chipId].categoryPath).length;
-				} else if (el.tagName === 'BR') {
-					triggerIndex += 1;
-				} else {
-					for (const child of Array.from(node.childNodes)) {
-						if (countCharsUntilTrigger(child)) return true;
-					}
-				}
-			}
-			return false;
-		}
-
-		for (const child of Array.from(editorRef.childNodes)) {
-			if (countCharsUntilTrigger(child)) break;
-		}
+		const triggerIndex = triggerCharOffset(editorRef, chips, triggerNode, triggerNodeOffset);
 
 		closeVariablePicker();
-		if (!foundTrigger) return;
+		if (triggerIndex === null) return;
 
 		const { value: fullText, chips: existingChips } = extractContentFromDOM(editorRef, chips);
 		const usage = variableUsageSyntax(item.label);
@@ -1762,7 +1680,7 @@
 		mountResourceChips();
 		isInternalUpdate = false;
 		lastSyncedValue = newValue;
-		lastGroupCount = countChoiceGroups(newValue);
+		lastGroupCount = countGroupLikes(newValue);
 		lastVariableUsageCount = countVariableUsages(newValue);
 		refreshAllHighlights(newValue);
 
@@ -1900,24 +1818,11 @@
 	// Choice-group handlers
 	// =====================
 
-	/** Re-serialize + remount a group container's chip after an edit in its popover. */
 	function handleGroupChange(container: HTMLElement, newRaw: string) {
 		if (!editorRef) return;
 		container.dataset.groupRaw = newRaw;
-
-		const slotId = container.dataset.slotId;
-		if (slotId) {
-			const existing = mountedGroupComponents.get(slotId);
-			if (existing) {
-				unmount(existing);
-				mountedGroupComponents.delete(slotId);
-			}
-		}
-		container.innerHTML = '';
-		mountGroups();
-
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
-		lastGroupCount = countChoiceGroups(newValue);
+		lastGroupCount = countGroupLikes(newValue);
 		dispatchChange(newValue, newChips);
 	}
 
@@ -1934,7 +1839,7 @@
 		container.remove();
 
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
-		lastGroupCount = countChoiceGroups(newValue);
+		lastGroupCount = countGroupLikes(newValue);
 		dispatchChange(newValue, newChips);
 	}
 
@@ -1943,6 +1848,7 @@
 
 		const currentSlotIds = new Set<string>();
 		const containers = editorRef.querySelectorAll('.choice-group-container');
+		const conditionsSeen = new Map<string, number>();
 
 		containers.forEach((container, index) => {
 			const el = container as HTMLElement;
@@ -1950,9 +1856,38 @@
 			const slotId = el.dataset.slotId;
 			currentSlotIds.add(slotId);
 
-			if (container.querySelector('.choice-group-chip')) return; // already mounted
-
 			const raw = el.dataset.groupRaw || '';
+
+			if (isConditionRaw(raw)) {
+				const nth = conditionsSeen.get(raw) ?? 0;
+				conditionsSeen.set(raw, nth + 1);
+				if (container.querySelector('.condition-chip')) return;
+				if (pendingOpenCondition?.raw === raw && pendingOpenCondition.nth === nth) {
+					pendingOpenCondition = null;
+					openConditionSlotId = slotId;
+				}
+				const conditionComponent = mount(ConditionChip, {
+					target: container,
+					props: {
+						raw,
+						context: conditionContext,
+						disabled: isDisabled,
+						variant,
+						startOpen: openConditionSlotId === slotId,
+						onchange: (newRaw: string) => handleGroupChange(el, newRaw),
+						onremove: () => handleGroupRemove(el),
+						onOpenChange: (isOpen: boolean) => {
+							if (isOpen) openConditionSlotId = slotId;
+							else if (openConditionSlotId === slotId) openConditionSlotId = null;
+						},
+						onCreateVariable: (name: string) => handleVariableCreate(name)
+					}
+				});
+				mountedGroupComponents.set(slotId, conditionComponent);
+				return;
+			}
+
+			if (container.querySelector('.choice-group-chip')) return;
 			const component = mount(ChoiceGroupChip, {
 				target: container,
 				props: {
@@ -2044,6 +1979,7 @@
 					definition: name in variables ? variables[name] : undefined,
 					rolls: variableRolls,
 					variables,
+					readers: conditionReaders,
 					usage: variableUsageNumbers[position]?.name === name
 						? variableUsageNumbers[position]
 						: { ordinal: 1, total: 1 },
@@ -2239,7 +2175,7 @@
 			editorRef.appendChild(buildSegmentNode(segment));
 		});
 
-		lastGroupCount = countChoiceGroups(value);
+		lastGroupCount = countGroupLikes(value);
 		lastVariableUsageCount = countVariableUsages(value);
 
 		// Mount Svelte chips + groups + variable usages
@@ -2306,6 +2242,7 @@
 	}
 
 	onMount(() => {
+		document.addEventListener('selectionchange', rememberCaret);
 		// Force initial render
 		if (editorRef) {
 			isInternalUpdate = true;
@@ -2315,7 +2252,7 @@
 				editorRef.appendChild(buildSegmentNode(segment));
 			});
 
-			lastGroupCount = countChoiceGroups(value);
+			lastGroupCount = countGroupLikes(value);
 			lastVariableUsageCount = countVariableUsages(value);
 
 			mountChips();
@@ -2325,6 +2262,7 @@
 			isInternalUpdate = false;
 			refreshAllHighlights(value);
 		}
+		return () => document.removeEventListener('selectionchange', rememberCaret);
 	});
 
 	onDestroy(() => {
@@ -2441,7 +2379,7 @@
 	// every chip needs to refresh, not just the one that was clicked.
 	let lastVariablesHash: string | null = null;
 	$: {
-		const currentVariablesHash = hashVariablesMap(variables);
+		const currentVariablesHash = hashVariablesMap(variables) + '#' + JSON.stringify(conditionReaders);
 		if (editorRef && !isInternalUpdate) {
 			const step = stepVariablesHash(currentVariablesHash, lastVariablesHash);
 			lastVariablesHash = step.nextHash;
@@ -2683,7 +2621,7 @@
 			categories={[{ id: 'shared', name: 'Shared by every segment', description: `${variableSuggestions.length} available` }]}
 			activeCategoryId="shared"
 			values={variableSuggestions}
-			insertHint="Insert ${name}"
+			insertHint="Insert"
 			onInsertValue={(value) => handleSelectVariable(value)}
 			onClose={closeBrowseModal}
 		/>
@@ -2725,6 +2663,17 @@
 				if (spec) handleSelectSyntax(spec);
 			}}
 			onClose={closeBrowseModal}
+		/>
+	{/if}
+
+	{#if isConditionTriggerOpen}
+		<ConditionEditorModal
+			raw={conditionTriggerRaw}
+			{variables}
+			rolls={variableRolls}
+			onsave={handleTypedConditionSave}
+			oncancel={handleTypedConditionCancel}
+			onCreateVariable={handleVariableCreate}
 		/>
 	{/if}
 </div>

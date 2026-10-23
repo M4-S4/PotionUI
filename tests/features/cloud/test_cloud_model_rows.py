@@ -5,17 +5,10 @@ from src.features.models.availability import models_for_engine
 from src.features.models.availability_repository import model_availability_repo
 from src.features.models.repository import model_repo
 from tests.features.cloud.conftest import returning
+from tests.fixtures.seed import seed_user
 
 IMAGE = "fake/image-1"
 VIDEO = "fake/video-1"
-
-
-def add_user(db, user_id="u1"):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-            (user_id, user_id, f"{user_id}@example.test"),
-        )
 
 
 def count(db, sql, params=()):
@@ -109,7 +102,7 @@ async def test_disabling_removes_the_availability_but_keeps_the_model_row(refres
 
 
 async def test_disabling_keeps_history_assignments_and_custom_names(refreshed, mock_db):
-    add_user(mock_db)
+    seed_user(mock_db)
     (slug,) = await enable(refreshed, IMAGE)
     model_id = refreshed.model_row(slug).id
     with mock_db.get_cursor() as cursor:
@@ -129,7 +122,7 @@ async def test_disabling_keeps_history_assignments_and_custom_names(refreshed, m
 
 
 async def test_re_enabling_reuses_the_same_model_row_and_keeps_what_hangs_off_it(refreshed, mock_db):
-    add_user(mock_db)
+    seed_user(mock_db)
     (slug,) = await enable(refreshed, IMAGE)
     model_id = refreshed.model_row(slug).id
     with mock_db.get_cursor() as cursor:

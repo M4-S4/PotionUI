@@ -16,10 +16,6 @@ vi.mock('$lib/services/api/index', async (orig) => {
 	return { ...real, api: { ...real.api, getPreset, getClient: () => ({}) } };
 });
 
-vi.mock('$lib/components/formulas/FormulasButton.svelte', async () => ({
-	default: (await import('./stubs/FormulasButtonStub.svelte')).default
-}));
-
 const { default: PresetControls } = await import('../../src/routes/generate/components/PresetControls.svelte');
 const { setModeLabels } = await import('../../src/lib/utils/modeLabel.svelte');
 const { iconPaths } = await import('../../src/lib/utils/IconLibrary');
@@ -161,15 +157,12 @@ describe('Generate header: one-line preset and mode select', () => {
 		expect(document.body.textContent).not.toMatch(/txt2img|img2video|face_swap/);
 	});
 
-	it('renders the preset picker, the mode select and the joined icon group in one row', async () => {
+	it('renders the preset picker and the mode select in one row', async () => {
 		await render();
 		const row = target.querySelector('[data-testid="preset-header-row"]') as HTMLElement;
 		expect(row.contains(target.querySelector('[data-testid="preset-header-picker"]'))).toBe(true);
 		expect(row.contains(target.querySelector('[data-testid="preset-header-mode"]'))).toBe(true);
-		const group = row.querySelector('[data-testid="preset-header-actions"]') as HTMLElement;
-		expect(group.getAttribute('role')).toBe('group');
-		expect(group.querySelector('[data-testid="formulas-stub"]')).not.toBeNull();
-		expect(group.querySelectorAll('button').length).toBe(1);
+		expect(row.querySelector('[data-testid="preset-header-actions"]')).toBeNull();
 		expect(row.textContent).toContain('Krea-2');
 		expect(trigger().textContent).toContain('Text to Image');
 	});
@@ -264,48 +257,6 @@ describe('Generate header: one-line preset and mode select', () => {
 		await render({ availableModes: [MODES[0]] });
 		expect(target.querySelector('[data-testid="preset-header-mode"]')).toBeNull();
 		expect(target.querySelector('[data-testid="preset-header-picker"]')).not.toBeNull();
-		expect(target.querySelector('[data-testid="preset-header-actions"]')).not.toBeNull();
-	});
-
-	async function openPickerDialog(overrides: Record<string, unknown> = {}) {
-		const handlers = await render(overrides);
-		(target.querySelector('[data-testid="preset-header-picker"] button') as HTMLElement).click();
-		await tick();
-		flushSync();
-		await tick();
-		flushSync();
-		return handlers;
-	}
-
-	function reloadButton() {
-		return Array.from(document.body.querySelectorAll('button')).find((b) =>
-			/Reload preset from disk/.test(b.textContent ?? '')
-		);
-	}
-
-	it('picker dialog shows the reload action to admins only, on the selected preset', async () => {
-		authState.user = { account_type: 'USER' };
-		await openPickerDialog();
-		expect(document.body.textContent).toContain('Keep selected');
-		expect(reloadButton()).toBeUndefined();
-	});
-
-	it('picker dialog reload runs onReload for an admin', async () => {
-		authState.user = { account_type: 'ADMIN' };
-		const handlers = await openPickerDialog();
-		const btn = reloadButton();
-		expect(btn).toBeDefined();
-		btn!.click();
-		flushSync();
-		expect(handlers.onReload).toHaveBeenCalledTimes(1);
-	});
-
-	it('picker dialog carries the markdown description and the examples section', async () => {
-		authState.user = { account_type: 'USER' };
-		await openPickerDialog({ presets: [{ ...PRESETS[0], description: 'Hello **bold** world' }] });
-		expect(document.body.querySelector('strong')?.textContent).toBe('bold');
-		expect(document.body.querySelector('[data-testid="preset-examples"]')).not.toBeNull();
-		expect(getPreset).toHaveBeenCalledWith('krea2');
 	});
 
 	it('wide panel: trigger shows the label only', async () => {

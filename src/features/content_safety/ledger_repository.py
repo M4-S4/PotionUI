@@ -11,6 +11,7 @@ from src.features.content_safety.constants import (
 )
 from src.platform.database.rows import now_iso
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,7 @@ class ContentLedger:
 
     def record_tagger_score(self, key: str, score: float, rater: Optional[str] = None) -> None:
         state = derive_state(score, self.threshold())
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO content_ratings (key, nsfw_score, state, rater, source, rated_at)
@@ -67,8 +67,7 @@ class ContentLedger:
         self._upsert(key, None, STATE_UNRATED, None, source)
 
     def _upsert(self, key: str, score: Optional[float], state: str, rater: Optional[str], source: str) -> None:
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 """
                 INSERT INTO content_ratings (key, nsfw_score, state, rater, source, rated_at)
@@ -88,8 +87,7 @@ class ContentLedger:
         found: Dict[str, Optional[float]] = {}
         if not unique:
             return found
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for chunk in _chunks(unique):
                 placeholders = ",".join("?" * len(chunk))
                 cursor.execute(
@@ -115,9 +113,8 @@ class ContentLedger:
         score: Optional[float] = None,
         detail: Optional[Dict[str, Any]] = None,
     ) -> None:
-        from src.platform.database.database import db
         try:
-            with db.get_cursor() as cursor:
+            with get_cursor() as cursor:
                 cursor.execute(
                     """
                     INSERT INTO content_safety_events (id, ts, user_id, generation_id, kind, mode, score, detail_json)
@@ -136,8 +133,7 @@ class ContentLedger:
         paths: Dict[str, List[str]] = {}
         if not unique:
             return {}
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for chunk in _chunks(unique):
                 placeholders = ",".join("?" * len(chunk))
                 cursor.execute(
@@ -156,8 +152,7 @@ class ContentLedger:
 
     def backfill_progress(self) -> Dict[str, int]:
         placeholders = ",".join("?" * len(_RATED_TYPES))
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"SELECT COUNT(*) AS c FROM files WHERE file_type IN ({placeholders})", _RATED_TYPES
             )
@@ -175,8 +170,7 @@ class ContentLedger:
 
     def unrated_files(self, limit: int, after: str = "") -> List[Dict[str, Any]]:
         placeholders = ",".join("?" * len(_RATED_TYPES))
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT f.id, f.file_path, f.file_type, f.thumbnail_medium

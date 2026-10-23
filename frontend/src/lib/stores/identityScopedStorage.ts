@@ -1,8 +1,11 @@
 import { TABS_STORAGE_KEY } from '$lib/types/tabs';
+import { TAB_DRAFT_OUTBOX_KEY, TAB_DRAFT_MIGRATED_KEY } from '$lib/stores/tabDraftKeys';
 import { ACCOUNTS_STORAGE_KEY, parseRegistry } from '$lib/stores/accountRegistry';
 
 export const IDENTITY_SCOPED_STORAGE_KEYS: readonly string[] = [
 	TABS_STORAGE_KEY,
+	TAB_DRAFT_OUTBOX_KEY,
+	TAB_DRAFT_MIGRATED_KEY,
 	'unified-ai-chat-session-id',
 	'unified-ai-chat-config-id',
 	'unified-ai-chat-pinned-tab',

@@ -3,7 +3,10 @@ from typing import Dict, Any, Optional, List
 from .base_field import BaseField
 from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
 from src.features.presets.configuration import resolve_field_filter_tags, resolve_reactions_filter_tags
+from src.features.presets.form_lookups import current_form_lookups
 from src.platform.filesystem.model_types import PICKABLE_MODEL_TYPES
+
+RECOMMENDATION_EXTENSIONS = ('.safetensors', '.ckpt', '.pt', '.pth', '.bin')
 
 
 class Model(BaseField):
@@ -21,8 +24,10 @@ class Model(BaseField):
             schema['reactions'] = resolve_reactions_filter_tags(schema['reactions'], preset_id)
 
         # Add configuration for model field
+        model_types = self._clean_model_types(field_info['configuration'].get('model_types'))
+        default_type = model_types[0] if model_types else 'checkpoint'
         schema['configuration'] = {
-            'model_type': field_info['configuration'].get('model_type', 'checkpoint'),
+            'model_type': field_info['configuration'].get('model_type', default_type),
             'placeholder': field_info['configuration'].get('placeholder', 'Select a model...'),
             'searchable': field_info['configuration'].get('searchable', True),
             'allow_info_modal': field_info['configuration'].get('allow_info_modal', True),
@@ -32,6 +37,10 @@ class Model(BaseField):
         }
         if field_info['configuration'].get('tasks'):
             schema['configuration']['tasks'] = list(field_info['configuration']['tasks'])
+        if model_types:
+            schema['configuration']['model_types'] = model_types
+        if field_info['configuration'].get('unquantized_only') is True:
+            schema['configuration']['unquantized_only'] = True
 
         # Lets the frontend source options from this preset's engine
         # (`GET /api/presets/{preset_id}/models`) instead of the global library.
@@ -40,71 +49,47 @@ class Model(BaseField):
         return schema
 
     @staticmethod
-    def _serialize_recommendations(recommendations: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
-        """Serialize `recommendations` (v2 - provider-gated, see docs/presets.md).
+    def _clean_model_types(raw: Any) -> List[str]:
+        if not isinstance(raw, (list, tuple)):
+            return []
+        cleaned: List[str] = []
+        for item in raw:
+            if item in PICKABLE_MODEL_TYPES and item not in cleaned:
+                cleaned.append(item)
+        return cleaned
 
-        A recommendation is either provider-backed (`{name, provider, ref, ...}` -
-        `ref` is opaque, provider-native) or provider-less (`{name, link, ...}`,
-        today's shape - always passes through). Provider-backed entries whose
-        provider is not installed/enabled are DROPPED - the frontend must never see
-        a gated-out entry. Every surviving entry gains `installed: bool`.
-        """
+    @staticmethod
+    def _serialize_recommendations(recommendations: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
         if not recommendations:
             return recommendations
 
         from src.features.providers.registry import get_provider_registry
         provider_registry = get_provider_registry()
 
-        serialized = []
-        for rec in recommendations:
-            provider = rec.get('provider')
-            if provider and not provider_registry.is_provider_initialized(provider):
-                continue  # gated out: provider not installed/enabled
+        visible = [
+            rec for rec in recommendations
+            if not rec.get('provider') or provider_registry.is_provider_initialized(rec['provider'])
+        ]
+        existing = current_form_lookups().existing_filenames(
+            candidate
+            for rec in visible
+            if rec.get('name')
+            for candidate in Model._recommendation_filenames(rec['name'])
+        )
 
+        serialized = []
+        for rec in visible:
             entry = dict(rec)
-            entry['installed'] = Model._is_recommendation_installed(rec)
+            entry['installed'] = bool(
+                rec.get('name') and existing.intersection(Model._recommendation_filenames(rec['name']))
+            )
             serialized.append(entry)
 
         return serialized
 
     @staticmethod
-    def _is_recommendation_installed(rec: Dict[str, Any]) -> bool:
-        """Best-effort: does a local model already match this recommendation?
-
-        Matches by filename (the recommendation's `name`, since `ref` is an opaque
-        provider-native string core doesn't parse for this) against the models
-        table - a simple, documented heuristic, not a guarantee (a model
-        downloaded under a different filename won't be detected).
-        """
-        try:
-            from src.features.models.repository import model_repo
-        except Exception:
-            return False
-
-        candidates = []
-        if rec.get('name'):
-            candidates.append(rec['name'])
-
-        for candidate in candidates:
-            try:
-                if model_repo.get_by_filename(candidate):
-                    return True
-                # Recommendation names rarely include the file extension -
-                # try common ones the picker already scans for.
-                for ext in ('.safetensors', '.ckpt', '.pt', '.pth', '.bin'):
-                    if model_repo.get_by_filename(f"{candidate}{ext}"):
-                        return True
-            except Exception:
-                continue
-
-        return False
-
-
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'model'
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        return self.output(field, preset_id)
+    def _recommendation_filenames(name: str) -> List[str]:
+        return [name, *(f"{name}{ext}" for ext in RECOMMENDATION_EXTENSIONS)]
 
     @classmethod
     def configuration(cls) -> List[FieldConfigSpec]:
@@ -117,6 +102,27 @@ class Model(BaseField):
                 description="Type of model to filter by",
                 choices=list(PICKABLE_MODEL_TYPES),
                 example="lora"
+            ),
+            FieldConfigSpec(
+                name="model_types",
+                param_type=list,
+                default=None,
+                description=(
+                    "Several model types offered in one picker (for example diffusion_model, unet "
+                    "and text_encoder). Preset-scoped pickers list the union; the first entry "
+                    "stands in for `model_type` when that is not set. Unknown types are dropped."
+                ),
+                example=["diffusion_model", "unet", "checkpoint", "text_encoder"]
+            ),
+            FieldConfigSpec(
+                name="unquantized_only",
+                param_type=bool,
+                default=False,
+                description=(
+                    "List only safetensors files whose header carries no quantized tensors "
+                    "(no fp8 dtype, scale or comfy_quant entries). Preset-scoped pickers only."
+                ),
+                example=True
             ),
             FieldConfigSpec(
                 name="placeholder",

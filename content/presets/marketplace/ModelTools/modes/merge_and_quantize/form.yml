@@ -1,0 +1,18 @@
+name: "custom"
+short_description: "Bake LoRAs into a model, then quantize it."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/merge_and_quantize/tabs/generation.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/quantize/tabs/advanced.yml"

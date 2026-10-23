@@ -12,8 +12,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import shutil
 from src.pipelines.pipes.generator.chain_video_wan22 import stitch as stitch_mod
 from src.pipelines.pipes.generator.chain_video_wan22.stitch import stitch_segments
+from src.platform.util.video_transcode import find_ffmpeg
 
 
 def _reader_factory(segments_frames):
@@ -184,7 +186,8 @@ def _dispatching_run(ffprobe_fps: str, ffmpeg_side_effect):
 
 
 def test_zero_overlap_uses_stream_copy_when_ffmpeg_available_and_fps_match(monkeypatch, tmp_path):
-    monkeypatch.setattr(stitch_mod.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/ffprobe")
 
     def ffmpeg_side_effect(cmd, **kwargs):
         # -c copy concat: write bytes to the requested output path, as real
@@ -215,7 +218,8 @@ def test_zero_overlap_uses_stream_copy_when_ffmpeg_available_and_fps_match(monke
 
 
 def test_stream_copy_command_is_concat_demuxer_with_stream_copy(monkeypatch, tmp_path):
-    monkeypatch.setattr(stitch_mod.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/ffprobe")
     captured = {}
 
     def ffmpeg_side_effect(cmd, **kwargs):
@@ -236,14 +240,14 @@ def test_stream_copy_command_is_concat_demuxer_with_stream_copy(monkeypatch, tmp
                      frame_reader=lambda p: iter([]), encode=lambda f, p, fps: None)
 
     cmd = captured["cmd"]
-    assert cmd[0] == "ffmpeg"
+    assert cmd[0] == "/usr/bin/ffmpeg"
     assert "-f" in cmd and cmd[cmd.index("-f") + 1] == "concat"
     assert "-c" in cmd and cmd[cmd.index("-c") + 1] == "copy"
     assert cmd[-1] == str(out_path)
 
 
 def test_ffmpeg_missing_falls_back_to_frame_accurate_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(stitch_mod.shutil, "which", lambda name: None)
+    monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: None)
 
     def run_should_not_be_called(cmd, **kwargs):
         raise AssertionError("subprocess.run must not be called when ffmpeg is missing")
@@ -260,7 +264,7 @@ def test_ffmpeg_missing_falls_back_to_frame_accurate_path(monkeypatch, tmp_path)
 
 
 def test_mismatched_fps_segment_falls_back_to_frame_accurate_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(stitch_mod.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     def ffmpeg_should_not_be_called(cmd, **kwargs):
         raise AssertionError("ffmpeg concat must not run when a segment's fps doesn't match")
@@ -287,7 +291,7 @@ def test_mismatched_fps_segment_falls_back_to_frame_accurate_path(monkeypatch, t
 
 
 def test_unprobeable_segment_falls_back_to_frame_accurate_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(stitch_mod.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     def run(cmd, **kwargs):
         if cmd[0] == "ffprobe":
@@ -309,7 +313,7 @@ def test_unprobeable_segment_falls_back_to_frame_accurate_path(monkeypatch, tmp_
 
 
 def test_ffmpeg_concat_failure_falls_back_to_frame_accurate_path(monkeypatch, tmp_path):
-    monkeypatch.setattr(stitch_mod.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     def ffmpeg_side_effect(cmd, **kwargs):
         class _Result:
@@ -328,7 +332,7 @@ def test_ffmpeg_concat_failure_falls_back_to_frame_accurate_path(monkeypatch, tm
 
 
 def test_overlap_nonzero_never_attempts_stream_copy(monkeypatch, tmp_path):
-    monkeypatch.setattr(stitch_mod.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(stitch_mod, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
 
     def run_should_not_be_called(cmd, **kwargs):
         raise AssertionError("stream-copy path must not be attempted when overlap > 0")
@@ -344,7 +348,10 @@ def test_overlap_nonzero_never_attempts_stream_copy(monkeypatch, tmp_path):
     assert captured["frames"][:, 0, 0, 0].tolist() == [25, 50, 75, 100]
 
 
-@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not available in this environment")
+@pytest.mark.skipif(
+    find_ffmpeg() is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg and ffprobe not available in this environment",
+)
 def test_real_ffmpeg_stream_copy_concatenates_two_segments(tmp_path):
     """Real ffmpeg (no mocking): two same-params mp4s built with the repo's
     own encode helper, stitched with overlap=0, output frame count = sum of

@@ -76,7 +76,9 @@ class ComponentProgress:
             if is_cached(cache_key):
                 return
             state += COLD_LOAD_NOTE
-        self._generation_outputs(ProgressGenerationOutput(state=state, progress=Progress(step, self._total)))
+        self._generation_outputs(ProgressGenerationOutput(
+            state=state, progress=Progress(step, self._total), bar=False,
+        ))
 
 
 def _affects_audio(value: Any, path: Any, log_tag: str) -> bool:

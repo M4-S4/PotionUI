@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { selectPresetInPicker } from './presetPreamble';
 
 // W3 missing-predecessor join (PLAN.md §C W3's E2E line): a chain (Wan) film
 // whose second shot continues from the first defaults to a NATIVE
@@ -29,43 +30,9 @@ interface DiscoveredPreset {
 	name: string;
 }
 
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
 async function ensureAssigned(page: Page, token: string, userId: string, preset: { id: string; installed?: boolean }) {
 	if (!preset.installed) await apiPost(page, `/api/presets/${preset.id}/install`, token);
 	await apiPost(page, `/api/presets/${preset.id}/assign`, token, { user_ids: [userId] });
-}
-
-async function selectPresetInPicker(page: Page, preset: DiscoveredPreset): Promise<boolean> {
-	const pickerTrigger = page.locator('button[aria-haspopup="dialog"]').first();
-	await pickerTrigger.click();
-	const presetList = page.getByRole('listbox', { name: 'Presets' });
-	const opened = await presetList.isVisible({ timeout: 15000 }).catch(() => false);
-	if (!opened) return false;
-	const entry = presetList.getByText(preset.name, { exact: true });
-	if ((await entry.count()) === 0) return false;
-	await entry.click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(1500);
-	const videoModeBtn = page.locator('button[title="Video"]');
-	if ((await videoModeBtn.count()) > 0) {
-		await videoModeBtn.click();
-		await page.waitForTimeout(500);
-	}
-	return true;
 }
 
 async function typeChainShotPrompt(director: ReturnType<Page['locator']>, page: Page, text: string) {
@@ -73,7 +40,6 @@ async function typeChainShotPrompt(director: ReturnType<Page['locator']>, page: 
 	await expect(editor).toBeVisible({ timeout: 5000 });
 	await editor.click();
 	await page.keyboard.type(text);
-	await page.waitForTimeout(300);
 }
 
 /** Discovers a Wan-style chain preset, builds a 2-shot film with both shots
@@ -118,12 +84,10 @@ async function setUpTwoShotFilm(page: Page): Promise<ReturnType<Page['locator']>
 		return null;
 	}
 	await addShotBtn.click();
-	await page.waitForTimeout(300);
 	await expect(director.getByText(/2 shots? · [\d.]+ s/)).toBeVisible({ timeout: 10000 });
 
 	await typeChainShotPrompt(director, page, 'First shot, lanterns in the rain');
 	await director.getByRole('button', { name: /^Expand / }).first().click();
-	await page.waitForTimeout(300);
 	await typeChainShotPrompt(director, page, 'Second shot, steam fills the frame');
 
 	// A freshly-added chain shot defaults to a NATIVE CONTINUATION join (no
@@ -151,7 +115,6 @@ test.describe('Video Director shot console: missing-predecessor join', () => {
 		// unchecked. Nothing has ever rendered, so shot 1 (the predecessor) has
 		// no run: the join must now read as missing.
 		await director.getByRole('button', { name: 'Select for generation' }).nth(1).click();
-		await page.waitForTimeout(150);
 		await expect(director.getByText('1 selected')).toBeVisible({ timeout: 5000 });
 
 		await expect(director.getByText('MISSING PREDECESSOR')).toBeVisible({ timeout: 10000 });
@@ -187,7 +150,6 @@ test.describe('Video Director shot console: missing-predecessor join', () => {
 		if (!director) return;
 
 		await director.getByRole('button', { name: 'Select for generation' }).nth(1).click();
-		await page.waitForTimeout(150);
 		await expect(director.getByText('MISSING PREDECESSOR')).toBeVisible({ timeout: 10000 });
 
 		let startRequests = 0;
@@ -201,7 +163,6 @@ test.describe('Video Director shot console: missing-predecessor join', () => {
 		});
 
 		await director.getByRole('button', { name: 'Convert to fresh cut' }).click();
-		await page.waitForTimeout(300);
 
 		// The join is now a hard cut -- no more warning, no toggle "Continue"
 		// half stays active, and never a generation as a side effect of the

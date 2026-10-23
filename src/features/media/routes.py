@@ -11,8 +11,8 @@ from fastapi import APIRouter, Request, Depends, UploadFile, File, Form, HTTPExc
 from fastapi.responses import StreamingResponse, FileResponse, Response
 import aiofiles
 
-from src.features.plans.errors import LimitExceeded
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded
 from src.platform.security.current_user import (
     get_current_active_user,
     get_current_admin_user,
@@ -71,10 +71,12 @@ class MediaController(BaseController):
         animated: Optional[bool] = False
     ):
         """Serve media file (image or video) from a generation."""
-        await self._require(self.access.generation_allowed, viewer, generation_id)
+        generation = await asyncio.to_thread(self.access.allowed_generation, viewer, generation_id)
+        if generation is None:
+            raise self._not_found()
         try:
             result = self.manager.get_generation_media(
-                generation_id, filename, size=size, animated=animated
+                generation_id, filename, size=size, animated=animated, generation=generation
             )
 
             # Check conditional request
@@ -141,57 +143,46 @@ class MediaController(BaseController):
             logger.error(f"Error serving uploaded file: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to serve uploaded file")
 
+    @guarded({ValueError: Fail("not_found", status=400)}, Fail("get_info_failed", "Failed to get upload info", 400))
     async def get_upload_info(self, filename: str, current_user):
         """Get best-effort metadata (width/height/duration/fps/size) for an
         already-uploaded file, for MediaSelect fields whose saved value has
         no metadata of its own."""
-        try:
-            user_id = current_user.id if current_user else None
-            result = self.manager.get_upload_info(filename, user_id)
-            return self.success_response(data=result.model_dump())
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e))
-        except Exception as e:
-            logger.error(f"Error getting upload info: {str(e)}")
-            return self.error_response(error="get_info_failed", message="Failed to get upload info")
+        user_id = current_user.id if current_user else None
+        result = self.manager.get_upload_info(filename, user_id)
+        return self.success_response(data=result.model_dump())
 
+    @guarded({ValueError: Fail("upload_failed", status=400)}, Fail("upload_failed", "Failed to upload file", 400))
     async def upload_media(self, file: UploadFile, current_user, purpose: Optional[str] = None):
         """Upload a media file"""
-        try:
-            user_id = current_user.id if current_user else None
-            await asyncio.to_thread(
-                self.manager.check_upload_size, user_id, getattr(file, "size", None), purpose or UPLOAD_PURPOSE_USER
-            )
-            content = await file.read()
+        user_id = current_user.id if current_user else None
+        await asyncio.to_thread(
+            self.manager.check_upload_size, user_id, getattr(file, "size", None), purpose or UPLOAD_PURPOSE_USER
+        )
+        content = await file.read()
 
-            result = await self.manager.upload_media(
-                file_data=content,
-                filename=file.filename,
-                content_type=file.content_type,
-                user_id=user_id,
-                purpose=purpose or UPLOAD_PURPOSE_USER,
-            )
+        result = await self.manager.upload_media(
+            file_data=content,
+            filename=file.filename,
+            content_type=file.content_type,
+            user_id=user_id,
+            purpose=purpose or UPLOAD_PURPOSE_USER,
+        )
 
-            return self.success_response(data={
-                "path": result.path,
-                "relative_path": result.relative_path,
-                "filename": result.filename,
-                "size": result.size,
-                "url": result.url,
-                "width": result.width,
-                "height": result.height,
-                "duration_seconds": result.duration_seconds,
-                "fps": result.fps
-            })
+        return self.success_response(data={
+            "path": result.path,
+            "relative_path": result.relative_path,
+            "filename": result.filename,
+            "size": result.size,
+            "url": result.url,
+            "width": result.width,
+            "height": result.height,
+            "duration_seconds": result.duration_seconds,
+            "fps": result.fps
+        })
 
-        except LimitExceeded as e:
-            raise e.http()
-        except ValueError as e:
-            return self.error_response(error="upload_failed", message=str(e))
-        except Exception as e:
-            logger.error(f"Failed to upload file: {str(e)}")
-            return self.error_response(error="upload_failed", message="Failed to upload file")
 
+    @guarded(fallback=Fail("list_failed", "Failed to list uploads", 400))
     async def list_uploads(
         self,
         current_user,
@@ -200,15 +191,12 @@ class MediaController(BaseController):
         offset: int = 0,
     ):
         """List the current user's media-loader uploads."""
-        try:
-            result = self.manager.list_uploads(
-                current_user.id, media_type=media_type, limit=limit, offset=offset
-            )
-            return self.success_response(data=result.model_dump())
-        except Exception as e:
-            logger.error(f"Failed to list uploads: {str(e)}")
-            return self.error_response(error="list_failed", message="Failed to list uploads")
+        result = self.manager.list_uploads(
+            current_user.id, media_type=media_type, limit=limit, offset=offset
+        )
+        return self.success_response(data=result.model_dump())
 
+    @guarded({ValueError: Fail("not_found", status=404)}, Fail("delete_failed", "Failed to delete upload", 400))
     async def delete_upload(self, filename: str, current_user):
         """Delete one of the current user's uploads.
 
@@ -216,44 +204,28 @@ class MediaController(BaseController):
         so a filename probe can't confirm another user's upload exists
         (GenerationPolicy precedent).
         """
-        try:
-            self.manager.delete_upload(filename, current_user.id)
-            return self.success_response(data={"filename": filename, "deleted": True})
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e), status_code=404)
-        except Exception as e:
-            logger.error(f"Failed to delete upload: {str(e)}")
-            return self.error_response(error="delete_failed", message="Failed to delete upload")
+        self.manager.delete_upload(filename, current_user.id)
+        return self.success_response(data={"filename": filename, "deleted": True})
 
+    @guarded({ValueError: Fail("not_found", status=400)}, Fail("list_failed", "Failed to list generation media", 400))
     async def list_generation_media(self, generation_id: str, current_user):
         """List all media files for a generation"""
-        try:
-            result = self.manager.list_generation_media(generation_id, current_user.id)
-            return self.success_response(data={
-                "generation_id": result.generation_id,
-                "media_count": result.media_count,
-                "media": [m.model_dump() for m in result.media]
-            })
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e))
-        except Exception as e:
-            logger.error(f"Failed to list generation media: {str(e)}")
-            return self.error_response(error="list_failed", message="Failed to list generation media")
+        result = self.manager.list_generation_media(generation_id, current_user.id)
+        return self.success_response(data={
+            "generation_id": result.generation_id,
+            "media_count": result.media_count,
+            "media": [m.model_dump() for m in result.media]
+        })
 
+    @guarded({ValueError: Fail("not_found", status=400)}, Fail("delete_failed", "Failed to delete generation media", 400))
     async def delete_generation_media(self, generation_id: str, current_user):
         """Delete all media files for a generation"""
-        try:
-            result = self.manager.delete_generation_media(generation_id, current_user.id)
-            return self.success_response(data={
-                "generation_id": result.generation_id,
-                "deleted_files": result.deleted_files,
-                "failed_files": result.failed_files
-            })
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e))
-        except Exception as e:
-            logger.error(f"Failed to delete generation media: {str(e)}")
-            return self.error_response(error="delete_failed", message="Failed to delete generation media")
+        result = self.manager.delete_generation_media(generation_id, current_user.id)
+        return self.success_response(data={
+            "generation_id": result.generation_id,
+            "deleted_files": result.deleted_files,
+            "failed_files": result.failed_files
+        })
 
     async def serve_file_by_id(
         self,
@@ -358,16 +330,11 @@ class MediaController(BaseController):
             logger.error(f"Error serving preset file: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to serve preset file")
 
+    @guarded({ValueError: Fail("not_found", status=400)}, Fail("get_params_failed", "Failed to get file parameters", 400))
     async def get_file_params(self, file_id: str, current_user):
         """Get parameters associated with a generated file"""
-        try:
-            result = self.manager.get_file_params(file_id, current_user.id)
-            return self.success_response(data=result.model_dump())
-        except ValueError as e:
-            return self.error_response(error="not_found", message=str(e))
-        except Exception as e:
-            logger.error(f"Error getting file params: {str(e)}")
-            return self.error_response(error="get_params_failed", message="Failed to get file parameters")
+        result = self.manager.get_file_params(file_id, current_user.id)
+        return self.success_response(data=result.model_dump())
 
 
 def build_router(container: "AppContainer") -> APIRouter:

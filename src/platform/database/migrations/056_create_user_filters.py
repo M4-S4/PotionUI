@@ -30,11 +30,3 @@ def up():
             "ON user_filters (owner_id, updated_at)"
         )
     print(f"Migration {_NAME}: user_filters created")
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute("DROP INDEX IF EXISTS idx_user_filters_owner")
-        cursor.execute("DROP INDEX IF EXISTS idx_user_filters_owner_name")
-        cursor.execute("DROP TABLE IF EXISTS user_filters")
-    print(f"Migration {_NAME}: user_filters dropped")

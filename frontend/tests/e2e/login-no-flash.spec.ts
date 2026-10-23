@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { OWNER } from './helpers';
+import { OWNER, SIGNED_OUT } from './helpers';
+
+test.use({ storageState: SIGNED_OUT });
 
 // Regression for the login-panel flash: after a successful submit, the login
 // form must disappear at most once (when the shell leaves the public route)

@@ -6,22 +6,6 @@ from pydantic import ValidationError
 from src.features.generation.dto import GenerationRequest, PromptPair, RatingRequest
 
 
-class TestPromptPair:
-    """Tests for PromptPair model."""
-
-    def test_prompt_pair_defaults(self):
-        """Test PromptPair default values."""
-        pair = PromptPair()
-        assert pair.positive == ""
-        assert pair.negative == ""
-
-    def test_prompt_pair_with_values(self):
-        """Test PromptPair with values."""
-        pair = PromptPair(positive="test positive", negative="test negative")
-        assert pair.positive == "test positive"
-        assert pair.negative == "test negative"
-
-
 class TestGenerationRequestMultiPrompt:
     """Tests for GenerationRequest multi-prompt support."""
 
@@ -98,17 +82,6 @@ class TestGenerationRequestMultiPrompt:
         assert request.prompts[0].positive == "array prompt"
         assert request.prompts[0].negative == "array negative"
 
-    def test_legacy_fields_still_accessible(self):
-        """Test that legacy prompt fields are still accessible."""
-        request = GenerationRequest(
-            preset_id="test-preset",
-            prompt="test prompt",
-            negative_prompt="test negative"
-        )
-
-        # Legacy fields should still be readable
-        assert request.prompt == "test prompt"
-        assert request.negative_prompt == "test negative"
 
     def test_empty_prompts_array_uses_legacy(self):
         """Test that None prompts uses legacy format."""

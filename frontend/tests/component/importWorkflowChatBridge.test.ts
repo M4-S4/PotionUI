@@ -7,16 +7,16 @@
 // while the Design (Form) step is showing an analyzed workflow, unregistered
 // on unmount, and an approved `propose_form_changes` tool result is applied
 // to the live form via the same code paths a manual edit uses.
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 const ANALYZE_RESULT = {
 	mode: 'text2img',
@@ -35,10 +35,7 @@ const ANALYZE_RESULT = {
 };
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, `import-workflow-tab-chat-${Math.random().toString(36).slice(2)}.mjs`);
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 
@@ -87,7 +84,8 @@ function stubChatHost() {
 
 	const notifications = { toast: vi.fn(), notify: vi.fn(async () => {}) };
 
-	(window as unknown as { __potionui: unknown }).__potionui = { chat, notifications };
+	const existing = (window as unknown as { __potionui: Record<string, unknown> }).__potionui;
+	(window as unknown as { __potionui: unknown }).__potionui = { ...existing, chat, notifications };
 
 	return { chat, notifications, providers, toolHandlers, unregisterCounts };
 }
@@ -102,9 +100,14 @@ beforeAll(async () => {
 	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
 
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
+
 afterEach(() => {
 	vi.unstubAllGlobals();
-	delete (window as unknown as { __potionui?: unknown }).__potionui;
 	document.body.innerHTML = '';
 });
 
@@ -124,7 +127,7 @@ async function mountOnFormStep(el: HTMLDivElement, analyzeResult: unknown = ANAL
 	textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 	textarea.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
-	el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 	await settle();
 
 	return instance;
@@ -387,7 +390,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} }, marker: 'B' });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-wiz-step="form"]')?.className).toContain('current');
 
@@ -434,7 +437,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 		await settle();
 
 		const provider = host.providers.get('comfyui_import')!;
@@ -453,11 +456,11 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		nameInput.value = 'Import A';
 		nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-create] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-wiz-step="done"]')?.className).toContain('current');
 
@@ -487,7 +490,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		// Manually map the sampler_name candidate to a field before the
 		// "proposal" this test simulates was supposedly built.
-		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-field-name="sampler_name"]')).toBeTruthy();
 
@@ -497,7 +500,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		// Intervening manual edit: the user removes that same field - a newer
 		// change the proposal (built before it) knows nothing about.
-		el.querySelector<HTMLButtonElement>('[data-field-name="sampler_name"] [data-action="remove"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-field-name="sampler_name"] [data-action="remove"] button')!.click();
 		await settle();
 		expect(el.querySelector('[data-field-name="sampler_name"]')).toBeNull();
 
@@ -535,12 +538,12 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		const host = stubChatHost();
 		const instance = await mountOnFormStep(el);
 
-		el.querySelector<HTMLButtonElement>('[data-action="add-tab"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="add-tab"] button')!.click();
 		await settle();
 		const secondTab = el.querySelector('[data-tab-id="tab_2"]')!;
 		expect(secondTab).toBeTruthy();
 
-		secondTab.querySelector<HTMLButtonElement>('[data-action="tab-menu"]')!.click();
+		secondTab.querySelector<HTMLButtonElement>('[data-action="tab-menu"] button')!.click();
 		await settle();
 		document.querySelector<HTMLButtonElement>('[data-action="delete-tab"]:not([disabled])')!.click();
 		await settle();
@@ -591,7 +594,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		// The user maps node 9's "width" candidate to their own field AFTER
 		// the (simulated) proposal above was built.
-		el.querySelector<HTMLButtonElement>('[data-input-key="9:width"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="9:width"] [data-action="add-input"] button')!.click();
 		await settle();
 		const usersCard = el.querySelector('[data-field-name="upscale_width"]')!;
 		expect(usersCard).toBeTruthy();
@@ -639,7 +642,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 	// transform 'none') and returns the mapping editor's transform <select>
 	// for it, expanding the card's mapping editor first.
 	async function mapSamplerNameAndGetTransformSelect(el: HTMLElement) {
-		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-input-key="3:sampler_name"] [data-action="add-input"] button')!.click();
 		await settle();
 		const card = el.querySelector('[data-field-name="sampler_name"]')!;
 		card.querySelector<HTMLButtonElement>('[data-action="toggle-mapping"]')!.click();
@@ -699,7 +702,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 		const host = stubChatHost();
 		const instance = await mountOnFormStep(el);
 
-		const { card, select } = await mapSamplerNameAndGetTransformSelect(el);
+		const { select } = await mapSamplerNameAndGetTransformSelect(el);
 		expect(select.value).toBe('none');
 
 		const provider = host.providers.get('comfyui_import')!;
@@ -735,7 +738,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 
 		// An unrelated manual edit bumps the revision past the proposal's -
 		// the transform itself is left exactly as it was.
-		el.querySelector<HTMLButtonElement>('[data-action="add-tab"]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-action="add-tab"] button')!.click();
 		await settle();
 		const ctxNow = provider() as any;
 		expect(ctxNow.form_revision).toBeGreaterThan(ctxAtProposal.form_revision);

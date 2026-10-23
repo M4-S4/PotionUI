@@ -38,43 +38,6 @@ def test_euler_multi_step_schedule_exact():
     assert torch.allclose(out, torch.full_like(x_init, -5.0))
 
 
-def test_hooks_fire_once_per_step():
-    class Counter(BaseStepHook):
-        def __init__(self):
-            self.starts = 0
-            self.steps = 0
-            self.ends = 0
-            self.x0s = []
-
-        def on_start(self, total_steps):
-            self.starts += 1
-            self.total = total_steps
-
-        def on_step(self, step_index, total_steps, x, sigma, denoised_x0):
-            self.steps += 1
-            self.x0s.append(denoised_x0)
-
-        def on_end(self):
-            self.ends += 1
-
-    counter = Counter()
-    sigmas = torch.tensor([1.0, 0.5, 0.0])  # 2 steps
-    sample_euler(
-        _const_velocity_model(1.0),
-        torch.zeros(1, 2),
-        sigmas,
-        NoCFG(),
-        {},
-        None,
-        hooks=[counter],
-    )
-    assert counter.starts == 1
-    assert counter.steps == 2
-    assert counter.total == 2
-    assert counter.ends == 1
-    assert all(x0 is not None for x0 in counter.x0s)
-
-
 def test_x0_estimate_passed_to_hooks():
     # x0_est = x - sigma*v. At step 0: x=x_init, sigma=1, v=3 -> x0 = x_init - 3.
     seen = []

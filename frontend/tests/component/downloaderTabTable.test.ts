@@ -33,24 +33,6 @@ vi.mock('$lib/services/downloaderWebsocket', () => ({
 	}
 }));
 
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		},
-		invalidate: async () => {},
-		invalidateAll: async () => {},
-		preloadData: async () => {},
-		preloadCode: async () => {},
-		afterNavigate: () => {},
-		beforeNavigate: () => {},
-		pushState: () => {},
-		replaceState: () => {}
-	};
-});
-
 const page = (await import('$app/stores')).page as unknown as PageStore;
 const { downloadStore } = await import('$lib/stores/downloads');
 const { default: DownloaderTab } = await import('../../src/routes/admin/components/DownloaderTab.svelte');

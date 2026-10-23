@@ -102,3 +102,34 @@ def test_flux3_module_exposes_no_hidden_size_so_loras_use_the_name_for_name_map(
     assert not hasattr(model.params, "hidden_size")
     assert model.params.in_channels == 128
     assert model.patch_size == 1
+
+
+def _fused_state_dict(reference):
+    sd = _meta_state_dict(reference, False)
+    out = {}
+    for key, value in sd.items():
+        if key.endswith(".k_proj.weight") or key.endswith(".v_proj.weight"):
+            continue
+        if key.endswith(".q_proj.weight"):
+            rows = value.shape[0] * 3
+            out[key.replace(".q_proj.", ".qkv.")] = torch.empty((rows, value.shape[1]), device="meta")
+            continue
+        out[key] = value
+    return out
+
+
+def test_fused_qkv_checkpoint_is_detected_and_builds_a_matching_module(reference):
+    sd = _fused_state_dict(reference)
+    assert "content_mode_blocks.image.0.q_proj.weight" not in sd
+    config = detect_unet_config(sd)
+    assert config["fused_qkv"] is True
+    assert config["hidden_size"] == 3072
+    match = family_from_keys(set(sd), lambda key: tuple(sd[key].shape))
+    assert (match.family, match.variant) == ("flux3", "flux3_klein_base")
+    with torch.device("meta"):
+        model = Flux3.from_config(config, pick_operations(torch.bfloat16, torch.bfloat16))
+    assert {k: tuple(v.shape) for k, v in model.state_dict().items()} == {k: tuple(v.shape) for k, v in sd.items()}
+
+
+def test_split_checkpoint_is_not_flagged_fused(reference):
+    assert detect_unet_config(_meta_state_dict(reference, False))["fused_qkv"] is False

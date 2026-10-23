@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Any, List
 from collections import defaultdict
 
 from src.pipelines.outputs import ParamGenerationOutput
@@ -141,14 +141,6 @@ class ParamEmitterPipe(BasePipe):
         else:
             # Scalar value - broadcast to all indexes
             return [value] * total
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "parameters": [],
-            "quantity": 1,
-            "passes": 1,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

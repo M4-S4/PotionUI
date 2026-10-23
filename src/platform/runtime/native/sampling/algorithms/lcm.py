@@ -22,16 +22,10 @@ from __future__ import annotations
 import torch
 
 from ..cfg import GuidanceStrategy
-from ..hooks import apply_latent_filters, run_hooks
-from ...errors import SamplingCancelled
+from ..hooks import StepLoop
+from ..noise import fresh_noise
 
 Tensor = torch.Tensor
-
-
-def _fresh_noise(x: Tensor, generator: torch.Generator | None) -> Tensor:
-    if generator is None:
-        return torch.randn_like(x)
-    return torch.randn(x.shape, generator=generator, device=x.device, dtype=x.dtype)
 
 
 @torch.no_grad()
@@ -56,30 +50,18 @@ def sample_lcm(
     opts = sampler_options or {}
     generator = opts.get("generator")
 
-    total_steps = len(sigmas) - 1
-    run_hooks(hooks, "on_start", total_steps)
-
-    s_in = x.new_ones((x.shape[0],))
-    try:
-        for i in range(total_steps):
-            if is_cancelled is not None and is_cancelled():
-                raise SamplingCancelled(step_index=i)
-
-            sigma = sigmas[i]
-            sigma_next = sigmas[i + 1]
-
+    with StepLoop(sigmas, hooks, is_cancelled) as loop:
+        s_in = x.new_ones((x.shape[0],))
+        for i, _, sigma, sigma_next in loop:
             v = guidance(model_fn, x, sigma * s_in, cond, uncond, i)
             x0 = x - sigma * v
 
             if sigma_next == 0:
                 x = x0
             else:
-                noise = _fresh_noise(x, generator)
+                noise = fresh_noise(x, generator)
                 x = (1.0 - sigma_next) * x0 + sigma_next * noise
 
-            x = apply_latent_filters(hooks, i, total_steps, x, float(sigma_next))
-            run_hooks(hooks, "on_step", i, total_steps, x, float(sigma), x0)
-    finally:
-        run_hooks(hooks, "on_end")
+            x = loop.finish_step(x, i, sigma, sigma_next, x0)
 
     return x

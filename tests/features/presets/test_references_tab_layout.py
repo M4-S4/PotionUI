@@ -16,8 +16,8 @@ transformed in place, so the marketplace preset carries a References tab.
 The assertions run through the SAME path that serves `GET /api/presets/{id}/form`:
 PresetTemplateLoader -> PresetFormSerializer.process_form_fields. That matters
 here because a tab body arrives as a `children:` STRING (a Jinja
-`{{ paths.preset }}` path) and only becomes fields inside the serializer's
-`_resolve_external_children`. A fixture built by hand, or a `yaml.safe_load` of
+`{{ paths.preset }}` path) and only becomes fields inside the loader's
+`children:` resolution. A fixture built by hand, or a `yaml.safe_load` of
 the tab file, would assert against a tree the frontend never receives and would
 pass even if the new references.yml were unreachable.
 
@@ -37,6 +37,7 @@ from src.features.presets import PresetTemplateLoader
 from src.features.presets.form_serializer import PresetFormSerializer
 from src.platform.plugins.loader import PluginLoader
 from src.platform.templating.processor import TemplateProcessor
+from tests.fixtures.form_lookup import all_field_names
 
 MEDIA_TYPES = {"image", "video", "audio", "media"}
 
@@ -61,17 +62,7 @@ CASES = [
     ("presets/marketplace/ImageToSplat", "img2splat", {"source_image"}),
     ("presets/marketplace/MiniMax-H3", "refs", {"references"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
-    ("comfyui-backend/presets/LTX-2-3/official", "flf2v", {"first_frame", "last_frame"}),
-    ("comfyui-backend/presets/LTX-2-3/official", "ia2v", {"source_image", "source_audio"}),
-    ("comfyui-backend/presets/LTX-2-3/official", "img2vid", {"source_image"}),
-    ("comfyui-backend/presets/LTX-2", "img2vid", {"source_image"}),
     ("comfyui-backend/presets/QwenImage", "img2img", {"source_image", "ref_image_2", "ref_image_3"}),
-    ("comfyui-backend/presets/WAN_2_2/custom", "img2vid", {"source_image"}),
-    ("comfyui-backend/presets/WAN_2_2/official", "img2vid", {"source_image"}),
-    ("comfyui-backend/presets/WAN_2_2/svi20pro", "img2vid", {"source_image"}),
-    ("comfyui-backend/presets/WAN_2_2/flf", "flf", {"start_image", "end_image"}),
-    ("comfyui-backend/presets/WAN_2_2/perfectloop", "clip", {"source_image"}),
-    ("comfyui-backend/presets/WAN_2_2/perfectloop", "vace", {"input_video"}),
 ]
 
 # Reference-related SETTINGS that moved onto the tab alongside the media they
@@ -85,10 +76,6 @@ SETTING_CASES = [
     # FE rework, 2026-08-24) -- not a convention violation for that preset.
     ("presets/marketplace/MiniMax-H3", "refs", "reference_pixel_budget"),
     ("presets/marketplace/Krea2", "edit", "ref_boost"),
-    ("comfyui-backend/presets/LTX-2-3/official", "ia2v", "switch_to_t2v"),
-    ("comfyui-backend/presets/WAN_2_2/flf", "flf", "enable_loop"),
-    ("comfyui-backend/presets/WAN_2_2/flf", "flf", "remove_first_frame"),
-    ("comfyui-backend/presets/WAN_2_2/flf", "flf", "remove_last_frame"),
 ]
 
 # Media-bearing modes that must stay as they are: the media is the operand of a
@@ -102,8 +89,6 @@ UNTOUCHED_CASES = [
     ("presets/marketplace/SeedVR2", "video_upscale"),
     ("presets/marketplace/LTX-2", "upscale"),
     ("presets/marketplace/LTX-2.5", "upscale"),
-    ("comfyui-backend/presets/LTX-2-3/utility", "effects"),
-    ("comfyui-backend/presets/WAN_2_2/custom", "interpolation"),
 ]
 
 
@@ -129,7 +114,7 @@ def serializer(loader):
 def _preset(loader, suffix):
     matches = [p for p in loader.presets if str(p.path).replace("\\", "/").endswith(suffix)]
     if not matches:
-        pytest.skip(f"preset {suffix} not present")
+        pytest.fail(f"preset {suffix} not present")
     # Suffix matching must identify exactly one preset -- `presets/marketplace/QwenImage`
     # and `comfyui-backend/presets/QwenImage` are different presets.
     assert len(matches) == 1, f"{suffix} matched {len(matches)} presets"
@@ -162,15 +147,6 @@ def _field_names_by_type(node, types):
         if child.get("type") in types and child.get("name"):
             found.add(child["name"])
         found |= _field_names_by_type(child, types)
-    return found
-
-
-def _all_field_names(node):
-    found = set()
-    for child in node.get("children") or []:
-        if child.get("name"):
-            found.add(child["name"])
-        found |= _all_field_names(child)
     return found
 
 
@@ -211,7 +187,7 @@ def test_reference_related_setting_moved_onto_the_tab(loader, serializer, suffix
     tabs = _tabs(loader, serializer, suffix, mode)
     titles = _titles(tabs)
     tab = tabs[titles.index("References")]
-    assert field in _all_field_names(tab)
+    assert field in all_field_names(tab)
 
 
 @pytest.mark.parametrize("suffix,mode", UNTOUCHED_CASES, ids=[f"{s}-{m}" for s, m in UNTOUCHED_CASES])

@@ -1,18 +1,10 @@
 // @vitest-environment jsdom
-//
-// Video Director shot console (W1, lane b): row/card/header/join leaves.
-// Pins the pieces a caller depends on -- row number/thumb-source/badge
-// rendering, the checkbox's toggle callback, the join toggle emitting the
-// right value, and the header's checked/unchecked state machine copy
-// (note09-decisions.md). Component-level (mounts real Svelte), not unit --
-// see vitest.component.config.ts.
 import { describe, it, expect, afterEach } from 'vitest';
 import { tick } from 'svelte';
-import type { ConsoleShot, ConsoleJoin, ConsoleHeader as ConsoleHeaderModel } from '../../src/lib/components/video-director/console/consoleModel';
+import type { ConsoleShot, ConsoleJoin } from '../../src/lib/components/video-director/console/consoleModel';
 
 const { default: ShotRow } = await import('../../src/lib/components/video-director/console/ShotRow.svelte');
 const { default: JoinConnector } = await import('../../src/lib/components/video-director/console/JoinConnector.svelte');
-const { default: ConsoleHeader } = await import('../../src/lib/components/video-director/console/ConsoleHeader.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
 function shot(overrides: Partial<ConsoleShot> = {}): ConsoleShot {
@@ -50,17 +42,6 @@ function join(overrides: Partial<ConsoleJoin> = {}): ConsoleJoin {
 		sentence: 'Starts fresh — nothing shared.',
 		control: { kind: 'chip', text: 'Independent' },
 		overlapFrames: null,
-		...overrides
-	};
-}
-
-function header(overrides: Partial<ConsoleHeaderModel> = {}): ConsoleHeaderModel {
-	return {
-		shotCount: 3,
-		totalSeconds: 14,
-		totalQualified: true,
-		capChips: [{ text: 'Audio' }],
-		readiness: { ok: true, text: 'Ready' },
 		...overrides
 	};
 }
@@ -230,39 +211,5 @@ describe('JoinConnector', () => {
 		buttons.find((b) => b.textContent?.includes('Convert to fresh cut'))!.click();
 		expect(generated).toEqual(['shot-0', 'shot-1']);
 		expect(converted).toBe('shot-0');
-	});
-});
-
-describe('ConsoleHeader', () => {
-	// Maintainer rulings (09-04): (1) "there is no such thing as 'Generate n
-	// selected' -- the generation panel ALWAYS decides about the generation" --
-	// ConsoleHeader never renders a Generate control, checked-state or not (the
-	// `n selected · Clear` readout lives in ShotConsole.svelte, above the shot
-	// stack, not here -- untestable at this leaf without mounting the whole
-	// console). (2) "I don't want to have two headers" -- the Generate page's
-	// own Video Director section header carries the title; this renders only
-	// the informational strip (shot count/duration, readiness, capability
-	// chips), never a "Video Director" title of its own.
-	it('renders no title and no Generate control of any kind', () => {
-		mounted = mount(ConsoleHeader, { header: header() });
-		expect(mounted.target.textContent).not.toContain('Video Director');
-		expect(mounted.target.textContent).not.toContain('Generate');
-		expect(mounted.target.textContent).not.toContain('selected');
-		expect(mounted.target.textContent).not.toContain('Clear');
-		expect(mounted.target.querySelectorAll('button')).toHaveLength(0);
-	});
-
-	it('renders the shot/duration summary and readiness text from the model', () => {
-		mounted = mount(ConsoleHeader, {
-			header: header({ shotCount: 1, totalSeconds: 5.5, readiness: { ok: false, text: 'Add a shot' } })
-		});
-		expect(mounted.target.textContent).toContain('1 shot · 5.5 s');
-		expect(mounted.target.textContent).toContain('Add a shot');
-	});
-
-	it('renders the capability chips from the model', () => {
-		mounted = mount(ConsoleHeader, { header: header({ capChips: [{ text: 'Audio' }, { text: 'IC-LoRA' }] }) });
-		expect(mounted.target.textContent).toContain('Audio');
-		expect(mounted.target.textContent).toContain('IC-LoRA');
 	});
 });

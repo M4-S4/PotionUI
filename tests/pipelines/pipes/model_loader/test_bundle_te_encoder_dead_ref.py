@@ -12,22 +12,14 @@ import gc
 
 import pytest
 
-from src.pipelines.pipes.model_loader.anima.bundle import AnimaModelBundle
-from src.pipelines.pipes.model_loader.flux.bundle import FluxModelBundle
-from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
+from src.pipelines.pipes._shared.generation.bundle import DitTeVaeBundle
 from src.pipelines.pipes.model_loader.ltx.bundle import LTXModelBundle
-from src.pipelines.pipes.model_loader.qwen.bundle import QwenModelBundle
 from src.pipelines.pipes.model_loader.wan22.bundle import WanModelBundle
-from src.pipelines.pipes.model_loader.z_image.bundle import ZImageModelBundle
 
 BUNDLES = [
-    AnimaModelBundle,
-    FluxModelBundle,
-    Krea2ModelBundle,
+    DitTeVaeBundle,
     LTXModelBundle,
-    QwenModelBundle,
     WanModelBundle,
-    ZImageModelBundle,
 ]
 
 

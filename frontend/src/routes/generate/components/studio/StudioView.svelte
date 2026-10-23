@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { modeDescription } from '$lib/utils/modeDescription';
 	import type { Tab } from '$lib/types/tabs';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
@@ -14,7 +15,7 @@
 	import StudioPromptSheet from './StudioPromptSheet.svelte';
 	import StudioSettingsSheet from './StudioSettingsSheet.svelte';
 	import StudioPresetSessionSheet from './StudioPresetSessionSheet.svelte';
-	import StudioChatSheet from './StudioChatSheet.svelte';
+	import { chatPanelStore } from '$lib/stores/chatPanel';
 	import { modeLabel as resolveModeLabel } from '$lib/utils/modeLabel.svelte';
 
 	export let tab: Tab;
@@ -32,11 +33,6 @@
 	export let isLoading: boolean;
 	export let isReloadingPreset: boolean;
 	export let tabModes: any[];
-	export let startGeneration: () => void;
-	export let cancelGeneration: () => void;
-	export let canGenerate: boolean;
-	export let generateDisabledReason: string | undefined;
-	export let costNote: string | null = null;
 	export let promptRelayActive: boolean;
 	export let videoDirectorActive: boolean;
 	export let videoDirectorCaps: DirectorCapabilities | null;
@@ -53,7 +49,18 @@
 	export let onReload: () => void;
 	export let onMoveToWorkbench: (event: CustomEvent<{ item: any; index: number }>) => void;
 
-	type SheetName = 'prompt' | 'settings' | 'preset' | 'chat';
+	let rootEl: HTMLDivElement;
+	onMount(() => {
+		const dock = rootEl?.querySelector<HTMLElement>('.studio-dock');
+		if (!dock || typeof ResizeObserver === 'undefined') return;
+		const publish = () => rootEl.style.setProperty('--studio-dock-height', `${dock.offsetHeight}px`);
+		publish();
+		const observer = new ResizeObserver(publish);
+		observer.observe(dock);
+		return () => observer.disconnect();
+	});
+
+	type SheetName = 'prompt' | 'settings' | 'preset';
 	let openSheet: SheetName | null = null;
 	function closeSheet() {
 		openSheet = null;
@@ -78,7 +85,7 @@
 		'';
 </script>
 
-<div class="relative h-full w-full overflow-hidden">
+<div class="relative h-full w-full overflow-hidden" bind:this={rootEl}>
 	<StudioCanvas {tab} />
 
 	<StudioTopBar
@@ -86,18 +93,13 @@
 		{presetName}
 		{modeLabel}
 		onOpenPresetSheet={() => (openSheet = 'preset')}
-		onOpenChatSheet={() => (openSheet = 'chat')}
+		onOpenChatSheet={() => chatPanelStore.open()}
 	/>
 
 	<StudioDock
 		{tab}
 		promptPreviewText={dockPromptPreview}
 		{promptlessActive}
-		{canGenerate}
-		{generateDisabledReason}
-		{costNote}
-		onGenerate={startGeneration}
-		onCancel={cancelGeneration}
 		onOpenPrompt={() => (openSheet = 'prompt')}
 		onOpenSettings={() => (openSheet = 'settings')}
 		{onMoveToWorkbench}
@@ -145,6 +147,4 @@
 		onClose={closeSheet}
 		onFormulaApplied={() => (openSheet = 'settings')}
 	/>
-{:else if openSheet === 'chat'}
-	<StudioChatSheet onClose={closeSheet} />
 {/if}

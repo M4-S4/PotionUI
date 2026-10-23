@@ -57,3 +57,12 @@ def test_only_one_dimensional_scales_of_fp8_weights_are_reshaped():
     assert out["d.weight_scale"].shape == (8, 1)
     assert out["e.scale"].shape == (8,)
     assert sd["a.weight_scale"].shape == (8,)
+
+
+def test_comfy_attention_hints_are_dropped():
+    sd = {
+        "single_blocks.0.attn.qkv.weight": torch.ones(2, 2),
+        "single_blocks.0.comfy_attention.config": torch.zeros(4, dtype=torch.uint8),
+        "content_mode_blocks.image.0.comfy_attention.config": torch.zeros(4, dtype=torch.uint8),
+    }
+    assert list(convert_flux3_state_dict(sd)) == ["single_blocks.0.attn.qkv.weight"]

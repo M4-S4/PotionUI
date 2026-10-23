@@ -43,3 +43,10 @@ class InstantiateAutomationTemplateRequest(BaseModel):
     """Optional customization when cloning a catalog template."""
 
     name: Optional[str] = None
+
+class HttpRequestProbeRequest(BaseModel):
+    config: Dict[str, Any]
+    automation_id: Optional[str] = None
+    node_id: Optional[str] = None
+    event: Dict[str, Any] = {}
+    upstream: Dict[str, Any] = {}

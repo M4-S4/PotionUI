@@ -72,7 +72,7 @@ describe('TagSelector popover portal', () => {
 		await openPopover();
 
 		const panel = document.body.querySelector('[role="listbox"]')?.closest('.fixed') as HTMLElement;
-		panel.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		panel.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
 		await tick();
 
 		expect(document.body.querySelector('[role="listbox"]')).not.toBeNull();
@@ -83,7 +83,7 @@ describe('TagSelector popover portal', () => {
 		await openPopover();
 		expect(document.body.querySelector('[role="listbox"]')).not.toBeNull();
 
-		document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
 		await tick();
 
 		expect(document.body.querySelector('[role="listbox"]')).toBeNull();

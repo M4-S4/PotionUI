@@ -8,7 +8,7 @@ docs/prompts.md.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from src.platform.util.latents import generate_seed
 from src.features.prompt.expander import expand_prompts
@@ -35,6 +35,7 @@ class PromptExpander:
         generation_id: str,
         request,  # GenerationRequest type
         prompts: Optional[List[Dict[str, str]]],
+        on_warning: Optional[Callable[[str], None]] = None,
     ) -> Optional[List[Dict[str, str]]]:
         """
         Expand the authored prompt template into one realization per image.
@@ -52,7 +53,7 @@ class PromptExpander:
 
         video_director = form_data.get('video_director')
         if isinstance(video_director, dict):
-            self._expand_director_segments(generation_id, request, video_director)
+            self._expand_director_segments(generation_id, request, video_director, on_warning)
             first = (video_director.get('segments') or [None])[0]
             if prompts and isinstance(first, dict):
                 prompts[0] = {'positive': first.get('prompt', ''), 'negative': first.get('negative_prompt', '')}
@@ -60,7 +61,7 @@ class PromptExpander:
 
         music_director = form_data.get('music_director')
         if isinstance(music_director, dict):
-            self._expand_music_document(generation_id, request, music_director)
+            self._expand_music_document(generation_id, request, music_director, on_warning)
             return prompts
 
         if not prompts:
@@ -86,7 +87,7 @@ class PromptExpander:
             expanded_batch: List[Dict[str, str]] = []
             for index, entry in enumerate(prompts):
                 realized = self._expand_template(
-                    generation_id, request, entry, quantity, base_seed + index * quantity,
+                    generation_id, request, entry, quantity, base_seed + index * quantity, on_warning,
                 )
                 expanded_batch.extend(realized if realized is not None else [entry] * quantity)
             form_data['quantity'] = len(expanded_batch)
@@ -97,7 +98,7 @@ class PromptExpander:
         # separate concept; expanding each would multiply the image count.
         template = prompts[0]
 
-        realized = self._expand_template(generation_id, request, template, quantity, base_seed)
+        realized = self._expand_template(generation_id, request, template, quantity, base_seed, on_warning)
         return realized if realized is not None else prompts
 
     def _expand_template(
@@ -107,6 +108,7 @@ class PromptExpander:
         template: Dict[str, str],
         count: int,
         base_seed: int,
+        on_warning: Optional[Callable[[str], None]] = None,
     ) -> Optional[List[Dict[str, str]]]:
         try:
             expanded = expand_prompts(
@@ -117,6 +119,7 @@ class PromptExpander:
                 variables=getattr(request, 'variables', None),
                 plugin_registry=self.plugin_registry,
                 generation_id=generation_id,
+                on_warning=on_warning,
             )
         except Exception as e:
             logger.error(f"Prompt expansion failed for {generation_id}, using template: {e}", exc_info=True)
@@ -129,6 +132,7 @@ class PromptExpander:
         generation_id: str,
         request,  # GenerationRequest type
         document: Dict[str, Any],
+        on_warning: Optional[Callable[[str], None]] = None,
     ) -> None:
         segments = document.get('segments')
         if not segments:
@@ -145,6 +149,7 @@ class PromptExpander:
             expanded = self._expand_pair(
                 generation_id, variables, seed, f"segment {index}",
                 segment.get('prompt', '') or '', segment.get('negative_prompt', '') or '',
+                on_warning,
             )
             if expanded is None:
                 continue
@@ -155,12 +160,13 @@ class PromptExpander:
         generation_id: str,
         request,  # GenerationRequest type
         document: Dict[str, Any],
+        on_warning: Optional[Callable[[str], None]] = None,
     ) -> None:
         base_seed = _document_seed(document)
         variables = getattr(request, 'variables', None)
 
         expanded = self._expand_pair(
-            generation_id, variables, base_seed, "description", document.get('description') or '', '',
+            generation_id, variables, base_seed, "description", document.get('description') or '', '', on_warning,
         )
         if expanded is not None:
             document['description'] = expanded[0]
@@ -174,7 +180,7 @@ class PromptExpander:
                 text = section.get(key)
                 if not isinstance(text, str) or not text:
                     continue
-                expanded = self._expand_pair(generation_id, variables, seed, f"section {index} {key}", text, '')
+                expanded = self._expand_pair(generation_id, variables, seed, f"section {index} {key}", text, '', on_warning)
                 if expanded is not None:
                     section[key] = expanded[0]
 
@@ -189,6 +195,7 @@ class PromptExpander:
         label: str,
         positive: str,
         negative: str,
+        on_warning: Optional[Callable[[str], None]] = None,
     ) -> Optional[tuple]:
         try:
             expanded = expand_prompts(
@@ -199,6 +206,7 @@ class PromptExpander:
                 variables=variables,
                 plugin_registry=self.plugin_registry,
                 generation_id=generation_id,
+                on_warning=on_warning,
             )[0]
         except Exception as e:
             logger.error(

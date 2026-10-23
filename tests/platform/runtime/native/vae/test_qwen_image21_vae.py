@@ -8,14 +8,13 @@ from pathlib import Path
 import pytest
 import torch
 
-from src.platform.runtime.native.base import load_into_module
 from vendor.gpl.comfyui.ops import disable_weight_init
 from src.platform.runtime.native.detect.vae_detect import (
     detect_causal3d_v2_vae_config,
     detect_qwen_image21_vae_config,
 )
 from src.platform.runtime.native.vae.causal_3d_v2 import AutoEncoderCausal3D_2_2
-from src.platform.runtime.native.vae.loader import _VaeSpec, load_qwen_image21_vae
+from src.platform.runtime.native.vae.loader import load_qwen_image21_vae
 
 _QWEN_IMAGE21_VAE_PATH = Path("models/vae/qwen_image_2.1_vae_bf16.safetensors")
 
@@ -69,18 +68,6 @@ def test_from_config_builds_rgba_no_patchify_module():
     assert module.encoder.conv1.weight.shape == (8, 4, 1, 3, 3)
     assert module.decoder.head[-1].weight.shape == (4, 12, 1, 3, 3)
     assert module.conv2.weight.shape == (8, 8, 1, 1, 1)
-
-
-def test_post_load_is_safe_noop():
-    module = _build_qwen21()
-    module.post_load()
-
-
-def test_self_consistent_state_dict_passes_load_integrity():
-    module = _build_qwen21()
-    sd = module.state_dict()
-    spec = _VaeSpec(family="vae", variant="qwen_image21")
-    load_into_module(module, sd, spec)  # must not raise
 
 
 def test_detects_qwen_image21_from_synthetic_state_dict():

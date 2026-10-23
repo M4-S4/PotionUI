@@ -3,15 +3,10 @@ import type { RecipeSummary } from '$lib/services/api/recipes';
 import {
 	DEFAULT_RECIPE_FILTERS,
 	applyRecipeFilters,
-	clearAllRecipeFilters,
-	clearRecipeFilterChip,
 	recipeEngineVocabulary,
-	recipeFilterActiveCount,
-	recipeFilterChips,
-	recipeFiltersFromSearchParams,
-	recipeFiltersToSearchParams,
 	recipeSourceVocabulary,
-	type RecipeFilters
+	type RecipeFilters,
+	recipeFilters
 } from './recipeFilters';
 
 function recipe(overrides: Partial<RecipeSummary> = {}): RecipeSummary {
@@ -33,23 +28,23 @@ function recipe(overrides: Partial<RecipeSummary> = {}): RecipeSummary {
 	};
 }
 
-describe('recipeFiltersFromSearchParams / recipeFiltersToSearchParams', () => {
+describe('recipeFilters.fromSearchParams / recipeFilters.toSearchParams', () => {
 	it('round-trips a fully-set filter state through the URL', () => {
 		const filters: RecipeFilters = { q: 'sdxl', source: 'marketplace', engine: 'native', sortBy: 'category' };
-		const params = recipeFiltersToSearchParams(filters);
+		const params = recipeFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('sdxl');
 		expect(params.get('source')).toBe('marketplace');
 		expect(params.get('engine')).toBe('native');
 		expect(params.get('sort_by')).toBe('category');
-		expect(recipeFiltersFromSearchParams(params)).toEqual(filters);
+		expect(recipeFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('omits defaults from the URL so a clean list has no query string', () => {
-		expect(recipeFiltersToSearchParams(DEFAULT_RECIPE_FILTERS).toString()).toBe('');
+		expect(recipeFilters.toSearchParams(DEFAULT_RECIPE_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to the default sort for an unknown sort_by value', () => {
-		const filters = recipeFiltersFromSearchParams(new URLSearchParams({ sort_by: 'download_size' }));
+		const filters = recipeFilters.fromSearchParams(new URLSearchParams({ sort_by: 'download_size' }));
 		expect(filters.sortBy).toBe('name');
 	});
 });
@@ -114,19 +109,19 @@ describe('applyRecipeFilters', () => {
 describe('recipe filter chips', () => {
 	it('emits a chip per active source/engine filter and clears them individually', () => {
 		const filters: RecipeFilters = { q: 'x', source: 'plugin', engine: 'comfyui', sortBy: 'name' };
-		expect(recipeFilterChips(filters)).toEqual([
+		expect(recipeFilters.chips(filters)).toEqual([
 			{ key: 'source', label: 'source: plugin' },
 			{ key: 'engine', label: 'engine: comfyui' }
 		]);
-		expect(clearRecipeFilterChip(filters, 'source').source).toBe('');
-		expect(clearRecipeFilterChip(filters, 'nothing')).toBe(filters);
+		expect(recipeFilters.clearChip(filters, 'source').source).toBe('');
+		expect(recipeFilters.clearChip(filters, 'nothing')).toBe(filters);
 	});
 
 	it('counts source and engine as active filters and keeps query and sort when clearing all', () => {
 		const filters: RecipeFilters = { q: 'keep me', source: 'local', engine: 'native', sortBy: 'category' };
-		expect(recipeFilterActiveCount(filters)).toBe(2);
-		expect(clearAllRecipeFilters(filters)).toEqual({ q: 'keep me', source: '', engine: '', sortBy: 'category' });
-		expect(recipeFilterActiveCount(DEFAULT_RECIPE_FILTERS)).toBe(0);
+		expect(recipeFilters.activeCount(filters)).toBe(2);
+		expect(recipeFilters.clearAll(filters)).toEqual({ q: 'keep me', source: '', engine: '', sortBy: 'category' });
+		expect(recipeFilters.activeCount(DEFAULT_RECIPE_FILTERS)).toBe(0);
 	});
 });
 

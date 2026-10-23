@@ -2,26 +2,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { flushSync } from 'svelte';
 import type { Writable } from 'svelte/store';
+import { settle } from './helpers/settle';
 
 type PageStore = Writable<{ url: URL }>;
-
-vi.mock('$app/navigation', async () => {
-	const { page } = await import('$app/stores');
-	const store = page as unknown as PageStore;
-	return {
-		goto: async (href: string) => {
-			store.update((current) => ({ ...current, url: new URL(href, 'http://localhost') }));
-		},
-		invalidate: async () => {},
-		invalidateAll: async () => {},
-		preloadData: async () => {},
-		preloadCode: async () => {},
-		afterNavigate: () => {},
-		beforeNavigate: () => {},
-		pushState: () => {},
-		replaceState: () => {}
-	};
-});
 
 class StubResizeObserver {
 	observe() {}
@@ -115,7 +98,6 @@ vi.mock('$lib/services/api/index', async () => {
 const { default: PluginsTab } = await import('../../src/routes/admin/components/PluginsTab.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 const page = (await import('$app/stores')).page as unknown as PageStore;
-const { libraryCardDensity } = await import('$lib/components/library/libraryCardDensity');
 
 function mount() {
 	const target = document.createElement('div');
@@ -130,22 +112,10 @@ function mount() {
 	};
 }
 
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function listPane(target: HTMLElement): HTMLElement {
 	const pane = target.querySelector('[role="list"][aria-label="Plugin catalog"]') as HTMLElement | null;
 	expect(pane, 'expected a card grid for the plugin list').toBeTruthy();
 	return pane!;
-}
-
-function clickPluginRow(target: HTMLElement, name: string) {
-	const row = Array.from(target.querySelectorAll('[data-library-card]')).find((el) => el.textContent?.includes(name)) as
-		| HTMLElement
-		| undefined;
-	expect(row, `expected a card for ${name}`).toBeTruthy();
-	flushSync(() => row!.click());
 }
 
 let mounted: ReturnType<typeof mount> | undefined;

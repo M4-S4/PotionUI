@@ -23,6 +23,7 @@ from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 _REAL_CKPT = Path("models/diffusion_models/krea2TurboOfficialComfy_krea2TurboBf16.safetensors")
@@ -42,10 +43,6 @@ TINY = {
 }
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
     """Fill empty params: norm scales + modulation vectors -> 0, Linears -> small randn."""
     sd: dict[str, torch.Tensor] = {}
@@ -60,7 +57,7 @@ def _randomised_state_dict(module) -> dict[str, torch.Tensor]:
 
 
 def _build_ready(config) -> Krea2:
-    m = Krea2.from_config(config, _fp32_ops())
+    m = Krea2.from_config(config, fp32_ops())
     load_into_module(m, _randomised_state_dict(m), match_model_spec(config))
     m.eval()
     return m
@@ -310,14 +307,14 @@ def test_krea2_meta_keyset_parity():
 def test_detect_spec_from_config_roundtrip():
     # build a tiny module, snapshot its shapes as a synthetic sd, re-detect.
     with torch.device("meta"):
-        seed = Krea2.from_config(TINY, _fp32_ops())
+        seed = Krea2.from_config(TINY, fp32_ops())
     sd = {k: torch.empty(tuple(v.shape), device="meta") for k, v in seed.state_dict().items()}
     config = detect_unet_config(sd)
     assert config["image_model"] == "krea2"
     spec = match_model_spec(config)
     assert spec.family == "krea2" and spec.variant == "krea2_turbo"
     with torch.device("meta"):
-        rebuilt = Krea2.from_config(config, _fp32_ops())
+        rebuilt = Krea2.from_config(config, fp32_ops())
     # shapes reconstruct identically (multiplier is shape-equivalent under the
     # SwiGLU 128-rounding even if its nominal value differs on tiny configs).
     assert set(rebuilt.state_dict().keys()) == set(seed.state_dict().keys())
@@ -333,7 +330,7 @@ def test_post_load_noop_no_buffers():
 
 def test_is_native_arch_module():
     with torch.device("meta"):
-        m = Krea2.from_config(TINY, _fp32_ops())
+        m = Krea2.from_config(TINY, fp32_ops())
     assert isinstance(m, NativeArchModule)
 
 

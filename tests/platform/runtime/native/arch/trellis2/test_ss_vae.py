@@ -12,9 +12,9 @@ import torch
 
 from src.platform.runtime.native.arch.trellis2.config import SSVAEDecoderConfig
 from src.platform.runtime.native.arch.trellis2.ss_vae import SSVAEDecoder
-from vendor.gpl.comfyui.ops import pick_operations
 
 from ._vendor import import_vendor_models
+from ..._native_ops import fp32_ops
 
 TINY = SSVAEDecoderConfig(
     out_channels=1,
@@ -26,12 +26,8 @@ TINY = SSVAEDecoderConfig(
 )
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build(config: SSVAEDecoderConfig = TINY) -> SSVAEDecoder:
-    m = SSVAEDecoder(config, _fp32_ops())
+    m = SSVAEDecoder(config, fp32_ops())
     m.post_load()
     m.eval()
     return m
@@ -99,7 +95,7 @@ def test_numeric_parity_forward():
     vendor = SparseStructureDecoder(**_vendor_kwargs(TINY))
     vendor.eval()
 
-    native = SSVAEDecoder(TINY, _fp32_ops())
+    native = SSVAEDecoder(TINY, fp32_ops())
     missing, unexpected = native.load_state_dict(vendor.state_dict(), strict=False)
     assert not missing and not unexpected
     native.post_load()

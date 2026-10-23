@@ -9,13 +9,10 @@ class BaseField(ABC):
     def __init__(self, preset_loader):
         self.preset_loader = preset_loader
     
-    # Main interface methods at the top for readability
+    @abstractmethod
     def output(self, field, preset_id: str = None) -> Dict[str, Any]:
-        """Transform field data from backend to frontend format
-        Override this method to customize how data is presented to the frontend
-        """
-        return self.map_field(field, preset_id)
-    
+        pass
+
     def input(self, field_name: str, value: Any, validation_rules: Optional[Dict[str, Any]] = None) -> Any:
         """Process and validate input data from frontend
         Override this method to handle incoming data transformation and validation
@@ -34,21 +31,6 @@ class BaseField(ABC):
         # Default implementation just passes through the value
         return value
     
-    # Dispatch is now driven by `FieldTypeRegistry` (src/platform/plugins/field_types.py),
-    # not by scanning `can_handle` across an ordered list of field implementations.
-    # `can_handle` is kept as a non-abstract, informational predicate - several
-    # field classes still implement it and existing tests assert on it - but
-    # `FieldFactory` no longer calls it to decide dispatch.
-    def can_handle(self, field_type: str) -> bool:
-        """Check if this field can handle the given field type (informational only)"""
-        return False
-
-    # Abstract methods
-    @abstractmethod
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
-        """Map a field to its JSON schema representation"""
-        pass
-
     # Documentation methods - override in subclasses for specific documentation
     @classmethod
     def description(cls) -> str:
@@ -237,11 +219,4 @@ class BaseField(ABC):
         return schema
     
     def _find_preset_by_id(self, preset_id: str):
-        """Find a preset template by its ID"""
-        if not preset_id:
-            return None
-
-        for preset_template in self.preset_loader.presets:
-            if preset_template.id == preset_id:
-                return preset_template
-        return None
+        return self.preset_loader.get(preset_id)

@@ -48,8 +48,8 @@ import torch
 import torch.nn as nn
 
 from ..base import NativeArchModule
-from ._functional import optimized_attention, rms_norm
-from .base import NativeTextEncoder, _module_to, _module_unload
+from ._functional import apply_rope_qk, optimized_attention, rms_norm
+from .base import NativeTextEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -89,19 +89,6 @@ class Gemma3Config:
         )
 
 
-def _rotate_half(x: torch.Tensor) -> torch.Tensor:
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
-
-
-def _apply_rope(xq, xk, cos, sin):
-    org = xq.dtype
-    q = (xq * cos) + (_rotate_half(xq) * sin)
-    k = (xk * cos) + (_rotate_half(xk) * sin)
-    return q.to(org), k.to(org)
-
-
 class _GemmaRMSNorm(nn.Module):
     """gemma3 RMS norm: scale by ``(weight + 1)`` (``rms_norm_add``)."""
 
@@ -136,7 +123,7 @@ class _GemmaAttention(nn.Module):
         xv = self.v_proj(x).view(b, s, self.num_kv_heads, self.head_dim).transpose(1, 2)
         xq = self.q_norm(xq)
         xk = self.k_norm(xk)
-        xq, xk = _apply_rope(xq, xk, cos, sin)
+        xq, xk = apply_rope_qk(xq, xk, cos, sin)
         xk = xk.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
         xv = xv.repeat_interleave(self.num_heads // self.num_kv_heads, dim=1)
         out = optimized_attention(xq, xk, xv, self.num_heads, mask=mask, skip_reshape=True)
@@ -275,14 +262,6 @@ class Gemma3TextEncoder(NativeTextEncoder):
         self.tokenizer = tokenizer
         self.role = variant
         self._device = torch.device(device)
-
-    def to(self, device: str | torch.device) -> "Gemma3TextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
 
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:

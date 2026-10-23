@@ -25,6 +25,7 @@ no DB write. A pipe whose module cannot be imported in this environment
 """
 
 import copy
+from pathlib import Path
 import tempfile
 import warnings
 
@@ -34,37 +35,26 @@ from scripts.preset_render import (
     FIXED_SEED,
     ROOT,
     _all_plugin_manifests,
-    _collect_named_fields,
+    GOLDEN_TAG,
     _fixture_timeline_document,
     _fixture_video_director_document,
-    _inject_unresolvable_defaults,
     _mode_references_timeline,
     _mode_references_video_director,
     _plugin_registry_stub,
-    build_form_serializer,
     build_generation_data,
     build_processor,
     load_all_presets,
     relativize_media_placeholders,
 )
 from src.features.forms.binding import bind_form
+from src.features.presets.fixture_form import build_default_form_data
 from src.features.generation.engine import deep_update, validate_pipe_configuration
-from src.features.presets.templates import default_form_name
 from src.pipelines.catalog import PipeCatalog
 
 
-def _bound_form_data(serializer, preset, mode, storage_dir):
+def _bound_form_data(preset, mode, storage_dir):
     mode_data = preset.modes[mode]
-    form_name = default_form_name(mode_data)
-    form_data = {}
-
-    if form_name is not None:
-        form_template = next(f for f in mode_data.forms if f.name == form_name)
-        resolved = serializer._resolve_external_children(
-            form_template.fields, {"paths": {"preset": preset.path}}
-        )
-        _collect_named_fields(resolved, form_data)
-        _inject_unresolvable_defaults(resolved, form_data)
+    form_data, _ = build_default_form_data(preset, mode, GOLDEN_TAG)
 
     relativize_media_placeholders(form_data)
 
@@ -101,14 +91,13 @@ def rendered_pipe_configs(tmp_path_factory, pipe_catalog):
     storage_dir = tmp_path_factory.mktemp("storage")
     presets, _errors = load_all_presets()
     processor = build_processor()
-    serializer = build_form_serializer()
 
-    core_root = str(ROOT / "content" / "presets")
+    core_root = (ROOT / "content" / "presets").resolve()
     results = []
     for preset in sorted(presets, key=lambda p: p.id):
         for mode in sorted(preset.modes.keys()):
             try:
-                form_data = _bound_form_data(serializer, preset, mode, storage_dir)
+                form_data = _bound_form_data(preset, mode, storage_dir)
                 generation_data = build_generation_data(mode, form_data, preset.modes.get(mode))
                 pipes = processor.process(preset, generation_data)
             except Exception:
@@ -118,7 +107,7 @@ def rendered_pipe_configs(tmp_path_factory, pipe_catalog):
                 # and take every core preset's coverage with it -- its own
                 # bounds simply cannot be checked, which is reported via
                 # the warning, not hidden.
-                if str(preset.path).startswith(core_root):
+                if Path(preset.path).resolve().is_relative_to(core_root):
                     raise
                 warnings.warn(
                     f"unrenderable plugin preset skipped by spec-bounds sweep: "

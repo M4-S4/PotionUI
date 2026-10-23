@@ -3,13 +3,8 @@ import type { SegmentCategory } from '$lib/types/segments';
 import {
 	DEFAULT_CATEGORY_FILTERS,
 	applyCategoryFilters,
-	categoryFilterActiveCount,
-	categoryFilterChips,
-	categoryFiltersFromSearchParams,
-	categoryFiltersToSearchParams,
-	clearAllCategoryFilters,
-	clearCategoryFilterChip,
-	type CategoryFilters
+	type CategoryFilters,
+	categoryFilters
 } from './categoryFilters';
 
 function category(id: string, name: string, description = ''): SegmentCategory {
@@ -31,20 +26,20 @@ const counts = new Map<string, number>([
 describe('categoryFilters URL round-trip', () => {
 	it('round-trips every non-default value', () => {
 		const filters: CategoryFilters = { q: 'cam', has: 'empty', sortBy: 'count' };
-		const params = categoryFiltersToSearchParams(filters);
+		const params = categoryFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('cam');
 		expect(params.get('has')).toBe('empty');
 		expect(params.get('sort_by')).toBe('count');
-		expect(categoryFiltersFromSearchParams(params)).toEqual(filters);
+		expect(categoryFilters.fromSearchParams(params)).toEqual(filters);
 	});
 
 	it('omits defaults from the URL', () => {
-		expect(categoryFiltersToSearchParams(DEFAULT_CATEGORY_FILTERS).toString()).toBe('');
+		expect(categoryFilters.toSearchParams(DEFAULT_CATEGORY_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to defaults for unknown values', () => {
 		const params = new URLSearchParams('has=bogus&sort_by=nope');
-		expect(categoryFiltersFromSearchParams(params)).toEqual(DEFAULT_CATEGORY_FILTERS);
+		expect(categoryFilters.fromSearchParams(params)).toEqual(DEFAULT_CATEGORY_FILTERS);
 	});
 });
 
@@ -81,16 +76,16 @@ describe('applyCategoryFilters', () => {
 describe('category filter chips', () => {
 	it('emits a chip for the has filter and clears it by key', () => {
 		const filters: CategoryFilters = { ...DEFAULT_CATEGORY_FILTERS, has: 'segments' };
-		expect(categoryFilterChips(filters)).toEqual([{ key: 'has', label: 'with segments' }]);
-		expect(categoryFilterActiveCount(filters)).toBe(1);
-		expect(clearCategoryFilterChip(filters, 'has')).toEqual(DEFAULT_CATEGORY_FILTERS);
-		expect(clearCategoryFilterChip(filters, 'unknown')).toBe(filters);
+		expect(categoryFilters.chips(filters)).toEqual([{ key: 'has', label: 'with segments' }]);
+		expect(categoryFilters.activeCount(filters)).toBe(1);
+		expect(categoryFilters.clearChip(filters, 'has')).toEqual(DEFAULT_CATEGORY_FILTERS);
+		expect(categoryFilters.clearChip(filters, 'unknown')).toBe(filters);
 	});
 
 	it('clear all keeps the query and the sort', () => {
 		const filters: CategoryFilters = { q: 'cam', has: 'empty', sortBy: 'count' };
-		expect(clearAllCategoryFilters(filters)).toEqual({ q: 'cam', has: '', sortBy: 'count' });
-		expect(categoryFilterChips(DEFAULT_CATEGORY_FILTERS)).toEqual([]);
-		expect(categoryFilterActiveCount(DEFAULT_CATEGORY_FILTERS)).toBe(0);
+		expect(categoryFilters.clearAll(filters)).toEqual({ q: 'cam', has: '', sortBy: 'count' });
+		expect(categoryFilters.chips(DEFAULT_CATEGORY_FILTERS)).toEqual([]);
+		expect(categoryFilters.activeCount(DEFAULT_CATEGORY_FILTERS)).toBe(0);
 	});
 });

@@ -7,11 +7,13 @@ import threading
 from pathlib import Path
 import os
 
+from src.platform.database.pool import ConnectionLease, ConnectionPool, PooledConnection
 from src.platform.database.sql_functions import register_sql_functions
 
 logger = logging.getLogger(__name__)
 
 LIVE_DATABASE_PATH = Path("storage/db.sqlite")
+PAGE_CACHE_KIB = 8192
 
 
 def refuse_live_database_under_pytest(db_path: Path) -> None:
@@ -52,14 +54,13 @@ class Database:
         self.db_path.parent.mkdir(exist_ok=True)
         self._initialized = True
 
-    @contextmanager
-    def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
-        """Get a database connection with automatic cleanup"""
-        refuse_live_database_under_pytest(self.db_path)
+    @staticmethod
+    def _open(path: str) -> sqlite3.Connection:
         conn = sqlite3.connect(
-            self.db_path, 
+            path,
             check_same_thread=False,
-            timeout=30.0  # Wait up to 30 seconds for locks to clear
+            timeout=30.0,
+            factory=PooledConnection,
         )
         conn.row_factory = sqlite3.Row  # Enable dict-like access to rows
         register_sql_functions(conn)
@@ -82,11 +83,26 @@ class Database:
         # in a migration. NORMAL is safe under WAL (only checkpoints fsync) and
         # avoids an fsync on every commit.
         conn.execute("PRAGMA synchronous = NORMAL").close()
+        conn.execute(f"PRAGMA cache_size = -{PAGE_CACHE_KIB}").close()
+        return conn
 
+    _pool = ConnectionPool(_open)
+
+    @classmethod
+    def close_pool(cls) -> None:
+        cls._pool.close()
+
+    @contextmanager
+    def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
+        refuse_live_database_under_pytest(self.db_path)
+        path = os.path.abspath(self.db_path)
+        conn = self._pool.checkout(path)
+        lease = ConnectionLease(conn)
         try:
-            yield conn
+            yield lease
         finally:
-            conn.close()
+            lease.revoke()
+            self._pool.checkin(path, conn)
 
     @contextmanager
     def get_cursor(self) -> Generator[sqlite3.Cursor, None, None]:
@@ -138,3 +154,7 @@ db = Database()
 def get_database_connection():
     """Get database connection - wrapper around global db instance"""
     return db.get_connection()
+
+
+def get_cursor():
+    return db.get_cursor()

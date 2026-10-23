@@ -49,6 +49,12 @@ from src.platform.filesystem.splat_formats import InvalidSplatError, inspect_spl
 from src.platform.filesystem.storage_driver import local_copy
 from src.platform.plugins.runtime_registries import get_container
 from src.platform.util.imaging import convert_image_to_base64
+from src.platform.util.video_stream import (
+    FFmpegNotFoundError,
+    StreamingMp4Writer,
+    has_audio_stream,
+    mux_audio_from_source,
+)
 from src.platform.util.video_transcode import (
     FfmpegUnavailableError,
     TranscodeSpec,
@@ -71,8 +77,10 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BackgroundMattingModel",
+    "FFmpegNotFoundError",
     "FfmpegUnavailableError",
     "SplatInfo",
+    "StreamingMp4Writer",
     "TranscodeSpec",
     "VideoProbe",
     "VideoTranscodeError",
@@ -80,6 +88,8 @@ __all__ = [
     "extract_frame",
     "find_ffmpeg",
     "probe_splat",
+    "has_audio_stream",
+    "mux_audio_from_source",
     "probe_video",
     "save_user_media",
     "transcode_video",

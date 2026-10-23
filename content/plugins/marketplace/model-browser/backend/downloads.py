@@ -421,7 +421,7 @@ async def queue_prepared(
     )
 
     if file.sha256:
-        model = await asyncio.to_thread(core_bridge.find_model_by_sha256, file.sha256)
+        model = await asyncio.to_thread(core_bridge.find_model_by_sha256, file.sha256, file.size_bytes)
         if model is not None and model.get("is_available", True) is not False:
             inserted, raced = await _insert(replace(row, status="indexed", model_id=model["id"]))
             if raced:

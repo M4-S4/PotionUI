@@ -3,6 +3,7 @@
 	import { processMarkdown } from '$lib/utils/markdown';
 	import type { UnifiedChatMessageData } from '$lib/types/chat';
 	import { composeQuestionAnswer, deriveQuestionQueue, dismissedQuestions } from '$lib/chat/questionQueue';
+	import Icon from '$lib/components/Icon.svelte';
 
 	export let messages: UnifiedChatMessageData[] = [];
 	/** Sends a docked question's answer as a normal user turn (see UnifiedAIChat's sendMessage). */
@@ -61,7 +62,7 @@
 	<div class="question-dock-wrap">
 		<section class="question-dock" aria-labelledby="questionText">
 			<header class="question-head">
-				<span class="question-indicator"><svg class="icon"><use href="#i-info" /></svg></span>
+				<span class="question-indicator"><Icon name="chat-info" className="icon" strokeWidth={1.8} /></span>
 				<strong>PotionAI needs your input</strong>
 				<span class="question-progress">Question {current.index + 1} of {current.total}</span>
 			</header>

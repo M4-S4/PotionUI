@@ -431,16 +431,6 @@ class ModelRootResolver:
         return home.joinpath(*rel_parts) if rel_parts else home
 
 
-def physical_legacy_ref(raw_root_path: str, subdir: str, rel_path: str) -> str:
-    root = Path(raw_root_path)
-    parts: List[str] = []
-    if subdir:
-        parts.extend(PurePosixPath(subdir).parts)
-    if rel_path:
-        parts.extend(PurePosixPath(rel_path).parts)
-    return str(root.joinpath(*parts)) if parts else str(root)
-
-
 def ensure_home_bindings(
     repository: Any,
     home_path: str,

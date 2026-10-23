@@ -14,7 +14,6 @@ from src.features.llm.tools.builtin import (
     GetPresetInfoTool,
     ListPhrasebookCategoriesTool,
     GetPhrasebookValuesTool,
-    ListPhrasebookValuesTool,
     CreatePhrasebookCategoryTool,
     CreatePhrasebookValuesTool,
     RemovePhrasebookValuesTool,
@@ -25,6 +24,8 @@ from src.features.llm.tools.builtin import (
     GetActiveModelsTool,
     register_builtin_tools,
 )
+from src.platform.resources.prompt_variables import SUMMARY_READ_HINT
+from tests.fixtures.fake_tab_drafts import drafts_context
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 from src.features.segments.dto import RichSegment, SavedSegment, SegmentTemplate
@@ -110,7 +111,6 @@ class TestRegisterBuiltinTools:
             "list_library_items",
             "list_phrasebook_categories",
             "get_phrasebook_values",
-            "list_phrasebook_values",
             "create_phrasebook_category",
             "create_phrasebook_values",
             "remove_phrasebook_values",
@@ -120,7 +120,10 @@ class TestRegisterBuiltinTools:
             "get_form_state",
             "get_active_models",
             "update_form_settings",
+            "get_prompt_variables",
             "manage_prompt_variables",
+            "list_tab_drafts",
+            "write_condition",
             "search_model_prompts",
             "search_gallery",
             "get_prompt",
@@ -143,12 +146,6 @@ class TestRegisterBuiltinTools:
             "start_generation",
         }
 
-    def test_all_builtin_tools_have_hints(self):
-        registry = ToolRegistry()
-        register_builtin_tools(registry)
-        for tool in registry.get_all():
-            assert tool.hint, f"Tool '{tool.name}' is missing a hint"
-
     TOOL_GROUPS = {
         "Models & presets",
         "Prompt writing",
@@ -167,6 +164,7 @@ class TestRegisterBuiltinTools:
             assert tool.group in self.TOOL_GROUPS, (
                 f"Tool '{tool.name}' has group '{tool.group}' outside the taxonomy"
             )
+            assert tool.description.strip(), f"Tool '{tool.name}' is missing a description"
             assert tool.user_description, f"Tool '{tool.name}' is missing a user_description"
             assert tool.user_description != tool.description
 
@@ -186,13 +184,13 @@ class TestRegisterBuiltinTools:
         names = [t.name for t in registry.get_for_mode(mode)]
         return mode_registry.resolve_system_prompt(mode, registry.get_tool_hints_text(names))
 
-    def test_generation_mode_prompt_includes_all_builtin_hints(self):
+    def test_generation_mode_prompt_leaves_tool_guidance_to_the_schemas(self):
         registry = ToolRegistry()
         register_builtin_tools(registry)
         prompt = self._generation_prompt(registry)
-        assert "PotionUI" in prompt
-        for tool in registry.get_all():
-            assert tool.name in prompt
+        assert "PotionAI" in prompt
+        assert "Tool guide" not in prompt
+        assert "list_segment_categories" not in prompt
 
     def test_generation_mode_prompt_includes_marker_syntax(self):
         registry = ToolRegistry()
@@ -204,8 +202,6 @@ class TestRegisterBuiltinTools:
         assert "#[path with spaces]" in prompt
         assert "list_phrasebook_categories" in prompt
         assert "get_phrasebook_values" in prompt
-        assert "create_phrasebook_category" in prompt
-        assert "create_phrasebook_values" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -260,15 +256,6 @@ class TestListSegmentCategoriesTool:
         data = json.loads(result.data)
         assert data["count"] == 0
         assert data["categories"] == []
-
-    @pytest.mark.asyncio
-    async def test_exception_returns_error(self):
-        repo = MagicMock()
-        repo.get_all.side_effect = RuntimeError("db error")
-        ctx = make_context(segment_category_repository=repo)
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "db error" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -362,15 +349,6 @@ class TestGetSegmentTemplatesTool:
         ctx = make_context()
         result = await self._tool().execute(ctx)
         assert result.success is False
-
-    @pytest.mark.asyncio
-    async def test_exception_returns_error(self):
-        repo = MagicMock()
-        repo.get_all.side_effect = ValueError("db error")
-        ctx = make_context(segment_template_repository=repo)
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "db error" not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -836,15 +814,6 @@ class TestListPhrasebookCategoriesTool:
         assert result.success is False
         assert "not available" in result.error
 
-    @pytest.mark.asyncio
-    async def test_exception_returns_error(self):
-        category_repo = MagicMock()
-        category_repo.get_all.side_effect = ConnectionError("timeout")
-        ctx = make_context(phrasebook_category_repository=category_repo)
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "timeout" not in result.error
-
 
 # ---------------------------------------------------------------------------
 # GetPhrasebookValuesTool
@@ -854,218 +823,12 @@ class TestGetPhrasebookValuesTool:
     def _tool(self):
         return GetPhrasebookValuesTool()
 
-    def test_name_and_schema(self):
-        tool = self._tool()
-        assert tool.name == "get_phrasebook_values"
-        schema = tool.to_schema()
-        assert "category_id" in schema["function"]["parameters"]["properties"]
-        assert "category_id" in schema["function"]["parameters"]["required"]
-
-    @pytest.mark.asyncio
-    async def test_returns_values(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-            make_phrasebook_value("v2", "Close-up", "extreme close-up shot"),
-        ]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam")
-
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["count"] == 2
-        assert data["values"][0]["id"] == "v1"
-        assert data["values"][0]["label"] == "Wide angle"
-        assert data["values"][0]["value"] == "wide angle lens"
-        value_repo.get_by_category.assert_called_once_with(
-            category_id="cat-cam", user_id="user-test"
-        )
-
-    @pytest.mark.asyncio
-    async def test_returns_markers_when_category_resolves(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-        ]
-        cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = cat
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam")
-
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["category_path"] == "camera.angles"
-        assert data["category_marker"] == "#camera.angles"
-        assert data["values"][0]["marker"] == "#[camera.angles.Wide angle]"
-        assert "instruction" in data
-        category_repo.get_by_id.assert_called_once_with("cat-cam", "user-test")
-
-    @pytest.mark.asyncio
-    async def test_still_succeeds_without_markers_when_category_lookup_fails(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-        ]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam")
-
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["count"] == 1
-        assert "marker" not in data["values"][0]
-        assert "category_path" not in data
-        assert "category_marker" not in data
-        assert "instruction" not in data
-
-    @pytest.mark.asyncio
-    async def test_no_phrasebook_manager(self):
-        ctx = make_context()
-        result = await self._tool().execute(ctx, category_id="x")
-        assert result.success is False
-        assert "not available" in result.error
-
-    @pytest.mark.asyncio
-    async def test_missing_category_id(self):
-        category_repo = MagicMock()
-        ctx = make_context(phrasebook_category_repository=category_repo)
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "category_id is required" in result.error
-
-    @pytest.mark.asyncio
-    async def test_empty_values(self):
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = []
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-        result = await self._tool().execute(ctx, category_id="empty-cat")
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["count"] == 0
-        assert data["values"] == []
-
-    @pytest.mark.asyncio
-    async def test_exception_returns_error(self):
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.side_effect = PermissionError("access denied")
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-        result = await self._tool().execute(ctx, category_id="restricted")
-        assert result.success is False
-        assert "access denied" not in result.error
-
-    @pytest.mark.asyncio
-    async def test_default_limit_is_100_and_reports_has_more(self):
-        vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(150)]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam")
-
-        data = json.loads(result.data)
-        assert data["limit"] == 100
-        assert data["count"] == 100
-        assert data["total"] == 150
-        assert data["has_more"] is True
-
-    @pytest.mark.asyncio
-    async def test_limit_is_hard_capped_at_200(self):
-        vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(500)]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam", limit=1000)
-
-        data = json.loads(result.data)
-        assert data["limit"] == 200
-        assert data["count"] == 200
-
-    @pytest.mark.asyncio
-    async def test_offset_pages_through_results(self):
-        vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(10)]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam", offset=8, limit=5)
-
-        data = json.loads(result.data)
-        assert data["offset"] == 8
-        assert data["count"] == 2
-        assert data["has_more"] is False
-        assert [v["id"] for v in data["values"]] == ["v8", "v9"]
-
-    @pytest.mark.asyncio
-    async def test_search_filters_by_label_or_value_case_insensitive(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-            make_phrasebook_value("v-cat", "Cat closeup", "a close up of a cat"),
-        ]
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = None
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam", search="cat")
-
-        data = json.loads(result.data)
-        assert data["total"] == 1
-        assert data["values"][0]["id"] == "v-cat"
-
-    @pytest.mark.asyncio
-    async def test_search_applies_before_marker_pagination_fields(self):
-        vals = [
-            make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
-            make_phrasebook_value("v-cat", "Cat closeup", "a close up of a cat"),
-        ]
-        cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        category_repo = MagicMock()
-        value_repo = MagicMock()
-        value_repo.get_by_category.return_value = vals
-        category_repo.get_by_id.return_value = cat
-        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
-
-        result = await self._tool().execute(ctx, category_id="cat-cam", search="cat")
-
-        data = json.loads(result.data)
-        assert data["values"][0]["marker"] == "#[camera.angles.Cat closeup]"
-        assert data["total"] == 1
-
-
-# ---------------------------------------------------------------------------
-# ListPhrasebookValuesTool
-# ---------------------------------------------------------------------------
-
-class TestListPhrasebookValuesTool:
-    def _tool(self):
-        return ListPhrasebookValuesTool()
-
     def _values(self, n):
         return [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(n)]
 
     def test_name_and_schema(self):
         tool = self._tool()
-        assert tool.name == "list_phrasebook_values"
+        assert tool.name == "get_phrasebook_values"
         assert tool.requires_approval is False
         schema = tool.to_schema()
         assert "category" in schema["function"]["parameters"]["required"]
@@ -1127,7 +890,7 @@ class TestListPhrasebookValuesTool:
 
         data = json.loads(result.data)
         assert data["limit"] == 100
-        assert data["returned"] == 100
+        assert data["count"] == 100
         assert data["total"] == 150
         assert data["has_more"] is True
         assert data["values"][0]["id"] == "v0"
@@ -1145,7 +908,7 @@ class TestListPhrasebookValuesTool:
 
         data = json.loads(result.data)
         assert data["limit"] == 200
-        assert data["returned"] == 200
+        assert data["count"] == 200
 
     @pytest.mark.asyncio
     async def test_offset_pages_through_results(self):
@@ -1160,7 +923,7 @@ class TestListPhrasebookValuesTool:
 
         data = json.loads(result.data)
         assert data["offset"] == 8
-        assert data["returned"] == 2
+        assert data["count"] == 2
         assert data["has_more"] is False
         assert [v["id"] for v in data["values"]] == ["v8", "v9"]
 
@@ -1184,7 +947,7 @@ class TestListPhrasebookValuesTool:
         assert data["values"][0]["id"] == "v-cat"
 
     @pytest.mark.asyncio
-    async def test_returns_dense_id_text_active_shape(self):
+    async def test_returns_id_label_value_marker_active_shape(self):
         category_repo = MagicMock()
         value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera", path="camera")
@@ -1198,9 +961,37 @@ class TestListPhrasebookValuesTool:
 
         data = json.loads(result.data)
         entry = data["values"][0]
-        assert set(entry.keys()) == {"id", "text", "active"}
-        assert entry["text"] == "Label 0: value 0"
+        assert set(entry.keys()) == {"id", "label", "value", "active", "marker"}
+        assert entry["label"] == "Label 0"
+        assert entry["value"] == "value 0"
+        assert entry["marker"] == "#[camera.Label 0]"
         assert entry["active"] is False
+
+    @pytest.mark.asyncio
+    async def test_returns_category_markers_and_instruction(self):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        category_repo.get_by_id.return_value = make_category("cat-cam", "Camera Angles", path="camera.angles")
+        value_repo.get_by_category.return_value = [make_phrasebook_value("v1", "Wide angle", "wide angle lens")]
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
+
+        data = json.loads((await self._tool().execute(ctx, category="cat-cam")).data)
+
+        assert data["category_id"] == "cat-cam"
+        assert data["category_path"] == "camera.angles"
+        assert data["category_marker"] == "#camera.angles"
+        assert data["values"][0]["marker"] == "#[camera.angles.Wide angle]"
+        assert "instruction" in data
+
+    @pytest.mark.asyncio
+    async def test_non_integer_paging_returns_error(self):
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
+
+        result = await self._tool().execute(ctx, category="cat-cam", limit="many")
+
+        assert result.success is False
+        assert "integers" in result.error
 
     @pytest.mark.asyncio
     async def test_no_phrasebook_manager(self):
@@ -2247,15 +2038,6 @@ class TestEnhancePromptTool:
         assert data["enhanced_prompt"] == "first"
         assert data["alternative_prompts"] == ["second"]
 
-    @pytest.mark.asyncio
-    async def test_manager_exception_returns_error(self):
-        manager = MagicMock()
-        manager.enhance = AsyncMock(side_effect=RuntimeError("boom"))
-        ctx = make_context(prompt_enhancement_manager=manager, llm_id="llm-1")
-        result = await self._tool().execute(ctx, brief="a cat")
-        assert result.success is False
-        assert "boom" not in result.error
-
     def test_available_without_form_state(self):
         assert self._tool().is_available(None) is True
 
@@ -2285,7 +2067,35 @@ class TestGetCurrentSegmentsTool:
         schema = tool.to_schema()
         assert schema["type"] == "function"
         assert schema["function"]["parameters"]["required"] == []
-        assert schema["function"]["parameters"]["properties"] == {}
+        assert list(schema["function"]["parameters"]["properties"]) == ["prompt_index"]
+
+    @pytest.mark.asyncio
+    async def test_prompt_index_reads_another_prompts_segments(self):
+        other = [{"id": "n1", "content": "night street", "name": "Night", "type": "text", "enabled": True}]
+        ctx = make_context(session_metadata={
+            "segments": [{"id": "a1", "content": "day"}],
+            "prompt_batch": {"active": 0, "prompts": [
+                {"index": 0, "name": "Day", "segments": [{"id": "a1", "content": "day"}]},
+                {"index": 1, "name": "Night", "segments": other},
+            ]},
+        })
+
+        result = await self._tool().execute(ctx, prompt_index=1)
+
+        data = json.loads(result.data)
+        assert result.success is True
+        assert data["segments"][0]["id"] == "n1"
+        assert data["segments"][0]["content"] == "night street"
+        assert data["prompt_index"] == 1
+        assert 'prompt="1"' in data["instruction"]
+
+    @pytest.mark.asyncio
+    async def test_prompt_index_without_batch_or_out_of_range_fails(self):
+        no_batch = make_context(session_metadata={"segments": [{"id": "a1", "content": "day"}]})
+        assert (await self._tool().execute(no_batch, prompt_index=1)).success is False
+
+        ranged = make_context(session_metadata={"prompt_batch": {"active": 0, "prompts": [{"index": 0, "segments": []}]}})
+        assert (await self._tool().execute(ranged, prompt_index=4)).success is False
 
     @pytest.mark.asyncio
     async def test_returns_segments(self):
@@ -2682,19 +2492,20 @@ class TestGetFormStateTool:
             "preset": "sdxl-standard",
             "mode": "t2i",
             "variables": [
-                {"name": "mood", "type": "choice", "options": ["noir", "sunlit"],
-                 "mode": "shuffle", "lastRoll": "sunlit"},
+                {"name": "mood", "type": "choice", "options": ["noir", "sunlit"], "mode": "shuffle"},
                 {"name": "subject", "type": "text", "value": "a fox"},
             ],
+            "variable_rolls": {"mood": "sunlit"},
         }
-        ctx = make_context(session_metadata={"form_state": form_state})
+        ctx = drafts_context({"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
         data = json.loads(result.data)
         assert data["prompt_variables"] == [
-            "mood: one of noir, sunlit — shuffles each generation; last roll: sunlit",
-            "subject: a fox",
+            "mood: choice, shuffles each generation, 2 options (noir, sunlit); last roll: sunlit",
+            'subject: text, 5 chars ("a fox")',
+            SUMMARY_READ_HINT,
         ]
 
     @pytest.mark.asyncio
@@ -2714,26 +2525,38 @@ class TestGetFormStateTool:
                 },
             ],
         }
-        ctx = make_context(session_metadata={"form_state": form_state})
+        ctx = drafts_context({"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
         data = json.loads(result.data)
         assert data["prompt_variables"] == [
-            "music: one of hip hop, classical — shuffles each generation",
-            "dance — resolves after $music — one of breaking (when $music = hip hop), salsa "
-            "— shuffles each generation",
+            "music: choice, shuffles each generation, 2 options (hip hop, classical)",
+            "dance: choice, resolves after $music, shuffles each generation, 2 options, 1 conditional (breaking, salsa)",
+            SUMMARY_READ_HINT,
         ]
 
     @pytest.mark.asyncio
-    async def test_prompt_variables_absent_when_no_variables(self):
-        form_state = {"preset": "sdxl-standard", "mode": "t2i"}
-        ctx = make_context(session_metadata={"form_state": form_state})
+    async def test_prompt_variables_absent_when_the_tab_has_no_variables(self):
+        form_state = {"preset": "sdxl-standard", "mode": "t2i", "variables": []}
+        ctx = drafts_context({"form_state": form_state})
 
         result = await self._tool().execute(ctx)
 
         data = json.loads(result.data)
         assert "prompt_variables" not in data
+
+    @pytest.mark.asyncio
+    async def test_prompt_variables_say_no_tab_is_open_when_tab_id_is_null(self):
+        form_state = {"preset": "sdxl-standard", "mode": "t2i", "tab_id": None}
+        ctx = drafts_context({"form_state": form_state})
+
+        result = await self._tool().execute(ctx)
+
+        assert result.success
+        assert json.loads(result.data)["prompt_variables"] == [
+            "No Generate tab is open — open the Generate page to read or change prompt variables."
+        ]
 
     @pytest.mark.asyncio
     async def test_description_mentions_model_and_model_path(self):

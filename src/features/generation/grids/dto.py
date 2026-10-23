@@ -35,15 +35,3 @@ class GridCellRef:
     x: int
     y: int
     axis_values: Dict[str, Any]
-
-
-class GridCell(BaseModel):
-    x: int
-    y: int
-    generation_id: Optional[str] = None
-    status: str = "deleted"
-    axis_values: Dict[str, Any] = Field(default_factory=dict)
-    seed: Optional[int] = None
-    thumbnail_url: Optional[str] = None
-    media_type: Optional[str] = None
-    error: Optional[str] = None

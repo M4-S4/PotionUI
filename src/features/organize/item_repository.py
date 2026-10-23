@@ -122,6 +122,7 @@ class OrganizeItemRepository:
                         "model_ids": list(collect_model_ids(form_data)),
                         "files": [],
                         "tags": [],
+                        "detected_tags": [],
                         "created_at": dt_iso(row["created_at"]),
                         "completed_at": dt_iso(row["completed_at"]),
                     }
@@ -159,6 +160,13 @@ class OrganizeItemRepository:
                 )
                 for row in cursor.fetchall():
                     rows[row["generation_id"]]["tags"].append(row["name"])
+                cursor.execute(
+                    f"SELECT DISTINCT generation_id, tag FROM media_system_tags "
+                    f"WHERE generation_id IN ({placeholders}) AND category != 'rating' ORDER BY tag",
+                    found,
+                )
+                for row in cursor.fetchall():
+                    rows[row["generation_id"]]["detected_tags"].append(row["tag"])
         return [rows[gid] for gid in ids if gid in rows]
 
     def uploads(self, user_id: str, upload_ids: Sequence[str]) -> List[Dict[str, Any]]:
@@ -389,6 +397,16 @@ class OrganizeItemRepository:
                     (tag_type, user_id, query, limit),
                 )
             return [row["name"] for row in cursor.fetchall()]
+
+    def detected_tag_names(self, user_id: str, query: str, limit: int) -> List[str]:
+        with _db().get_cursor() as cursor:
+            cursor.execute(
+                "SELECT s.tag AS tag FROM media_system_tags s JOIN generations g ON g.id = s.generation_id "
+                "WHERE g.user_id = ? AND s.category != 'rating' AND instr(LOWER(s.tag), LOWER(?)) > 0 "
+                "GROUP BY s.tag ORDER BY COUNT(DISTINCT g.id) DESC, s.tag LIMIT ?",
+                (user_id, query, limit),
+            )
+            return [row["tag"] for row in cursor.fetchall()]
 
     def members_of(self, scope: str, collection_id: str, item_ids: Sequence[str]) -> Set[str]:
         ids = list(dict.fromkeys(item_ids))

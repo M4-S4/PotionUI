@@ -9,6 +9,7 @@
 // so a mesh renders a broken `<img src=".../1.glb">` unless the fallback gate
 // wins - which is exactly the regression this mounts to catch.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -47,10 +48,6 @@ class FakeResizeObserver {
 const { default: Workbench } = await import('$lib/components/Workbench.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 let originalRO: unknown;
 let target: HTMLElement;
 let component: { $destroy: () => void } | undefined;
@@ -78,6 +75,7 @@ function mountWithMesh(fileType: string) {
 		component: Workbench as never,
 		target,
 		props: {
+			emptyLayout: 'pane',
 			currentGeneration: { status: 'completed' },
 			isGenerating: false,
 			workbenchIndex: 0,
@@ -101,7 +99,7 @@ function mountWithMesh(fileType: string) {
 describe('Workbench routes a mesh gallery item away from the image branch', () => {
 	it('does not render a broken <img> for an UPPERCASE MESH item', async () => {
 		mountWithMesh('MESH');
-		await settle();
+		await settle(10);
 
 		const brokenImg = target.querySelector<HTMLImageElement>(`img[src="${MESH_URL}"]`);
 		expect(brokenImg).toBeNull();
@@ -109,7 +107,7 @@ describe('Workbench routes a mesh gallery item away from the image branch', () =
 
 	it('resolves the fallback (mesh) renderer, not the image renderer, for an UPPERCASE MESH item', async () => {
 		mountWithMesh('MESH');
-		await settle();
+		await settle(10);
 
 		// MeshPreview's own markup (EmptyState/Alert/Spinner + optional
 		// <model-viewer>) is what should occupy the display area instead - any
@@ -133,7 +131,7 @@ describe('Workbench routes a mesh gallery item away from the image branch', () =
 
 	it('also routes a lowercase mesh item the same way', async () => {
 		mountWithMesh('mesh');
-		await settle();
+		await settle(10);
 
 		const brokenImg = target.querySelector<HTMLImageElement>(`img[src="${MESH_URL}"]`);
 		expect(brokenImg).toBeNull();

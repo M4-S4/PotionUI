@@ -39,6 +39,7 @@ EXPECTED_SCHEDULES = [
     ("linear_quadratic", "Linear-quadratic", ("*",), False, False, ("threshold_noise", "linear_steps")),
     ("manual", "Manual sigmas", ("*",), True, False, ("sigmas",)),
     ("ltx_dynamic", "LTX dynamic shift", ("ltx",), False, True, ("base_shift", "max_shift", "stretch", "terminal")),
+    ("moss_grid", "MOSS-Image grid", ("moss_image",), False, False, ("training_shift", "num_train_timesteps")),
 ]
 
 FORBIDDEN_MODULES = ("torch", "src.platform.runtime.native.sampling.denoise_loop")
@@ -58,6 +59,7 @@ print("PROBE=" + json.dumps({
     "sampler_options": SamplerField(None).output(field("sampler", "krea2"))["options"],
     "schedule_options": ScheduleField(None).output(field("schedule", "krea2"))["options"],
     "ltx_schedule_options": ScheduleField(None).output(field("schedule", "ltx"))["options"],
+    "moss_schedule_options": ScheduleField(None).output(field("schedule", "moss_image"))["options"],
     "catalog_samplers": [d["key"] for d in catalog["samplers"]],
     "catalog_schedules": [d["key"] for d in catalog["schedules"]],
     "loaded": [m for m in %r if m in sys.modules],
@@ -97,7 +99,12 @@ def test_sampler_field_lists_every_core_sampler_without_the_engine(probe):
 def test_schedule_field_lists_the_core_schedules_for_a_family_without_the_engine(probe):
     universal = [e[0] for e in EXPECTED_SCHEDULES if e[2] == ("*",)]
     assert [o["value"] for o in probe["schedule_options"]] == universal
-    assert [o["value"] for o in probe["ltx_schedule_options"]] == [e[0] for e in EXPECTED_SCHEDULES]
+    assert [o["value"] for o in probe["ltx_schedule_options"]] == [
+        e[0] for e in EXPECTED_SCHEDULES if e[2] in (("*",), ("ltx",))
+    ]
+    assert [o["value"] for o in probe["moss_schedule_options"]] == [
+        e[0] for e in EXPECTED_SCHEDULES if e[2] in (("*",), ("moss_image",))
+    ]
 
 
 def test_catalog_controller_serves_the_full_catalog_without_the_engine(probe):

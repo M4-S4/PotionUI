@@ -1,7 +1,7 @@
 <script lang="ts">
 	import FilterPopoverFrame from '$lib/components/library/FilterPopoverFrame.svelte';
 	import SegmentedFilterGroup from '$lib/components/library/SegmentedFilterGroup.svelte';
-	import { clearAllRecipeFilters, type RecipeFilters } from './recipeFilters';
+	import { type RecipeFilters, recipeFilters } from './recipeFilters';
 
 	let {
 		filters,
@@ -31,7 +31,7 @@
 	}
 </script>
 
-<FilterPopoverFrame label="Recipe filters" onClearAll={() => onChange(clearAllRecipeFilters(filters))} {onClose}>
+<FilterPopoverFrame label="Recipe filters" onClearAll={() => onChange(recipeFilters.clearAll(filters))} {onClose}>
 	<SegmentedFilterGroup label="Source" options={sourceOptions} value={filters.source} onChange={(source: string) => set({ source })} />
 	<SegmentedFilterGroup label="Engine" options={engineOptions} value={filters.engine} onChange={(engine: string) => set({ engine })} />
 </FilterPopoverFrame>

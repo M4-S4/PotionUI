@@ -103,8 +103,7 @@ the declared values, resolves inputs from earlier pipe outputs, and injects requ
 `GPU`, `SYSTEM`, `MEMORY`, `LLM`, `MODELS`, and `ASSETS`. Enabled pipes run sequentially, with
 `pipe.before_execute` and `pipe.after_execute` hooks around each call.
 
-The old pipeline-level `cache:` key is deliberately inert and is removed by `PipelineBuilder`.
-Model reuse is owned by `ModelLifecycle` instead.
+Model reuse is owned by `ModelLifecycle`; pipes carry no `cache:` key.
 
 ## 3. What actually performs inference
 

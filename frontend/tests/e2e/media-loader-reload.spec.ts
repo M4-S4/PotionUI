@@ -1,31 +1,11 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { chunk } from './mediaFieldHelpers';
+import { presetOption } from './presetPreamble';
 
 const JOURNEY = 'media-loader-reload';
 const PRESET_ID = '01M31Y6WNM07EHAXXCDV1QVJVX';
-const SIZES = [
-	{ tag: '1440', width: 1440, height: 900 },
-	{ tag: '390', width: 390, height: 844 }
-];
-
-function crc32(buf: Buffer): number {
-	let c = ~0;
-	for (const b of buf) {
-		c ^= b;
-		for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
-	}
-	return ~c >>> 0;
-}
-
-function chunk(type: string, data: Buffer): Buffer {
-	const head = Buffer.alloc(4);
-	head.writeUInt32BE(data.length);
-	const body = Buffer.concat([Buffer.from(type), data]);
-	const tail = Buffer.alloc(4);
-	tail.writeUInt32BE(crc32(body));
-	return Buffer.concat([head, body, tail]);
-}
 
 function fixturePng(size: number): Buffer {
 	const rows: Buffer[] = [];
@@ -80,20 +60,18 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 		const sheet = page.getByRole('dialog', { name: 'Preset and session' });
 		await expect(sheet).toBeVisible();
 		await sheet.locator('button[aria-haspopup="dialog"]').first().click();
-		await page.getByText(name, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		await sheet.getByTestId('preset-header-mode').getByRole('button').first().click();
 		await page.getByRole('option', { name: /^Control/ }).first().click();
-		await page.waitForTimeout(600);
 		await page.keyboard.press('Escape');
-		await page.waitForTimeout(400);
 		if (!(await page.getByRole('dialog', { name: 'Settings' }).isVisible())) {
 			await page.getByRole('button', { name: 'Settings' }).first().click();
 		}
 	} else {
 		await page.getByRole('button', { name: 'Choose a preset' }).click();
-		await page.getByText(name, { exact: true }).first().click();
-		await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+		await presetOption(page, name).click();
+		await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 		await page.getByTestId('preset-header-mode').getByRole('button').first().click();
 		await page.getByRole('option', { name: /^Control/ }).first().click();
 	}
@@ -101,10 +79,8 @@ async function openControlTab(page: Page, mobile: boolean, name: string): Promis
 	const tab = page.getByRole('tab', { name: 'Control', exact: true }).first();
 	await expect(tab).toBeVisible({ timeout: 20000 });
 	await tab.click();
-	await page.waitForTimeout(400);
 	return root;
 }
-
 
 async function expectPreviewLoaded(page: Page) {
 	const tab = page.getByRole('tab', { name: 'Control', exact: true }).first();

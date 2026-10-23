@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-import yaml
 
 from src.platform.plugins.manifest_roots import PluginManifestRoot, plugin_manifest_roots
 
@@ -30,6 +29,7 @@ from src.features.recipes.schema import (
     parse_recipe,
     validate_recipe_dict,
 )
+from src.platform.filesystem.yaml_io import load_yaml_file
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ class RecipeCatalog:
         for path in sorted(root.glob("*.yml")):
             source_key = str(path)
             try:
-                data = yaml.safe_load(path.read_text()) or {}
+                data = load_yaml_file(path) or {}
             except Exception as exc:
                 errors[source_key] = [f"Could not parse YAML: {exc}"]
                 continue

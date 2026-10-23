@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
@@ -37,10 +38,6 @@ function deferred<T>() {
 	});
 	promise.catch(() => {});
 	return { promise, resolve, reject };
-}
-
-async function settle() {
-	for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function mountPill(tabId: string) {
@@ -108,22 +105,22 @@ describe('SessionPill save dialog while a save is in flight', () => {
 		vi.mocked(api.saveSession).mockReturnValue(pending.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 
 		mounted.openSaveAs();
-		await settle();
+		await settle(10);
 		mounted.type('First attempt');
-		await settle();
+		await settle(10);
 		mounted.clickDialog('Save');
-		await settle();
+		await settle(10);
 
 		expect(mounted.dialogButton('Cancel').disabled).toBe(true);
 		mounted.clickDialog('Cancel');
-		await settle();
+		await settle(10);
 		expect(mounted.saveDialogOpen()).toBe(true);
 
 		pending.resolve({ success: true, data: makeSession('created', 'First attempt') });
-		await settle();
+		await settle(10);
 
 		expect(mounted.saveDialogOpen()).toBe(false);
 	});
@@ -133,17 +130,17 @@ describe('SessionPill save dialog while a save is in flight', () => {
 		vi.mocked(api.saveSession).mockReturnValue(pending.promise as never);
 
 		mounted = mountPill(tabId);
-		await settle();
+		await settle(10);
 
 		mounted.openSaveAs();
-		await settle();
+		await settle(10);
 		mounted.type('First attempt');
-		await settle();
+		await settle(10);
 		mounted.clickDialog('Save');
-		await settle();
+		await settle(10);
 
 		pending.reject(new Error('server refused'));
-		await settle();
+		await settle(10);
 
 		expect(mounted.saveDialogOpen()).toBe(true);
 		expect(mounted.dialogButton('Cancel').disabled).toBe(false);

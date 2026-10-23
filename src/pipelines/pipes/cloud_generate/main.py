@@ -80,21 +80,6 @@ class CloudGeneratePipe(BasePipe):
     description = "Generates media with a model hosted by a cloud provider"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "task": "txt2img",
-            "model": "",
-            "prompts": [],
-            "negative_prompt": "",
-            "quantity": 1,
-            "params": {},
-            "options": {},
-            "roles": {},
-            "cloud": {},
-            "director": None,
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("task", str, "txt2img", "What the model is asked to do, such as txt2img or img2video"),

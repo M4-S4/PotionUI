@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Writable } from 'svelte/store';
+import { settle } from './helpers/settle';
 
 const mockGetLLMConfigurations = vi.fn();
 const mockGetPreChatActions = vi.fn();
@@ -46,10 +47,6 @@ function mount() {
 			target.remove();
 		}
 	};
-}
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function setUrl(search: string) {

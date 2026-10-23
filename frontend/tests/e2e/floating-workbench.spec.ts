@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // The floating workbench (`toggle_floating_workbench` keybinding,
 // default `w`) is a centered window above the Generation Panel (bottom-
@@ -24,21 +25,6 @@ const SIZE_TOLERANCE_PX = 8;
 // assertions for reasons that have nothing to do with the floating workbench. A taller
 // viewport keeps the window unclamped so the size math is testable.
 test.use({ viewport: { width: 1400, height: 1000 } });
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 /** The workbench's own height-slider readout ("NNNpx"), present in the DOM
  *  (if not always visually opaque) once the workbench has rendered. */
@@ -80,8 +66,8 @@ test('floating workbench opens at the docked size and resizes from its own handl
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(preset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+	await presetOption(page, preset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	const tablist = page.locator('[role="tablist"]').first();
 	await expect(tablist).toBeVisible({ timeout: 20000 });

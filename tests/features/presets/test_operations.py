@@ -163,13 +163,9 @@ class TestPresetOperationsQuery:
             {"id": "preset-2", "name": "Preset 2"},
         ]
 
-        mock_installed = [Mock(preset_id="preset-1")]
-        mock_db_repo.get_all_installed_presets.return_value = mock_installed
-        mock_db_repo.get_preset_assignment_summary.return_value = {
-            "total_assignments": 5,
-            "preset_db_id": "installed-preset-1",
+        mock_db_repo.get_installed_preset_summaries.return_value = {
+            "preset-1": ("installed-preset-1", 5, 2),
         }
-        collaborators.group_repo.get_group_count_for_preset.return_value = 2
 
         result = operations.list_presets(collaborators, admin_user, include_uninstalled=True)
 
@@ -180,7 +176,9 @@ class TestPresetOperationsQuery:
         assert result[0]["group_count"] == 2
         assert result[1]["installed"] is False
         assert "preset_db_id" not in result[1]
-        collaborators.group_repo.get_group_count_for_preset.assert_called_once_with("preset-1")
+        mock_db_repo.get_installed_preset_summaries.assert_called_once_with()
+        mock_db_repo.get_preset_assignment_summary.assert_not_called()
+        collaborators.group_repo.get_group_count_for_preset.assert_not_called()
 
     def test_list_presets_regular_user(self, collaborators, regular_user, mock_file_repo, mock_db_repo):
         """Test listing presets for regular user."""

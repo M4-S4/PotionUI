@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
+	import { formatBytes } from '$lib/utils/format';
+	import { formatTimecode } from '$lib/media/editors/timecode';
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { storage } from '$lib/utils/storage';
 	import type { AudioTrack, AudioTrackType, AudioPlayerState } from '$lib/types/audio';
 	import Waveform from './Waveform.svelte';
-	import { Alert } from '$lib/components/ui';
+	import { Alert, IconButton } from '$lib/components/ui';
 
 	const dispatch = createEventDispatcher();
 
@@ -45,8 +47,8 @@
 	$: currentTrack = tracks.find((t) => t.type === playerState.selectedTrack);
 	$: currentUrl = currentTrack?.url || currentTrack?.originalUrl || '';
 	$: hasMultipleTracks = tracks.length > 1;
-	$: formattedCurrentTime = formatTime(playerState.currentTime);
-	$: formattedDuration = formatTime(playerState.duration);
+	$: formattedCurrentTime = formatTimecode(playerState.currentTime);
+	$: formattedDuration = formatTimecode(playerState.duration);
 	$: progressPercentage = playerState.duration > 0 ? (playerState.currentTime / playerState.duration) * 100 : 0;
 	$: volumePercentage = playerState.volume * 100;
 
@@ -302,16 +304,6 @@
 		dispatch('download', { trackType: playerState.selectedTrack });
 	}
 
-	function formatTime(seconds: number): string {
-		if (!isFinite(seconds) || isNaN(seconds)) {
-			return '0:00';
-		}
-
-		const mins = Math.floor(seconds / 60);
-		const secs = Math.floor(seconds % 60);
-		return `${mins}:${secs.toString().padStart(2, '0')}`;
-	}
-
 	// Global mouse event listeners for dragging
 	onMount(() => {
 		function handleGlobalMouseMove(event: MouseEvent) {
@@ -533,22 +525,7 @@
 
 			<!-- Download button -->
 			{#if showDownload && currentTrack}
-				<button
-					type="button"
-					class="flex-shrink-0 w-8 h-8 flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-3 rounded transition-colors"
-					on:click={downloadTrack}
-					title="Download {playerState.selectedTrack} track"
-					aria-label="Download {playerState.selectedTrack} track"
-				>
-					<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-						/>
-					</svg>
-				</button>
+				<IconButton icon="download" label="Download {playerState.selectedTrack} track" size="sm" onclick={downloadTrack} class="flex-shrink-0" />
 			{/if}
 		</div>
 
@@ -565,7 +542,7 @@
 								d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
 							/>
 						</svg>
-						<span>{formatTime(currentTrack.duration)}</span>
+						<span>{formatTimecode(currentTrack.duration)}</span>
 					</div>
 				{/if}
 
@@ -607,7 +584,7 @@
 								d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
 							/>
 						</svg>
-						<span>{(currentTrack.file_size / (1024 * 1024)).toFixed(2)} MB</span>
+						<span>{formatBytes(currentTrack.file_size)}</span>
 					</div>
 				{/if}
 			</div>

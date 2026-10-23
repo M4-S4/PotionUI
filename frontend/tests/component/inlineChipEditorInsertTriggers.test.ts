@@ -75,4 +75,17 @@ describe('InlineChipEditor programmatic insert triggers', () => {
 
 		expect(target.querySelector('.choice-group-container')).not.toBeNull();
 	});
+
+	it('removes the selectionchange listener it added when destroyed', () => {
+		const added = vi.spyOn(document, 'addEventListener');
+		const removed = vi.spyOn(document, 'removeEventListener');
+		mountEditor();
+		flushSync();
+		const handlers = added.mock.calls.filter(([type]) => type === 'selectionchange').map(([, handler]) => handler);
+		expect(handlers.length).toBeGreaterThan(0);
+		component!.$destroy();
+		component = undefined;
+		const gone = removed.mock.calls.filter(([type]) => type === 'selectionchange').map(([, handler]) => handler);
+		expect(handlers.every((handler) => gone.includes(handler))).toBe(true);
+	});
 });

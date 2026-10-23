@@ -5,7 +5,8 @@ import { api } from '$lib/services/api/index';
 import type { GenerationRequest } from '$lib/services/api/index';
 import { refusalFromError } from '$lib/plans/refusal';
 import { hasAxisEditor } from '$lib/fields/registry';
-import { applyCellMessage, COMPARE_MESSAGE_TYPES, COMPARE_TERMINAL_TYPES, generationIdOf } from './compareMessages';
+import { applyCellMessage, COMPARE_MESSAGE_TYPES } from './compareMessages';
+import { TERMINAL_TYPES, generationIdOf } from '$lib/generation/messages/wire';
 import { buildAxisCandidates } from './candidates';
 import { cellCount, effectiveAxes } from './axisValues';
 import { shortfallFromError, type DailyShortfall } from './compareLimits';
@@ -72,6 +73,7 @@ function touchProgress(): void {
 }
 
 const seenConfig = new Map<string, CompareConfig | undefined>();
+const seenEstimate = new Map<string, string>();
 const reconciledKeys = new Map<string, string>();
 const generationIndex = new Map<string, { tabId: string; index: number }>();
 const runStarted = new Map<string, number>();
@@ -121,17 +123,31 @@ function normalizeConfig(raw: Partial<CompareConfig> | undefined | null): Compar
 	};
 }
 
+function trackEstimate(tab: { id: string; selectedPreset?: string | null; generation: { lastDurationMs?: number | null } }): boolean {
+	if (!configs[tab.id]?.armed) return seenEstimate.delete(tab.id);
+	const key = `${tab.selectedPreset ?? ''}|${tab.generation.lastDurationMs ?? ''}`;
+	if (seenEstimate.get(tab.id) === key) return false;
+	seenEstimate.set(tab.id, key);
+	return true;
+}
+
 tabsStore.subscribe((state) => {
 	const alive = new Set<string>();
+	let changed = false;
 	for (const tab of state.tabs) {
 		alive.add(tab.id);
-		if (seenConfig.get(tab.id) === tab.compare && seenConfig.has(tab.id)) continue;
-		seenConfig.set(tab.id, tab.compare);
-		configs[tab.id] = tab.compare ? normalizeConfig(tab.compare) : { ...EMPTY_CONFIG };
+		if (!(seenConfig.get(tab.id) === tab.compare && seenConfig.has(tab.id))) {
+			seenConfig.set(tab.id, tab.compare);
+			configs[tab.id] = tab.compare ? normalizeConfig(tab.compare) : { ...EMPTY_CONFIG };
+			changed = true;
+		}
+		if (trackEstimate(tab)) changed = true;
 	}
 	for (const id of [...seenConfig.keys()]) {
 		if (alive.has(id)) continue;
+		changed = true;
 		seenConfig.delete(id);
+		seenEstimate.delete(id);
 		delete configs[id];
 		delete liveGrids[id];
 		delete blockers[id];
@@ -141,7 +157,7 @@ tabsStore.subscribe((state) => {
 			if (entry.tabId === id) generationIndex.delete(generationId);
 		}
 	}
-	touch();
+	if (changed) touch();
 });
 
 export function getCompare(tabId: string): CompareConfig {
@@ -627,7 +643,7 @@ export function observeGenerationMessage(message: { type: string; [key: string]:
 	grid.cells[entry.index] = next;
 	if (next.status === cell.status && PROGRESS_MESSAGE_TYPES.has(message.type)) touchProgress();
 	else touch();
-	if (COMPARE_TERMINAL_TYPES.has(message.type)) {
+	if (TERMINAL_TYPES.has(message.type)) {
 		if (next.status === 'completed') rememberCellDuration(entry.tabId, generationId);
 		else runStarted.delete(generationId);
 		scheduleRefresh(entry.tabId);
@@ -642,6 +658,7 @@ export function resetCompareStoreForTests(): void {
 	runStarted.clear();
 	reconciledKeys.clear();
 	seenConfig.clear();
+	seenEstimate.clear();
 	for (const key of Object.keys(configs)) delete configs[key];
 	for (const key of Object.keys(liveGrids)) delete liveGrids[key];
 	for (const key of Object.keys(blockers)) delete blockers[key];

@@ -14,7 +14,7 @@
 	} from '$lib/organize/draft';
 	import { subjectIcon } from '$lib/organize/icons';
 	import { parseOrganizeError, problemMessage } from '$lib/organize/errors';
-	import { triggerSentence } from '$lib/organize/sentence';
+	import { awaitsTagging, triggerSentence } from '$lib/organize/sentence';
 	import type { OrganizeCatalog, OrganizeJob, OrganizePreview, OrganizeRule } from '$lib/types/organize';
 	import ActionBuilder from './ActionBuilder.svelte';
 	import ConditionBuilder from './ConditionBuilder.svelte';
@@ -152,6 +152,9 @@
 						<Icon name={subjectIcon(draft.subject)} className="w-3.5 h-3.5 text-fg-muted" />
 						{triggerSentence(draft.subject, catalog)}
 					</span>
+					{#if awaitsTagging(draft.conditions, catalog)}
+						<p class="mt-1 text-xs text-fg-subtle" data-testid="rule-trigger-note">Runs after Media Tagging finishes</p>
+					{/if}
 				</DetailSection>
 
 				<DetailSection label="If" icon="filter">

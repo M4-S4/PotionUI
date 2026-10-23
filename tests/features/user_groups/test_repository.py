@@ -296,21 +296,6 @@ class TestUserGroupRepository(PersistenceTestBase):
         self.assertIn(preset1_id, preset_ids)
         self.assertIn(preset2_id, preset_ids)
 
-    def test_get_groups_for_preset_accepts_public_and_database_ids(self):
-        """Resource lookups preserve old DB-ID callers and support public IDs."""
-        group = self.repo.create_group("Test Group")
-        preset_db_id = self.create_test_preset(
-            preset_id="preset-db-1",
-            yaml_preset_id="native/example/standard",
-        )
-        assignment = self.repo.assign_preset_to_group(group.id, preset_db_id)
-
-        by_public_id = self.repo.get_groups_for_preset("native/example/standard")
-        by_database_id = self.repo.get_groups_for_preset(preset_db_id)
-
-        self.assertEqual([item.id for item in by_public_id], [assignment.id])
-        self.assertEqual([item.id for item in by_database_id], [assignment.id])
-
     def test_unknown_preset_ids_are_safe_noops(self):
         """Missing presets cannot create dangling group relationships."""
         group = self.repo.create_group("Test Group")
@@ -321,7 +306,6 @@ class TestUserGroupRepository(PersistenceTestBase):
         self.assertFalse(
             self.repo.unassign_preset_from_group(group.id, "missing-preset")
         )
-        self.assertEqual(self.repo.get_groups_for_preset("missing-preset"), [])
         self.assertEqual(
             self.repo.get_group_count_for_preset("missing-preset"),
             0,

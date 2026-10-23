@@ -89,7 +89,8 @@ export interface CancelRetirementDeps {
 export function applyConfirmedCancellations(
 	tabsStore: CancelRetirementTabsStore,
 	targetTabId: string,
-	confirmedIds: Iterable<string>
+	confirmedIds: Iterable<string>,
+	cancelNotice: string | null = null
 ): void {
 	const ids = confirmedIds instanceof Set ? confirmedIds : new Set(confirmedIds);
 	if (ids.size === 0) return;
@@ -104,7 +105,12 @@ export function applyConfirmedCancellations(
 			...tab.generation,
 			queue: (tab.generation.queue || []).filter((q) => !ids.has(q.generation_id)),
 			...(activeCancelled
-				? { isGenerating: false, currentGeneration: null, currentProgress: null }
+				? {
+						isGenerating: false,
+						currentGeneration: null,
+						currentProgress: null,
+						...(cancelNotice ? { cancelNotice } : {})
+					}
 				: {})
 		}
 	});

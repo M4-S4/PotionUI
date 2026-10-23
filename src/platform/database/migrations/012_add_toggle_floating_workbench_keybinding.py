@@ -31,14 +31,3 @@ def up():
         f"Migration 012_add_toggle_floating_workbench_keybinding: seeded "
         f"'{_ACTION_ID}' default keybinding"
     )
-
-
-def down():
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "DELETE FROM keybinding_defaults WHERE id = ?", (_ACTION_ID,)
-        )
-    print(
-        f"Migration 012_add_toggle_floating_workbench_keybinding: removed "
-        f"'{_ACTION_ID}' default keybinding"
-    )

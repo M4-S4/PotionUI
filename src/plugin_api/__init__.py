@@ -131,6 +131,7 @@ from src.plugin_api.pipes import (
     PipeInputSpec,
     PipeOutput,
     PipeOutputSpec,
+    ModelFileGenerationOutput,
     Progress,
     ProgressGenerationOutput,
     SerializeContext,
@@ -186,6 +187,7 @@ from src.plugin_api.storage import (
     SettingRepository,
     Settings,
     generate_ulid,
+    plugin_settings,
 )
 
 # Contributing an automation node.
@@ -253,6 +255,7 @@ from src.plugin_api.limits import (
 
 # Queueing downloads and following them.
 from src.plugin_api.downloads import (
+    DownloadDestinationInvalid,
     DownloadNotFoundException,
     DownloadQueueException,
     UnsafeFilenameException,
@@ -294,6 +297,7 @@ from src.plugin_api.models import (
     MODEL_DIRECTORY_ALIASES,
     InvalidModelMetadataException,
     ModelAssignmentException,
+    ModelFileUnavailable,
     ModelNotFoundException,
     ProviderFetchException,
     WellKnownModelMetadataField,
@@ -343,6 +347,7 @@ __all__ = [
     "Usage",
     "limit_status",
     # Downloads
+    "DownloadDestinationInvalid",
     "DownloadNotFoundException",
     "DownloadQueueException",
     "UnsafeFilenameException",
@@ -450,6 +455,7 @@ __all__ = [
     "ProgressGenerationOutput",
     "SerializeContext",
     "SplatGenerationOutput",
+    "ModelFileGenerationOutput",
     "TextArtifactAction",
     "TextGenerationOutput",
     "VideoGenerationOutput",
@@ -500,6 +506,7 @@ __all__ = [
     "Settings",
     "db",
     "generate_ulid",
+    "plugin_settings",
     # Automation nodes
     "NodeExecutionContext",
     "NodeField",
@@ -558,6 +565,7 @@ __all__ = [
     "run_provider_fetch",
     "InvalidModelMetadataException",
     "ModelAssignmentException",
+    "ModelFileUnavailable",
     "ModelNotFoundException",
     "ProviderFetchException",
     "SetupCheck",

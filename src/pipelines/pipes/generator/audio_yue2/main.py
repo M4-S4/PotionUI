@@ -2,22 +2,20 @@
 
 from __future__ import annotations
 
-import tempfile
 from dataclasses import dataclass, replace
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-import torch
 
-from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutput, PipeOutputSpec, PipeConfigSpec
+from src.pipelines.contracts import IOType, PipeInput, PipeInputSpec, PipeOutputSpec, PipeConfigSpec
 from src.pipelines.outputs import (
     AudioGenerationOutput, GalleryGenerationOutput, TextArtifactAction, TextGenerationOutput,
 )
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
+from src.pipelines.pipes._shared.generation.audio_output import release_lm, write_wav
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter
-from src.pipelines.pipes._shared.generation.seed_plan import plan_seeds
 from src.platform.runtime.native.arch.yue2 import ar_loop, nar, protocol
 from src.platform.runtime.native.errors import SamplingCancelled
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec, seed_config_spec
 
 VAE_DECODE_CHUNK_LATENTS = 192
 VAE_DECODE_OVERLAP_LATENTS = 64
@@ -62,24 +60,6 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
     description = "Native YuE2-3B text-to-music generator"
 
     @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "style": "",
-            "lyrics": "",
-            "cot": "off",
-            "abc": "",
-            "duration": 0.0,
-            "seed": -1,
-            "cfg_scale": None,
-            "nar_steps": 32,
-            "temperature": protocol.SEMANTIC_SAMPLING_DEFAULTS.temperature,
-            "top_p": protocol.SEMANTIC_SAMPLING_DEFAULTS.top_p,
-            "top_k": protocol.SEMANTIC_SAMPLING_DEFAULTS.top_k,
-            "repetition_penalty": protocol.SEMANTIC_SAMPLING_DEFAULTS.repetition_penalty,
-            "device": "cuda",
-        }
-
-    @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
         return [
             PipeConfigSpec("style", str, "", "The song's style -- genre/mood/instrumentation/vocals, "
@@ -98,7 +78,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                 f"actual length. 0 = auto (run to the model's own stop token). Hard cap {MAX_DURATION:.0f}s",
                 required=False, min_value=0.0, max_value=MAX_DURATION,
             ),
-            PipeConfigSpec("seed", int, -1, "Random seed", required=False, min_value=-1),
+            seed_config_spec(),
             PipeConfigSpec("cfg_scale", float, None,
                            "Classifier-free guidance for the semantic (codec) AR stage. "
                            "None or 0 = auto: 1.01 when cot='off', 1.0 otherwise",
@@ -113,7 +93,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
                            "Semantic-stage top-k restriction", required=False, min_value=1, max_value=1024),
             PipeConfigSpec("repetition_penalty", float, protocol.SEMANTIC_SAMPLING_DEFAULTS.repetition_penalty,
                            "Semantic-stage repetition penalty", required=False, min_value=0.01, max_value=2.0),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
+            device_config_spec(),
         ]
 
     @classmethod
@@ -159,6 +139,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
         ]
 
     def build_context(self, pipe_input: PipeInput) -> GeneratorContext:
+        self._models = pipe_input.input.get("MODELS")
         bundle = pipe_input.input["model"]
         if bundle.spec.family != "yue2":
             raise ValueError(
@@ -196,7 +177,6 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
 
     def generate_one(
         self, ctx: GeneratorContext, index: int, seed: int, progress: ProgressEmitter,
-        is_cancelled: Optional[callable] = None,
     ) -> AudioGenerationOutput:
         c: _YuE2Ctx = ctx.extra
         bundle = c.bundle
@@ -217,7 +197,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
         )
 
         def cancelled() -> bool:
-            return bool(is_cancelled and is_cancelled())
+            return bool(ctx.is_cancelled())
 
         ar_last_emit = -_AR_PROGRESS_MIN_INTERVAL
 
@@ -300,10 +280,10 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
         finally:
             lm_model.offload()
 
-        self._release_lm(bundle, models)
+        release_lm(bundle, models)
         del lm_model
 
-        if is_cancelled and is_cancelled():
+        if ctx.is_cancelled():
             raise SamplingCancelled()
 
         vae_model = bundle.vae
@@ -315,7 +295,7 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
             vae_model.offload()
 
         sample_rate = int(vae_model.module.sample_rate)
-        audio_path = self._write_wav(waveform, sample_rate)
+        audio_path = write_wav(waveform, sample_rate)
         duration_seconds = len(codec_ids) / FPS
 
         return AudioGenerationOutput(
@@ -334,53 +314,8 @@ class GeneratorAudioYuE2Pipe(BaseGeneratorPipe):
             action=TextArtifactAction(label="Use as ABC", field="abc", values={"cot": cot}),
         ))
 
-    @staticmethod
-    def _release_lm(bundle: Any, models: Any) -> None:
-        key = getattr(bundle, "lm_cache_key", None)
-        if not key or models is None:
-            return
-        evict = getattr(models, "evict_dead_weight", None)
-        if callable(evict):
-            evict(key)
-
-    @staticmethod
-    def _write_wav(waveform: torch.Tensor, sample_rate: int) -> Path:
-        """The first item of a `(B, 2, T)` float32 batch, as a .wav on disk."""
-        import numpy as np
-        import soundfile as sf
-
-        samples = waveform[0].detach().to(device="cpu", dtype=torch.float32).clamp(-1.0, 1.0).numpy()
-        samples = np.ascontiguousarray(samples.T)
-        out_path = Path(tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name)
-        sf.write(str(out_path), samples, sample_rate)
-        return out_path
-
     def emit_results(self, generation_outputs: callable, results: List[Any], used_seeds: List[int]) -> None:
         generation_outputs(GalleryGenerationOutput(images=[], audios=list(results)))
 
     def build_output(self, results: List[Any]) -> Dict[str, Any]:
         return {"audio": [r.audio_path for r in results]}
-
-    def process(
-        self, pipe_input: PipeInput, generation_outputs: callable,
-        is_cancelled: Optional[callable] = None,
-    ) -> PipeOutput:
-        ctx = self.build_context(pipe_input)
-        self._models = pipe_input.input.get("MODELS")
-        seeds = plan_seeds(ctx.input_seeds, int(self.config.get("seed", -1)), ctx.quantity)
-        progress = ProgressEmitter(generation_outputs, title=self.name)
-
-        results: List[Any] = []
-        used_seeds: List[int] = []
-        try:
-            for i, seed in enumerate(seeds):
-                if is_cancelled and is_cancelled():
-                    break
-                results.append(self.generate_one(ctx, i, seed, progress, is_cancelled))
-                used_seeds.append(seed)
-        except Exception:
-            self._release_gpu_on_error(ctx)
-            raise
-
-        self.emit_results(generation_outputs, results, used_seeds)
-        return PipeOutput(output=self.build_output(results))

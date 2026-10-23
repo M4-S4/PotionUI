@@ -17,12 +17,43 @@ from safetensors import safe_open
 from safetensors.torch import load_file
 
 from src.platform.runtime.model_headers.signatures import detect_denoiser_prefix
+from vendor.gpl.comfyui.ops import _extract_convrot_config, _parse_comfy_quant
 
 from ..errors import NativeEngineUnsupportedError
 
 logger = logging.getLogger(__name__)
 
 _SAFETENSORS_SUFFIXES = {".safetensors", ".sft"}
+_DESCRIPTOR_SUFFIX = ".comfy_quant"
+CONVROT_W4A4 = "convrot_w4a4"
+
+
+def unpack_int4(packed: torch.Tensor) -> torch.Tensor:
+    nibbles = packed.view(torch.uint8).to(torch.int16)
+    codes = torch.stack((nibbles & 0x0F, nibbles >> 4), dim=-1).reshape(*packed.shape[:-1], packed.shape[-1] * 2)
+    return (codes - ((codes & 0x08) << 1)).to(torch.int8)
+
+
+def _int8_convrot_descriptor(groupsize: int) -> torch.Tensor:
+    raw = json.dumps({"format": "int8_tensorwise", "convrot": True, "convrot_groupsize": groupsize})
+    return torch.tensor(list(raw.encode("utf-8")), dtype=torch.uint8)
+
+
+def expand_int4_layers(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    for key in [k for k in state_dict if k.endswith(_DESCRIPTOR_SUFFIX)]:
+        conf = _parse_comfy_quant(state_dict[key])
+        if conf is None or conf.get("format") != CONVROT_W4A4:
+            continue
+        base = key[: -len(_DESCRIPTOR_SUFFIX)]
+        weight = state_dict.get(base + ".weight")
+        scale = state_dict.get(base + ".weight_scale")
+        if weight is None or scale is None:
+            raise NativeEngineUnsupportedError(f"int4 layer '{base}' is missing its weight or weight_scale")
+        _, groupsize = _extract_convrot_config(conf, base)
+        state_dict[base + ".weight"] = unpack_int4(weight)
+        state_dict[base + ".weight_scale"] = scale.to(torch.float32).reshape(-1, 1)
+        state_dict[key] = _int8_convrot_descriptor(groupsize)
+    return state_dict
 
 
 def _require_safetensors(path: str | Path) -> Path:
@@ -64,7 +95,7 @@ def load_torch_file(
 
     device_str = str(device)
     logger.debug("loading safetensors %s onto %s", path.name, device_str)
-    state_dict = load_file(str(path), device=device_str)
+    state_dict = expand_int4_layers(load_file(str(path), device=device_str))
     metadata = _read_metadata(path)
     return state_dict, metadata
 
@@ -100,7 +131,7 @@ def load_torch_file_prefixed(
         keys = list(f.keys())
         matched = [k for k in keys if k.startswith(prefix)]
         wanted = matched if matched else keys
-        state_dict = {k: f.get_tensor(k) for k in wanted}
+        state_dict = expand_int4_layers({k: f.get_tensor(k) for k in wanted})
     metadata = _read_metadata(path)
     return state_dict, metadata
 
@@ -114,5 +145,5 @@ def load_torch_file_stripped(
     with safe_open(str(path), framework="pt", device=str(device)) as f:
         keys = list(f.keys())
         prefix = detect_denoiser_prefix(keys) or ""
-        state_dict = {k[len(prefix):]: f.get_tensor(k) for k in keys if k.startswith(prefix)}
+        state_dict = expand_int4_layers({k[len(prefix):]: f.get_tensor(k) for k in keys if k.startswith(prefix)})
     return state_dict, _read_metadata(path)

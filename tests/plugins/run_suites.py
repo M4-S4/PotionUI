@@ -13,6 +13,7 @@ Usage: run_suites.py [pytest-args...]
 Any arguments are forwarded verbatim to each per-plugin pytest invocation.
 """
 
+import os
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,6 +22,27 @@ from typing import List, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 MARKETPLACE_ROOT = REPO_ROOT / "content" / "plugins" / "marketplace"
+WORKERS_ENV = "POTIONUI_PLUGIN_SUITE_WORKERS"
+
+
+def _suite_size(test_dir: Path) -> int:
+    return sum(1 for _ in test_dir.rglob("test_*.py"))
+
+
+def _order_big_first(test_dirs: List[Path]) -> List[Path]:
+    return sorted(test_dirs, key=lambda d: (-_suite_size(d), d.parent.name))
+
+
+def _worker_count(suite_count: int) -> int:
+    raw = os.environ.get(WORKERS_ENV, "").strip()
+    if raw:
+        try:
+            requested = int(raw)
+        except ValueError:
+            requested = 0
+        if requested > 0:
+            return min(suite_count, requested)
+    return max(1, min(suite_count, os.cpu_count() or 1))
 
 
 def _run_one(test_dir: Path, pytest_args: List[str]) -> Tuple[str, int, str]:
@@ -36,14 +58,16 @@ def _run_one(test_dir: Path, pytest_args: List[str]) -> Tuple[str, int, str]:
 
 def main() -> int:
     pytest_args = sys.argv[1:]
-    test_dirs = sorted(p for p in MARKETPLACE_ROOT.glob("*/tests") if p.is_dir())
+    test_dirs = _order_big_first(
+        [p for p in MARKETPLACE_ROOT.glob("*/tests") if p.is_dir()]
+    )
 
     if not test_dirs:
         print("No marketplace plugin test directories found; nothing to run.")
         return 0
 
     failed = []
-    with ThreadPoolExecutor(max_workers=len(test_dirs)) as pool:
+    with ThreadPoolExecutor(max_workers=_worker_count(len(test_dirs))) as pool:
         futures = {
             pool.submit(_run_one, test_dir, pytest_args): test_dir
             for test_dir in test_dirs

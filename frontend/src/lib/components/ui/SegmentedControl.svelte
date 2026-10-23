@@ -70,7 +70,7 @@
 				{/if}
 				{item.label}
 				{#if item.count !== undefined}
-					<span class="font-mono text-2xs opacity-70">{item.count}</span>
+					<span class="font-mono text-sm opacity-70">{item.count}</span>
 				{/if}
 			</button>
 		{/each}

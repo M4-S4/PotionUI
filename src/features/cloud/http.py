@@ -20,6 +20,7 @@ from src.features.cloud.contracts import CloudBackendConfig, CloudError, CloudPr
 from src.features.cloud.rate_limit import TokenBucket
 from src.features.cloud.redaction import is_sensitive_name, redact_headers, redact_url, scrub_text, secret_fragments
 from src.platform.database.rows import now_utc
+from src.platform.http.targets import DEFAULT_PORTS, is_public_address, origin_of
 from src.platform.http.tls import aiohttp_connector, certificate_failure_message, is_certificate_error
 
 logger = logging.getLogger(__name__)
@@ -32,20 +33,28 @@ _DETAIL_LIMIT = 500
 _CHUNK = 65536
 RETRY_AFTER_CAP_S = 300.0
 _ABSOLUTE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
-_DEFAULT_PORTS = {"http": 80, "https": 443}
 
 _INVALID_REQUEST = frozenset({400, 404, 405, 409, 413, 415, 422})
 
 _USER_MESSAGES = {
-    "auth": "The provider rejected the API key. Check it in Administration, Backends.",
-    "credits": "The provider account is out of credits.",
-    "refused": "The provider refused this request.",
-    "timeout": "The provider took too long to answer.",
-    "rate_limited": "The provider is rate limiting requests. Try again shortly.",
-    "unavailable": "The provider is temporarily unavailable.",
-    "invalid_request": "The provider rejected the request parameters.",
-    "failed": "The provider could not complete the request.",
+    "auth": "{who} rejected the API key. Check it in Administration, Backends.",
+    "credits": "The {name} account is out of credits.",
+    "refused": "{who} refused this request.",
+    "timeout": "{who} took too long to answer.",
+    "rate_limited": "{who} is rate limiting requests. Try again shortly.",
+    "unavailable": "{who} is having trouble at the moment. Try again shortly.",
+    "invalid_request": "{who} rejected the request settings.",
+    "failed": "{who} could not complete the request.",
 }
+
+
+def user_message(kind: str, brand: str = "", credits_hint: str = "") -> str:
+    text = _USER_MESSAGES[kind].format(who=brand or "The provider", name=brand or "provider")
+    if brand and kind == "refused":
+        text += " The key may not be allowed to use this model."
+    if credits_hint and kind == "credits":
+        text += f" {credits_hint}"
+    return text
 
 
 @dataclass(frozen=True)
@@ -103,7 +112,9 @@ def _body_message(body: Any) -> str:
     return str(body)
 
 
-def default_error_mapper(status: int, headers: Mapping[str, str], body: Any) -> Optional[CloudError]:
+def default_error_mapper(
+    status: int, headers: Mapping[str, str], body: Any, brand: str = "", credits_hint: str = ""
+) -> Optional[CloudError]:
     if status < 400:
         return None
     retry_after = parse_retry_after(headers.get("retry-after"))
@@ -124,13 +135,7 @@ def default_error_mapper(status: int, headers: Mapping[str, str], body: Any) -> 
     else:
         kind = "failed"
     detail = f"HTTP {status}: {_body_message(body)}"[:_DETAIL_LIMIT]
-    return CloudError(kind, _USER_MESSAGES[kind], detail=detail, retry_after_s=retry_after)
-
-
-def _origin(url: str) -> tuple[str, str, int]:
-    parts = urlsplit(url)
-    scheme = parts.scheme.lower()
-    return scheme, (parts.hostname or "").lower(), parts.port or _DEFAULT_PORTS.get(scheme, 0)
+    return CloudError(kind, user_message(kind, brand, credits_hint), detail=detail, retry_after_s=retry_after)
 
 
 class CloudHttp:
@@ -149,7 +154,7 @@ class CloudHttp:
         allow_private_targets: bool = False,
     ) -> None:
         self._base_url = base_url.rstrip("/")
-        self._origin = _origin(self._base_url)
+        self._origin = origin_of(self._base_url)
         self._auth_headers = dict(auth_headers or {})
         self._secrets = secret_fragments(self._auth_headers.values())
         self._timeout_s = timeout_s
@@ -184,7 +189,7 @@ class CloudHttp:
         self._error_mapper = mapper
 
     def owns_url(self, url: str) -> bool:
-        return _origin(url) == self._origin
+        return origin_of(url) == self._origin
 
     def pause(self, seconds: float) -> None:
         self._bucket.pause(seconds)
@@ -363,7 +368,7 @@ class CloudHttp:
                             location = response.headers.get("Location")
                             hops += 1
                             if not location or hops > self._max_redirects:
-                                raise CloudError("failed", _USER_MESSAGES["failed"], detail=f"bad redirect from {redact_url(url)}")
+                                raise CloudError("failed", user_message("failed"), detail=f"bad redirect from {redact_url(url)}")
                             url = urljoin(url, location)
                             continue
                         logger.debug("cloud response %s %s -> %s", method, redact_url(url), status)
@@ -374,7 +379,7 @@ class CloudHttp:
                 raise
             except asyncio.TimeoutError as error:
                 raise CloudError(
-                    "timeout", _USER_MESSAGES["timeout"], detail=scrub_text(f"timed out: {method} {redact_url(url)}", secrets)
+                    "timeout", user_message("timeout"), detail=scrub_text(f"timed out: {method} {redact_url(url)}", secrets)
                 ) from error
             except aiohttp.ClientError as error:
                 host = urlsplit(url).hostname or url
@@ -407,7 +412,7 @@ class CloudHttp:
         if error is None:
             error = default_error_mapper(response.status, headers, body)
         if error is None:
-            error = CloudError("failed", _USER_MESSAGES["failed"], detail=f"HTTP {response.status}")
+            error = CloudError("failed", user_message("failed"), detail=f"HTTP {response.status}")
         error.detail = scrub_text(error.detail, secrets)[:_DETAIL_LIMIT]
         error.user_message = scrub_text(error.user_message, secrets)
         error.args = (error.user_message,)
@@ -444,14 +449,6 @@ async def _read_limited(response: aiohttp.ClientResponse, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-def _is_public(address: str) -> bool:
-    ip = ipaddress.ip_address(address.split("%", 1)[0])
-    mapped = getattr(ip, "ipv4_mapped", None)
-    if mapped is not None:
-        ip = mapped
-    return not (ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_unspecified or ip.is_multicast or ip.is_reserved)
-
-
 def _refused_target(host: str) -> CloudError:
     return CloudError(
         "failed",
@@ -476,14 +473,14 @@ async def _ensure_public_target(url: str) -> None:
     except ValueError:
         pass
     else:
-        if not _is_public(host):
+        if not is_public_address(host):
             raise _refused_target(host)
         return
-    port = parts.port or _DEFAULT_PORTS.get(parts.scheme.lower(), 0)
+    port = parts.port or DEFAULT_PORTS.get(parts.scheme.lower(), 0)
     try:
         infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except OSError:
         return
     for info in infos:
-        if not _is_public(info[4][0]):
+        if not is_public_address(info[4][0]):
             raise _refused_target(host)

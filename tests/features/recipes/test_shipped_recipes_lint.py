@@ -23,7 +23,7 @@ import yaml
 
 from scripts import recipe_lint
 from src.features.recipes.catalog import plugin_recipe_roots
-from src.features.recipes.executors._fixture_form import fixture_video_director_capabilities
+from src.features.presets.fixture_form import fixture_video_director_capabilities
 from src.features.recipes.schema import DEFAULT_SMOKE_TIMEOUT_SECONDS, parse_recipe
 from src.platform.plugins.loader import PluginLoader
 

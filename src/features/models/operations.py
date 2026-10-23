@@ -21,13 +21,18 @@ from typing import Any, Dict, List, Optional
 
 from src.features.models.catalog import ListModelsParams
 from src.features.models.collaborators import ModelIndexCollaborators
-from src.features.models.exceptions import ModelAccessDeniedException, ModelNotFoundException
+from src.features.models.exceptions import (
+    ModelAccessDeniedException,
+    ModelDigestUnavailableException,
+    ModelNotFoundException,
+)
 from src.platform.security.user import User
 
 __all__ = [
     "list_models", "get_model_availability", "get_model_stats", "get_model_types",
     "get_model_by_hash", "get_model_by_id", "get_model_generations",
-    "start_indexing", "cancel_and_restart_indexing", "get_indexing_status",
+    "start_indexing", "rescan_indexing", "update_indexing_settings", "get_indexing_status",
+    "pause_indexing", "resume_indexing", "list_pending_digests", "queue_digests", "request_model_digest",
     "cleanup_deleted_models", "count_unindexed",
     "delete_model", "update_model_tags", "update_model_description",
     "update_model_prompting_guidance", "update_model_metadata", "update_model_preview",
@@ -90,10 +95,66 @@ def start_indexing(collaborators: ModelIndexCollaborators, trigger: str = "manua
     return collaborators.indexing.start_indexing(trigger=trigger)
 
 
-def cancel_and_restart_indexing(
+def rescan_indexing(
     collaborators: ModelIndexCollaborators, trigger: str = "location_change"
 ) -> Dict[str, Any]:
-    return collaborators.indexing.cancel_and_restart(trigger)
+    return collaborators.indexing.rescan(trigger)
+
+
+def update_indexing_settings(
+    collaborators: ModelIndexCollaborators, level: Optional[str] = None, policy: Optional[str] = None
+) -> Dict[str, Any]:
+    return collaborators.indexing.update_settings(level=level, policy=policy)
+
+
+def pause_indexing(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
+    collaborators.digests.pause()
+    return collaborators.digests.status()
+
+
+def resume_indexing(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
+    collaborators.digests.resume()
+    return collaborators.digests.status()
+
+
+def list_pending_digests(
+    collaborators: ModelIndexCollaborators,
+    query: str = "",
+    model_type: Optional[str] = None,
+    root_id: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> Dict[str, Any]:
+    return collaborators.digests.list_pending(query, model_type, root_id, offset, limit)
+
+
+def queue_digests(
+    collaborators: ModelIndexCollaborators,
+    mode: str,
+    model_ids: Optional[List[str]] = None,
+    query: Optional[str] = None,
+    model_type: Optional[str] = None,
+    exclude_model_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    digests = collaborators.digests
+    if mode == "all":
+        queued = digests.queue_all()
+    elif mode == "selected":
+        queued = digests.queue_models(model_ids or [])
+    else:
+        queued = digests.queue_matching(query or "", model_type, exclude_model_ids)
+    return {"queued": queued, "digests": digests.status()}
+
+
+def request_model_digest(
+    collaborators: ModelIndexCollaborators, model_id: str, retry: bool = False
+) -> Dict[str, Any]:
+    result = collaborators.digests.request_digest(model_id, retry)
+    if result["state"] == "missing":
+        raise ModelNotFoundException(f"Model '{model_id}' not found")
+    if result["state"] == "unavailable":
+        raise ModelDigestUnavailableException("This model has no readable file to read a content hash from")
+    return result
 
 
 async def get_indexing_status(collaborators: ModelIndexCollaborators) -> Dict[str, Any]:
@@ -119,8 +180,9 @@ def update_model_tags(collaborators: ModelIndexCollaborators, model_id: str, tag
 
 
 def set_model_type(collaborators: ModelIndexCollaborators, model_id: str, model_type: str, user_id: Optional[str]) -> Dict[str, Any]:
-    collaborators.types.set_admin_type(model_id, model_type, user_id)
-    return collaborators.catalog.get_model_by_id(model_id, admin=True)
+    pending = collaborators.types.set_admin_type(model_id, model_type, user_id)
+    data = collaborators.catalog.get_model_by_id(model_id, admin=True)
+    return {**data, "digest_pending": pending} if pending is not None else data
 
 
 def reset_model_type(collaborators: ModelIndexCollaborators, model_id: str) -> Dict[str, Any]:

@@ -7,17 +7,14 @@ from src.features.generation.history_query import GenerationHistoryQuery
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
 from tests.features.generation.grids.conftest import axis, base_request
+from tests.fixtures.seed import seed_user
 
 
 class History:
     def __init__(self, db):
         self.db = db
         for user_id in ("u1", "u2"):
-            with db.get_cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, 'x', 'USER')",
-                    (user_id, user_id, f"{user_id}@example.test"),
-                )
+            seed_user(db, user_id)
         self.repo = GenerationRepository()
         self.grids = GridRepository()
         self.query = GenerationHistoryQuery(generation_repo=self.repo)

@@ -3,6 +3,7 @@ import {
 	optionText,
 	optionWhen,
 	dependencies,
+	isNumberRangeValid,
 	type ChoiceVariableDef,
 	type ChoiceVariableMode,
 	type VariableDef,
@@ -10,7 +11,8 @@ import {
 	type VariableOptionWhen,
 	type VariablesMap
 } from './variableDefs';
-import { isValidVariableName, extractVariableUsages } from './promptVariables';
+import { isValidVariableName } from './promptVariables';
+import { dedupeVariableNames, findNameCollision } from './variableNames';
 
 const MAX_NAME_CHARS = 60;
 
@@ -40,6 +42,10 @@ export function serializeVariables(variables: VariablesMap): string {
 			out[name] = { type: 'text', value: def.value };
 			continue;
 		}
+		if (def.type === 'number') {
+			out[name] = { type: 'number', mode: def.mode, min: def.min, max: def.max, step: def.step, value: def.value };
+			continue;
+		}
 		const { options, pinnedIndex } = dropBlankOptions(def);
 		out[name] = { type: 'choice', mode: def.mode, pinnedIndex, options };
 	}
@@ -55,6 +61,7 @@ export interface ParsedVariablesImport {
 	variables: VariablesMap;
 	summary: VariablesImportSummary;
 	errors: string[];
+	notes: string[];
 }
 
 function parseOptionShape(name: string, rawOpt: unknown, errors: string[]): VariableOption | null | undefined {
@@ -104,6 +111,23 @@ function parseDefShape(name: string, rawDef: unknown, errors: string[]): Variabl
 			return null;
 		}
 		return { type: 'text', value: obj.value };
+	}
+
+	if (obj.type === 'number') {
+		const { min, max, step } = obj;
+		if (typeof min !== 'number' || typeof max !== 'number' || typeof step !== 'number') {
+			errors.push(`'${name}': a number variable needs numeric min, max and step.`);
+			return null;
+		}
+		const value = typeof obj.value === 'number' && Number.isFinite(obj.value) ? obj.value : min;
+		if (!isNumberRangeValid({ min, max, step, value })) {
+			errors.push(
+				`'${name}': a number variable needs step above 0 with at most 6 decimal places, max at or above min, min no finer than the step, at most 200 values, and numbers below 1 trillion with at most 12 digits.`
+			);
+			return null;
+		}
+		const mode: ChoiceVariableMode = obj.mode === 'pin' || obj.mode === 'per-image' ? obj.mode : 'shuffle';
+		return { type: 'number', mode, min, max, step, value };
 	}
 
 	if (obj.type === 'choice') {
@@ -184,7 +208,8 @@ function validateCondition(
 
 export function parseVariablesImport(text: string, existing: VariablesMap = {}): ParsedVariablesImport {
 	const errors: string[] = [];
-	const empty: ParsedVariablesImport = { variables: {}, summary: { variables: 0, conditions: 0 }, errors };
+	const notes: string[] = [];
+	const empty: ParsedVariablesImport = { variables: {}, summary: { variables: 0, conditions: 0 }, errors, notes };
 
 	let parsed: unknown;
 	try {
@@ -203,6 +228,11 @@ export function parseVariablesImport(text: string, existing: VariablesMap = {}):
 	const draft: VariablesMap = {};
 
 	for (const name of Object.keys(raw)) {
+		const twin = findNameCollision(draft, name);
+		if (twin !== null) {
+			notes.push(`'${name}' was skipped: it has the same name as '${twin}' (names are not case-sensitive).`);
+			continue;
+		}
 		if (!isValidVariableName(name) || name.length > MAX_NAME_CHARS) {
 			errors.push(
 				`'${name}' is not a valid variable name. Use letters, digits, and underscores, starting with a letter or underscore, up to ${MAX_NAME_CHARS} characters.`
@@ -218,7 +248,7 @@ export function parseVariablesImport(text: string, existing: VariablesMap = {}):
 
 	for (const name of Object.keys(draft)) {
 		const def = draft[name] as VariableDef;
-		if (def.type === 'text') {
+		if (def.type !== 'choice') {
 			variables[name] = def;
 			continue;
 		}
@@ -241,7 +271,7 @@ export function parseVariablesImport(text: string, existing: VariablesMap = {}):
 		variables[name] = { ...def, options: validatedOptions };
 	}
 
-	return { variables, summary: summarizeVariables(variables), errors };
+	return { variables, summary: summarizeVariables(variables), errors, notes };
 }
 
 export function summarizeVariables(variables: VariablesMap): VariablesImportSummary {
@@ -253,28 +283,81 @@ export function summarizeVariables(variables: VariablesMap): VariablesImportSumm
 	return { variables: Object.keys(variables).length, conditions };
 }
 
-/** Names `text` references via `${name}`, plus their transitive `when`
- *  dependencies, restricted to names actually present in `variables` -- the
- *  subset a saved Prompt should carry so an imported `$dance` conditioned on
- *  `$music` brings `$music` along with it. */
-export function selectReferencedVariables(text: string, variables: VariablesMap): VariablesMap {
-	const used = extractVariableUsages(text).filter((name) => name in variables);
-	const names = new Set(used);
-	for (const name of used) {
-		for (const dep of dependencies(name, variables, true)) {
-			if (dep in variables) names.add(dep);
-		}
+export interface VariableRemap {
+	from: string;
+	to: string;
+}
+
+export interface VariablesMergeResult {
+	variables: VariablesMap;
+	remapped: VariableRemap[];
+}
+
+export function mergeVariablesDetailed(
+	existing: VariablesMap,
+	imported: VariablesMap,
+	rule: 'keep' | 'replace'
+): VariablesMergeResult {
+	const merged: VariablesMap = { ...existing };
+	const { variables: unique } = dedupeVariableNames(imported);
+	const remapped: VariableRemap[] = [];
+	const note = (from: string, to: string) => {
+		if (!remapped.some((r) => r.from === from && r.to === to)) remapped.push({ from, to });
+	};
+	const written: string[] = [];
+	for (const name of Object.keys(unique)) {
+		const target = findNameCollision(merged, name) ?? name;
+		if (rule === 'keep' && target in merged) continue;
+		if (target !== name) note(name, target);
+		merged[target] = unique[name];
+		written.push(target);
 	}
-	const out: VariablesMap = {};
-	for (const name of names) out[name] = variables[name];
-	return out;
+	for (const target of written) {
+		const def = merged[target];
+		if (typeof def === 'string' || def.type !== 'choice') continue;
+		let changed = false;
+		const options = def.options.map((option) => {
+			const when = typeof option === 'string' ? undefined : option.when;
+			if (!when || when.var in merged) return option;
+			const to = findNameCollision(merged, when.var);
+			if (!to) return option;
+			note(when.var, to);
+			changed = true;
+			return { ...(option as { text: string }), when: { ...when, var: to } };
+		});
+		if (changed) merged[target] = { ...def, options };
+	}
+	return { variables: merged, remapped };
 }
 
 export function mergeVariables(existing: VariablesMap, imported: VariablesMap, rule: 'keep' | 'replace'): VariablesMap {
-	const merged: VariablesMap = { ...existing };
-	for (const name of Object.keys(imported)) {
-		if (rule === 'keep' && name in merged) continue;
-		merged[name] = imported[name];
+	return mergeVariablesDetailed(existing, imported, rule).variables;
+}
+
+export function remapNote(remap: VariableRemap): string {
+	return `$${remap.from} → $${remap.to}`;
+}
+
+export interface LibraryImportOutcome {
+	variables: VariablesMap;
+	importedCount: number;
+	successMessage: string;
+	warningMessage: string | null;
+}
+
+export function libraryImportOutcome(existing: VariablesMap, imported: VariablesMap): LibraryImportOutcome {
+	const { dropped } = dedupeVariableNames(imported);
+	const { variables, remapped } = mergeVariablesDetailed(existing, imported, 'replace');
+	const importedCount = Object.keys(imported).length - dropped.length;
+	const parts: string[] = [];
+	if (dropped.length > 0) {
+		parts.push(`Skipped ${dropped.map((n) => `$${n}`).join(', ')}: same name as another variable (names are not case-sensitive)`);
 	}
-	return merged;
+	if (remapped.length > 0) parts.push(`Matched by name: ${remapped.map(remapNote).join(', ')}`);
+	return {
+		variables,
+		importedCount,
+		successMessage: `Imported ${importedCount} variable${importedCount === 1 ? '' : 's'}`,
+		warningMessage: parts.length > 0 ? parts.join('. ') : null
+	};
 }

@@ -66,6 +66,7 @@ from src.platform.runtime.native.arch.trellis2.postprocess import PBR_ATTR_LAYOU
 from src.platform.runtime.offload.mesh_ops import DEFAULT_UV_QUALITY, UV_QUALITIES
 from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.util.latents import generate_seed
+from src.pipelines.pipes._shared.generation.config_specs import device_config_spec
 
 #: Stage key -> the line shown while it runs. ``shape_lr``/``shape_hr`` are the
 #: cascade's two passes; a 512-tier run reports one ``shape`` stage instead.
@@ -101,26 +102,6 @@ class GeneratorTrellis2Pipe(BasePipe):
     description = "Native TRELLIS.2 generator (single image to a textured GLB mesh)"
 
     # -- declaration -------------------------------------------------------
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        config = {
-            "seed": -1,
-            "remove_background": False,
-            "decimation_target": 100000,
-            "texture_size": 2048,
-            "max_num_tokens": 49152,
-            "project_to_source": True,
-            "remesh": True,
-            "uv_quality": DEFAULT_UV_QUALITY,
-            "device": "cuda",
-        }
-        for stage, defaults in STAGE_SAMPLING.items():
-            config[f"{stage}_steps"] = defaults.steps
-            config[f"{stage}_guidance_strength"] = defaults.guidance_strength
-            config[f"{stage}_guidance_rescale"] = defaults.guidance_rescale
-            config[f"{stage}_rescale_t"] = defaults.rescale_t
-        return config
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -161,8 +142,7 @@ class GeneratorTrellis2Pipe(BasePipe):
                            "across seams. best adds xatlas' seed-relocation pass for slightly "
                            "fewer, rounder charts at about a tenth more unwrap time.",
                            required=False, choices=list(UV_QUALITIES)),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False,
-                           choices=["cuda", "cpu"]),
+            device_config_spec(),
         ]
 
         for stage, defaults in STAGE_SAMPLING.items():

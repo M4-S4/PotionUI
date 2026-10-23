@@ -166,8 +166,9 @@ class TestBackendController:
         with pytest.raises(HTTPException) as exc_info:
             await controller.list_backends()
 
-        # The controller returns an error_response which raises HTTPException
-        assert "Database error" in str(exc_info.value.detail)
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error"] == "backend_list_failed"
+        assert "Database error" not in str(exc_info.value.detail)
 
     @pytest.mark.asyncio
     async def test_get_enabled_backends_success(self, controller, sample_local_backend):

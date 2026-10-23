@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
-import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
-import { installAndSelectImagePreset } from './presetPreamble';
+import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { expectPresetPersisted, installAndSelectImagePreset } from './presetPreamble';
 
 const JOURNEY = 'sessions-drawer-long-lists';
 const SESSION_COUNT = 25;
@@ -36,23 +36,16 @@ async function seedSessions(page: Page, presetId: string): Promise<void> {
 	}
 }
 
-async function expectPresetPersisted(page: Page, presetId: string): Promise<void> {
-	const tabsKey = await scopedStorageKey(page, 'potionui_tabs_state');
-	await expect
-		.poll(() =>
-			page.evaluate(({ id, key }) => {
-				const raw = localStorage.getItem(key);
-				const state = raw ? JSON.parse(raw) : null;
-				return Boolean(state?.tabs?.some((t: { selectedPreset: unknown }) => JSON.stringify(t.selectedPreset ?? '').includes(id)));
-			}, { id: presetId, key: tabsKey })
-		)
-		.toBe(true);
-}
-
 async function expectInsideViewport(page: Page, drawer: Locator): Promise<void> {
-	await page.waitForTimeout(300);
-	const box = await drawer.boundingBox();
 	const viewport = page.viewportSize()!;
+	await expect
+		.poll(async () => {
+			const first = await drawer.boundingBox();
+			await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+			return JSON.stringify(first) === JSON.stringify(await drawer.boundingBox());
+		})
+		.toBe(true);
+	const box = await drawer.boundingBox();
 	expect(box, 'drawer has a box').not.toBeNull();
 	expect(box!.y).toBeGreaterThanOrEqual(0);
 	expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -65,10 +58,38 @@ async function scrollMetrics(locator: Locator) {
 }
 
 async function openDrawer(page: Page): Promise<Locator> {
-	await page.locator('button[aria-label="Session"]').first().click();
+	await page.getByTestId('session-trigger').first().click();
 	const drawer = page.getByRole('dialog', { name: 'Sessions' });
 	await expect(drawer).toBeVisible({ timeout: 10000 });
 	return drawer;
+}
+
+async function openVersions(page: Page, drawer: Locator, name: string): Promise<void> {
+	await drawer.getByRole('button', { name: `More actions for ${name}` }).click();
+	await page.getByRole('menuitem', { name: 'Version history' }).click();
+	await expect(drawer.getByRole('button', { name: 'Back to sessions' })).toBeVisible({ timeout: 10000 });
+}
+
+async function restoreVersion(page: Page, drawer: Locator, index: number): Promise<void> {
+	await drawer.locator('[data-version-row]').nth(index).click();
+	const discard = page.getByRole('alertdialog');
+	const asked = await discard.waitFor({ state: 'visible', timeout: 1500 }).then(
+		() => true,
+		() => false
+	);
+	if (asked) {
+		await discard.getByRole('button', { name: /^Confirm/ }).click();
+		await expect(discard).toBeHidden();
+	}
+}
+
+async function expectUnderSessionSegment(page: Page, drawer: Locator): Promise<void> {
+	const segment = await page.getByTestId('context-session').boundingBox();
+	const box = await drawer.boundingBox();
+	expect(segment, 'the session segment has a box').not.toBeNull();
+	expect(Math.abs(box!.x - segment!.x)).toBeLessThan(1);
+	expect(Math.abs(box!.width - 440)).toBeLessThan(1);
+	expect(Math.abs(box!.y - (segment!.y + segment!.height + 6))).toBeLessThan(1);
 }
 
 test('the sessions drawer stays inside the viewport and scrolls a long list and a long history', async ({ page }) => {
@@ -101,7 +122,8 @@ test('the sessions drawer stays inside the viewport and scrolls a long list and 
 	const after = await scrollMetrics(list);
 	expect(after.scrollTop).toBeGreaterThan(0);
 	await expectInsideViewport(page, drawer);
-	await expect(drawer.getByRole('heading', { name: 'Sessions' })).toBeInViewport();
+	await expect(drawer.getByLabel('Search sessions')).toBeInViewport();
+	await expectUnderSessionSegment(page, drawer);
 	await screenshot(page, JOURNEY, '02-desktop-list-scrolled');
 
 	const search = drawer.getByLabel('Search sessions');
@@ -111,34 +133,32 @@ test('the sessions drawer stays inside the viewport and scrolls a long list and 
 
 	await drawer.locator('[data-session-row]', { hasText: LONG_NAME }).first().click();
 	await expect(drawer).toBeHidden({ timeout: 10000 });
-	await expect(page.locator('button[aria-label="Session"]').first()).toContainText(LONG_NAME, { timeout: 10000 });
+	await expect(page.getByTestId('session-trigger').first()).toContainText(LONG_NAME, { timeout: 10000 });
 
 	drawer = await openDrawer(page);
-	const historyToggle = drawer.locator('button[aria-controls="session-history-panel"]');
-	await expect(historyToggle).toHaveAttribute('aria-expanded', 'false', { timeout: 10000 });
+	await expect(drawer.locator('[data-session-row][aria-current="true"]')).toContainText(LONG_NAME, { timeout: 10000 });
 	await expect(drawer.locator('[data-version-row]')).toHaveCount(0);
-	await historyToggle.click();
-	await expect(drawer.locator('[data-version-row]')).toHaveCount(5, { timeout: 10000 });
-	await expect(drawer.getByText(/changed/).first()).toBeVisible().catch(() => undefined);
-	await expectInsideViewport(page, drawer);
-	await screenshot(page, JOURNEY, '03-desktop-history-expanded');
-
-	await drawer.getByRole('button', { name: /All \d+ versions/ }).click();
-	await expect(drawer.locator('[data-version-row]')).toHaveCount(20);
+	await openVersions(page, drawer, LONG_NAME);
+	await expect(drawer.locator('[data-version-row]')).toHaveCount(20, { timeout: 10000 });
 	const versions = drawer.getByTestId('session-versions-scroll');
 	const versionMetrics = await scrollMetrics(versions);
 	expect(versionMetrics.scrollHeight).toBeGreaterThan(versionMetrics.clientHeight);
 	await expectInsideViewport(page, drawer);
+	await screenshot(page, JOURNEY, '03-desktop-versions');
+
+	await drawer.getByRole('button', { name: /Show 20 older/ }).click();
+	await expect(drawer.locator('[data-version-row]')).toHaveCount(VERSION_COUNT);
+	await expectInsideViewport(page, drawer);
 	await screenshot(page, JOURNEY, '04-desktop-all-versions');
 
 	await page.keyboard.press('Escape');
-	await expect(drawer.locator('[data-version-row]')).toHaveCount(5);
+	await expect(drawer.locator('[data-version-row]')).toHaveCount(0);
+	await expect(drawer.locator('[data-session-row]').first()).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(drawer).toBeHidden();
-	await expect(page.locator('button[aria-label="Session"]').first()).toBeFocused();
+	await expect(page.getByTestId('session-trigger').first()).toBeFocused();
 
 	await page.setViewportSize({ width: 390, height: 844 });
-	await page.waitForTimeout(400);
 	await page.getByRole('button', { name: 'Open preset and session' }).click();
 	const sheet = page.getByRole('dialog', { name: 'Preset and session' });
 	await expect(sheet).toBeVisible();
@@ -160,14 +180,14 @@ test('the sessions drawer stays inside the viewport and scrolls a long list and 
 	await expectInsideViewport(page, mobile);
 	await screenshot(page, JOURNEY, '06-mobile-list-scrolled');
 
-	await mobile.locator('button[aria-controls="session-history-panel"]').click();
-	await mobile.getByRole('button', { name: /All \d+ versions/ }).click();
-	await expect(mobile.locator('[data-version-row]')).toHaveCount(20);
+	await mobileList.evaluate((el) => (el.scrollTop = 0));
+	await openVersions(page, mobile, LONG_NAME);
+	await expect(mobile.locator('[data-version-row]')).toHaveCount(20, { timeout: 10000 });
 	await expectInsideViewport(page, mobile);
 	await screenshot(page, JOURNEY, '07-mobile-all-versions');
 });
 
-test('the keep-open drawer is wider on large screens and leaves the generate page usable', async ({ page }) => {
+test('the sessions dropdown spans the form column and steps through versions without closing', async ({ page }) => {
 	test.setTimeout(240000);
 	await loginAsOwner(page);
 
@@ -177,34 +197,29 @@ test('the keep-open drawer is wider on large screens and leaves the generate pag
 		return;
 	}
 	await seedSessions(page, preset.id);
-	await page.evaluate(() => localStorage.setItem('sessions-drawer-keep-open', '1'));
 
-	const expectations = [
-		{ width: 1280, height: 800, drawerWidth: 480 },
-		{ width: 1440, height: 900, drawerWidth: 518.4 },
-		{ width: 1920, height: 1080, drawerWidth: 600 }
-	];
-
-	for (const { width, height, drawerWidth } of expectations) {
+	for (const { width, height } of [
+		{ width: 1280, height: 800 },
+		{ width: 1440, height: 900 },
+		{ width: 1920, height: 1080 }
+	]) {
 		await page.setViewportSize({ width, height });
 		await page.reload();
 		await page.waitForLoadState('networkidle');
 
-		const trigger = page.locator('button[aria-label="Session"]').first();
+		const trigger = page.getByTestId('session-trigger').first();
 		await trigger.click();
-		const drawer = page.getByRole('dialog', { name: 'Sessions' });
+		let drawer = page.getByRole('dialog', { name: 'Sessions' });
 		await expect(drawer).toBeVisible({ timeout: 10000 });
 		if (!(await trigger.textContent())?.includes(LONG_NAME)) {
 			await drawer.locator('[data-session-row]', { hasText: LONG_NAME }).first().click();
+			await expect(drawer).toBeHidden({ timeout: 10000 });
 			await expect(trigger).toContainText(LONG_NAME, { timeout: 10000 });
+			await trigger.click();
+			drawer = page.getByRole('dialog', { name: 'Sessions' });
+			await expect(drawer).toBeVisible({ timeout: 10000 });
 		}
-		await expect(drawer).toBeVisible();
-		const historyToggle = drawer.locator('button[aria-controls="session-history-panel"]');
-		if ((await historyToggle.getAttribute('aria-expanded')) !== 'true') await historyToggle.click();
-		await expect(drawer.locator('[data-version-row]')).toHaveCount(5, { timeout: 10000 });
-
-		const box = await drawer.boundingBox();
-		expect(Math.abs(box!.width - drawerWidth)).toBeLessThan(1);
+		await expectUnderSessionSegment(page, drawer);
 		await expectInsideViewport(page, drawer);
 
 		const coveredBy = await trigger.evaluate((el) => {
@@ -212,18 +227,27 @@ test('the keep-open drawer is wider on large screens and leaves the generate pag
 			const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
 			return hit === el || el.contains(hit);
 		});
-		expect(coveredBy, 'the console bar session control stays reachable').toBe(true);
+		expect(coveredBy, 'the session row above the dropdown stays reachable').toBe(true);
 		const tabHit = await page.getByText('Generation 1', { exact: true }).first().evaluate((el) => {
 			const rect = el.getBoundingClientRect();
 			const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
 			return hit === el || el.contains(hit);
 		});
-		expect(tabHit, 'the workspace behind the drawer stays reachable').toBe(true);
+		expect(tabHit, 'the tab bar stays reachable').toBe(true);
 
-		const headline = drawer.locator('[data-version-row] .truncate').first();
-		const clipped = await headline.evaluate((el) => el.scrollWidth > el.clientWidth);
-		expect(clipped, 'the newest version headline fits without an ellipsis').toBe(false);
-		await screenshot(page, JOURNEY, `08-keep-open-${width}`);
+		await openVersions(page, drawer, LONG_NAME);
+		await expect(drawer.locator('[data-version-row]')).toHaveCount(20, { timeout: 10000 });
+		await restoreVersion(page, drawer, 1);
+		await expect(drawer.locator('[data-version-row]')).toHaveCount(20);
+		await restoreVersion(page, drawer, 2);
+		await expect(drawer).toBeVisible();
+		await expect(drawer.locator('[data-version-row]')).toHaveCount(20);
+		await screenshot(page, JOURNEY, `08-versions-stay-open-${width}`);
+
+		await page.keyboard.press('Escape');
+		await expect(drawer.locator('[data-version-row]')).toHaveCount(0);
+		await page.mouse.click(width - 60, Math.round(height / 3));
+		await expect(drawer).toBeHidden({ timeout: 10000 });
 	}
 });
 
@@ -258,11 +282,12 @@ test('a pinned session moves into the Pinned section and stays there after the d
 	const pinResponse = page.waitForResponse(
 		(response) => response.url().includes('/pin') && response.request().method() === 'PUT'
 	);
-	await drawer.getByRole('button', { name: 'Pin Pin target' }).click();
+	await drawer.getByRole('button', { name: 'More actions for Pin target' }).click();
+	await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
 	expect((await pinResponse).ok()).toBeTruthy();
 	await expect(drawer.getByTestId('pinned-head')).toBeVisible();
 	await expect(drawer.getByTestId('pinned-list').locator('[data-session-row]')).toHaveCount(1);
-	await expect(drawer.getByRole('button', { name: 'Unpin Pin target' })).toHaveAttribute('aria-pressed', 'true');
+	await expect(drawer.getByTestId('pinned-list')).toContainText('Pin target');
 	await screenshot(page, JOURNEY, '06-pinned-section');
 
 	await page.keyboard.press('Escape');
@@ -280,6 +305,7 @@ test('a pinned session moves into the Pinned section and stays there after the d
 	await expect(drawer.getByTestId('pinned-head')).toHaveCount(0);
 	await drawer.getByLabel('Search sessions').fill('');
 
-	await drawer.getByRole('button', { name: 'Unpin Pin target' }).click();
+	await drawer.getByRole('button', { name: 'More actions for Pin target' }).click();
+	await page.getByRole('menuitem', { name: 'Unpin', exact: true }).click();
 	await expect(drawer.getByTestId('pinned-head')).toHaveCount(0);
 });

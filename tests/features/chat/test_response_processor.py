@@ -122,6 +122,25 @@ class TestProcessWithoutPlugins:
         assert cleaned == "Test content"
         assert parsed == {'raw': 'Test content'}
 
+    def test_process_repairs_a_recoverable_condition_in_a_proposed_segment(self):
+        content = (
+            '<think>age check</think><tool_action type="update_segment" segment_index="0" segment_id="s1">'
+            "woman, {% if age > 65 %}grey hair{% else %}auburn hair{% endif %}</tool_action>"
+        )
+        cleaned, parsed = self.processor.process(content)
+
+        assert cleaned == (
+            '<tool_action type="update_segment" segment_index="0" segment_id="s1">'
+            "woman, <<if $age > 65>>grey hair<<else>>auburn hair<<end>></tool_action>"
+        )
+        assert parsed["raw"] == cleaned
+
+    def test_process_leaves_an_unrecoverable_condition_for_the_card_to_flag(self):
+        content = '<tool_action type="add_segment">woman, <<if $age > 65>>grey hair</tool_action>'
+        cleaned, _ = self.processor.process(content)
+
+        assert cleaned == content
+
 
 class TestProcessWithPlugins:
     """Tests for process method with plugin registry."""

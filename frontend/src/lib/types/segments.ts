@@ -181,28 +181,10 @@ export interface LLMConfig {
 	top_p?: number;
 }
 
-export interface PromptStyle {
-	id: string;
-	name: string;
-	description?: string;
-	system_prompt?: string;
-	user_prompt_template?: string;
-	examples?: string[];
-}
-
 export interface Command {
 	id: string;
 	name: string;
 	description?: string;
 	template: string;
 	category?: string;
-}
-
-// Phrasebook types
-export interface PhrasebookOption {
-	id: string;
-	label: string;
-	value: string;
-	categoryPath: string;
-	allValues?: Array<{ id: string; label: string; value: string }>;
 }

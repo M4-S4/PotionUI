@@ -36,15 +36,9 @@
 		CATALOG_TASK_OPTIONS,
 		bulkTargets,
 		canEnable,
-		catalogFilterActiveCount,
-		catalogFilterChips,
-		catalogFiltersFromSearchParams,
-		catalogFiltersToSearchParams,
 		catalogHasFilters,
 		catalogQuery,
 		catalogSummaryLine,
-		clearAllCatalogFilters,
-		clearCatalogFilterChip,
 		itemStatuses,
 		priceLines,
 		priceSummary,
@@ -56,7 +50,8 @@
 		taskLabel,
 		visibleTasks,
 		type CatalogFilters,
-		type CatalogShow
+		type CatalogShow,
+		cloudCatalogFilters
 	} from './cloudCatalog';
 
 	let { backendId }: { backendId: string } = $props();
@@ -83,11 +78,11 @@
 	let destroyed = false;
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
-	const filters = $derived(catalogFiltersFromSearchParams($page.url.searchParams));
+	const filters = $derived(cloudCatalogFilters.fromSearchParams($page.url.searchParams));
 	const filtersKey = $derived(JSON.stringify(filters));
-	const activeFilterCount = $derived(catalogFilterActiveCount(filters));
+	const activeFilterCount = $derived(cloudCatalogFilters.activeCount(filters));
 	const hasFilters = $derived(catalogHasFilters(filters));
-	const chips = $derived(catalogFilterChips(filters));
+	const chips = $derived(cloudCatalogFilters.chips(filters));
 	const total = $derived(data?.total ?? 0);
 	const counts = $derived(data?.counts ?? { total: 0, enabled: 0, missing: 0 });
 	const notice = $derived(data?.provider.data_notice?.trim() ?? '');
@@ -177,7 +172,7 @@
 		cancelPendingSearch();
 		const url = new URL($page.url);
 		for (const key of CATALOG_FILTER_PARAMS) url.searchParams.delete(key);
-		for (const [key, value] of catalogFiltersToSearchParams(next)) url.searchParams.set(key, value);
+		for (const [key, value] of cloudCatalogFilters.toSearchParams(next)) url.searchParams.set(key, value);
 		void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
@@ -561,7 +556,7 @@
 					<FilterPopoverFrame
 						label="Catalog filters"
 						width="w-[24rem]"
-						onClearAll={() => applyFilters(clearAllCatalogFilters(filters))}
+						onClearAll={() => applyFilters(cloudCatalogFilters.clearAll(filters))}
 						onClose={close}
 					>
 						<div class="col-span-2">
@@ -595,8 +590,8 @@
 
 		<LibraryFilterChipRow
 			{chips}
-			onRemoveChip={(key) => applyFilters(clearCatalogFilterChip(filters, key))}
-			onClearAll={() => applyFilters(clearAllCatalogFilters(filters))}
+			onRemoveChip={(key) => applyFilters(cloudCatalogFilters.clearChip(filters, key))}
+			onClearAll={() => applyFilters(cloudCatalogFilters.clearAll(filters))}
 			loadedCount={items.length}
 			{total}
 		/>

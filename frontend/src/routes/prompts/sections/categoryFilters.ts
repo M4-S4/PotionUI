@@ -1,6 +1,5 @@
 import type { SegmentCategory } from '$lib/types/segments';
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip } from '$lib/components/library/librarySection';
 
 export type CategoryHasFilter = '' | 'segments' | 'empty';
 export type CategorySortBy = 'name' | 'count';
@@ -34,19 +33,11 @@ const FIELDS: readonly FilterFieldDescriptor<CategoryFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<CategoryFilters>({
+export const categoryFilters = createFilterCodec<CategoryFilters>({
 	defaults: DEFAULT_CATEGORY_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name', 'count']
 });
-
-export function categoryFiltersFromSearchParams(params: URLSearchParams): CategoryFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function categoryFiltersToSearchParams(filters: CategoryFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
 
 function byName(a: SegmentCategory, b: SegmentCategory): number {
 	return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
@@ -68,20 +59,4 @@ export function applyCategoryFilters(
 	if (filters.sortBy === 'count')
 		return matched.sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0) || byName(a, b));
 	return matched.sort(byName);
-}
-
-export function categoryFilterActiveCount(filters: CategoryFilters): number {
-	return codec.activeCount(filters);
-}
-
-export function categoryFilterChips(filters: CategoryFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearCategoryFilterChip(filters: CategoryFilters, key: string): CategoryFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllCategoryFilters(filters: CategoryFilters): CategoryFilters {
-	return codec.clearAll(filters);
 }

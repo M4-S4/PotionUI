@@ -60,6 +60,7 @@ import type {
 	SessionVersionSummary
 } from '$lib/types/api';
 import type { Tab } from '$lib/types/tabs';
+import type { VariablesMap } from '$lib/utils/variableDefs';
 import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
 import { resolveVariant } from '$lib/utils/variants';
 import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
@@ -86,7 +87,7 @@ export type SessionCommandIntent =
 /** A view surface a completion may answer for. The controller never renders
  *  it; the presenter declares when one opens and closes so a completion can
  *  tell the dialog it was started from apart from the one on screen now. */
-export type SessionDialogKind = 'save' | 'delete' | 'history';
+export type SessionDialogKind = 'save' | 'delete' | 'history' | 'reload';
 
 /** Captured when an async session command starts. */
 export interface SessionCommandToken {
@@ -243,6 +244,7 @@ export interface SessionControllerDeps {
 	toasts: SessionControllerToasts;
 	logger: SessionControllerLogger;
 	timers?: SessionControllerTimers;
+	drafts?: { replaceVariables(tabId: string, variables: VariablesMap): void };
 	/** Wall clock for `lastSavedTime`. */
 	now?: () => Date;
 	/** Coalesces state derivation the way Svelte's own flush does; a test can
@@ -289,6 +291,7 @@ export interface SessionController {
 	destroy(): void;
 	loadSessions(): Promise<void>;
 	select(sessionId: string): Promise<void>;
+	reload(): Promise<boolean>;
 	/** Resolves false when there is nothing to quick-save (no session yet) and
 	 *  the view should offer its save-as modal instead. */
 	quickSave(): Promise<boolean>;
@@ -410,6 +413,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	// for the dialog now on screen.
 	let quickSaveInFlight: SessionCommandToken | null = null;
 	let saveAsInFlight: SessionCommandToken | null = null;
+	let reloadInFlight: SessionReadToken | null = null;
 	let deleteInFlight: SessionCommandToken | null = null;
 	let restoreInFlight: SessionCommandToken | null = null;
 	// Which opening of each view surface is current. An entry is absent while
@@ -643,7 +647,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	function lowerDialogBusy(kind: SessionDialogKind) {
 		if (kind === 'save') isSaving = false;
 		else if (kind === 'delete') isDeleteLoading = false;
-		else isRestoringVersion = false;
+		else if (kind === 'history') isRestoringVersion = false;
 	}
 
 	function openDialog(kind: SessionDialogKind) {
@@ -672,6 +676,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	 * stops them lowering a flag a newer command has since raised.
 	 */
 	function retireCommandView() {
+		openDialogTokens.delete('reload');
 		quickSaveInFlight = null;
 		saveAsInFlight = null;
 		deleteInFlight = null;
@@ -745,6 +750,14 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		});
 	}
 
+	function reloadRunning(): boolean {
+		return reloadInFlight !== null && ownsRead(reloadInFlight);
+	}
+
+	function reloadConfirmOpen(): boolean {
+		return openDialogTokens.has('reload');
+	}
+
 	/**
 	 * Drops the busy state and the feedback a departed context raised. The
 	 * retired read's own `finally` is what would normally lower its flag, and it
@@ -753,6 +766,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	 * stops that late `finally` from lowering a replacement's flag instead.
 	 */
 	function retireSelectionRead() {
+		reloadInFlight = null;
 		selectionLoadInFlight = null;
 		isSelectionLoading = false;
 		selectionError = null;
@@ -938,7 +952,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		sessionId: string,
 		modeBasedData: ModeBasedSessionData,
 		sessionMeta: Session,
-		options: { markSaved: boolean }
+		options: { markSaved: boolean; reload?: boolean }
 	) {
 		// If the payload has no data for the current mode, load an empty state
 		// for this mode — the user can then fill it in and save, accumulating
@@ -952,11 +966,27 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		const restoredPatch = buildSessionRestoreTabPatch(modeData, {
 			promptPanelWidth: currentTabData?.promptPanelWidth
 		});
+		const reloadPatch: Partial<Tab> = {
+			formReloadGeneration: (currentTabData?.formReloadGeneration ?? 0) + 1,
+			...(options.reload
+				? {
+						compare: modeData.compare,
+						sectionCollapsed: modeData.sectionCollapsed,
+						leftPanelCollapsed: modeData.leftPanelCollapsed,
+						workbenchCollapsed: modeData.workbenchCollapsed
+					}
+				: {})
+		};
+		const awaitingFormNormalization =
+			!options.reload ||
+			!currentTabData?.formPublished ||
+			JSON.stringify(currentTabData.formData ?? {}) !== JSON.stringify(restoredPatch.formData ?? {});
 		const restoredTab = currentTabData && {
 			...currentTabData,
 			selectedSessionId: sessionId,
 			selectedVariant: restoredVariant,
 			...restoredPatch,
+			...reloadPatch,
 			modeStateByMode: restoredModeState
 		};
 		// Set the raw server baseline and pending flag in the same store write as
@@ -978,6 +1008,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			selectedSessionId: sessionId,
 			selectedVariant: restoredVariant,
 			...restoredPatch,
+			...reloadPatch,
 			// Seed the per-mode cache from every OTHER mode this session has data
 			// for, so switching modes right after this load restores that mode's
 			// saved config instead of starting empty.
@@ -985,10 +1016,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			...(options.markSaved
 				? {
 						savedSessionSignature: restoredBaseline,
-						sessionBaselineAwaitingFormNormalization: true
+						sessionBaselineAwaitingFormNormalization: awaitingFormNormalization
 					}
 				: {})
 		});
+		deps.drafts?.replaceVariables(ctx.tabId, restoredPatch.variables ?? {});
 
 		markAppliedDirectly();
 		setSelectedSessionId(sessionId);
@@ -1103,10 +1135,52 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		}
 	}
 
+	async function reload(): Promise<boolean> {
+		const target = currentSession;
+		if (!target || quickSaveInFlight || saveAsInFlight || reloadRunning()) return false;
+
+		isSelectionLoading = true;
+		selectionError = null;
+		const read = beginSessionRead('session', target.id, { ownsSelection: true });
+		selectionLoadInFlight = read;
+		reloadInFlight = read;
+		publish();
+
+		let reloaded = false;
+		try {
+			const response = await deps.api.getSessionById(read.targetId);
+			if (!ownsRead(read)) return false;
+			if (response.success && response.data) {
+				await applySessionModeData(read.targetId, response.data.data, response.data, {
+					markSaved: true,
+					reload: true
+				});
+				reloaded = true;
+			} else {
+				deps.toasts.error(
+					isSessionMissingResponse(response)
+						? 'That session is no longer available.'
+						: 'Could not reload the last snapshot.'
+				);
+			}
+		} catch (err) {
+			deps.logger.error('Failed to reload the session snapshot:', err);
+			if (ownsRead(read)) deps.toasts.error('Could not reload the last snapshot.');
+		} finally {
+			if (reloadInFlight === read) reloadInFlight = null;
+			if (selectionLoadInFlight === read) {
+				selectionLoadInFlight = null;
+				isSelectionLoading = false;
+			}
+			publish();
+		}
+		return reloaded;
+	}
+
 	function startAutosave() {
 		stopAutosave();
 		autoSaveIntervalId = timers.setInterval(() => {
-			if (currentSession && hasUnsavedChanges && !isQuickSaving) {
+			if (currentSession && hasUnsavedChanges && !isQuickSaving && !reloadRunning() && !reloadConfirmOpen()) {
 				void performAutoSave();
 			}
 		}, autoSaveInterval);
@@ -1142,7 +1216,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	}
 
 	async function performAutoSave() {
-		if (!currentSession || !ctx.presetId || isQuickSaving) return;
+		if (!currentSession || !ctx.presetId || isQuickSaving || reloadRunning() || reloadConfirmOpen()) return;
 
 		// Safety check: ensure the session belongs to the current preset.
 		if (currentSession.preset_id !== ctx.presetId) {
@@ -1190,6 +1264,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
 	async function quickSave(): Promise<boolean> {
 		if (!currentSession || !ctx.presetId) return false;
+		if (reloadRunning()) return true;
 
 		// Safety check: ensure the session belongs to the current preset.
 		if (currentSession.preset_id !== ctx.presetId) {
@@ -1465,11 +1540,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 				markApplied(command);
 				const version = response.data;
 				await applySessionModeData(sessionId, version.data, sessionMeta, { markSaved: false });
-				// Applying yields, and the panel can be closed and reopened across
-				// it. The restored data stays either way; what is scoped here is
-				// closing the panel and announcing it to whoever asked.
 				if (ownsDialog(command, restoreInFlight)) {
-					closeHistory();
 					deps.toasts.info(
 						`Loaded the save from ${timeAgo(version.created_at)} — Save to make it the latest.`
 					);
@@ -1588,6 +1659,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		destroy,
 		loadSessions,
 		select,
+		reload,
 		quickSave,
 		saveAs,
 		deleteSession,

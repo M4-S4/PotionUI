@@ -1,4 +1,5 @@
 <script context="module" lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	// Types
 	export interface AutocompleteCategory {
 		id: string;
@@ -33,13 +34,6 @@
 		description?: string;
 		kind?: 'image' | 'video' | 'audio';
 	}
-
-	export interface AutocompleteCurrentValue {
-		label: string;
-		value?: string;
-		imageUrl?: string;
-		categoryLabel?: string;
-	}
 </script>
 
 <script lang="ts">
@@ -49,6 +43,7 @@
 	import MediaThumb from './media/MediaThumb.svelte';
 	import HighlightedText from './HighlightedText.svelte';
 	import { compileTextMatcher } from '$lib/utils/textMatch';
+	import { variablePickerMatcher } from '$lib/utils/variablePicker';
 	import portal from '$lib/actions/portal';
 	import overlayLayer from '$lib/actions/overlayLayer';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
@@ -94,6 +89,7 @@
 
 	$: highlightMatcher =
 		triggerChar === '#' ? compileTextMatcher(currentPath.split('.').pop() ?? '').matcher : null;
+	$: variableMatcher = triggerChar === '$' ? variablePickerMatcher(currentPath) : null;
 	let pickerRef: HTMLElement | undefined;
 	let selectedItemRef: HTMLElement | null = null;
 	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openAbove: false, maxHeight: 100000 };
@@ -271,7 +267,7 @@
 			{#if isLoading}
 				<div class="px-3 py-2 text-sm text-fg-subtle">Loading suggestions...</div>
 			{:else if categories.length > 0 || suggestions.length > 0}
-				<div bind:this={dropdownRef} class="picker-rows" role="listbox">
+				<div bind:this={dropdownRef} class="picker-rows" role="listbox" aria-label="Suggestions">
 					{#if categories.length > 0}
 						<div class="picker-section-title">Categories <span>Browse deeper</span></div>
 						{#each categories as category, index}
@@ -333,12 +329,15 @@
 									{#if triggerChar === '#'}
 										<strong class="row-copy-value"><HighlightedText text={suggestion.value} matcher={highlightMatcher} /></strong>
 										{#if suggestion.label && suggestion.label !== suggestion.value}<span class="row-copy-label"><span class="row-copy-label-prefix">Title:</span> <HighlightedText text={suggestion.label} matcher={highlightMatcher} /></span>{/if}
+									{:else if triggerChar === '$'}
+										<strong class="row-copy-variable">$<HighlightedText text={suggestion.label} matcher={variableMatcher} /></strong>
+										{#if suggestion.description}<span><HighlightedText text={suggestion.description} matcher={variableMatcher} /></span>{/if}
 									{:else}
 										<strong>{triggerChar === '@' ? `<${suggestion.label}>` : suggestion.label}</strong>
 										{#if suggestion.label !== suggestion.value}<span>{suggestion.value}</span>{/if}
 									{/if}
 								</span>
-								<span class="row-meta">{isSelected ? 'Enter' : 'Value'}</span>
+								<span class="row-meta" style={triggerChar === '$' ? 'display: inline-flex; align-items: center; gap: 6px;' : undefined}>{#if triggerChar === '$' && suggestion.badge}<Badge size="md" class="flex-shrink-0">{suggestion.badge}</Badge>{/if}{#if isSelected}Enter{:else if triggerChar !== '$'}Value{/if}</span>
 							</button>
 						{/each}
 					{/if}
@@ -417,16 +416,7 @@
 				<div class="px-3 py-2 text-sm font-medium text-fg-muted border-b border-line bg-surface-2 flex-shrink-0 flex items-center justify-between gap-2">
 					<div class="flex items-center gap-2 flex-1 min-w-0">
 						{#if canNavigateUp && onNavigateUp}
-							<button
-								type="button"
-								class="h-6 w-6 min-w-6 flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-3 rounded transition-colors duration-100"
-								on:click={onNavigateUp}
-								aria-label="Navigate up"
-							>
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-								</svg>
-							</button>
+							<IconButton icon="arrow-left" label="Navigate up" size="xs" onclick={onNavigateUp} />
 						{/if}
 						<div class="flex-1 min-w-0">
 							{#if currentPath}
@@ -441,7 +431,7 @@
 				</div>
 			{/if}
 
-			<div bind:this={dropdownRef} class="flex-1 min-h-0 overflow-y-auto" role="listbox">
+			<div bind:this={dropdownRef} class="flex-1 min-h-0 overflow-y-auto" role="listbox" aria-label="Suggestions">
 				<!-- Categories Section -->
 				{#if categories.length > 0}
 					{#if categories.length > 0 && suggestions.length > 0}

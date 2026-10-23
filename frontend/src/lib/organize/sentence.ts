@@ -7,6 +7,13 @@ export function subjectNoun(subject: OrganizeSubject): { singular: string; plura
 	return { singular: 'generation', plural: 'generations' };
 }
 
+export function awaitsTagging(conditions: { fact: string }[], catalog: OrganizeCatalog | null): boolean {
+	return conditions.some((c) => {
+		const triggers = catalog?.facts.find((f) => f.key === c.fact)?.triggers;
+		return !!triggers && !triggers.includes('item_created');
+	});
+}
+
 export function triggerSentence(subject: OrganizeSubject, catalog: OrganizeCatalog | null): string {
 	return (
 		catalog?.subjects.find((s) => s.key === subject)?.trigger_label ??

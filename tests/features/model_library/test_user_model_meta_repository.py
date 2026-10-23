@@ -94,17 +94,6 @@ class TestUserModelMetaRepository(PersistenceTestBase):
     def test_get_map_empty_list(self):
         self.assertEqual(self.repo.get_map(self.test_user_id, []), {})
 
-    def test_favorite_model_ids(self):
-        model_a = self._make_model("a.safetensors")
-        model_b = self._make_model("b.safetensors")
-        self._make_model("c.safetensors")  # not favorited
-
-        self.repo.set_favorite(self.test_user_id, model_a, True)
-        self.repo.set_favorite(self.test_user_id, model_b, True)
-
-        favorites = self.repo.favorite_model_ids(self.test_user_id)
-        self.assertEqual(favorites, {model_a, model_b})
-
     def test_meta_scoped_per_user(self):
         """Favoriting a model for one user must not affect another user's view."""
         model_id = self._make_model()
@@ -113,7 +102,6 @@ class TestUserModelMetaRepository(PersistenceTestBase):
         self.repo.set_favorite(self.test_user_id, model_id, True)
 
         self.assertIsNone(self.repo.get("user_2", model_id))
-        self.assertEqual(self.repo.favorite_model_ids("user_2"), set())
 
 
 if __name__ == '__main__':

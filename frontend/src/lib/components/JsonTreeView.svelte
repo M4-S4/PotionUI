@@ -171,6 +171,7 @@
 			/>
 			{#if searchQuery}
 				<button
+					aria-label="Clear search"
 					on:click={() => { searchQuery = ''; matchingPaths.clear(); matchingPaths = matchingPaths; }}
 					class="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg"
 				>

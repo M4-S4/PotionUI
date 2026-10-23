@@ -134,7 +134,7 @@ async def test_api_key_becomes_a_bearer_header_and_absence_sends_none(monkeypatc
 async def test_generate_with_history_pins_payload_and_trace(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("openai"), "SYS")
+    await client.generate_with_tools(HISTORY, make_config("openai"), "SYS")
 
     assert capture.body == {
         "model": "golden-model",
@@ -148,7 +148,9 @@ async def test_generate_with_history_pins_payload_and_trace(monkeypatch, client)
         "request_system": "SYS",
         "request_messages": PLAIN_MESSAGES,
         "request_params": {"temperature": 0.7, "max_completion_tokens": 512},
+        "request_tools": [],
         "response_text": "canned reply",
+        "response_tool_calls": None,
         "prompt_tokens": 20,
         "completion_tokens": 10,
     }
@@ -158,7 +160,7 @@ async def test_provider_options_and_override_merge_into_sampling_params(monkeypa
     capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
     config = make_config("openai", provider_options=PROVIDER_OPTIONS)
 
-    await client.generate_with_history(HISTORY, config, "SYS", options_override=OVERRIDE)
+    await client.generate_with_tools(HISTORY, config, "SYS", options_override=OVERRIDE)
 
     assert strip(capture.body, "model", "messages") == {
         "temperature": 0.1,
@@ -172,7 +174,7 @@ async def test_provider_options_and_override_merge_into_sampling_params(monkeypa
 async def test_history_image_lands_on_the_last_user_message(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("openai"), "SYS", image_data=IMAGE_B64)
+    await client.generate_with_tools(HISTORY, make_config("openai"), "SYS", image_data=IMAGE_B64)
 
     messages = capture.body["messages"]
     assert messages[:3] == PLAIN_MESSAGES[:3]
@@ -185,7 +187,7 @@ async def test_history_image_lands_on_the_last_user_message(monkeypatch, client)
 async def test_stream_with_history_pins_payload_and_trace(monkeypatch, client):
     capture = install_wire_capture(monkeypatch, [_sse()])
 
-    await collect(client.stream_with_history(HISTORY, make_config("openai"), "SYS"))
+    await collect(client.stream_with_tools(HISTORY, make_config("openai"), "SYS"))
 
     assert capture.body == {
         "model": "golden-model",
@@ -201,7 +203,9 @@ async def test_stream_with_history_pins_payload_and_trace(monkeypatch, client):
         "request_system": "SYS",
         "request_messages": PLAIN_MESSAGES,
         "request_params": {"temperature": 0.7, "max_completion_tokens": 512},
+        "request_tools": None,
         "response_text": "hello",
+        "response_tool_calls": None,
         "prompt_tokens": 20,
         "completion_tokens": 10,
     }
@@ -302,10 +306,10 @@ async def test_stream_and_buffered_history_send_the_same_request(monkeypatch, cl
     capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY), _sse()])
     config = make_config("openai", api_key="sk-golden", provider_options=PROVIDER_OPTIONS)
 
-    await client.generate_with_history(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
+    await client.generate_with_tools(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
     buffered = capture.body
     await collect(
-        client.stream_with_history(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
+        client.stream_with_tools(HISTORY, config, "SYS", image_data=IMAGE_B64, options_override=OVERRIDE)
     )
     streamed = capture.body
 
@@ -324,7 +328,7 @@ async def test_seed_stop_reasoning_effort_and_parallel_tool_calls_are_sent_when_
         },
     )
 
-    await client.generate_with_history(HISTORY, config, "SYS")
+    await client.generate_with_tools(HISTORY, config, "SYS")
 
     assert strip(capture.body, "model", "messages", "temperature", "max_completion_tokens") == {
         "seed": 42,
@@ -338,7 +342,7 @@ async def test_seed_stop_reasoning_effort_and_parallel_tool_calls_are_sent_when_
 async def test_exposed_option_is_omitted_when_unset(monkeypatch, client, key):
     capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
 
-    await client.generate_with_history(HISTORY, make_config("openai"), "SYS")
+    await client.generate_with_tools(HISTORY, make_config("openai"), "SYS")
 
     assert key not in capture.body
 
@@ -348,7 +352,7 @@ async def test_exposed_option_explicit_null_is_omitted_not_sent(monkeypatch, cli
     capture = install_wire_capture(monkeypatch, [json_response(OPENAI_REPLY)])
     config = make_config("openai", provider_options={key: None})
 
-    await client.generate_with_history(HISTORY, config, "SYS")
+    await client.generate_with_tools(HISTORY, config, "SYS")
 
     assert key not in capture.body
 
@@ -367,7 +371,7 @@ async def test_non_openai_provider_option_keys_never_reach_the_wire(monkeypatch,
         },
     )
 
-    await client.generate_with_history(HISTORY, config, "SYS")
+    await client.generate_with_tools(HISTORY, config, "SYS")
 
     assert capture.body == {
         "model": "golden-model",

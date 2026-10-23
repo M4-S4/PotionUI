@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltipAction from '$lib/actions/tooltip';
 	import Icon from '../Icon.svelte';
 	import Tooltip from '../Tooltip.svelte';
 	import { resolveSliderValue, trackFraction, trackOffset } from './sliderGeometry';
@@ -117,7 +118,7 @@
 				type="button"
 				on:click={startEditing}
 				class="text-sm font-medium font-mono tabular-nums text-fg bg-surface-3 px-2 py-0.5 rounded hover:bg-surface-3/70 active:scale-95 transition-all duration-150 ease-out cursor-text min-w-[3rem] text-center"
-				title="Click to type a value"
+				use:tooltipAction={'Click to type a value'}
 			>
 				{localValue}
 			</button>
@@ -147,7 +148,7 @@
 			<span
 				class="pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-px h-2.5 bg-fg-subtle/70"
 				style="left: {defaultOffset}"
-				title="default {defaultValue}"
+				use:tooltipAction={`default ${defaultValue}`}
 			></span>
 		{/if}
 	</div>

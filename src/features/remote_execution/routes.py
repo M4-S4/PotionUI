@@ -60,6 +60,7 @@ class RemoteModelsController(BaseController):
             transfers = await ops.push_models(
                 body.model_ids, model_repository=self.container.model_repository, transport=transport,
                 model_locator=self.container.model_locator,
+                digests=self.container.model_index_manager.digests,
             )
         except WorkerTransportError as e:
             return self._transport_error_response(e)

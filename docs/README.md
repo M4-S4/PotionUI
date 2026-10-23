@@ -51,6 +51,7 @@ Subsystem docs for anyone authoring presets, plugins, or touching the engine. Ad
 - [The Plugin API](plugin-api.md) — `src.plugin_api`, the only surface a plugin may import from.
 - [Providers](providers.md) — plugins that talk to a model marketplace and own their own credentials.
 - [Prompt Expansion](prompts.md) — how a prompt template expands per image.
+- [Model Tools](model-tools.md) — the admin preset that quantizes models and merges LoRAs into new files.
 - [Remote Native](remote-native.md) — the standalone native-engine worker and its wire protocol.
 
 **Chat & directors**

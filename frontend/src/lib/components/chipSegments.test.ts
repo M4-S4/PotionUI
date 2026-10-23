@@ -247,3 +247,25 @@ describe('parseChipSegments / parseValueToSegments with @[field:item] resource m
 		]);
 	});
 });
+
+describe('condition blocks in text', () => {
+	const block = '<<if $age > 65>>grey {a|b}<<else>>dark<<end>>';
+
+	it('keeps a whole block as one group segment with the text around it', () => {
+		const segments = parseValueToSegments(`woman, ${block}, soft ${'$'}{age} {x|y}`, {}, {});
+		expect(segments.map((s) => [s.type, s.content])).toEqual([
+			['text', 'woman, '],
+			['group', block],
+			['text', ', soft '],
+			['variable', '${age}'],
+			['text', ' '],
+			['group', '{x|y}']
+		]);
+	});
+
+	it('does not chip-ify a block that never closes', () => {
+		const segments = parseValueToSegments('a <<if $age > 65>>grey {a|b}', {}, {});
+		expect(segments.map((s) => s.type)).toEqual(['text', 'group']);
+		expect(segments[0].content).toBe('a <<if $age > 65>>grey ');
+	});
+});

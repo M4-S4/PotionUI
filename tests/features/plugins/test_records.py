@@ -410,36 +410,6 @@ class TestPluginHookModel(unittest.TestCase):
 
         self.assertEqual(result, expected)
 
-    def test_backend_hook(self):
-        """Test creating a backend hook"""
-        hook = PluginHook(
-            id=1,
-            plugin_id="plugin_1",
-            hook_name="after_generation",
-            hook_type="backend",
-            handler_path="/handlers/post_process.py"
-        )
-
-        self.assertEqual(hook.hook_type, "backend")
-        self.assertIsNotNone(hook.handler_path)
-        self.assertIsNone(hook.component_path)
-
-    def test_frontend_hook(self):
-        """Test creating a frontend hook"""
-        hook = PluginHook(
-            id=2,
-            plugin_id="plugin_2",
-            hook_name="generation_panel_footer",
-            hook_type="frontend",
-            component_path="/components/Footer.tsx",
-            position="bottom"
-        )
-
-        self.assertEqual(hook.hook_type, "frontend")
-        self.assertIsNone(hook.handler_path)
-        self.assertIsNotNone(hook.component_path)
-        self.assertEqual(hook.position, "bottom")
-
 
 if __name__ == '__main__':
     unittest.main()

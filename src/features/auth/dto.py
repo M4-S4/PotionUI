@@ -2,15 +2,16 @@
 Authentication Data Transfer Objects (DTOs) for API requests and responses.
 """
 from typing import Optional
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 
 from src.features.auth.validators import validate_password_policy, validate_username_policy
+from src.platform.security.email_address import EmailAddress
 
 
 class UserCreate(BaseModel):
     """Request model for user registration."""
     username: str
-    email: EmailStr
+    email: EmailAddress
     password: str
     # One-time setup token, only needed to claim an unclaimed instance from a
     # non-loopback origin (see SetupStatus.claim_requires_token).
@@ -38,12 +39,6 @@ class ChangePasswordRequest(BaseModel):
         return validate_password_policy(value)
 
 
-class UserLogin(BaseModel):
-    """Request model for user login."""
-    username: str
-    password: str
-
-
 class Token(BaseModel):
     """Response model for JWT token."""
     access_token: str
@@ -54,6 +49,7 @@ class LoginProviderResponse(BaseModel):
     id: str
     label: str
     start_path: str
+    auto_redirect: bool = False
 
 
 class ExternalLoginExchange(BaseModel):

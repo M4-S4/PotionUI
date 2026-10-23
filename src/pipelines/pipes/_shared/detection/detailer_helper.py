@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Dict, Any, List, Tuple, Literal, TYPE_CHECKING
 import numpy as np
+import torch
 from PIL import Image, ImageDraw, ImageFilter
 import logging
 
@@ -10,6 +11,10 @@ if TYPE_CHECKING:
     from ultralytics import YOLO
 
 logger = logging.getLogger(__name__)
+
+
+def host_device() -> str:
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 
 class DetailerHelper:
@@ -40,7 +45,7 @@ class DetailerHelper:
         from ultralytics import YOLO
 
         detector = YOLO(model_path)
-        return detector.to(self.config.get("device", "cuda"))
+        return detector.to(self.config.get("device", host_device()))
 
     def detect_objects(self, image: Image.Image, detector: YOLO, dtype: Literal["face", "hand", "person"], classes: List[int] = None) -> List[np.ndarray]:
         """
@@ -59,7 +64,7 @@ class DetailerHelper:
             "source": np.array(image),
             "conf": float(self.config["detections"][dtype]["confidence"]),
             "imgsz": max(image.size),
-            "device": self.config["detections"][dtype].get("device", "cuda"),
+            "device": self.config["detections"][dtype].get("device", host_device()),
             "verbose": True,
         }
 

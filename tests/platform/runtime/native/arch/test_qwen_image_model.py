@@ -23,6 +23,7 @@ from src.platform.runtime.native.base import NativeArchModule, load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.detect.unet_detect import detect_unet_config
 from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -48,12 +49,8 @@ TINY = {
 }
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build_ready(config) -> QwenImageDiT:
-    m = QwenImageDiT.from_config(config, _fp32_ops())
+    m = QwenImageDiT.from_config(config, fp32_ops())
     sd = {}
     for k, v in m.state_dict().items():
         if k.endswith(".weight") and (".norm" in k or "txt_norm" in k):
@@ -302,8 +299,8 @@ def test_qwen_image_2512_meta_keyset_parity():
 
 def test_edit_variant_adds_index_timestep_zero_buffer():
     with torch.device("meta"):
-        plain = QwenImageDiT.from_config(REAL_CONFIG, _fp32_ops())
-        edit = QwenImageDiT.from_config(dict(REAL_CONFIG, default_ref_method="index_timestep_zero"), _fp32_ops())
+        plain = QwenImageDiT.from_config(REAL_CONFIG, fp32_ops())
+        edit = QwenImageDiT.from_config(dict(REAL_CONFIG, default_ref_method="index_timestep_zero"), fp32_ops())
     assert "__index_timestep_zero__" not in dict(plain.state_dict())
     assert "__index_timestep_zero__" in dict(edit.state_dict())
 
@@ -320,7 +317,7 @@ def test_detect_real_shapes_exact_config():
 
 def test_detect_spec_from_config_roundtrip():
     with torch.device("meta"):
-        seed = QwenImageDiT.from_config(TINY, _fp32_ops())
+        seed = QwenImageDiT.from_config(TINY, fp32_ops())
     sd = {k: torch.empty(tuple(v.shape), device="meta") for k, v in seed.state_dict().items()}
     config = detect_unet_config(sd)
     assert config["image_model"] == "qwen_image"
@@ -329,7 +326,7 @@ def test_detect_spec_from_config_roundtrip():
     assert spec.sampling_settings["shift"] == 1.15
     assert spec.sampling_settings["guidance"] == "cfg"  # true CFG; denoise's canonical mode name
     with torch.device("meta"):
-        rebuilt = QwenImageDiT.from_config(config, _fp32_ops())
+        rebuilt = QwenImageDiT.from_config(config, fp32_ops())
     assert set(rebuilt.state_dict().keys()) == set(seed.state_dict().keys())
 
 
@@ -372,7 +369,7 @@ def test_config_rejects_inner_dim_mismatch():
 
 def test_is_native_arch_module_and_post_load_noop():
     with torch.device("meta"):
-        m = QwenImageDiT.from_config(TINY, _fp32_ops())
+        m = QwenImageDiT.from_config(TINY, fp32_ops())
     assert isinstance(m, NativeArchModule)
     assert m.post_load() is None
 
@@ -434,7 +431,7 @@ def test_no_ref_forward_matches_head_bit_exact(head_qwen_image_model):
     m_new = _build_ready(TINY)
     sd = {k: v.clone() for k, v in m_new.state_dict().items()}
 
-    m_head = head_qwen_image_model.QwenImageDiT.from_config(TINY, _fp32_ops())
+    m_head = head_qwen_image_model.QwenImageDiT.from_config(TINY, fp32_ops())
     load_into_module(m_head, {k: v.clone() for k, v in sd.items()}, match_model_spec(TINY))
     m_head.eval()
 
@@ -542,7 +539,7 @@ def test_index_method_with_ref_latents_matches_head_bit_exact(head_qwen_image_mo
     m_new = _build_ready(TINY)
     sd = {k: v.clone() for k, v in m_new.state_dict().items()}
 
-    m_head = head_qwen_image_model.QwenImageDiT.from_config(TINY, _fp32_ops())
+    m_head = head_qwen_image_model.QwenImageDiT.from_config(TINY, fp32_ops())
     load_into_module(m_head, {k: v.clone() for k, v in sd.items()}, match_model_spec(TINY))
     m_head.eval()
 

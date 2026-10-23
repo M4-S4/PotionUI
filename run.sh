@@ -74,7 +74,6 @@ uvicorn api:app \
     --workers 1 \
     --log-level info \
     --limit-concurrency 1000 \
-    --limit-max-requests 10000 \
     --timeout-keep-alive 30 \
     --timeout-graceful-shutdown 30 &
 BACKEND_PID=$!

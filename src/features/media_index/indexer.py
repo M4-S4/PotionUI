@@ -12,14 +12,17 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
+from src.features.media_index.hooks import MEDIA_INDEX_HOOKS
 from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
 from src.features.media_index.records import MediaIndexQueueItem
 from src.features.media_index.repository import MediaIndexRepository
 from src.features.media_index.tagger import WDTaggerProvider
+from src.platform.plugins.hooks import execute_hook
 
 if TYPE_CHECKING:
     from src.features.content_safety.manager import ContentSafetyManager
     from src.platform.filesystem import FileStore
+    from src.platform.plugins.registry import PluginRegistry
     from src.features.media_index.gallery_vector_store import GalleryVectorStore
     from src.features.media_index.gallery_prompt_vector_store import GalleryPromptVectorStore
     from src.features.media_index.vision_embedder import SiglipVisionEmbedder
@@ -64,7 +67,9 @@ class MediaIndexer:
         text_embedding_provider: "EmbeddingProvider",
         gallery_prompt_vector_store: "GalleryPromptVectorStore",
         content_safety: Optional["ContentSafetyManager"] = None,
+        plugins: Optional["PluginRegistry"] = None,
     ):
+        self.plugins = plugins
         self.repository = repository
         self.content_safety = content_safety
         self.tagger_provider = tagger_provider
@@ -230,11 +235,14 @@ class MediaIndexer:
                 self._settle_gallery_rebuilds({item.user_id for item in items if item.user_id})
             return {"processed": processed, "failed": failed}
 
+        tagged: Dict[str, List[str]] = {}
         for item in items:
             try:
                 processor(item)
                 self.repository.mark_done(item.id)
                 processed += 1
+                if pass_type == PASS_TAGS and item.generation_id:
+                    tagged.setdefault(item.generation_id, []).append(item.file_id)
             except _SourceNotReadyError:
                 logger.debug(
                     "media_index: %s pass deferred for file %s (%s)",
@@ -248,7 +256,20 @@ class MediaIndexer:
                 )
                 self.repository.mark_failed(item.id, str(exc), MAX_ATTEMPTS)
                 failed += 1
+        self._announce_tags(tagged)
         return {"processed": processed, "failed": failed}
+
+    def _announce_tags(self, tagged: Dict[str, List[str]]) -> None:
+        if self.plugins is None:
+            return
+        for generation_id, file_ids in tagged.items():
+            try:
+                execute_hook(
+                    self.plugins, MEDIA_INDEX_HOOKS.after_tags_written,
+                    {"generation_id": generation_id, "file_ids": file_ids},
+                )
+            except Exception:
+                logger.exception("media_index: after_tags_written hook failed for generation %s", generation_id)
 
     def status(self, pass_type: Optional[str] = None) -> Dict[str, object]:
         return {

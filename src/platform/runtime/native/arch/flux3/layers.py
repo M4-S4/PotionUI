@@ -102,12 +102,18 @@ class LastLayer(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, hidden: int, heads: int, mlp_hidden: int, operations, dtype=None, device=None) -> None:
+    def __init__(
+        self, hidden: int, heads: int, mlp_hidden: int, operations, dtype=None, device=None, fused_qkv: bool = False
+    ) -> None:
         super().__init__()
         self.heads = heads
-        self.q_proj = operations.Linear(hidden, hidden, bias=False, dtype=dtype, device=device)
-        self.k_proj = operations.Linear(hidden, hidden, bias=False, dtype=dtype, device=device)
-        self.v_proj = operations.Linear(hidden, hidden, bias=False, dtype=dtype, device=device)
+        self.fused_qkv = fused_qkv
+        if fused_qkv:
+            self.qkv = operations.Linear(hidden, hidden * 3, bias=False, dtype=dtype, device=device)
+        else:
+            self.q_proj = operations.Linear(hidden, hidden, bias=False, dtype=dtype, device=device)
+            self.k_proj = operations.Linear(hidden, hidden, bias=False, dtype=dtype, device=device)
+            self.v_proj = operations.Linear(hidden, hidden, bias=False, dtype=dtype, device=device)
         self.mlp_in = operations.Linear(hidden, mlp_hidden * 2, bias=False, dtype=dtype, device=device)
         self.attn_out = operations.Linear(hidden, hidden, bias=False, dtype=dtype, device=device)
         self.mlp_out = operations.Linear(mlp_hidden, hidden, bias=False, dtype=dtype, device=device)
@@ -120,8 +126,12 @@ class Block(nn.Module):
     def forward(self, x: Tensor, rope: Rope, segments: list[Modulation]) -> Tensor:
         normed = F.layer_norm(x, (x.shape[-1],), eps=1e-6)
         x_mod = modulate(normed, segments)
-        q, k = self.norm(self._split(self.q_proj(x_mod)), self._split(self.k_proj(x_mod)), rope)
-        v = self._split(self.v_proj(x_mod)).to(q.dtype)
+        if self.fused_qkv:
+            q, k, v = self.qkv(x_mod).chunk(3, dim=-1)
+        else:
+            q, k, v = self.q_proj(x_mod), self.k_proj(x_mod), self.v_proj(x_mod)
+        q, k = self.norm(self._split(q), self._split(k), rope)
+        v = self._split(v).to(q.dtype)
         attn = _attention(q, k, v, heads=self.heads)
         b, _, n, _ = attn.shape
         attn = attn.transpose(1, 2).reshape(b, n, -1)

@@ -14,7 +14,7 @@ import pytest
 import torch
 
 import src.platform.runtime.native.attention as att
-from src.platform.runtime.native.arch.minimax_music3._nn import apply_rope
+from src.platform.runtime.native.text_encoders._functional import apply_rope_qk as apply_rope
 from src.platform.runtime.native.arch.minimax_music3.config import MiniMaxMusic3TextEncoderConfig
 from src.platform.runtime.native.arch.minimax_music3.lm import MiniMaxMusic3AudioLM, _GlobalAttention
 from src.platform.runtime.native.text_encoders._functional import optimized_attention

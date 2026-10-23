@@ -1,40 +1,8 @@
-import importlib.util
-import sys
-import tempfile
-import unittest
-from pathlib import Path
-
-from src.platform.database.database import Database
-
-_MIGRATIONS = (
-    Path(__file__).resolve().parents[3]
-    / "src" / "platform" / "database" / "migrations"
-)
+from tests.platform.database._support import MigrationCase
 
 
-def _load_migration(stem, database):
-    spec = importlib.util.spec_from_file_location(stem, _MIGRATIONS / f"{stem}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[stem] = module
-    spec.loader.exec_module(module)
-    module.db = database
-    return module
-
-
-class TestMigration047GenerationCosts(unittest.TestCase):
-
-    def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        Database._instance = None
-        self.db = Database()
-        self.db.db_path = Path(temp.name) / "test.sqlite"
-        self.db._initialized = True
-        _load_migration("001_baseline", self.db).up()
-        self.migration = _load_migration("047_generation_costs", self.db)
-
-    def tearDown(self):
-        Database._instance = None
+class TestMigration047GenerationCosts(MigrationCase):
+    MIGRATION = "047_generation_costs"
 
     def _columns(self):
         with self.db.get_cursor() as cursor:
@@ -84,12 +52,3 @@ class TestMigration047GenerationCosts(unittest.TestCase):
         self.migration.up()
 
         assert self._count() == 1
-
-    def test_down_drops_the_table(self):
-        self.migration.up()
-
-        self.migration.down()
-
-        with self.db.get_cursor() as cursor:
-            cursor.execute("SELECT name FROM sqlite_master WHERE name = 'generation_costs'")
-            assert cursor.fetchone() is None

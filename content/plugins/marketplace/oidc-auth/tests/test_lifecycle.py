@@ -21,7 +21,7 @@ def _settings(label="SSO"):
 def test_enable_registers_with_the_start_path_and_configured_label():
     calls = []
 
-    def fake_register(provider_id, label, start_path):
+    def fake_register(provider_id, label, start_path, auto_redirect=None):
         calls.append((provider_id, label, start_path))
 
     with patch.object(api, "register_login_provider", fake_register), patch.object(
@@ -35,7 +35,7 @@ def test_enable_registers_with_the_start_path_and_configured_label():
 def test_enable_registers_even_without_settings_configured():
     calls = []
 
-    def fake_register(provider_id, label, start_path):
+    def fake_register(provider_id, label, start_path, auto_redirect=None):
         calls.append((provider_id, label, start_path))
 
     with patch.object(api, "register_login_provider", fake_register), patch.object(
@@ -61,7 +61,7 @@ def test_disable_unregisters_the_provider():
 def test_enable_twice_without_disable_raises_duplicate_error():
     registered = set()
 
-    def fake_register(provider_id, label, start_path):
+    def fake_register(provider_id, label, start_path, auto_redirect=None):
         if provider_id in registered:
             raise DuplicateLoginProviderError(f"already registered: {provider_id!r}")
         registered.add(provider_id)

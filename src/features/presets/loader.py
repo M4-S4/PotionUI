@@ -27,11 +27,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
-import yaml
 
 from src.platform.observability.logger import logger
+from src.platform.templating import TemplateProcessor
 from src.features.presets.children_paths import DEFAULT_SHARED_PATH, resolve_children_path
+from src.features.presets.children_refs import ChildrenRef, parse_children_ref, read_children_fragment
 from src.features.presets.templates import PresetTemplate, PipeTemplate, FieldTemplate, FormTemplate, ModeTemplate
+from src.platform.filesystem.yaml_io import load_yaml_file
 from .schema import (
     validate_manifest,
     validate_pipeline_file,
@@ -154,8 +156,7 @@ def discover_form_variants(mode_dir: Path) -> List[Tuple[str, Path]]:
 
 def read_mode_naming(mode_dir: Path) -> Dict[str, Optional[str]]:
     try:
-        with open(mode_dir / 'form.yml', 'r', encoding='utf-8') as ff:
-            data = yaml.safe_load(ff) or {}
+        data = load_yaml_file(mode_dir / 'form.yml') or {}
     except Exception:
         data = {}
     if not isinstance(data, dict):
@@ -224,17 +225,12 @@ class PresetTemplateLoader:
         self.preset_files_path = self.preset_files_paths[0] if self.preset_files_paths else Path("content/presets")
         self.shared_path = Path(shared_path) if shared_path is not None else DEFAULT_SHARED_PATH
         self.presets: List[PresetTemplate] = []
+        self.presets_by_id: Dict[str, PresetTemplate] = {}
         # path (str) -> list of "<file>: <path>: <message>" validation errors
         self.load_errors: Dict[str, List[str]] = {}
         self._loaded = False
         self._lock = threading.Lock()
-        # Set post-construction by bootstrap once a collaborator that cares
-        # about catalogue changes exists (e.g. `PresetMediaPrerenderQueue`
-        # scheduling renders for new/changed preset media). Fired at the end
-        # of every `_do_load_presets()` - the one choke point behind the
-        # initial lazy load, `load_presets()`, and `reload()` alike - with the
-        # freshly-swapped-in `self.presets`. Best-effort: a callback failure
-        # is logged, never allowed to break a preset load.
+        self._loop_engine = None
         self.on_presets_changed: Optional[Callable[[List[PresetTemplate]], None]] = None
 
     def all_preset_roots(self) -> List[Path]:
@@ -271,8 +267,7 @@ class PresetTemplateLoader:
         errors: List[str] = []
 
         try:
-            with open(preset_path, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f) or {}
+            data = load_yaml_file(preset_path) or {}
         except Exception as e:
             errors.append(f"preset.yml: failed to read/parse: {e}")
             errors_out[str(preset_path)] = errors
@@ -383,8 +378,7 @@ class PresetTemplateLoader:
             return [], dict(self._NO_STYLES_PREVIEW)
 
         try:
-            with open(styles_file, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f) or {}
+            data = load_yaml_file(styles_file) or {}
         except Exception as e:
             logger.error(f"Error loading styles for preset {preset_path}: failed to parse styles.yml: {e}")
             return [], dict(self._NO_STYLES_PREVIEW)
@@ -415,8 +409,7 @@ class PresetTemplateLoader:
             return None, [f"modes/{mode_name}/pipeline.yml: file not found"]
 
         try:
-            with open(pipeline_file, 'r', encoding='utf-8') as pf:
-                pipeline_data = yaml.safe_load(pf) or {}
+            pipeline_data = load_yaml_file(pipeline_file) or {}
         except Exception as e:
             return None, [f"modes/{mode_name}/pipeline.yml: failed to parse: {e}"]
 
@@ -466,8 +459,7 @@ class PresetTemplateLoader:
             form_file = form_dir / 'form.yml'
 
             try:
-                with open(form_file, 'r', encoding='utf-8') as ff:
-                    form_data = yaml.safe_load(ff) or {}
+                form_data = load_yaml_file(form_file) or {}
             except Exception as e:
                 errors.append(f"modes/{mode_name}/{loc}form.yml: failed to parse: {e}")
                 continue
@@ -483,7 +475,7 @@ class PresetTemplateLoader:
             fields = []
             for field_data in validated.model_dump()['fields']:
                 try:
-                    fields.append(self._build_field_template(field_data, preset_root, prefix))
+                    fields.extend(self._build_field_templates(field_data, preset_root, prefix))
                 except Exception as e:
                     errors.append(f"{prefix}: error building field: {e}")
 
@@ -611,6 +603,33 @@ class PresetTemplateLoader:
                 errors.extend(self._check_fields_tags_categories(field.children, declared_config_keys, loc))
         return errors
 
+    def _build_field_templates(self, field_data: dict, preset_root: Path, prefix: str) -> List[FieldTemplate]:
+        if field_data.get('type') != '@loop':
+            return [self._build_field_template(field_data, preset_root, prefix)]
+
+        config = field_data.get('configuration')
+        if not config:
+            raise ValueError("@loop field requires configuration with count/items and template")
+
+        if self._loop_engine is None:
+            from src.features.presets.processor import PresetProcessor
+            self._loop_engine = PresetProcessor(
+                template_processor=TemplateProcessor(settings=None),
+                settings=None,
+                preset_template_loader=self,
+            )
+
+        context = {'paths': {'preset': str(preset_root), '_shared': str(self.shared_path)}}
+        expanded = self._loop_engine.process_value({'@loop': config}, context)
+
+        built: List[FieldTemplate] = []
+        for item in expanded:
+            for entry in item if isinstance(item, list) else [item]:
+                if not isinstance(entry, dict):
+                    raise ValueError(f"@loop template must expand to field dicts, got: {entry!r}")
+                built.extend(self._build_field_templates(entry, preset_root, prefix))
+        return built
+
     def _build_field_template(self, field_data: dict, preset_root: Path, prefix: str) -> FieldTemplate:
         """Recursively convert a validated field dict into a FieldTemplate.
 
@@ -636,33 +655,29 @@ class PresetTemplateLoader:
         """
         field_data = dict(field_data)
 
-        # "@loop" is a pipeline/form-expansion directive (a field list entry
-        # that PresetProcessor expands into N real fields at render time via
-        # its own `configuration.template`, not a renderable widget) - it was
-        # never meant to be in the field-type registry, so it's exempt from
-        # the unregistered-type check.
         field_type = field_data.get('type')
-        if field_type != '@loop' and field_type not in _known_field_types():
+        if field_type not in _known_field_types():
             raise ValueError(
                 f"field '{field_data.get('name')}': unregistered field type '{field_type}'"
             )
 
         children = field_data.get('children')
-        if isinstance(children, str):
-            resolved_path = resolve_children_path(children, preset_root, self.shared_path)
-            external_fields = self._load_external_children_file(resolved_path, prefix)
+        ref = parse_children_ref(children)
+        if ref is not None:
+            resolved_path = resolve_children_path(ref.file, preset_root, self.shared_path)
+            external_fields = self._load_external_children_file(resolved_path, prefix, ref)
             field_data['children'] = [
-                self._build_field_template(c, preset_root, prefix) for c in external_fields
+                built for c in external_fields for built in self._build_field_templates(c, preset_root, prefix)
             ]
         elif isinstance(children, list):
             field_data['children'] = [
-                self._build_field_template(c, preset_root, prefix) for c in children
+                built for c in children for built in self._build_field_templates(c, preset_root, prefix)
             ]
 
         return FieldTemplate(**field_data)
 
     @staticmethod
-    def _load_external_children_file(children_file: Path, prefix: str) -> List[dict]:
+    def _load_external_children_file(children_file: Path, prefix: str, ref: ChildrenRef) -> List[dict]:
         """Load + schema-validate an external tab/children fragment's `fields:`.
 
         Returns validated field dicts (`FieldSpec.model_dump()`), never the
@@ -672,9 +687,7 @@ class PresetTemplateLoader:
         if not children_file.exists():
             raise ValueError(f"external children file not found: {children_file}")
 
-        with open(children_file, 'r', encoding='utf-8') as f:
-            children_data = yaml.safe_load(f) or {}
-
+        children_data = read_children_fragment(children_file, ref)
         raw_fields = children_data.get('fields', [])
         validated, errors = validate_field_list(raw_fields, prefix=f"{prefix} -> {children_file}")
         if errors:
@@ -694,12 +707,16 @@ class PresetTemplateLoader:
 
     def _ensure_loaded(self):
         """Ensure presets are loaded (lazy loading with thread safety)"""
-        if not self._loaded:
-            with self._lock:
-                # Double-check pattern for thread safety
-                if not self._loaded:
-                    self._do_load_presets()
-                    self._loaded = True
+        if self._loaded:
+            return
+        loaded_here = False
+        with self._lock:
+            if not self._loaded:
+                self._do_load_presets()
+                self._loaded = True
+                loaded_here = True
+        if loaded_here:
+            self._notify_presets_changed()
 
     def _scan_presets(self) -> Tuple[List[PresetTemplate], Dict[str, List[str]]]:
         """Scan every preset root + apply plugin-contributed modes, returning
@@ -753,7 +770,13 @@ class PresetTemplateLoader:
         """Scan, then swap the result into ``self.presets``/``self.load_errors``."""
         logger.info("Starting preset loading...")
         presets, errors = self._scan_presets()
+        by_id: Dict[str, PresetTemplate] = {}
+        for preset in reversed(presets):
+            by_id[preset.id] = preset
+        self.presets_by_id = by_id
         self.presets, self.load_errors = presets, errors
+
+    def _notify_presets_changed(self):
         if self.on_presets_changed is not None:
             try:
                 self.on_presets_changed(self.presets)
@@ -861,6 +884,7 @@ class PresetTemplateLoader:
         """Load all presets from both catalogue and custom directories"""
         self._do_load_presets()
         self._loaded = True
+        self._notify_presets_changed()
         return self.presets
 
     def clear_cache(self):
@@ -880,6 +904,7 @@ class PresetTemplateLoader:
         """
         logger.info("Clearing preset cache")
         self.presets.clear()
+        self.presets_by_id = {}
         self._loaded = False
 
     def reload(self) -> None:
@@ -905,6 +930,7 @@ class PresetTemplateLoader:
         with self._lock:
             self._do_load_presets()
             self._loaded = True
+        self._notify_presets_changed()
 
     def get_preset_by_name(self, preset_name: str) -> Optional[PresetTemplate]:
         """
@@ -922,10 +948,15 @@ class PresetTemplateLoader:
                 return preset
         return None
 
-    def load_preset_by_id(self, preset_id) -> Optional[PresetTemplate]:
-        """Get a specific preset by its id"""
+    def all(self) -> List[PresetTemplate]:
         self._ensure_loaded()
-        for preset in self.presets:
-            if preset.id == preset_id:
-                return preset
-        return None
+        return self.presets
+
+    def get(self, preset_id: Optional[str]) -> Optional[PresetTemplate]:
+        self._ensure_loaded()
+        if not preset_id:
+            return None
+        return self.presets_by_id.get(preset_id)
+
+    def load_preset_by_id(self, preset_id) -> Optional[PresetTemplate]:
+        return self.get(preset_id)

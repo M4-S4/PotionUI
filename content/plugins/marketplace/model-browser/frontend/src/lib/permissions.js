@@ -1,6 +1,4 @@
-export const AUTH_TOKEN_KEY = 'auth_token';
-
-export const ASSIGN_TO = ['user', 'group'];
+const ASSIGN_TO = ['user', 'group'];
 
 const FALLBACK_CAPABILITIES = ['browse', 'request', 'download', 'approve'];
 const FALLBACK_SOURCES = ['civitai', 'huggingface', 'openmodeldb'];
@@ -153,14 +151,6 @@ export function optionsFor(allowed, selected) {
 	return [...allowed, ...outside(selected, allowed)];
 }
 
-export function readToken() {
-	try {
-		return globalThis.localStorage?.getItem(AUTH_TOKEN_KEY) || null;
-	} catch {
-		return null;
-	}
-}
-
 function errorText(body, status) {
 	if (isObject(body)) {
 		const { detail } = body;
@@ -190,10 +180,8 @@ function thrownText(err) {
 }
 
 async function call({ pluginId, method, body }) {
-	const bearer = readToken();
 	const headers = { Accept: 'application/json' };
-	if (bearer) headers.Authorization = `Bearer ${bearer}`;
-	const init = { method, headers, credentials: 'include', cache: 'no-store' };
+	const init = { method, headers };
 	if (body !== undefined) {
 		headers['Content-Type'] = 'application/json';
 		init.body = JSON.stringify(body);
@@ -202,7 +190,7 @@ async function call({ pluginId, method, body }) {
 
 	let response;
 	try {
-		response = await fetch(url, init);
+		response = await globalThis.__potionui.api.fetch(url, init);
 	} catch (err) {
 		return { ok: false, status: 0, error: thrownText(err) };
 	}

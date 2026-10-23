@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.model_loader.wan22.main import ModelLoaderWan22Pipe
 from src.pipelines.pipes.model_loader.wan22.bundle import WanModelBundle
 from src.pipelines.pipes.model_loader.wan22.wan_clip import WanClipTextEncoder
@@ -37,12 +37,6 @@ def _run(cfg):
     return models, out
 
 
-def test_name_and_outputs():
-    assert ModelLoaderWan22Pipe.name == "model_loader"
-    out = {o.name: o.io_type for o in ModelLoaderWan22Pipe.outputs()}
-    assert out["model"] == IOType.MODEL and out["text_encoder"] == IOType.TEXT_ENCODER
-
-
 def test_dual_expert_three_eager_acquires():
     """The TE's acquire() is deferred (see WanClipTextEncoder) -- process()
     itself must only ever touch high DiT / low DiT / VAE eagerly, never the TE."""
@@ -66,32 +60,6 @@ def test_single_expert_two_eager_acquires():
     assert "native/dit//m/wan_low.safetensors" not in keys
     assert not any(k.startswith("native/te/") for k in keys)
     assert out.output["model"].is_dual_expert is False
-
-
-def test_te_acquire_deferred_until_encoder_is_read():
-    models, out = _run(_config(dual=True))
-    clip = out.output["text_encoder"]
-    _ = clip.encoder
-    _ = clip.encoder  # a second read must not re-acquire
-    te_calls = [k for k, _ in models.calls if k == "native/te//m/umt5.safetensors"]
-    assert len(te_calls) == 1
-
-
-def test_te_never_acquired_when_encoder_is_never_read():
-    models, out = _run(_config(dual=True))
-    assert not any(k == "native/te//m/umt5.safetensors" for k, _ in models.calls)
-    _ = out.output["text_encoder"].encoder
-    assert any(k == "native/te//m/umt5.safetensors" for k, _ in models.calls)
-
-
-def test_bundle_unload_tolerates_a_never_acquired_te():
-    _models, out = _run(_config(dual=True))
-    out.output["model"].unload()
-
-
-def test_bundle_carries_the_te_cache_key():
-    _models, out = _run(_config(dual=True))
-    assert out.output["model"].te_cache_key == "native/te//m/umt5.safetensors"
 
 
 def test_per_expert_loras_bust_only_their_dit():

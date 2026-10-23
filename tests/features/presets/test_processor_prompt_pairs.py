@@ -8,6 +8,7 @@ prompt arrays. This test drives the real preset, not a fixture, because the wiri
 lives in the YAML.
 """
 
+from pathlib import Path
 import pytest
 from unittest.mock import Mock
 
@@ -29,10 +30,10 @@ def sdxl_template():
     loader = PresetTemplateLoader(['content/presets'])
     loader.load_presets()
     template = next(
-        (p for p in loader.presets if 'native/SDXL' in str(p.path)), None
+        (p for p in loader.presets if 'marketplace/SDXL' in Path(p.path).as_posix()), None
     )
     if template is None:
-        pytest.skip('SDXL/realistic preset not present')
+        pytest.fail('SDXL/realistic preset not present')
     return template
 
 
@@ -50,7 +51,7 @@ def processed_pipes(sdxl_template):
     # `form.model`) would raise StrictUndefined. Bind it the way production
     # does; no storage_dir/user is needed here since this preset's media
     # fields aren't exercised by these tests.
-    bound = bind_form(sdxl_template, 'txt2img', form_name=None, raw_form_data={'quantity': 3, 'seed': 5})
+    bound = bind_form(sdxl_template, 'txt2img', form_name=None, raw_form_data={'model': '/models/sdxl.safetensors', 'quantity': 3, 'seed': 5})
     generation_data = {
         'prompts': PROMPTS,
         'mode': 'txt2img',

@@ -12,6 +12,7 @@ from src.features.models.catalog import ModelCatalog
 from src.features.models.records import Model, ModelInfo
 from src.features.models.repository import ModelRepository
 from tests.conftest import TestDatabase
+from tests.fixtures.seed import seed_user
 
 
 class _Safety:
@@ -33,12 +34,8 @@ def scratch_db():
 
 @pytest.fixture
 def models(scratch_db):
-    with scratch_db.get_cursor() as cursor:
-        for user_id, account_type in (("user-1", "USER"), ("user-2", "USER"), ("admin-1", "ADMIN")):
-            cursor.execute(
-                "INSERT INTO users (id, username, email, password_hash, account_type) VALUES (?, ?, ?, ?, ?)",
-                (user_id, user_id, f"{user_id}@x.com", "hash", account_type),
-            )
+    for user_id, account_type in (("user-1", "USER"), ("user-2", "USER"), ("admin-1", "ADMIN")):
+        seed_user(scratch_db, user_id, account_type=account_type)
     repo = ModelRepository()
     lora = repo.create(Model(filename="fox_style.safetensors", file_size=1, sha256="a" * 64, model_type="lora"))
     flagged = repo.create(Model(filename="spicy.safetensors", file_size=1, sha256="b" * 64, model_type="lora"))

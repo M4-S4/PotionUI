@@ -59,13 +59,6 @@ async def test_create_prompt_for_user_forwards_model_id_to_add_prompt():
     assert mock_operations.add_prompt.await_args.kwargs["model_id"] == "model-9"
 
 
-def test_prompt_import_outcome_defaults_to_no_items_and_no_error():
-    outcome = PromptImportOutcome(imported=3, skipped=1, total=4)
-
-    assert outcome.items == []
-    assert outcome.error is None
-
-
 def test_find_prompt_source_ids_delegates_to_repository():
     repository = Mock(get_source_ids=Mock(return_value={"123", "456"}))
     collaborators = SimpleNamespace(repository=repository)

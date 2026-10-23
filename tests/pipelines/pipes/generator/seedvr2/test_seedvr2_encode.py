@@ -16,14 +16,16 @@ from src.pipelines.pipes.generator.seedvr2.encode import (
     AUDIO_MUXED,
     AUDIO_MUX_FAILED,
     AUDIO_NOT_REQUESTED,
-    AUDIO_PROBE_FAILED,
     AUDIO_SILENT_SOURCE,
-    AudioProbeResult,
-    AUDIO_PROBE_PRESENT,
-    AUDIO_PROBE_SILENT,
     _stderr_tail,
     _STDERR_TAIL_BYTES,
     encode_video_with_audio,
+)
+from src.platform.util.video_stream import (
+    AUDIO_PROBE_FAILED,
+    AUDIO_PROBE_PRESENT,
+    AUDIO_PROBE_SILENT,
+    AudioProbeResult,
 )
 
 _FRAMES = np.zeros((2, 4, 4, 3), dtype=np.uint8)
@@ -163,99 +165,6 @@ def test_successful_passthrough_reports_audio_muxed():
     assert mux_audio.calls == [(("/tmp/out.mp4", "/tmp/src.mp4", "/tmp/out.mp4.audio.mp4"), {})]
 
 
-# -- probe_audio_stream: three-way classification ----------------------------
-#
-# Fakes `shutil.which`/`subprocess.run` directly -- no real ffprobe binary.
-
-def test_probe_reports_present_when_ffprobe_finds_an_audio_stream(monkeypatch):
-    import src.pipelines.pipes.generator.seedvr2.encode as enc
-
-    monkeypatch.setattr(enc.shutil, "which", lambda name: "/usr/bin/ffprobe")
-    monkeypatch.setattr(
-        enc.subprocess, "run",
-        lambda cmd, **kw: SimpleNamespaceResult(returncode=0, stdout='{"streams": [{"codec_type": "audio"}]}'),
-    )
-
-    result = enc.probe_audio_stream("/tmp/src.mp4")
-    assert result.status == AUDIO_PROBE_PRESENT
-    assert result.reason is None
-
-
-def test_probe_reports_confirmed_silent_when_no_streams(monkeypatch):
-    import src.pipelines.pipes.generator.seedvr2.encode as enc
-
-    monkeypatch.setattr(enc.shutil, "which", lambda name: "/usr/bin/ffprobe")
-    monkeypatch.setattr(
-        enc.subprocess, "run",
-        lambda cmd, **kw: SimpleNamespaceResult(returncode=0, stdout='{"streams": []}'),
-    )
-
-    result = enc.probe_audio_stream("/tmp/src.mp4")
-    assert result.status == AUDIO_PROBE_SILENT
-    assert result.reason is None
-
-
-def test_probe_reports_failed_when_ffprobe_missing(monkeypatch):
-    import src.pipelines.pipes.generator.seedvr2.encode as enc
-
-    monkeypatch.setattr(enc.shutil, "which", lambda name: None)
-
-    result = enc.probe_audio_stream("/tmp/src.mp4")
-    assert result.status == AUDIO_PROBE_FAILED
-    assert "not found" in result.reason
-
-
-def test_probe_reports_failed_on_nonzero_exit(monkeypatch):
-    import src.pipelines.pipes.generator.seedvr2.encode as enc
-
-    monkeypatch.setattr(enc.shutil, "which", lambda name: "/usr/bin/ffprobe")
-    monkeypatch.setattr(
-        enc.subprocess, "run",
-        lambda cmd, **kw: SimpleNamespaceResult(returncode=1, stdout=""),
-    )
-
-    result = enc.probe_audio_stream("/tmp/corrupt.mp4")
-    assert result.status == AUDIO_PROBE_FAILED
-    assert "exited 1" in result.reason
-
-
-def test_probe_reports_failed_on_timeout(monkeypatch):
-    import src.pipelines.pipes.generator.seedvr2.encode as enc
-
-    def _raise_timeout(cmd, **kw):
-        raise enc.subprocess.TimeoutExpired(cmd=cmd, timeout=10)
-
-    monkeypatch.setattr(enc.shutil, "which", lambda name: "/usr/bin/ffprobe")
-    monkeypatch.setattr(enc.subprocess, "run", _raise_timeout)
-
-    result = enc.probe_audio_stream("/tmp/src.mp4")
-    assert result.status == AUDIO_PROBE_FAILED
-    assert "timed out" in result.reason
-
-
-def test_probe_reports_failed_on_unparseable_output(monkeypatch):
-    import src.pipelines.pipes.generator.seedvr2.encode as enc
-
-    monkeypatch.setattr(enc.shutil, "which", lambda name: "/usr/bin/ffprobe")
-    monkeypatch.setattr(
-        enc.subprocess, "run",
-        lambda cmd, **kw: SimpleNamespaceResult(returncode=0, stdout="not json"),
-    )
-
-    result = enc.probe_audio_stream("/tmp/src.mp4")
-    assert result.status == AUDIO_PROBE_FAILED
-    assert "unparseable" in result.reason
-
-
-class SimpleNamespaceResult:
-    """Minimal stand-in for `subprocess.CompletedProcess` (only the two
-    attributes `probe_audio_stream` reads)."""
-
-    def __init__(self, *, returncode: int, stdout: str):
-        self.returncode = returncode
-        self.stdout = stdout
-
-
 # -- file-set ownership: real files under tmp_path ---------------------------
 #
 # `encode_video_with_audio` claims to own the full lifecycle of the two files
@@ -336,7 +245,7 @@ def test_mux_audio_into_video_removes_partial_output_on_ffmpeg_failure(tmp_path,
     monkeypatch.setattr(enc.subprocess, "run", _fake_run)
 
     with pytest.raises(RuntimeError, match="ffmpeg audio mux failed"):
-        enc.mux_audio_into_video(tmp_path / "video.mp4", tmp_path / "src.mp4", out_path)
+        enc._mux_audio_aac_shortest(tmp_path / "video.mp4", tmp_path / "src.mp4", out_path)
 
     assert not out_path.exists()
 

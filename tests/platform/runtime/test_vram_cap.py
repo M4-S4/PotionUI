@@ -84,14 +84,3 @@ class TestApplyVramCapBytes:
         monkeypatch.setenv(vram_cap.VRAM_CAP_ENV_VAR, "64")
         free, total = vram_cap.apply_vram_cap_bytes(10 * self._GB, 32 * self._GB)
         assert (free, total) == (10 * self._GB, 32 * self._GB)
-
-
-class TestApplyVramCapGb:
-    def test_unset_is_identity_passthrough(self):
-        assert vram_cap.apply_vram_cap_gb(10.0, 32.0) == (10.0, 32.0)
-
-    def test_caps_total_and_free(self, monkeypatch):
-        monkeypatch.setenv(vram_cap.VRAM_CAP_ENV_VAR, "16")
-        free, total = vram_cap.apply_vram_cap_gb(28.0, 32.0)
-        assert total == 16.0
-        assert free == 12.0

@@ -8,6 +8,7 @@ from src.features.tags.dto import Tag, TagWithCount, TagType
 from src.platform.database.rows import dt_column, now_utc
 from src.platform.util.ids import generate_ulid
 import logging
+from src.platform.database import get_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +92,7 @@ class TagRepository:
         tag_id = generate_ulid()
         now = now_utc()
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             # Check if tag already exists (case-insensitive, same type and user)
             cursor.execute("""
                 SELECT id, name, type, user_id, created_at FROM tags
@@ -122,16 +122,14 @@ class TagRepository:
 
     def get_tag_by_id(self, tag_id: str) -> Optional[Tag]:
         """Get tag by ID"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("SELECT id, name, type, user_id, created_at FROM tags WHERE id = ?", (tag_id,))
             row = cursor.fetchone()
             return self._row_to_tag(row)
 
     def get_tag_by_name(self, name: str, type: Optional[str] = None, user_id: Optional[str] = None) -> Optional[Tag]:
         """Get tag by name (case-insensitive) with optional type and user filters"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             query = "SELECT id, name, type, user_id, created_at FROM tags WHERE LOWER(name) = LOWER(?)"
             params = [name]
 
@@ -162,8 +160,7 @@ class TagRepository:
 
         query += " ORDER BY name ASC"
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(query, params)
             return [self._row_to_tag(row) for row in cursor.fetchall()]
 
@@ -181,8 +178,7 @@ class TagRepository:
         else:
             count_table = None
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             if count_table:
                 query = f"""
                     SELECT t.id, t.name, t.type, t.user_id, t.created_at,
@@ -235,15 +231,13 @@ class TagRepository:
         sql += " ORDER BY name ASC LIMIT ?"
         params.append(limit)
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute(sql, params)
             return [self._row_to_tag(row) for row in cursor.fetchall()]
 
     def update_tag(self, tag_id: str, name: str) -> bool:
         """Update tag name"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 UPDATE tags SET name = ? WHERE id = ?
             """, (name, tag_id))
@@ -251,8 +245,7 @@ class TagRepository:
 
     def delete_tag(self, tag_id: str) -> bool:
         """Delete a tag (will cascade delete model associations)"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
             return cursor.rowcount > 0
 
@@ -260,8 +253,7 @@ class TagRepository:
 
     def add_tag_to_model(self, model_id: str, tag_id: str) -> bool:
         """Add a tag to a model"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             try:
                 cursor.execute("""
                     INSERT INTO model_tags (model_id, tag_id, created_at)
@@ -276,8 +268,7 @@ class TagRepository:
 
     def get_model_tags(self, model_id: str) -> List[Tag]:
         """Get all tags for a model"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT t.id, t.name, t.type, t.user_id, t.created_at FROM tags t
                 JOIN model_tags mt ON t.id = mt.tag_id
@@ -291,8 +282,7 @@ class TagRepository:
         if not model_ids:
             return result
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for start in range(0, len(model_ids), _SQLITE_IN_CHUNK_SIZE):
                 chunk = model_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
                 placeholders = ','.join('?' * len(chunk))
@@ -311,8 +301,7 @@ class TagRepository:
 
     def set_model_tags(self, model_id: str, tag_ids: List[str]) -> bool:
         """Replace all tags for a model"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             try:
                 cursor.execute("DELETE FROM model_tags WHERE model_id = ?", (model_id,))
 
@@ -328,9 +317,8 @@ class TagRepository:
                 return False
 
     def bulk_update_model_tags(self, model_ids: List[str], add: List[str], remove: List[str]) -> Dict:
-        from src.platform.database.database import db
         unique_model_ids = list(dict.fromkeys(model_ids))
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             known: set = set()
             for start in range(0, len(unique_model_ids), _SQLITE_IN_CHUNK_SIZE):
                 chunk = unique_model_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
@@ -407,11 +395,10 @@ class TagRepository:
 
     def add_tag_to_generation(self, generation_id: str, tag_id: str) -> bool:
         """Add a tag to a generation"""
-        from src.platform.database.database import db
         from src.features.generation.history_revision_repository import (
             bump_history_revision_for_generation,
         )
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             try:
                 cursor.execute("""
                     INSERT INTO generation_tags (generation_id, tag_id, created_at)
@@ -427,11 +414,10 @@ class TagRepository:
 
     def remove_tag_from_generation(self, generation_id: str, tag_id: str) -> bool:
         """Remove a tag from a generation"""
-        from src.platform.database.database import db
         from src.features.generation.history_revision_repository import (
             bump_history_revision_for_generation,
         )
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM generation_tags
                 WHERE generation_id = ? AND tag_id = ?
@@ -443,11 +429,10 @@ class TagRepository:
 
     def get_generation_tags(self, generation_id: str) -> List[Tag]:
         """Get all tags for a generation"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
-                SELECT t.id, t.name, t.type, t.user_id, t.created_at FROM tags t
-                JOIN generation_tags gt ON t.id = gt.tag_id
+                SELECT t.id, t.name, t.type, t.user_id, t.created_at FROM generation_tags gt
+                CROSS JOIN tags t ON t.id = gt.tag_id
                 WHERE gt.generation_id = ?
                 ORDER BY t.name ASC
             """, (generation_id,))
@@ -464,16 +449,15 @@ class TagRepository:
         if not generation_ids:
             return result
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for start in range(0, len(generation_ids), _SQLITE_IN_CHUNK_SIZE):
                 chunk = generation_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
                 placeholders = ','.join('?' * len(chunk))
                 cursor.execute(f"""
                     SELECT t.id, t.name, t.type, t.user_id, t.created_at,
                            gt.generation_id AS _bulk_generation_id
-                    FROM tags t
-                    JOIN generation_tags gt ON t.id = gt.tag_id
+                    FROM generation_tags gt
+                    CROSS JOIN tags t ON t.id = gt.tag_id
                     WHERE gt.generation_id IN ({placeholders})
                     ORDER BY t.name ASC
                 """, chunk)
@@ -487,8 +471,7 @@ class TagRepository:
         if not tag_ids:
             return []
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             placeholders = ','.join('?' * len(tag_ids))
             params = list(tag_ids)
 
@@ -519,11 +502,10 @@ class TagRepository:
 
     def set_generation_tags(self, generation_id: str, tag_ids: List[str]) -> bool:
         """Replace all tags for a generation"""
-        from src.platform.database.database import db
         from src.features.generation.history_revision_repository import (
             bump_history_revision_for_generation,
         )
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             try:
                 cursor.execute("DELETE FROM generation_tags WHERE generation_id = ?", (generation_id,))
 
@@ -543,8 +525,7 @@ class TagRepository:
 
     def get_upload_tags(self, upload_id: str) -> List[Tag]:
         """Get all tags for one library upload"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT t.id, t.name, t.type, t.user_id, t.created_at FROM tags t
                 JOIN upload_tags ut ON t.id = ut.tag_id
@@ -565,8 +546,7 @@ class TagRepository:
         if not upload_ids:
             return result
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for start in range(0, len(upload_ids), _SQLITE_IN_CHUNK_SIZE):
                 chunk = upload_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
                 placeholders = ','.join('?' * len(chunk))
@@ -585,8 +565,7 @@ class TagRepository:
 
     def set_upload_tags(self, upload_id: str, tag_ids: List[str]) -> bool:
         """Replace all tags for one library upload"""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             try:
                 cursor.execute("DELETE FROM upload_tags WHERE upload_id = ?", (upload_id,))
 

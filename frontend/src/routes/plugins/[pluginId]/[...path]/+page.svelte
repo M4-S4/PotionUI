@@ -8,8 +8,8 @@
 	import { getRegistry } from '$lib/plugin-api/componentRegistry';
 	import { PageHeader, PageTitle } from '$lib/components/ui';
 	import { createPageHeaderControls } from '$lib/plugin-api/pageHeader';
-	import { releaseAllKeyboardHolds } from '$lib/services/keyboard';
-	import { createPluginApi, type PluginPageApi } from '$lib/plugin-api/pluginApi';
+	import { createHostFetchApi } from '$lib/plugin-api/hostApi';
+	import { createPluginPageApi } from '$lib/plugin-api/pluginPageApi';
 
 	let pageInfo: any = null;
 	let loading = true;
@@ -27,8 +27,8 @@
 		headerHidden = state.hidden;
 	});
 
-	function pluginApiFor(pluginId: string): PluginPageApi {
-		return createPluginApi(pluginId, { baseUrl: api.getBaseURL(), getToken: () => api.getToken() });
+	function createPluginApi(pluginId: string) {
+		return createPluginPageApi(createHostFetchApi(api), () => api.getToken(), pluginId);
 	}
 
 	function cleanupPlugin() {
@@ -41,7 +41,6 @@
 		}
 		pluginInstance = null;
 		unmountFn = null;
-		releaseAllKeyboardHolds();
 	}
 
 	async function loadPlugin(id: string) {
@@ -55,13 +54,7 @@
 		pageInfo = null;
 
 		try {
-			const response = await fetch(`${api.getBaseURL()}/api/plugins/pages/${id}`, {
-				credentials: 'include',
-				headers: {
-					'Content-Type': 'application/json',
-					...(api.getToken() ? { Authorization: `Bearer ${api.getToken()}` } : {})
-				}
-			});
+			const response = await createHostFetchApi(api).fetch(`/api/plugins/pages/${id}`);
 
 			if (thisVersion !== loadVersion) return;
 
@@ -92,7 +85,7 @@
 				pluginInstance = mod.mountPlugin(containerEl, {
 					pluginId: id,
 					route: pageInfo.route,
-					api: pluginApiFor(id),
+					api: createPluginApi(id),
 					user: $authStore.user,
 					navigate: (path: string) => goto(path),
 					replaceUrl: (path: string) => goto(path, { replaceState: true, keepFocus: true, noScroll: true }).catch(() => undefined),
@@ -110,7 +103,7 @@
 					props: {
 						pluginId: id,
 						route: pageInfo.route,
-						api: pluginApiFor(id),
+						api: createPluginApi(id),
 						user: $authStore.user,
 						navigate: (path: string) => goto(path),
 						replaceUrl: (path: string) => goto(path, { replaceState: true, keepFocus: true, noScroll: true }).catch(() => undefined),

@@ -25,6 +25,7 @@ from src.platform.filesystem.storage_driver import LocalFileStorageDriver
 from src.platform.plugins import PluginRegistry
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
+from tests.fixtures.seed import seed_user
 
 
 @pytest.fixture
@@ -37,12 +38,7 @@ def repos_on_test_db(mock_db):
 
 def _create_user(db, username: str) -> str:
     user_id = generate_ulid()
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO users (id, username, email, password_hash) VALUES (?, ?, ?, ?)",
-            (user_id, username, f"{username}@example.com", "hashed"),
-        )
-    return user_id
+    return seed_user(db, user_id, username=username)
 
 
 @pytest.fixture

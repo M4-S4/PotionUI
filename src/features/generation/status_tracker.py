@@ -129,13 +129,15 @@ class GenerationStatusTracker:
             self._records[id] = record
         return record
 
-    def update_from_output(self, id: str, output: GenerationOutput) -> None:
+    def update_from_output(self, id: str, output: GenerationOutput) -> Optional[float]:
+        effective = None
         with self._lock:
             record = self._records.get(id)
             if record is None:
-                return
-            if getattr(output, 'progress', None) is not None:
-                record.progress = self._calculate_progress(output.progress)
+                return None
+            if getattr(output, 'progress', None) is not None and getattr(output, 'bar', True):
+                record.progress = max(record.progress or 0.0, self._calculate_progress(output.progress))
+                effective = record.progress
             if getattr(output, 'current_step', None) is not None:
                 record.current_step = output.current_step
             if getattr(output, 'total_steps', None) is not None:
@@ -144,6 +146,7 @@ class GenerationStatusTracker:
                 record.current_step_num = output.current_step_num
             if getattr(output, 'segment_id', None) is not None:
                 record.segment_id = output.segment_id
+        return effective
 
     @staticmethod
     def _calculate_progress(progress: Any) -> float:

@@ -5,9 +5,9 @@
 	import {
 		GENERATION_CATEGORY_OPTIONS,
 		GENERATION_STATUS_OPTIONS,
-		clearAllGenerationsFilters,
 		type GenerationsFilters,
-		type GenerationStatusFilter
+		type GenerationStatusFilter,
+		generationsFilters
 	} from './generationsFilters';
 
 	let {
@@ -30,7 +30,7 @@
 <FilterPopoverFrame
 	label="Generation filters"
 	width="w-[34rem]"
-	onClearAll={() => onChange(clearAllGenerationsFilters(filters))}
+	onClearAll={() => onChange(generationsFilters.clearAll(filters))}
 	{onClose}
 >
 	<div class="col-span-2">

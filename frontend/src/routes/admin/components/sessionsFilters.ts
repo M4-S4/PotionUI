@@ -17,16 +17,8 @@ export const SESSIONS_SORT_OPTIONS: readonly SortOption<SessionsSortBy>[] = [
 	{ value: 'recent', label: 'Most recent' }
 ];
 
-const codec = createFilterCodec<SessionsFilters>({
+export const sessionsFilters = createFilterCodec<SessionsFilters>({
 	defaults: DEFAULT_SESSIONS_FILTERS,
 	fields: [],
 	sortValues: ['recent']
 });
-
-export function sessionsFiltersFromSearchParams(params: URLSearchParams): SessionsFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function sessionsFiltersToSearchParams(filters: SessionsFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}

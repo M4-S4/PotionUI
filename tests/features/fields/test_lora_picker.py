@@ -11,11 +11,6 @@ class TestLoraPickerField(unittest.TestCase):
         self.preset_loader = Mock()
         self.field = LoraPicker(self.preset_loader)
 
-    def test_can_handle(self):
-        self.assertTrue(self.field.can_handle('lora_picker'))
-        self.assertFalse(self.field.can_handle('model'))
-        self.assertFalse(self.field.can_handle('select'))
-
     # --- output() ---
 
     def test_output_default_configuration(self):
@@ -271,19 +266,6 @@ class TestLoraPickerField(unittest.TestCase):
                           'strength_step', 'strength_default', 'max_items',
                           'allow_info_modal', 'show_triggers'):
             self.assertIn(expected, names)
-
-    def test_validation_rules_spec_shape(self):
-        specs = LoraPicker.validation_rules()
-        self.assertTrue(all(isinstance(spec, FieldValidationSpec) for spec in specs))
-        names = [spec.rule_name for spec in specs]
-        self.assertIn('strength_min', names)
-        self.assertIn('strength_max', names)
-        self.assertIn('max_items', names)
-
-    def test_examples_spec_shape(self):
-        examples = LoraPicker.examples()
-        self.assertTrue(len(examples) > 0)
-        self.assertTrue(all(isinstance(ex, FieldExampleSpec) for ex in examples))
 
 
 if __name__ == '__main__':

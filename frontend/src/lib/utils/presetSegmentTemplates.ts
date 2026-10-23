@@ -1,8 +1,5 @@
 import type { RichSegment, SegmentTemplate } from '$lib/types/segments';
 
-/** Which library a Segment Template in the apply picker came from. */
-export type SegmentTemplateOrigin = 'user' | 'preset';
-
 /** A Segment Template declared by the selected preset's `vars.prompt`. It never
  *  exists in the database, so its `id` is synthesized here and is the only id
  *  anything downstream (provenance stamps included) may use for it. */

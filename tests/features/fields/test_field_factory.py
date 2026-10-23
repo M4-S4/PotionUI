@@ -225,12 +225,6 @@ class TestDefaultField(unittest.TestCase):
         self.preset_loader = Mock()
         self.default_field = DefaultField(self.preset_loader)
     
-    def test_can_handle_any_type(self):
-        """Test that DefaultField can handle any field type"""
-        self.assertTrue(self.default_field.can_handle('any_type'))
-        self.assertTrue(self.default_field.can_handle('unknown'))
-        self.assertTrue(self.default_field.can_handle(''))
-    
     def test_map_field_basic_schema(self):
         """Test that DefaultField creates basic schema"""
         field = {
@@ -240,7 +234,7 @@ class TestDefaultField(unittest.TestCase):
             'description': 'A custom field type'
         }
         
-        schema = self.default_field.map_field(field)
+        schema = self.default_field.output(field)
         
         self.assertEqual(schema['type'], 'custom_type')
         self.assertEqual(schema['name'], 'custom_field')

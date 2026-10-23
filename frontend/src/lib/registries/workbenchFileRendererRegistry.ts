@@ -48,7 +48,3 @@ export function resolveWorkbenchFileRenderer(fileType: string): Promise<any | nu
 export function hasWorkbenchFileRenderer(fileType: string): boolean {
 	return registry.has(fileType);
 }
-
-export function listWorkbenchFileTypes(): string[] {
-	return registry.keys();
-}

@@ -142,10 +142,25 @@ describe('ToolsMenu', () => {
 		render({});
 		const [first, second] = Array.from(menu().querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
 		first.focus();
-		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true }));
+		document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
 		expect(document.activeElement).toBe(second);
-		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true }));
+		document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
 		expect(document.activeElement).toBe(first);
+	});
+
+	it('ignores a tool shortcut typed into a text field and runs it from the page body', () => {
+		const onPick = vi.fn();
+		render({ onPick });
+		const field = document.body.appendChild(document.createElement('textarea'));
+		field.focus();
+		const typed = new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true });
+		field.dispatchEvent(typed);
+		expect(typed.defaultPrevented).toBe(false);
+		expect(onPick).not.toHaveBeenCalled();
+
+		field.blur();
+		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true }));
+		expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: 'crop' }));
 	});
 
 	it('says there is nothing to offer when no group applies', () => {

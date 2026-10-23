@@ -65,11 +65,6 @@ def test_migration_is_idempotent(seeded_db):
     assert setting.get_typed_value() == []
 
 
-def test_migration_down_removes_the_setting(seeded_db):
-    _load("032_prompt_segment_pinned_actions", f"m032_down_{id(seeded_db)}").down()
-    assert SettingRepository().get_setting_by_key(_KEY) is None
-
-
 @pytest.mark.asyncio
 async def test_get_defaults_to_empty_list_for_any_user(seeded_db):
     response = await _controller().get_setting_by_key(_KEY, _user())

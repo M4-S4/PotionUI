@@ -1,0 +1,11 @@
+name: "custom"
+short_description: "Bake LoRAs into a model file."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/merge_into_model/tabs/generation.yml"

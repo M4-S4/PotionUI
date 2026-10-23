@@ -504,3 +504,23 @@ def test_lora_picker_op_on_a_single_kept_node_workflow_names_the_splice_point():
     confirmed = run(tool.execute_confirmed(_context(_wiz_with_a_single_kept_lora_node()), ops=ops))
     payload = json.loads(confirmed.data)
     assert payload["ops"][0] == {"op": "lora_picker", "tab": "generation", "field_name": "loras", "keep_fixed": ["101"]}
+
+
+def _chat_tool_classes():
+    import inspect
+
+    from src.plugin_api import BaseTool
+    from backend.chat import tools
+
+    return [
+        cls for _, cls in inspect.getmembers(tools, inspect.isclass)
+        if issubclass(cls, BaseTool) and cls is not BaseTool and cls.__module__ == tools.__name__
+    ]
+
+
+@pytest.mark.parametrize("cls", _chat_tool_classes(), ids=lambda cls: cls.__name__)
+@pytest.mark.parametrize("attribute", ("name", "group", "user_description", "requires_approval"))
+def test_tool_metadata_is_a_plain_class_attribute(cls, attribute):
+    import inspect
+
+    assert not isinstance(inspect.getattr_static(cls, attribute), property)

@@ -9,6 +9,7 @@ export type SegmentActionId =
 	| 'insertPhrasebook'
 	| 'insertVariable'
 	| 'insertChoice'
+	| 'insertCondition'
 	| 'insertResource'
 	| 'insertSyntax';
 
@@ -27,10 +28,11 @@ export interface SegmentActionContext {
 	segmentDisabled: boolean;
 	hasPromptSyntax?: boolean;
 	hasPromptResources?: boolean;
+	hasConditions?: boolean;
 }
 
 export function segmentMenuActions(segment: Segment, context: SegmentActionContext): SegmentAction[] {
-	const { index, total, segmentDisabled, hasPromptSyntax = false, hasPromptResources = false } = context;
+	const { index, total, segmentDisabled, hasPromptSyntax = false, hasPromptResources = false, hasConditions = true } = context;
 	const footer = segmentFooterActions(segment);
 	const byId = (id: SegmentFooterActionId): SegmentAction => {
 		const action = footer.find((a) => a.id === id);
@@ -41,15 +43,19 @@ export function segmentMenuActions(segment: Segment, context: SegmentActionConte
 	const actions: SegmentAction[] = [
 		{ id: 'moveUp', label: 'Move up', icon: 'chevron-up', disabled: index === 0 },
 		{ id: 'moveDown', label: 'Move down', icon: 'chevron-down', disabled: index >= total - 1 },
-		byId('editDetails'),
-		byId('saveAsSegment'),
-		{ id: 'replaceFromSaved', label: 'Replace from saved', icon: 'library' },
+		{ ...byId('editDetails'), label: 'Details…' },
+		{ ...byId('saveAsSegment'), label: 'Save as Segment…' },
+		{ id: 'replaceFromSaved', label: 'Replace from saved…', icon: 'library' },
 		byId('duplicate'),
 		byId('toggleDisabled'),
-		{ id: 'insertPhrasebook', label: 'Insert a phrasebook value', glyph: '#', glyphClass: 'phrasebook', disabled: segmentDisabled },
-		{ id: 'insertVariable', label: 'Insert a variable', glyph: '$', glyphClass: 'variable', disabled: segmentDisabled },
+		{ id: 'insertPhrasebook', label: 'Insert a phrasebook value…', glyph: '#', glyphClass: 'phrasebook', disabled: segmentDisabled },
+		{ id: 'insertVariable', label: 'Insert a variable…', glyph: '$', glyphClass: 'variable', disabled: segmentDisabled },
 		{ id: 'insertChoice', label: 'Insert a choice group', glyph: '{}', glyphClass: 'choice', disabled: segmentDisabled }
 	];
+
+	if (hasConditions) {
+		actions.push({ id: 'insertCondition', label: 'Insert a condition…', glyph: 'if', glyphClass: 'condition', disabled: segmentDisabled });
+	}
 
 	if (hasPromptResources) {
 		actions.push({ id: 'insertResource', label: 'Insert a reference…', glyph: '@', glyphClass: 'resource', disabled: segmentDisabled });
@@ -66,5 +72,5 @@ export const SEGMENT_ACTION_GROUPS: SegmentActionId[][] = [
 	['moveUp', 'moveDown'],
 	['editDetails', 'saveAsSegment', 'replaceFromSaved'],
 	['duplicate', 'toggleDisabled'],
-	['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertResource', 'insertSyntax']
+	['insertPhrasebook', 'insertVariable', 'insertChoice', 'insertCondition', 'insertResource', 'insertSyntax']
 ];

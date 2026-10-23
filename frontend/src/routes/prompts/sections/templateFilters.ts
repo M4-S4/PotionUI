@@ -1,7 +1,7 @@
 import type { SegmentTemplate } from '$lib/types/segments';
 import { parseServerDate } from '$lib/utils/relativeTime';
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import type { SortOption } from '$lib/components/library/librarySection';
 
 export type TemplateSlotsFilter = '' | '1' | '2-3' | '4+';
 export type TemplateSortBy = 'name' | 'created';
@@ -45,35 +45,11 @@ const FIELDS: readonly FilterFieldDescriptor<TemplateFilters>[] = [
 	{ kind: 'tags', key: 'tags', param: 'tags', label: 'Tags' }
 ];
 
-const codec = createFilterCodec<TemplateFilters>({
+export const templateFilters = createFilterCodec<TemplateFilters>({
 	defaults: DEFAULT_TEMPLATE_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name', 'created']
 });
-
-export function templateFiltersFromSearchParams(params: URLSearchParams): TemplateFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function templateFiltersToSearchParams(filters: TemplateFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
-export function templateFilterChips(filters: TemplateFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearTemplateFilterChip(filters: TemplateFilters, key: string): TemplateFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllTemplateFilters(filters: TemplateFilters): TemplateFilters {
-	return codec.clearAll(filters);
-}
-
-export function templateFilterActiveCount(filters: TemplateFilters): number {
-	return codec.activeCount(filters);
-}
 
 export function templateSlotCount(template: Pick<SegmentTemplate, 'segments'>): number {
 	return template.segments?.length ?? 0;

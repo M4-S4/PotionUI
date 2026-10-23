@@ -12,7 +12,7 @@ from src.platform.settings.settings import Settings
 @pytest.fixture
 def settings(tmp_path):
     m = Mock(spec=Settings)
-    m.get_file_storage_directory.return_value = str(tmp_path)
+    m.storage_file.side_effect = lambda name: tmp_path / name
     return m
 
 
@@ -51,7 +51,7 @@ class TestEnsureToken:
 
     def test_no_storage_dir_returns_none(self):
         m = Mock(spec=Settings)
-        m.get_file_storage_directory.return_value = ""
+        m.storage_file.return_value = None
         assert ClaimTokenStore(m).ensure_token() is None
 
 

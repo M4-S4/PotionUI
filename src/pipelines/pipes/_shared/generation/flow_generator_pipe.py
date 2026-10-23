@@ -37,6 +37,7 @@ from src.pipelines.contracts import PipeConfigSpec, PipeInput
 from src.pipelines.outputs import Icon
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.img2img import Img2ImgGeneratorMixin
+from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     emit_lora_application_diagnostics,
     load_windowed_lora_stack,
@@ -65,31 +66,6 @@ def iterate_mode_config_specs() -> List[PipeConfigSpec]:
             required=False,
         ),
     ]
-
-
-def _attach_nag(cond: dict, uncond: dict | None, config: dict) -> dict:
-    """Attach NAG's negative context + params to the cond dict, read back by
-    ``NativeGenerator._make_forward`` (see ``src/platform/runtime/native/nag.py``
-    and ``arch/krea2/model.py`` -- the only arch consuming these keys today).
-    Mirrors ``generator/txt2vid_wan22``'s ``_attach_nag``. No-op (returns
-    ``cond`` unchanged) when ``nag_scale <= 1.0`` or there's no negative
-    conditioning -- keeps every other flow-matching family (Flux/Qwen/Z-Image/
-    Anima) byte-identical, since none of them expose a ``nag_scale`` config
-    key nor consume ``nag_context`` in their arch forward.
-    """
-    nag_scale = float(config.get("nag_scale", 1.0))
-    if nag_scale <= 1.0 or uncond is None:
-        return cond
-    return {
-        **cond,
-        "nag_context": uncond["context"],
-        "nag_attention_mask": uncond.get("attention_mask"),
-        "nag": {
-            "scale": nag_scale,
-            "tau": float(config.get("nag_tau", 3.5)),
-            "alpha": float(config.get("nag_alpha", 0.5)),
-        },
-    }
 
 
 class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
@@ -301,7 +277,7 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
 
         cond_model = conditioning[index] if index < len(conditioning) else conditioning[-1]
         uncond = cond_model.n_embeds or None
-        cond = _attach_nag(cond_model.embeds, uncond, self.config)
+        cond = attach_nag(cond_model.embeds, uncond, self.config, attention_mask=True)
         cond, uncond = self.attach_conditioning(ctx, cond, uncond)
         conditioning_obj = Conditioning(cond=cond, uncond=uncond)
 

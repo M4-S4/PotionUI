@@ -28,6 +28,7 @@ from src.features.llm.native_te_adoption import (
     _dequantize_fp8_state_dict,
     _dequantize_nvfp4_state_dict,
     _detect_quantization,
+    _reject_quantized_weights,
     _eligibility,
     _family_from_keys,
     build_adopted_te,
@@ -830,3 +831,119 @@ def test_native_checkpoints_listing_includes_adopted_te_flagged(tmp_path):
     from src.features.llm.native_library import NATIVE_LLM_QUANT_MODES
 
     assert te[0].quant_modes == list(NATIVE_LLM_QUANT_MODES)
+
+
+def _descriptor(conf):
+    import json
+
+    return torch.tensor(list(json.dumps(conf).encode("utf-8")), dtype=torch.uint8)
+
+
+INTEGER_LAYERS = {
+    "int8": (
+        torch.zeros(16, 32, dtype=torch.int8),
+        torch.ones(16, 1),
+        {"format": "int8_tensorwise", "convrot": True, "convrot_groupsize": 16},
+    ),
+    "int4": (
+        torch.zeros(16, 16, dtype=torch.int8),
+        torch.ones(16),
+        {"format": "convrot_w4a4", "convrot_groupsize": 16},
+    ),
+}
+
+
+def _integer_qwen3_file(path, kind="int8"):
+    weight, scale, conf = INTEGER_LAYERS[kind]
+    extra = {
+        "lm_head.weight": torch.zeros(64, 32, dtype=torch.bfloat16),
+        "model.layers.0.self_attn.q_proj.weight": weight,
+        "model.layers.0.self_attn.q_proj.weight_scale": scale,
+        "model.layers.0.self_attn.q_proj.comfy_quant": _descriptor(conf),
+    }
+    _write_synthetic(path, _QWEN3_MIN_KEYS, extra=extra)
+    return path
+
+
+@pytest.mark.parametrize("kind", list(INTEGER_LAYERS))
+def test_list_adopted_marks_an_integer_coded_text_encoder_not_adoptable(tmp_path, kind):
+    path = _integer_qwen3_file(tmp_path / "text_encoders" / f"qwen3-{kind}.safetensors", kind)
+    entries = list_adopted_te_checkpoints(_resolver(tmp_path))
+    assert len(entries) == 1
+    assert entries[0].path == str(path)
+    assert entries[0].adoptable is False
+    assert "integer codes" in entries[0].reason
+
+
+@pytest.mark.parametrize("kind", list(INTEGER_LAYERS))
+def test_build_adopted_te_refuses_an_integer_coded_text_encoder_before_loading(tmp_path, monkeypatch, kind):
+    path = _integer_qwen3_file(tmp_path / "text_encoders" / f"qwen3-{kind}.safetensors", kind)
+    import safetensors.torch
+
+    monkeypatch.setattr(safetensors.torch, "load_file", lambda *a, **k: pytest.fail("weights were loaded"))
+    with pytest.raises(ValueError, match="integer codes"):
+        build_adopted_te(str(path), _resolver(tmp_path))
+
+
+def test_build_adopted_te_refuses_a_quant_format_it_cannot_dequantize(tmp_path):
+    q, scale = _quantize_tensor_fp8(torch.randn(16, 32))
+    extra = {
+        "lm_head.weight": torch.zeros(64, 32, dtype=torch.bfloat16),
+        "model.layers.0.self_attn.q_proj.weight": q,
+        "model.layers.0.self_attn.q_proj.weight_scale": scale,
+        "model.layers.0.self_attn.q_proj.comfy_quant": _descriptor({"format": "mxfp8"}),
+    }
+    path = tmp_path / "text_encoders" / "qwen3-mxfp8.safetensors"
+    _write_synthetic(path, _QWEN3_MIN_KEYS, extra=extra)
+    with pytest.raises(ValueError, match="declares the quantization format 'mxfp8'"):
+        build_adopted_te(str(path), _resolver(tmp_path))
+
+
+def test_a_weight_still_quantized_after_dequantization_is_refused():
+    with pytest.raises(ValueError, match="still quantized"):
+        _reject_quantized_weights({"model.layers.0.mlp.down_proj.weight": torch.zeros(2, 2, dtype=torch.int8)})
+    with pytest.raises(ValueError, match="still quantized"):
+        _reject_quantized_weights({"model.layers.0.mlp.down_proj.weight": torch.zeros(2, 2, dtype=torch.float8_e4m3fn)})
+    _reject_quantized_weights({"model.layers.0.mlp.down_proj.weight": torch.zeros(2, 2, dtype=torch.bfloat16)})
+
+
+def test_mixed_fp8_and_nvfp4_layers_both_dequantize(tiny_qwen3_single_file, tmp_path):
+    from safetensors.torch import load_file
+
+    _, full, _ = tiny_qwen3_single_file
+    sd = load_file(full)
+    fp8_key = "model.layers.0.mlp.down_proj"
+    nvfp4_key = "model.layers.1.mlp.down_proj"
+    original_fp8 = sd[fp8_key + ".weight"].float()
+    q, scale = _quantize_tensor_fp8(original_fp8)
+    sd[fp8_key + ".weight"], sd[fp8_key + ".weight_scale"] = q, scale
+    packed, block, tensor_scale = _quantize_tensor_nvfp4(sd[nvfp4_key + ".weight"])
+    sd[nvfp4_key + ".weight"] = packed
+    sd[nvfp4_key + ".weight_scale"] = block
+    sd[nvfp4_key + ".weight_scale_2"] = tensor_scale
+    path = tmp_path / "text_encoders" / "qwen3-fp8mixed.safetensors"
+    path.parent.mkdir(parents=True)
+    save_file(sd, str(path))
+
+    model, _tok, _mt = build_adopted_te(str(path), _resolver(tmp_path))
+    loaded = model.model.layers[0].mlp.down_proj.weight
+    assert torch.allclose(loaded.float(), (q.to(torch.bfloat16) * scale.to(torch.bfloat16)).float())
+    assert model.model.layers[1].mlp.down_proj.weight.shape == (32, 64)
+
+
+@pytest.mark.parametrize("quant_format", ["fp8_e4m3", "fp8_e5m2", "nvfp4"])
+def test_a_model_tools_text_encoder_is_adopted_and_generates(tiny_qwen3_single_file, tmp_path, quant_format):
+    from src.platform.runtime.native.ops.model_tools.quantize import quantize_file
+
+    _, full, _ = tiny_qwen3_single_file
+    out = tmp_path / "text_encoders" / f"qwen3-{quant_format}.safetensors"
+    out.parent.mkdir(parents=True)
+    quantize_file(full, out, family="qwen3", quant_format=quant_format)
+    entries = list_adopted_te_checkpoints(_resolver(tmp_path))
+    assert [e.adoptable for e in entries] == [True]
+    model, tokenizer, model_type = build_adopted_te(str(out), _resolver(tmp_path))
+    assert model_type == "qwen3"
+    inputs = tokenizer("hi", return_tensors="pt")
+    with torch.no_grad():
+        out_ids = model.generate(**inputs, max_new_tokens=2, do_sample=False)
+    assert out_ids.shape[-1] >= inputs["input_ids"].shape[-1]

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.fixtures.form_lookup import field_by_name
 
 from pathlib import Path
 from unittest.mock import Mock
@@ -6,10 +7,11 @@ from unittest.mock import Mock
 import pytest
 import yaml
 
-from src.features.forms.binding import bind_form
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
+
+from ._bound_form import bound_form_data
 
 PRESET_DIR = Path("content/presets/marketplace/Flux2")
 
@@ -18,9 +20,9 @@ PRESET_DIR = Path("content/presets/marketplace/Flux2")
 def flux_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "marketplace/Flux2" in str(p.path)), None)
+    template = next((p for p in loader.presets if "marketplace/Flux2" in Path(p.path).as_posix()), None)
     if template is None:
-        pytest.skip("marketplace/Flux2 preset not present")
+        pytest.fail("marketplace/Flux2 preset not present")
     return template
 
 
@@ -42,11 +44,8 @@ def _process(flux_template, form_over: dict | None = None):
     # exactly what a real generation request goes through before
     # PresetProcessor ever renders (docs/presets.md "Form binding and
     # validation").
-    bound = bind_form(
-        flux_template, "txt2img", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "txt2img", "form_data": dict(bound.values)}
+    form_data = bound_form_data(flux_template, "txt2img", form_data)
+    generation_data = {"prompts": [], "mode": "txt2img", "form_data": form_data}
     return processor.process(flux_template, generation_data)
 
 
@@ -68,24 +67,13 @@ def test_iterate_mode_on_reaches_the_generator(flux_template):
 
 # -- form definition ---------------------------------------------------------
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 @pytest.fixture(scope="module")
 def advanced_tab():
     return yaml.safe_load((PRESET_DIR / "modes/txt2img/tabs/advanced.yml").read_text())
 
 
 def test_iterate_mode_checkbox_is_present(advanced_tab):
-    field = _field_by_name(advanced_tab["fields"], "iterate_mode")
+    field = field_by_name(advanced_tab["fields"], "iterate_mode")
     assert field is not None
     assert field["type"] == "checkbox"
     assert field["default"] is False

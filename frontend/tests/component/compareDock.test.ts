@@ -144,8 +144,8 @@ describe('dock Generate with Compare armed', () => {
 		mounted = mount();
 		await settle();
 		const generate = mounted.target.querySelector<HTMLButtonElement>('.generate-button')!;
-		expect(generate.textContent).toContain('Generate');
-		expect(generate.querySelector('.generate-count')?.textContent).toBe('12');
+		expect(generate.getAttribute('aria-label')).toBe('Generate 12 comparison cells');
+		expect(compareButton(mounted.target).querySelector('.compare-count')?.textContent).toBe('12');
 		expect(mounted.target.querySelector('[data-compare-status]')?.textContent?.trim()).toBe('12 cells');
 		expect(generate.disabled).toBe(false);
 	});
@@ -186,7 +186,7 @@ describe('dock Generate with Compare armed', () => {
 		await settle();
 		const mark = mounted.target.querySelector<HTMLButtonElement>('.generate-button')!;
 		expect(mark.classList.contains('is-cancel')).toBe(true);
-		expect(mark.textContent).toContain('Cancel all');
+		expect(mark.getAttribute('aria-label')).toBe('Cancel all comparison cells');
 	});
 
 	it('shows the Plans shortfall as the disabled reason', async () => {

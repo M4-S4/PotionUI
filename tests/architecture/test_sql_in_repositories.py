@@ -86,16 +86,15 @@ def _literal_prefix(node: ast.expr) -> str | None:
     return None
 
 
-def _py_files(base: Path):
-    for f in base.rglob("*.py"):
+def _py_files(index, base: Path):
+    for f in index.py_files(base):
         if not any(part in SKIP_DIRS for part in f.parts):
             yield f
 
 
-def _sql_violations(path: Path) -> list[str]:
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except SyntaxError:
+def _sql_violations(index, path: Path) -> list[str]:
+    tree = index.tree(path)
+    if tree is None:
         return []
 
     hits: list[str] = []
@@ -115,16 +114,16 @@ def _sql_violations(path: Path) -> list[str]:
     return hits
 
 
-def test_no_sql_execute_outside_repositories():
+def test_no_sql_execute_outside_repositories(source_index):
     src = ROOT / "src"
     assert src.is_dir()
 
     violations: list[str] = []
-    for f in _py_files(src):
+    for f in _py_files(source_index, src):
         rel = f.relative_to(ROOT)
         if _is_sanctioned(rel):
             continue
-        violations.extend(_sql_violations(f))
+        violations.extend(_sql_violations(source_index, f))
 
     assert not violations, (
         "raw SQL execute() outside a repository - move the query into the "
@@ -133,9 +132,9 @@ def test_no_sql_execute_outside_repositories():
 
 
 @pytest.mark.parametrize("rel_path,reason", sorted(ALLOWLIST.items()))
-def test_allowlist_entries_still_exist_and_are_still_violations(rel_path: str, reason: str):
+def test_allowlist_entries_still_exist_and_are_still_violations(source_index, rel_path: str, reason: str):
     """An allowlist entry that no longer matches anything (file moved, query
     fixed) is dead weight the maintainer should prune, not carry forever."""
     path = ROOT / rel_path
     assert path.is_file(), f"allowlisted {rel_path} no longer exists - remove it ({reason})"
-    assert _sql_violations(path), f"allowlisted {rel_path} has no SQL violation left - remove it ({reason})"
+    assert _sql_violations(source_index, path), f"allowlisted {rel_path} has no SQL violation left - remove it ({reason})"

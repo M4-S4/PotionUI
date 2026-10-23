@@ -4,6 +4,7 @@
 // own file because the mock is set up once per module and must reject instead
 // of resolve.
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { settle } from './helpers/settle';
 
 vi.mock('@google/model-viewer', () => {
 	throw new Error('module unavailable');
@@ -13,10 +14,6 @@ const { createClassComponent } = await import('svelte/legacy');
 const { default: MeshPreview } = await import(
 	'$lib/components/workbench/renderers/MeshPreview.svelte'
 );
-
-async function settle() {
-	for (let i = 0; i < 8; i++) await new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 let target: HTMLDivElement | undefined;
 let component: { $destroy: () => void } | undefined;

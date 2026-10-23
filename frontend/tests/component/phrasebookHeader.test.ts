@@ -90,6 +90,24 @@ describe('PhrasebookHeader', () => {
 		expect(onChange).toHaveBeenCalledWith({ query: 'dog' });
 	});
 
+	it('leaves `/` to a text field elsewhere on the page and focuses find from the page body', () => {
+		mountHeader();
+		const input = target.querySelector<HTMLInputElement>('[data-find-input]');
+		if (!input) throw new Error('missing find input');
+		const note = document.body.appendChild(document.createElement('div'));
+		note.setAttribute('role', 'textbox');
+		note.tabIndex = 0;
+		note.focus();
+		const fromField = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+		note.dispatchEvent(fromField);
+		expect(fromField.defaultPrevented).toBe(false);
+		expect(document.activeElement).toBe(note);
+
+		note.blur();
+		document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true }));
+		expect(document.activeElement).toBe(input);
+	});
+
 	it('shows a clear button once a query is active and calls onClear', () => {
 		mountHeader({ ...defaultFilters(), query: 'dog' });
 		const clearButton = target.querySelector<HTMLButtonElement>('[aria-label="Clear search"]');

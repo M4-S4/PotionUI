@@ -31,8 +31,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
 # Ubuntu 24.04's system `python3` is already 3.12 (potionui's MIN_PYTHON).
-# Node 20.x matches the CI onboarding-smoke gate (.github/workflows/onboarding-smoke.yml)
-# and clears potionui_cli.py's MIN_NODE_MAJOR=18 floor.
+# Node 24.x matches the CI onboarding-smoke gate (.github/workflows/onboarding-smoke.yml)
+# and clears potionui_cli.py's MIN_NODE_MAJOR=22 floor and its patched-release minimums.
 # libgl1/libglib2.0-0/libsm6/libxext6/libxrender-dev/libgomp1 are the opencv-python
 # / Pillow / kornia runtime libs (CLAUDE.md's documented "libgthread-2.0.so.0
 # missing" env-noise note names libglib2.0-0 as the fix).
@@ -51,7 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libxext6 \
         libxrender-dev \
         libgomp1 \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && python3 --version && node --version && npm --version

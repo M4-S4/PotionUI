@@ -281,6 +281,7 @@ export interface PresetInfo {
 	media?: PresetMedia;
 	requires?: PresetRequirements;
 	requirements_summary?: PresetRequirementsSummary | null;
+	engine_available?: boolean;
 	/** Present on the detail endpoint only — see `PresetStyle`. */
 	styles?: PresetStyle[];
 	negative_prompt?: NegativePromptDeclarations | null;
@@ -291,6 +292,11 @@ export interface PresetInfo {
 	assignment_count?: number;
 	group_count?: number;
 	recipes?: PresetRecipeLink[];
+}
+
+export interface PresetPickerState {
+	pinned: string[];
+	recent: string[];
 }
 
 export interface PresetRecipeLink {
@@ -611,12 +617,6 @@ export interface PhrasebookBatchOp {
 	component: string | null;
 	has_preview: boolean;
 	source: string;
-}
-
-export interface PhrasebookBatchRequest {
-	op: string;
-	value_ids: string[];
-	params: Record<string, unknown>;
 }
 
 export interface PhrasebookBatchOutcome {

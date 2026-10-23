@@ -1,7 +1,6 @@
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch, mock_open, MagicMock
-import yaml
+from unittest.mock import Mock, patch, MagicMock
 from typing import Dict, Any
 
 from src.features.presets import PresetTemplateLoader, PresetProcessor
@@ -19,137 +18,6 @@ class TestPresetTemplateLoader(unittest.TestCase):
     def test_init(self):
         self.assertEqual(self.loader.preset_files_path, Path("/path/to/presets"))
         self.assertEqual(self.loader.presets, [])
-    
-    @unittest.skip("Complex file mocking causes test hanging - core functionality tested elsewhere")
-    @patch("builtins.open")
-    def test_load_preset_file_old_format(self, mock_open_func):
-        # Mock preset.yml with old format (modes contain list of pipes)
-        preset_data = {
-            'id': 'test-preset-id',
-            'name': 'Test Preset',
-            'version': '1.0',
-            'model': {
-                'name': 'test-model',
-                'url': 'http://example.com/model.safetensors',
-                'file_path': 'models/checkpoints/test-model.safetensors',
-                'provider': 'huggingface',
-                'type': 'checkpoint',
-                'sha256': 'abc123',
-                'base': 'SDXL'
-            },
-            'resolutions': ['512x512', '768x768'],
-            'form': {
-                'name': 'test_form',
-                'fields': [
-                    {
-                        'name': 'test_field',
-                        'type': 'text',
-                        'label': 'Test Field',
-                        'default': 'test value'
-                    }
-                ]
-            },
-            'modes': {
-                'txt2img': [
-                    {
-                        'name': 'downloader',
-                        'enabled': 'true',
-                        'configuration': {'key': 'value'}
-                    }
-                ]
-            },
-            'vars': {'test_var': 'test_value'},
-            'prompt_helpers': {'helper': 'value'}
-        }
-        
-        mock_open_func.return_value.__enter__.return_value.read.return_value = yaml.dump(preset_data)
-        
-        preset_path = Path("/path/to/author/model/version/preset/preset.yml")
-        preset = self.loader._load_preset_file(preset_path)
-        
-        self.assertIsNotNone(preset)
-        self.assertEqual(preset.id, 'test-preset-id')
-        self.assertEqual(preset.name, 'Test Preset')
-        self.assertEqual(preset.version, '1.0')
-        self.assertEqual(preset.model.name, 'test-model')
-        self.assertEqual(len(preset.form.fields), 1)
-        self.assertEqual(preset.form.fields[0].name, 'test_field')
-        self.assertIn('txt2img', preset.modes)
-        self.assertEqual(len(preset.modes['txt2img']), 1)
-        self.assertEqual(preset.modes['txt2img'][0].name, 'downloader')
-    
-    @unittest.skip("Complex file mocking causes test hanging - core functionality tested elsewhere")
-    @patch("builtins.open")
-    def test_load_preset_file_new_format(self, mock_open_func):
-        # Mock preset.yml with new format (modes contain forms and pipes) - simplified
-        preset_data = {
-            'id': 'test-preset-id',
-            'name': 'Test Preset',
-            'version': '1.0',
-            'model': {
-                'name': 'test-model',
-                'url': 'http://example.com/model.safetensors',
-                'file_path': 'models/checkpoints/test-model.safetensors',
-                'provider': 'huggingface',
-                'type': 'checkpoint',
-                'sha256': 'abc123',
-                'base': 'SDXL'
-            },
-            'resolutions': ['512x512', '768x768'],
-            'form': {
-                'name': 'test_form',
-                'fields': []
-            },
-            'modes': {
-                'txt2img': {
-                    'forms': [],  # Simplified - empty forms to avoid field parsing issues
-                    'pipes': [
-                        {
-                            'name': 'downloader',
-                            'enabled': 'true'
-                        }
-                    ]
-                }
-            }
-        }
-        
-        mock_open_func.return_value.__enter__.return_value.read.return_value = yaml.dump(preset_data)
-        
-        preset_path = Path("/path/to/author/model/version/preset/preset.yml")
-        preset = self.loader._load_preset_file(preset_path)
-        
-        self.assertIsNotNone(preset)
-        self.assertIn('txt2img', preset.modes)
-        mode = preset.modes['txt2img']
-        self.assertIsInstance(mode, ModeTemplate)
-        self.assertEqual(len(mode.forms), 0)  # Updated for simplified test
-        self.assertEqual(len(mode.pipes), 1)
-        self.assertEqual(mode.pipes[0].name, 'downloader')
-    
-    @unittest.skip("File-based format test requires complex path mocking - skipping to prevent test blocking")
-    def test_load_preset_file_file_based_format_simple(self):
-        """Test file-based format loading - skipped due to complex mocking requirements"""
-        pass
-    
-    @unittest.skip("Model functionality removed - PresetTemplate no longer has model field")
-    def test_load_models(self):
-        # This test is obsolete as presets no longer have a model field
-        pass
-    
-    @unittest.skip("Model-based preset filtering removed - presets now use list-based structure")
-    def test_get_preset_choices_for_model(self):
-        # This test is obsolete as presets are no longer indexed by model sha256
-        pass
-    
-    @unittest.skip("Model info functionality removed - PresetTemplate no longer has model field")
-    def test_get_model_info(self):
-        # This test is obsolete as presets no longer have a model field
-        pass
-    
-    @unittest.skip("Model name functionality removed - PresetTemplate no longer has model field")
-    def test_get_model_name(self):
-        # This test is obsolete as presets no longer have a model field
-        pass
     
     @patch.object(PresetTemplateLoader, '_load_preset_file')
     @patch('src.features.presets.loader.Path')
@@ -255,6 +123,7 @@ class TestPresetTemplateLoader(unittest.TestCase):
         )
 
         self.loader.presets = [preset1, preset2]
+        self.loader.presets_by_id = {'preset_id_1': preset1, 'preset_id_2': preset2}
         self.loader._loaded = True
 
         result = self.loader.load_preset_by_id('preset_id_1')

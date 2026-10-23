@@ -19,16 +19,12 @@ frontend's `<tool_action type="update_director_segment">` markup convention
 """
 
 import json
-import logging
 import uuid
 from typing import Any, Dict, List, Optional, Sequence
 
-from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.features.video_director import apply_preset_mode_overlay
-
-logger = logging.getLogger(__name__)
 
 _MODE_ORDER = ("t2v", "i2v", "flf", "director")
 _AUDIO_ROLES = ("condition", "mux")
@@ -560,26 +556,9 @@ class GetVideoDirectorTool(BaseTool):
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
         return video_director_active(form_state)
 
-    @property
-    def name(self) -> str:
-        return "get_video_director"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Reads the Video Director document on your generation form."
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When the user asks about their video shots, segments, timeline, keyframes, "
-            "or Video Director settings -- call this first. Its how_to_edit field explains "
-            "the only change you may propose: prompt VERSIONS via the update_director_segment "
-            "tag. Shot count, durations, media, mode, and settings are user-only."
-        )
+    name = "get_video_director"
+    group = "Form & segments"
+    user_description = "Reads the Video Director document on your generation form."
 
     @property
     def description(self) -> str:
@@ -624,25 +603,21 @@ class GetVideoDirectorTool(BaseTool):
                 ),
             )
 
-        try:
-            doc = vd.get("doc") or {}
-            capabilities = apply_preset_mode_overlay(vd.get("capabilities") or {}, form_state.get("mode"))
-            flat = _flatten(doc, capabilities, form_state.get("form_data") or {})
+        doc = vd.get("doc") or {}
+        capabilities = apply_preset_mode_overlay(vd.get("capabilities") or {}, form_state.get("mode"))
+        flat = _flatten(doc, capabilities, form_state.get("form_data") or {})
 
-            result = {
-                "mode": flat["mode"],
-                "style": flat["style"],
-                "settings": flat["settings"],
-                "global_prompt": flat["global_prompt"],
-                "negative_prompt": flat["negative_prompt"],
-                "segments": flat["segments"],
-                "media": flat["media"],
-                "audio": flat["audio"],
-                "capabilities": _capability_summary(capabilities, flat["mode"], flat["style"]),
-                "how_to_edit": _HOW_TO_EDIT,
-            }
-            return ToolResult(success=True, data=json.dumps(result))
-        except Exception as e:
-            logger.error(f"Error reading video director from session metadata: {e}")
-            return ToolResult(success=False, data="", error=unexpected(self.name, "run", e, context.is_admin))
+        result = {
+            "mode": flat["mode"],
+            "style": flat["style"],
+            "settings": flat["settings"],
+            "global_prompt": flat["global_prompt"],
+            "negative_prompt": flat["negative_prompt"],
+            "segments": flat["segments"],
+            "media": flat["media"],
+            "audio": flat["audio"],
+            "capabilities": _capability_summary(capabilities, flat["mode"], flat["style"]),
+            "how_to_edit": _HOW_TO_EDIT,
+        }
+        return ToolResult(success=True, data=json.dumps(result))
 

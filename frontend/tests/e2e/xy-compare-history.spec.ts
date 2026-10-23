@@ -107,7 +107,7 @@ test.describe('X/Y compare in History', () => {
 				el.scrollLeft = 200;
 				el.scrollTop = 40;
 			});
-			await page.waitForTimeout(250);
+			await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 			const yAfter = await yLabel.boundingBox();
 			const xAfter = await xLabel.boundingBox();
 			expect(Math.abs((yAfter?.x ?? 0) - (yBefore?.x ?? 0))).toBeLessThan(2);

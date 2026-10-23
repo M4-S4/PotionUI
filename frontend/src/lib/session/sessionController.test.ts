@@ -150,7 +150,7 @@ function createFakeApi() {
 	};
 }
 
-function createHarness(options: { tab?: Partial<Tab>; storage?: Record<string, string> } = {}) {
+function createHarness(options: { tab?: Partial<Tab>; storage?: Record<string, string>; drafts?: { replaceVariables: (tabId: string, variables: never) => void } } = {}) {
 	const api = createFakeApi();
 	const tabs = createFakeTabs(options.tab ?? {});
 	const timers = createFakeTimers();
@@ -167,7 +167,8 @@ function createHarness(options: { tab?: Partial<Tab>; storage?: Record<string, s
 		},
 		toasts,
 		logger,
-		timers
+		timers,
+		drafts: options.drafts as never
 	});
 
 	return { api, tabs, timers, toasts, logger, controller, storage: store };
@@ -809,6 +810,472 @@ describe('createSessionController', () => {
 		});
 	});
 
+	describe('draft sync on load', () => {
+		it('replaces the tab draft with the loaded session variables in one call', async () => {
+			const replaceVariables = vi.fn();
+			harness = createHarness({
+				tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<Tab>,
+				drafts: { replaceVariables }
+			});
+			const variables = { mood: { type: 'text', value: 'noir' } };
+			const withVariables = makeSession(SESSION_B, {
+				data: { [MODE]: { promptSegments: [], variables } } as never
+			});
+			harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [withVariables] });
+			harness.api.getSessionById.mockResolvedValue({ success: true, data: withVariables });
+			controller = harness.controller;
+			controller.setContext(context());
+			controller.start();
+			await settle();
+			await controller.select(SESSION_B);
+			await settle();
+			expect(replaceVariables).toHaveBeenCalledTimes(1);
+			expect(replaceVariables).toHaveBeenCalledWith(TAB_ID, variables);
+			expect(harness.tabs.tab.variables).toEqual(variables);
+		});
+
+		it('replaces with an empty map when the loaded session has no variables', async () => {
+			const replaceVariables = vi.fn();
+			harness = createHarness({
+				tab: { selectedPreset: PRESET_ID, selectedMode: MODE } as Partial<Tab>,
+				drafts: { replaceVariables }
+			});
+			harness.api.getSessionsForPreset.mockResolvedValue({
+				success: true,
+				data: [makeSession(SESSION_B)]
+			});
+			controller = harness.controller;
+			controller.setContext(context());
+			controller.start();
+			await settle();
+			await controller.select(SESSION_B);
+			await settle();
+			expect(replaceVariables).toHaveBeenCalledWith(TAB_ID, {});
+		});
+	});
+
+	describe('reloading the saved snapshot of the current session', () => {
+		const savedSegments = [
+			{ id: 's1', content: 'a {{mood}} alley', conditions: [{ variable: 'mood', operator: 'equals', value: 'noir' }] },
+			{ id: 's2', content: 'rain, neon' }
+		];
+		const savedVariables = { mood: { type: 'text', value: 'noir' } };
+		const savedForm = { steps: 20, sampler: 'euler' };
+		const savedMode = { promptSegments: savedSegments, variables: savedVariables, formData: savedForm, seed: 7 };
+
+		async function bootEditedSession(tab: Partial<Tab> = {}, saved: Record<string, unknown> = savedMode, storage: Record<string, string> = {}) {
+			const replaceVariables = vi.fn();
+			const session = makeSession(SESSION_A, { data: { [MODE]: saved } as never });
+			harness = createHarness({
+				tab: {
+					selectedPreset: PRESET_ID,
+					selectedMode: MODE,
+					selectedSessionId: SESSION_A,
+					savedSessionSignature: JSON.stringify({ [MODE]: saved }),
+					promptSegments: [{ id: 's1', content: 'edited alley' }],
+					variables: { mood: { type: 'text', value: 'dusk' } },
+					formData: { steps: 35, sampler: 'dpmpp' },
+					seed: 99,
+					...tab
+				} as Partial<Tab>,
+				drafts: { replaceVariables },
+				storage
+			});
+			harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [session] });
+			harness.api.getSessionById.mockResolvedValue({ success: true, data: session });
+			controller = harness.controller;
+			controller.setContext(context());
+			controller.start();
+			await settle();
+			return { replaceVariables };
+		}
+
+		function publishForm(data: Record<string, unknown>) {
+			harness.tabs.edit(formDataPublicationPatch(harness.tabs.tab, data));
+		}
+
+		it('puts the saved prompt segments, conditions, variables, form values and seed back on the tab', async () => {
+			const { replaceVariables } = await bootEditedSession();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+
+			expect(await controller.reload()).toBe(true);
+			await settle();
+
+			expect(harness.api.getSessionById).toHaveBeenCalledWith(SESSION_A);
+			expect(harness.tabs.tab.promptSegments).toEqual(savedSegments);
+			expect(harness.tabs.tab.variables).toEqual(savedVariables);
+			expect(harness.tabs.tab.formData).toEqual(savedForm);
+			expect(harness.tabs.tab.seed).toBe(7);
+			expect(replaceVariables).toHaveBeenCalledWith(TAB_ID, savedVariables);
+		});
+
+		it('folds the values the form republishes into the saved baseline instead of reading them as edits', async () => {
+			await bootEditedSession();
+			await controller.reload();
+			await settle();
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(true);
+
+			publishForm({ ...savedForm, guidance: 3.5 });
+			await settle();
+
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(false);
+			expect(harness.tabs.tab.savedSessionSignature).toContain('"guidance":3.5');
+			expect(get(controller.state).hasUnsavedChanges).toBe(false);
+			expect(get(controller.state).currentSession?.id).toBe(SESSION_A);
+		});
+
+		it('reports unsaved changes again after the next edit', async () => {
+			await bootEditedSession();
+			await controller.reload();
+			await settle();
+			publishForm(savedForm);
+			await settle();
+			publishForm({ ...savedForm, steps: 21 });
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		});
+
+		it('waits for the form to republish when the form values were edited, and tells the form to hydrate', async () => {
+			await bootEditedSession({ formPublished: true, formReloadGeneration: 2 });
+			await controller.reload();
+			await settle();
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(true);
+			expect(harness.tabs.tab.formReloadGeneration).toBe(3);
+		});
+
+		it('does not wait for a republish the form will never send when only the prompt was edited', async () => {
+			await bootEditedSession({ formPublished: true, formData: savedForm });
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+
+			await controller.reload();
+			await settle();
+
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(false);
+			expect(get(controller.state).hasUnsavedChanges).toBe(false);
+
+			publishForm({ ...savedForm, steps: 21 });
+			await settle();
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+			expect(harness.tabs.tab.savedSessionSignature).toContain('"steps":20');
+		});
+
+		it('waits for the form when it has not published since the tab was created', async () => {
+			await bootEditedSession({ formPublished: false, formData: savedForm });
+			await controller.reload();
+			await settle();
+			expect(harness.tabs.tab.sessionBaselineAwaitingFormNormalization).toBe(true);
+		});
+
+		it('resets the compare setup, section folds and pane folds the snapshot does not have', async () => {
+			await bootEditedSession({
+				compare: { armed: true } as never,
+				sectionCollapsed: { sampling: true },
+				leftPanelCollapsed: true,
+				workbenchCollapsed: true
+			});
+			await controller.reload();
+			await settle();
+			expect(harness.tabs.tab.compare).toBeUndefined();
+			expect(harness.tabs.tab.sectionCollapsed).toBeUndefined();
+			expect(harness.tabs.tab.leftPanelCollapsed).toBeUndefined();
+			expect(harness.tabs.tab.workbenchCollapsed).toBeUndefined();
+			expect(harness.tabs.tab.savedSessionSignature).not.toContain('"compare"');
+			expect(harness.tabs.tab.savedSessionSignature).not.toContain('sectionCollapsed');
+		});
+
+		it('restores the compare setup, section folds and pane folds the snapshot has', async () => {
+			const saved = { ...savedMode, compare: { armed: true }, sectionCollapsed: { sampling: true }, leftPanelCollapsed: false, workbenchCollapsed: true };
+			await bootEditedSession({ compare: undefined, sectionCollapsed: undefined, leftPanelCollapsed: true, workbenchCollapsed: false }, saved);
+			await controller.reload();
+			await settle();
+			expect(harness.tabs.tab.compare).toEqual({ armed: true });
+			expect(harness.tabs.tab.sectionCollapsed).toEqual({ sampling: true });
+			expect(harness.tabs.tab.leftPanelCollapsed).toBe(false);
+			expect(harness.tabs.tab.workbenchCollapsed).toBe(true);
+		});
+
+		const folds = {
+			compare: { armed: true } as never,
+			sectionCollapsed: { sampling: true },
+			leftPanelCollapsed: true,
+			workbenchCollapsed: true
+		};
+
+		const ordinaryLoads: Array<[string, () => Promise<void>, () => void]> = [
+			[
+				'a normal select',
+				async () => {
+					harness.api.getSessionById.mockResolvedValueOnce({ success: true, data: makeSession(SESSION_B) });
+					await controller.select(SESSION_B);
+				},
+				() => expect(harness.tabs.tab.selectedSessionId).toBe(SESSION_B)
+			],
+			[
+				'a version restore',
+				async () => {
+					harness.api.getSessionVersion.mockResolvedValueOnce({
+						success: true,
+						data: { version: 2, created_at: '2026-01-01T00:00:00Z', data: { [MODE]: { prompt: 'old' } } }
+					} as never);
+					await controller.restoreVersion(SESSION_A, 2);
+				},
+				() => expect(harness.tabs.tab.prompt).toBe('old')
+			]
+		];
+
+		for (const [name, load, applied] of ordinaryLoads) {
+			it(`bumps the form generation on ${name} too, so equal form data is not swallowed`, async () => {
+				await bootEditedSession({ formReloadGeneration: 2 });
+				await load();
+				await settle();
+				applied();
+				expect(harness.tabs.tab.formReloadGeneration).toBe(3);
+			});
+
+			it(`leaves the compare setup, section folds and pane folds alone on ${name}`, async () => {
+				await bootEditedSession(folds);
+				await load();
+				await settle();
+				applied();
+				expect(harness.tabs.tab).toMatchObject(folds);
+			});
+		}
+
+		it('does not auto-save the edits being discarded while the snapshot loads', async () => {
+			await bootEditedSession({}, savedMode, { autoSaveEnabled: 'true', autoSaveInterval: '5000' });
+			const slow = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValueOnce(slow.promise as never);
+			const reloading = controller.reload();
+			await settle();
+
+			harness.timers.advance(5000);
+			await settle();
+			expect(harness.api.updateSession).not.toHaveBeenCalled();
+
+			slow.resolve({ success: true, data: makeSession(SESSION_A, { data: { [MODE]: savedMode } as never }) });
+			expect(await reloading).toBe(true);
+			await settle();
+			harness.timers.advance(5000);
+			await settle();
+			expect(harness.api.updateSession).not.toHaveBeenCalled();
+		});
+
+		it('turns a quick save made while the snapshot loads into a no-op', async () => {
+			await bootEditedSession();
+			const slow = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValueOnce(slow.promise as never);
+			const reloading = controller.reload();
+			await settle();
+
+			expect(await controller.quickSave()).toBe(true);
+			expect(harness.api.updateSession).not.toHaveBeenCalled();
+
+			slow.resolve({ success: true, data: makeSession(SESSION_A, { data: { [MODE]: savedMode } as never }) });
+			await reloading;
+		});
+
+		it('refuses a second reload while one is running', async () => {
+			await bootEditedSession();
+			const slow = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValueOnce(slow.promise as never);
+			const first = controller.reload();
+			await settle();
+
+			expect(await controller.reload()).toBe(false);
+			expect(harness.api.getSessionById).toHaveBeenCalledTimes(1);
+
+			slow.resolve({ success: true, data: makeSession(SESSION_A, { data: { [MODE]: savedMode } as never }) });
+			expect(await first).toBe(true);
+		});
+
+		it('refuses to reload while a quick save is running, so the save is not outrun by the snapshot', async () => {
+			await bootEditedSession();
+			const pending = deferred<{ success: boolean; data: Session }>();
+			harness.api.updateSession.mockReturnValueOnce(pending.promise as never);
+			const saving = controller.quickSave();
+			await settle();
+
+			expect(await controller.reload()).toBe(false);
+			expect(harness.api.getSessionById).not.toHaveBeenCalled();
+			expect(harness.tabs.tab.promptSegments).toEqual([{ id: 's1', content: 'edited alley' }]);
+
+			pending.resolve({ success: true, data: makeSession(SESSION_A) });
+			await saving;
+			await settle();
+			expect(await controller.reload()).toBe(true);
+		});
+
+		it('refuses to reload while a save as is running', async () => {
+			await bootEditedSession();
+			const pending = deferred<{ success: boolean; data: Session }>();
+			harness.api.saveSession.mockReturnValueOnce(pending.promise as never);
+			const saving = controller.saveAs('Copy', 'save-as');
+			await settle();
+
+			expect(await controller.reload()).toBe(false);
+			expect(harness.api.getSessionById).not.toHaveBeenCalled();
+
+			pending.resolve({ success: true, data: makeSession('copy') });
+			await saving;
+		});
+
+		it('does not hold quick save and auto-save hostage to a reload that stalls across a context switch', async () => {
+			await bootEditedSession({}, savedMode, { autoSaveEnabled: 'true', autoSaveInterval: '5000' });
+			const slow = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValueOnce(slow.promise as never);
+			void controller.reload();
+			await settle();
+
+			controller.setContext(context({ currentMode: 'video' }));
+			await settle();
+
+			expect(await controller.quickSave()).toBe(true);
+			expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
+			harness.tabs.edit({ promptSegments: [{ id: 's1', content: 'edited again' }] } as Partial<Tab>);
+			await settle();
+			harness.timers.advance(5000);
+			await settle();
+			expect(harness.api.updateSession).toHaveBeenCalledTimes(2);
+		});
+
+		it('works again for the picked session once a newer select has overtaken a stalled reload', async () => {
+			await bootEditedSession();
+			const slow = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValueOnce(slow.promise as never);
+			void controller.reload();
+			await settle();
+			harness.api.getSessionById.mockResolvedValueOnce({ success: true, data: makeSession(SESSION_B) });
+			await controller.select(SESSION_B);
+			await settle();
+
+			harness.tabs.edit({ promptSegments: [{ id: 'b', content: 'edit on b' }] } as Partial<Tab>);
+			await settle();
+			expect(await controller.quickSave()).toBe(true);
+			expect(harness.api.updateSession).toHaveBeenCalledWith(SESSION_B, expect.anything());
+			expect(await controller.reload()).toBe(true);
+		});
+
+		it('raises no failure toast for a reload the user has moved on from', async () => {
+			await bootEditedSession();
+			const overtaken = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValueOnce(overtaken.promise as never);
+			const first = controller.reload();
+			await settle();
+			harness.api.getSessionById.mockResolvedValueOnce({ success: true, data: makeSession(SESSION_B) });
+			await controller.select(SESSION_B);
+			overtaken.reject(new Error('offline'));
+			expect(await first).toBe(false);
+			await settle();
+			expect(harness.toasts.error).not.toHaveBeenCalled();
+
+			const departed = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValueOnce(departed.promise as never);
+			const second = controller.reload();
+			await settle();
+			controller.setContext(context({ currentMode: 'video' }));
+			await settle();
+			departed.reject(new Error('offline'));
+			expect(await second).toBe(false);
+			await settle();
+			expect(harness.toasts.error).not.toHaveBeenCalled();
+		});
+
+		it('pauses auto-save while the reload confirm is open and resumes when it closes', async () => {
+			await bootEditedSession({}, savedMode, { autoSaveEnabled: 'true', autoSaveInterval: '5000' });
+			controller.openDialog('reload');
+			harness.timers.advance(5000);
+			await settle();
+			expect(harness.api.updateSession).not.toHaveBeenCalled();
+
+			controller.closeDialog('reload');
+			harness.timers.advance(5000);
+			await settle();
+			expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
+		});
+
+		it('does not clear the busy flag of a running version restore when the reload confirm opens or closes', async () => {
+			await bootEditedSession();
+			const pending = deferred<{ success: boolean; data: unknown }>();
+			harness.api.getSessionVersion.mockReturnValueOnce(pending.promise as never);
+			const restoring = controller.restoreVersion(SESSION_A, 2);
+			await settle();
+			expect(get(controller.state).isRestoringVersion).toBe(true);
+
+			controller.openDialog('reload');
+			expect(get(controller.state).isRestoringVersion).toBe(true);
+			controller.closeDialog('reload');
+			expect(get(controller.state).isRestoringVersion).toBe(true);
+
+			pending.resolve({ success: true, data: { version: 2, created_at: '2026-01-01T00:00:00Z', data: { [MODE]: { prompt: 'old' } } } });
+			await restoring;
+		});
+
+		it('lets a quick save through while the reload confirm is open, since nothing was confirmed yet', async () => {
+			await bootEditedSession();
+			controller.openDialog('reload');
+			expect(await controller.quickSave()).toBe(true);
+			expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
+		});
+
+		it('lifts the auto-save pause when the context changes under an open reload confirm', async () => {
+			await bootEditedSession({}, savedMode, { autoSaveEnabled: 'true', autoSaveInterval: '5000' });
+			controller.openDialog('reload');
+			controller.setContext(context({ currentMode: 'video' }));
+			await settle();
+			harness.timers.advance(5000);
+			await settle();
+			expect(harness.api.updateSession).toHaveBeenCalledTimes(1);
+		});
+
+		it('does nothing without a saved session', async () => {
+			await bootWithoutSession();
+			expect(await controller.reload()).toBe(false);
+			expect(harness.api.getSessionById).not.toHaveBeenCalled();
+		});
+
+		it('reports a failed fetch, keeps the edits and ends the loading state', async () => {
+			await bootEditedSession();
+			harness.api.getSessionById.mockRejectedValueOnce(new Error('offline'));
+
+			expect(await controller.reload()).toBe(false);
+			await settle();
+
+			expect(harness.toasts.error).toHaveBeenCalledWith('Could not reload the last snapshot.');
+			expect(harness.tabs.tab.promptSegments).toEqual([{ id: 's1', content: 'edited alley' }]);
+			expect(get(controller.state).hasUnsavedChanges).toBe(true);
+			expect(get(controller.state).isSessionLoading).toBe(false);
+		});
+
+		it('reports a refused fetch the same way and a vanished session in its own words', async () => {
+			await bootEditedSession();
+			harness.api.getSessionById.mockResolvedValueOnce({ success: false, error: 'server_error' } as never);
+			expect(await controller.reload()).toBe(false);
+			expect(harness.toasts.error).toHaveBeenLastCalledWith('Could not reload the last snapshot.');
+
+			harness.api.getSessionById.mockResolvedValueOnce({ success: false, error: 'session_not_found' } as never);
+			expect(await controller.reload()).toBe(false);
+			expect(harness.toasts.error).toHaveBeenLastCalledWith('That session is no longer available.');
+			expect(harness.tabs.tab.promptSegments).toEqual([{ id: 's1', content: 'edited alley' }]);
+		});
+
+		it('drops a reload that a newer pick has overtaken', async () => {
+			await bootEditedSession();
+			const slow = deferred<{ success: boolean; data: Session }>();
+			harness.api.getSessionById.mockReturnValueOnce(slow.promise as never);
+			const reloading = controller.reload();
+			await settle();
+			const other = makeSession(SESSION_B, { data: { [MODE]: { promptSegments: [{ id: 'b', content: 'other' }] } } as never });
+			harness.api.getSessionById.mockResolvedValueOnce({ success: true, data: other });
+			await controller.select(SESSION_B);
+			await settle();
+			slow.resolve({ success: true, data: makeSession(SESSION_A, { data: { [MODE]: savedMode } as never }) });
+			expect(await reloading).toBe(false);
+			await settle();
+			expect(harness.tabs.tab.selectedSessionId).toBe(SESSION_B);
+			expect(harness.tabs.tab.promptSegments).toEqual([{ id: 'b', content: 'other' }]);
+		});
+	});
+
 	it('leaves the baseline pointing at nothing after restoring a version', async () => {
 		await bootWithDirtySession();
 		harness.api.getSessionVersion.mockResolvedValue({
@@ -823,6 +1290,27 @@ describe('createSessionController', () => {
 		expect(state.hasUnsavedChanges).toBe(true);
 		expect(harness.tabs.tab.savedSessionSignature).toBeNull();
 		expect(state.historySessionId).toBeNull();
+		expect(harness.toasts.info).toHaveBeenCalledTimes(1);
+	});
+
+	it('keeps the open history and its versions after restoring one of them', async () => {
+		await bootWithDirtySession();
+		harness.api.getSessionVersions.mockResolvedValue({ success: true, data: [version(2), version(1)] } as never);
+		harness.api.getSessionVersion.mockResolvedValue({
+			success: true,
+			data: { version: 2, created_at: '2026-01-01T00:00:00Z', data: { [MODE]: { prompt: 'old' } } }
+		} as never);
+
+		await controller.openHistory(SESSION_A);
+		await settle();
+		await controller.restoreVersion(SESSION_A, 2);
+		await settle();
+
+		const state = get(controller.state);
+		expect(state.historySessionId).toBe(SESSION_A);
+		expect(state.historyVersions.map((entry) => entry.version_number)).toEqual([2, 1]);
+		expect(state.isHistoryLoading).toBe(false);
+		expect(state.isRestoringVersion).toBe(false);
 		expect(harness.toasts.info).toHaveBeenCalledTimes(1);
 	});
 

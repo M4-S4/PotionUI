@@ -1,0 +1,57 @@
+schema: 1
+id: "01M52YQH5XRAH60J82RY5NTM2V"
+name: "MOSS-Image"
+category: "image"
+version: "1.0.0"
+engine: "native"
+tags: ["moss", "moss-image", "local", "experimental"]
+
+requires:
+  min_vram_gb: 12
+  recommended_vram_gb: 24
+
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Diffusion Model picker."
+  text_encoder_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+speed_profiles:
+  base:   { steps: 50, guidance: 3.0, sampler: "euler" }
+  custom: { steps: 50, guidance: 3.0, sampler: "euler" }
+
+llm:
+  guide: |
+    MOSS-Image accepts three prompt styles: natural-language prose describing the
+    subject, style and lighting; comma-separated tag lists; and JSON layout prompts that
+    place text and objects (for example a list of objects, each with a short description
+    and a position or bounding box). Prose works best for general scenes; use a JSON
+    layout when the user needs exact placement of text or objects. Put exact display text
+    in double quotes. The negative prompt is empty by default and only used when CFG is
+    above 1; keep it to a few short tags such as "blurry, low quality, watermark".
+
+formulas:
+  groups:
+    speed:  { label: "Speed and sampling" }
+    size:   { label: "Size" }
+    loras:  { label: "LoRAs" }
+    cache:  { label: "Step cache" }
+    models: { label: "Models", preselect: false }
+
+negative_prompt:
+  applies_when: { field: "cfg", not_equals: 1 }
+
+modes:
+  - txt2img

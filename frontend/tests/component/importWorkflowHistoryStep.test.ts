@@ -3,16 +3,16 @@
 // Focused coverage of the History step: toggling a row's emit checkbox,
 // changing its value format, reordering rows up/down (mirrored by the live
 // preview), and the exact `history` payload shape sent to /presets/import.
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 const ANALYZE_RESULT = {
 	mode: 'text2img',
@@ -41,10 +41,7 @@ const ANALYZE_RESULT = {
 const IMPORT_RESULT = { preset_id: 'PRESET1', path: 'content/presets/local/SDXL/imported', mode: 'text2img', lint: { errors: [], warnings: [] } };
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, `import-workflow-tab-history-${Math.random().toString(36).slice(2)}.mjs`);
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 
@@ -74,6 +71,12 @@ beforeAll(async () => {
 	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
 
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
+
 afterEach(() => {
 	vi.unstubAllGlobals();
 	document.body.innerHTML = '';
@@ -101,7 +104,7 @@ async function mountOnHistoryStep(el: HTMLDivElement, importAssert?: (body: any)
 	textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 	textarea.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
-	el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!.click();
 	await settle();
 
 	const familyInput = el.querySelector<HTMLInputElement>('#import-model-family')!;
@@ -112,7 +115,7 @@ async function mountOnHistoryStep(el: HTMLDivElement, importAssert?: (body: any)
 	nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 	await settle();
 
-	el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+	el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 	await settle();
 
 	return instance;
@@ -146,7 +149,7 @@ describe('ImportWorkflowTab History step (real compiled dist)', () => {
 		expect(cfgRow.querySelector('.hist-jinja-out')?.textContent).toContain('3.5 strength');
 
 		// Reorder: move cfg above steps, preview cell order follows.
-		cfgRow.querySelector<HTMLButtonElement>('[data-action="move-up"]')!.click();
+		cfgRow.querySelector<HTMLButtonElement>('[data-action="move-up"] button')!.click();
 		await settle();
 		const rows = Array.from(el.querySelectorAll('[data-history-table] [data-history-row]'));
 		expect(rows.map((r) => r.getAttribute('data-history-row'))).toEqual(['cfg', 'steps']);
@@ -167,7 +170,7 @@ describe('ImportWorkflowTab History step (real compiled dist)', () => {
 		const cfgRow = el.querySelector('[data-history-row="cfg"]')!;
 		cfgRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();
 		await settle();
-		cfgRow.querySelector<HTMLButtonElement>('[data-action="move-up"]')!.click();
+		cfgRow.querySelector<HTMLButtonElement>('[data-action="move-up"] button')!.click();
 		await settle();
 
 		const cfgLabel = cfgRow.querySelector<HTMLInputElement>('.hist-label-input')!;
@@ -175,9 +178,9 @@ describe('ImportWorkflowTab History step (real compiled dist)', () => {
 		cfgLabel.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
-		el.querySelector<HTMLButtonElement>('button[data-import-create]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-create] button')!.click();
 		await settle();
 
 		expect(sentHistory).toEqual([

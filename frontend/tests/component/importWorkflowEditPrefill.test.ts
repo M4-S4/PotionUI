@@ -6,16 +6,16 @@
 // 1 already showing the loaded workflow, prefill family/variant/display
 // name plus the stored form/history exactly as the preset was designed, and
 // send `overwrite_preset_id` on submit instead of creating a new preset.
-import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
-import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
+import { describe, expect, it, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
+import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { stagePluginDist } from './helpers/stagePluginDist';
+import { installPluginHost, removePluginHost } from './helpers/installPluginHost';
 import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
 const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowTab.js';
-const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 const SOURCE_RESPONSE = {
 	workflow: { '3': { class_type: 'KSampler', inputs: { seed: 619589674328597 } } },
@@ -46,10 +46,7 @@ const UPDATE_RESULT = {
 };
 
 async function loadDist(): Promise<any> {
-	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, `import-workflow-tab-edit-${Math.random().toString(36).slice(2)}.mjs`);
-	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
-	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
+	const mod = await import(/* @vite-ignore */ stagePluginDist(resolve(REPO_ROOT, DIST_PATH)));
 	return mod.default;
 }
 
@@ -77,6 +74,12 @@ beforeAll(async () => {
 	const raw = await loadDist();
 	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
+
+beforeEach(async () => {
+	await installPluginHost();
+});
+
+afterAll(removePluginHost);
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -119,7 +122,7 @@ describe('ImportWorkflowTab edit prefill (real compiled dist)', () => {
 		expect(editBanner?.textContent).toContain('SDXL — My workflow');
 		expect(el.querySelector('[data-import-detected]')?.textContent).toContain('5 nodes');
 
-		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+		const continueBtn = el.querySelector<HTMLButtonElement>('[data-import-analyze] button')!;
 		expect(continueBtn.disabled).toBe(false);
 		continueBtn.click();
 		await settle();
@@ -133,7 +136,7 @@ describe('ImportWorkflowTab edit prefill (real compiled dist)', () => {
 		expect(el.querySelector<HTMLInputElement>('#import-model-family')!.value).toBe('SDXL');
 		expect(el.querySelector<HTMLInputElement>('#import-display-name')!.value).toBe('SDXL — My workflow');
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-form] button')!.click();
 		await settle();
 
 		// Step 3: the stored history entry's custom label carries over.
@@ -141,10 +144,10 @@ describe('ImportWorkflowTab edit prefill (real compiled dist)', () => {
 		expect(stepsHistRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
 		expect(stepsHistRow.querySelector<HTMLInputElement>('.hist-label-input')!.value).toBe('Steps (custom)');
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
+		el.querySelector<HTMLButtonElement>('[data-import-continue-history] button')!.click();
 		await settle();
 
-		const updateBtn = el.querySelector<HTMLButtonElement>('button[data-import-create]')!;
+		const updateBtn = el.querySelector<HTMLButtonElement>('[data-import-create] button')!;
 		expect(updateBtn.textContent).toContain('Update preset');
 		updateBtn.click();
 		await settle();

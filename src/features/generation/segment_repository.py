@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Union
 from src.features.generation.segment_records import GenerationSegment, GenerationSegmentPhrasebook
 from src.platform.util.ids import generate_ulid
+from src.platform.database import get_cursor
 
 
 def _get(obj: Union[Dict[str, Any], object], key: str, default=None):
@@ -18,8 +19,7 @@ class GenerationSegmentRepository:
         """
         created: List[GenerationSegment] = []
 
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             for segment in segments:
                 segment_id = generate_ulid()
 
@@ -67,8 +67,7 @@ class GenerationSegmentRepository:
 
     def get_by_generation(self, generation_id: str) -> List[GenerationSegment]:
         """Get all segments for a generation, ordered and populated with their phrasebooks."""
-        from src.platform.database.database import db
-        with db.get_cursor() as cursor:
+        with get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM generation_segments
                 WHERE generation_id = ?

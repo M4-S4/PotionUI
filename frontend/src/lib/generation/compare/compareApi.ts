@@ -35,6 +35,13 @@ export async function postRetryFailed(gridId: string): Promise<ServerGrid> {
 	return unwrap(response.data, 'Could not retry the failed cells.');
 }
 
+export async function deleteGridById(gridId: string): Promise<void> {
+	const response = await api.getClient().delete<Envelope<null>>(`${BASE}/${encodeURIComponent(gridId)}`);
+	if (!response.data?.success) {
+		throw new Error(response.data?.error || response.data?.message || 'Could not delete the comparison.');
+	}
+}
+
 export async function fetchGridSettings(): Promise<GridSettings> {
 	try {
 		const response = await api.getClient().get<Envelope<Partial<GridSettings>>>(`${BASE}/settings`);

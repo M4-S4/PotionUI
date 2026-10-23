@@ -27,8 +27,7 @@
 	import { modelRootsErrorMessage } from './errors';
 	import { ROOT_STATE_BADGE } from './format';
 	import { indexingStatusStore } from '$lib/models-location/indexingStatus.svelte';
-	import { indexingIsVisible } from '$lib/models-location/indexingDisplay';
-	import IndexingStatusPanel from '$lib/models-location/IndexingStatusPanel.svelte';
+	import IndexingSettingsSection from '$lib/models-location/IndexingSettingsSection.svelte';
 	import AddRootModal from './AddRootModal.svelte';
 	import SubfolderPicker from './SubfolderPicker.svelte';
 	import type {
@@ -295,11 +294,7 @@
 			<Alert variant="danger" icon>{roots.error}</Alert>
 		{/if}
 
-		{#if indexingIsVisible(indexingStatusStore.status)}
-			<DetailSection label="Model indexing">
-				<IndexingStatusPanel status={indexingStatusStore.status} />
-			</DetailSection>
-		{/if}
+		<IndexingSettingsSection />
 
 		<DetailSection label="Model folders" padded={false}>
 			{#snippet headerExtra()}

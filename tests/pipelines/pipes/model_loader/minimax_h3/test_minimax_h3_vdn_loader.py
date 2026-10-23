@@ -33,8 +33,8 @@ from tests.platform.runtime.native.arch.test_minimax_h3_model import (
     TINY_COMMON,
     TINY_FULL,
     _build_ready,
-    _fp32_ops,
 )
+from tests.platform.runtime.native._native_ops import fp32_ops
 
 # The pruned twin needs more curve rows than table columns for the affine fit to
 # be determined at all (fit_affine_grid refuses G < k + 1).
@@ -55,7 +55,7 @@ def _touch(path: Path) -> str:
 
 def _branch_file(path: Path, config: dict) -> str:
     proto = MiniMaxH3LinearBranch(
-        config["hidden_size"], config["num_attention_heads"], config["attention_head_dim"], _fp32_ops(),
+        config["hidden_size"], config["num_attention_heads"], config["attention_head_dim"], fp32_ops(),
     )
     state = {}
     for index in range(config["num_layers"]):

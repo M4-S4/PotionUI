@@ -92,6 +92,7 @@ function byTestId(id: string) {
 }
 
 beforeEach(() => {
+	vi.useFakeTimers();
 	releaseBitmap = null;
 	getClient.mockReturnValue({
 		get: vi.fn().mockResolvedValue({ data: new Blob(['img'], { type: 'image/png' }) })
@@ -112,6 +113,7 @@ afterEach(() => {
 	target?.remove();
 	document.body.innerHTML = '';
 	vi.clearAllMocks();
+	vi.useRealTimers();
 });
 
 describe('HistoryStitchModal loading layout', () => {
@@ -135,7 +137,7 @@ describe('HistoryStitchModal loading layout', () => {
 		expect(byTestId('stitch-loading')).toBeTruthy();
 		expect(byTestId('stitch-dimensions')?.classList.contains('invisible')).toBe(false);
 
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		await vi.advanceTimersByTimeAsync(150);
 		flushSync();
 
 		expect(byTestId('stitch-loading')).toBeNull();

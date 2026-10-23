@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
 	galleryTotal,
 	galleryItemAt,
-	firstGalleryEntry,
 	galleryItemUrl,
 	entryFileType,
 	workbenchActionsFor,
@@ -82,9 +81,6 @@ describe('galleryTotal / galleryItemAt', () => {
 		expect(galleryItemAt(batches, 0)?.kind).toBe('mesh');
 	});
 
-	it('firstGalleryEntry returns null for an empty generation', () => {
-		expect(firstGalleryEntry({})).toBeNull();
-	});
 });
 
 describe('entryFileType', () => {

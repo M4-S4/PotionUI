@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button, Badge } from '$lib/components/ui';
 	import Tooltip from '$lib/components/Tooltip.svelte';
-	import { downloadStore } from '$lib/stores/downloads';
+	import { formatBytes } from '$lib/utils/format';
 	import { isFetchDisabled, type FetchState } from './modelFetch.svelte';
 
 	let { state, onFetch }: { state: FetchState; onFetch: () => void } = $props();
@@ -10,7 +10,7 @@
 <div class="flex items-center gap-3 flex-shrink-0">
 	{#if state.status === 'ready'}
 		<Badge variant="success">
-			Ready{#if state.size}&nbsp;&middot; {downloadStore.formatBytes(state.size)}{/if}
+			Ready{#if state.size}&nbsp;&middot; {formatBytes(state.size)}{/if}
 		</Badge>
 		{#if state.loaded}
 			<Tooltip text="Currently resident in memory">

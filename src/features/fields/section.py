@@ -15,10 +15,7 @@ class Section(BaseField):
         super().__init__(preset_loader)
         self.field_factory = field_factory
 
-    def can_handle(self, field_type: str) -> bool:
-        return field_type == 'section'
-
-    def map_field(self, field, preset_id: str = None) -> Dict[str, Any]:
+    def output(self, field, preset_id: str = None) -> Dict[str, Any]:
         field_info = self.get_field_info(field)
         schema = self.create_base_schema(field_info)
 

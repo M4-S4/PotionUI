@@ -35,6 +35,7 @@ from typing import Any, Callable, Literal, Sequence
 import numpy as np
 import torch
 
+from .cache_identity import identity_usable, tensor_identity
 from .base import load_into_module, release_derived_caches, release_module_storage
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
@@ -83,37 +84,24 @@ from .sampling.denoise_loop import denoise, ensure_sampler_generator
 from .text_encoders.base import NativeTextEncoder
 from .text_encoders.loader import load_text_encoder
 from .detect.vae_detect import (
-    detect_causal3d_v2_vae_config,
-    detect_qwen_image21_vae_config,
-    detect_causal3d_vae_config,
     detect_ltx_audio_vae_config,
     detect_ltx_diffusion_vae_config,
     detect_ltx_video_vae_config,
     detect_ltx_vocoder_config,
     detect_minimax_h3_audio_vae_config,
     detect_minimax_h3_latent_upsampler_config,
-    detect_minimax_h3_video_vae_config,
     detect_minimax_music3_dav_config,
-    detect_seedvr2_vae_config,
-    detect_vae_config,
     detect_yue2_vae_config,
 )
 from .vae.ae_2d import AutoEncoder2D
 from .vae.loader import (
-    load_causal3d_v2_vae,
-    load_qwen_image21_vae,
-    load_causal3d_vae,
+    build_native_vae,
     load_ltx_audio_vae,
-    load_ltx_diffusion_video_vae,
     load_ltx_latent_upsampler,
-    load_ltx_video_vae,
     load_ltx_vocoder,
     load_minimax_h3_audio_vae,
     load_minimax_h3_latent_upsampler,
-    load_minimax_h3_video_vae,
     load_minimax_music3_dav,
-    load_seedvr2_vae,
-    load_vae,
     load_yue2_vae,
 )
 from .vae.tiling import (
@@ -166,11 +154,7 @@ _DECODE_TILE_VRAM_FRACTION = 0.75
 # Per-generation option-dict keys that ``denoise()`` reads out of
 # ``sampling_settings`` but that don't live on the ModelSpec — surfaced to presets
 # through ``sample()``'s ``guidance_options`` / ``schedule_settings`` and merged in.
-# Whitelisted (not a blanket dict spread) so a preset can't inject arbitrary
-# ModelSpec overrides through these dicts, and so ``slg_*`` is deliberately absent
-# from the image path (no image arch has skip_layers; a silently-inert knob is
-# worse than none — the video pipes merge slg_* themselves).
-_APG_SETTINGS_KEYS = ("apg_eta", "apg_norm_threshold", "apg_momentum")
+_APG_SETTINGS_KEYS = ("apg_eta", "apg_norm_threshold", "apg_momentum", "uncond_skip_layers")
 # `fixed_mu`/`dynamic_shift` let a preset swap a ModelSpec's
 # mu-shift SOURCE per generation -- e.g. Krea-2's turbo ModelSpec pins a fixed
 # mu (distilled-at-mu=1.15); a raw/base checkpoint (same architecture, so no
@@ -208,6 +192,64 @@ def _validate_explicit_sigmas(sigmas) -> torch.Tensor:
 
 def _estimated_gb(sd: dict[str, torch.Tensor]) -> float:
     return sum(t.numel() * t.element_size() for t in sd.values()) / _BYTES_PER_GB
+
+
+_FORWARD_KWARGS = (
+    "step_cache",
+    "ref_latents",
+    "image_slots",
+    "control_context",
+    "control_context_scale",
+    "control_sigma_range",
+    "ref_boost",
+    "ref_boost_a",
+    "ref_boost_mask",
+    "flow_map_target",
+    "text_fusion",
+)
+
+
+def _is_ltx_video_vae(metadata: dict[str, str]) -> bool:
+    return (
+        detect_ltx_video_vae_config(metadata) is not None
+        or detect_ltx_diffusion_vae_config(metadata) is not None
+    )
+
+
+def _prefix_slice(prefix: str, detect: Callable[[dict[str, str]], Any], *, strip: bool = False):
+    def slice_fn(sd: dict[str, torch.Tensor], metadata: dict[str, str]) -> dict[str, torch.Tensor]:
+        if not detect(metadata):
+            return sd
+        offset = len(prefix) if strip else 0
+        return {k[offset:]: v for k, v in sd.items() if k.startswith(prefix)} or sd
+
+    return slice_fn
+
+
+def _build_audio_vae(path, ops, sd, metadata):
+    if detect_minimax_h3_audio_vae_config(sd, metadata) is not None:
+        return load_minimax_h3_audio_vae(path, ops, device="cpu", sd=sd, metadata=metadata)
+    if detect_minimax_music3_dav_config(sd, metadata) is not None:
+        return load_minimax_music3_dav(path, ops, device="cpu", sd=sd, metadata=metadata)
+    if detect_yue2_vae_config(sd) is not None:
+        return load_yue2_vae(path, device="cpu", sd=sd, metadata=metadata)
+    return load_ltx_audio_vae(path, ops, device="cpu", sd=sd, metadata=metadata)
+
+
+def _build_vocoder(path, ops, sd, metadata):
+    return load_ltx_vocoder(path, ops, device="cpu", sd=sd, metadata=metadata)
+
+
+def _build_duration_head(path, ops, sd, metadata):
+    from .arch.ltx.duration_head import load_ltx_duration_head
+
+    return load_ltx_duration_head(path, ops, device="cpu", sd=sd, metadata=metadata)
+
+
+def _build_latent_upscaler(path, ops, sd, metadata):
+    if detect_minimax_h3_latent_upsampler_config(sd) is not None:
+        return load_minimax_h3_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
+    return load_ltx_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
 
 
 def _estimate_text_encoder_gb(encoder: Any) -> float | None:
@@ -322,6 +364,18 @@ class RunCache:
             del self._entries[next(iter(self._entries))]
         self._entries[key] = value
         return value
+
+    def memo(
+        self, tag: str, tensors: Sequence[torch.Tensor | None], extra_key: tuple, build: Callable[[], Any],
+    ) -> Any:
+        ids = tuple(tensor_identity(t) for t in tensors)
+        if not identity_usable(*ids):
+            return build()
+        key = (tag, self.revision, *extra_key, *ids)
+        hit = self.get(key)
+        if hit is not None:
+            return hit
+        return self.put(key, build())
 
     def clear(self) -> None:
         self._entries.clear()
@@ -1001,68 +1055,32 @@ class NativeEngineLoader:
         )
         return sd, QUANT_FP8_SCALED, weight_dtype(sd), new_est
 
-    def _load_vae(self, path: str | Path) -> NativeModel:
-        # LTX's all-in-one checkpoint carries the DiT (tens of GB) alongside a
-        # ``vae.``-prefixed video VAE (a few hundred MB). Read only the
-        # ``vae.*`` keys off disk (never materializes the DiT) *before*
-        # sizing/ops selection, or the estimate is the whole checkpoint's
-        # footprint and poisons placement (streamed the VAE like a 27GB
-        # model). Standalone VAE files (Flux/causal3d/LTX) have no ``vae.``
-        # keys, so the loader falls back to a full (already component-only) read.
-        sd, metadata = load_torch_file_prefixed(path, "vae.", device="cpu")
-        get_profiler().mark("load.vae.read", est_gb=_estimated_gb(sd))
-        is_ltx_video = (
-            detect_ltx_video_vae_config(metadata) is not None
-            or detect_ltx_diffusion_vae_config(metadata) is not None
-        )
-        if is_ltx_video and any(k.startswith("vae.") for k in sd):
-            sd = {k[len("vae."):]: v for k, v in sd.items() if k.startswith("vae.")}
+    def _load_component(self, kind, path, prefix, slice_fn, build) -> NativeModel:
+        if prefix is None:
+            sd, metadata = load_torch_file(path, device="cpu")
+        else:
+            sd, metadata = load_torch_file_prefixed(path, prefix, device="cpu")
+        get_profiler().mark(f"load.{kind}.read", est_gb=_estimated_gb(sd))
+        if slice_fn is not None:
+            sd = slice_fn(sd, metadata)
         quant_format = detect_quant_format(metadata, sd)
         sd_dtype = weight_dtype(sd)
         _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
         storage_dtype = sd_dtype or compute_dtype
         est_gb = _estimated_gb(sd)
         ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
-        module = self._load_vae_module(path, sd, metadata, ops)
-        get_profiler().mark("load.vae.built", est_gb=est_gb, quant_format=quant_format)
+        module = build(path, ops, sd, metadata)
+        get_profiler().mark(f"load.{kind}.built", est_gb=est_gb, quant_format=quant_format)
         return NativeModel(
-            "vae", module, estimated_vram_gb=est_gb,
+            kind, module, estimated_vram_gb=est_gb,
             compute_dtype=compute_dtype, quant_format=quant_format,
         )
 
-    @staticmethod
-    def _load_vae_module(path, sd, metadata, ops):
-        """Dispatch to the right VAE-family loader by detection.
-
-        The native engine hosts seven VAE shapes: the Flux 2D AE, the Wan-2.1 /
-        Qwen-Image causal-3D VAE, the Wan-2.2 causal-3D v2, the SeedVR2
-        causal-video VAE (self-normalizing), the LTX-2/2.3 conv video VAE and
-        the LTX-2.5 diffusion-decoder one (both metadata-detected, mutually
-        exclusive by ``_class_name``), and the MiniMax-H3 video VAE (causal-3D
-        encoder + ViT decoder). Callers just say ``kind="vae"``; this routes.
-        ``sd``/``metadata`` were already read (and, for LTX, already sliced to
-        the ``vae.*`` keys) by ``_load_vae``, so the LTX/H3 branches pass them
-        straight through rather than re-reading the file (H3's own file is
-        standalone with bare/unprefixed keys, so no slicing applies).
-        """
-        if detect_vae_config(sd) is not None:
-            return load_vae(path, ops, device="cpu")               # Flux 2D AE
-        if detect_causal3d_vae_config(sd) is not None:
-            return load_causal3d_vae(path, ops, device="cpu")      # Wan 2.1 / Qwen-Image
-        if detect_causal3d_v2_vae_config(sd) is not None:
-            return load_causal3d_v2_vae(path, ops, device="cpu")   # Wan 2.2
-        if detect_qwen_image21_vae_config(sd) is not None:
-            return load_qwen_image21_vae(path, ops, device="cpu")  # Qwen-Image 2.1 (RGBA, 16x)
-        if detect_seedvr2_vae_config(sd) is not None:
-            return load_seedvr2_vae(path, ops, device="cpu")       # SeedVR2 (self-normalizing)
-        if detect_ltx_video_vae_config(metadata) is not None:
-            return load_ltx_video_vae(path, ops, device="cpu", sd=sd, metadata=metadata)  # LTX-2/2.3
-        if detect_minimax_h3_video_vae_config(sd, metadata) is not None:
-            return load_minimax_h3_video_vae(path, ops, device="cpu", sd=sd, metadata=metadata)  # MiniMax-H3
-        if detect_ltx_diffusion_vae_config(metadata) is not None:
-            return load_ltx_diffusion_video_vae(path, ops, device="cpu", sd=sd, metadata=metadata)  # LTX-2.5
-        raise NativeEngineUnsupportedError(
-            f"'{Path(path).name}' matches no known native VAE family"
+    def _load_vae(self, path: str | Path) -> NativeModel:
+        return self._load_component(
+            "vae", path, "vae.",
+            _prefix_slice("vae.", _is_ltx_video_vae, strip=True),
+            build_native_vae,
         )
 
     def _load_audio_vae(self, path: str | Path) -> NativeModel:
@@ -1082,30 +1100,10 @@ class NativeEngineLoader:
         read for it (see that function's docstring), and detection below
         routes to the right loader.
         """
-        sd, metadata = load_torch_file_prefixed(path, "audio_vae.", device="cpu")
-        get_profiler().mark("load.audio_vae.read", est_gb=_estimated_gb(sd))
-        if detect_ltx_audio_vae_config(metadata) is not None:
-            sliced = {k: v for k, v in sd.items() if k.startswith("audio_vae.")}
-            if sliced:
-                sd = sliced
-        quant_format = detect_quant_format(metadata, sd)
-        sd_dtype = weight_dtype(sd)
-        _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
-        storage_dtype = sd_dtype or compute_dtype
-        est_gb = _estimated_gb(sd)
-        ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
-        if detect_minimax_h3_audio_vae_config(sd, metadata) is not None:
-            module = load_minimax_h3_audio_vae(path, ops, device="cpu", sd=sd, metadata=metadata)
-        elif detect_minimax_music3_dav_config(sd, metadata) is not None:
-            module = load_minimax_music3_dav(path, ops, device="cpu", sd=sd, metadata=metadata)
-        elif detect_yue2_vae_config(sd) is not None:
-            module = load_yue2_vae(path, device="cpu", sd=sd, metadata=metadata)
-        else:
-            module = load_ltx_audio_vae(path, ops, device="cpu", sd=sd, metadata=metadata)
-        get_profiler().mark("load.audio_vae.built", est_gb=est_gb, quant_format=quant_format)
-        return NativeModel(
-            "audio_vae", module, estimated_vram_gb=est_gb,
-            compute_dtype=compute_dtype, quant_format=quant_format,
+        return self._load_component(
+            "audio_vae", path, "audio_vae.",
+            _prefix_slice("audio_vae.", detect_ltx_audio_vae_config),
+            _build_audio_vae,
         )
 
     def _load_vocoder(self, path: str | Path) -> NativeModel:
@@ -1114,23 +1112,10 @@ class NativeEngineLoader:
         -- see ``load_ltx_vocoder``'s docstring). Reads only the
         ``vocoder.*`` keys off disk (see ``load_torch_file_prefixed``), never
         materializing the DiT from the all-in-one checkpoint."""
-        sd, metadata = load_torch_file_prefixed(path, "vocoder.", device="cpu")
-        get_profiler().mark("load.vocoder.read", est_gb=_estimated_gb(sd))
-        if detect_ltx_vocoder_config(metadata) is not None:
-            sliced = {k: v for k, v in sd.items() if k.startswith("vocoder.")}
-            if sliced:
-                sd = sliced
-        quant_format = detect_quant_format(metadata, sd)
-        sd_dtype = weight_dtype(sd)
-        _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
-        storage_dtype = sd_dtype or compute_dtype
-        est_gb = _estimated_gb(sd)
-        ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
-        module = load_ltx_vocoder(path, ops, device="cpu", sd=sd, metadata=metadata)
-        get_profiler().mark("load.vocoder.built", est_gb=est_gb, quant_format=quant_format)
-        return NativeModel(
-            "vocoder", module, estimated_vram_gb=est_gb,
-            compute_dtype=compute_dtype, quant_format=quant_format,
+        return self._load_component(
+            "vocoder", path, "vocoder.",
+            _prefix_slice("vocoder.", detect_ltx_vocoder_config),
+            _build_vocoder,
         )
 
     def _load_latent_upscaler(self, path: str | Path) -> NativeModel:
@@ -1147,50 +1132,15 @@ class NativeEngineLoader:
         acquired by a model loader when the preset's upscale option is on,
         so this never runs at zero-extra-cost baseline.
         """
-        sd, metadata = load_torch_file(path, device="cpu")
-        get_profiler().mark("load.latent_upscaler.read", est_gb=_estimated_gb(sd))
-        quant_format = detect_quant_format(metadata, sd)
-        sd_dtype = weight_dtype(sd)
-        _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
-        storage_dtype = sd_dtype or compute_dtype
-        est_gb = _estimated_gb(sd)
-        ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
-        if detect_minimax_h3_latent_upsampler_config(sd) is not None:
-            module = load_minimax_h3_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
-        else:
-            module = load_ltx_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
-        get_profiler().mark("load.latent_upscaler.built", est_gb=est_gb, quant_format=quant_format)
-        return NativeModel(
-            "latent_upscaler", module, estimated_vram_gb=est_gb,
-            compute_dtype=compute_dtype, quant_format=quant_format,
-        )
+        return self._load_component("latent_upscaler", path, None, None, _build_latent_upscaler)
 
     def _load_duration_head(self, path: str | Path) -> NativeModel:
         """LTX-2.5 duration head: a few-MB standalone checkpoint whose config
         is derived from weight shapes rather than metadata (see
         ``arch/ltx/duration_head.py``). Acquired only when a preset configures
         the ``duration_head`` slot, so this never runs at baseline.
-
-        The import is function-local for the same reason ``ModelSpec``
-        resolves its ``model_class`` lazily: ``arch.ltx``'s package init pulls
-        in the 22B DiT arch, which no other load kind needs.
         """
-        from .arch.ltx.duration_head import load_ltx_duration_head
-
-        sd, metadata = load_torch_file(path, device="cpu")
-        get_profiler().mark("load.duration_head.read", est_gb=_estimated_gb(sd))
-        quant_format = detect_quant_format(metadata, sd)
-        sd_dtype = weight_dtype(sd)
-        _, compute_dtype = pick_dtypes(sd_dtype, self.device, self.vram_gb)
-        storage_dtype = sd_dtype or compute_dtype
-        est_gb = _estimated_gb(sd)
-        ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
-        module = load_ltx_duration_head(path, ops, device="cpu", sd=sd, metadata=metadata)
-        get_profiler().mark("load.duration_head.built", est_gb=est_gb, quant_format=quant_format)
-        return NativeModel(
-            "duration_head", module, estimated_vram_gb=est_gb,
-            compute_dtype=compute_dtype, quant_format=quant_format,
-        )
+        return self._load_component("duration_head", path, None, None, _build_duration_head)
 
     def _load_te(
         self, path: str | Path | list, *, vision: bool = False, te_variant: str | None = None,
@@ -2047,6 +1997,7 @@ class NativeGenerator:
             return None, hooks
         if float(settings.get("apg_momentum", 0.0)) != 0.0:
             return None, hooks  # S6: stateful guidance breaks the resume identity
+        from .arch.krea2.text_fusion import fusion_key
         from .sampling.trajectory_cache import (
             CheckpointCaptureHook, conditioning_fingerprint, decide_resume,
             get_trajectory_cache, schedule_signature, warm_start_settings_signature,
@@ -2068,6 +2019,7 @@ class NativeGenerator:
             self.dit.weight_revision, int(seed),
             tuple(latents_shape), sampler, int(steps),
             settings.get("guidance"), sched_sig, settings_sig,
+            fusion_key(cond.get("text_fusion")),
         )
         fingerprint = conditioning_fingerprint(cond, uncond)  # S12: incl. negative
         cache = get_trajectory_cache()
@@ -2618,60 +2570,19 @@ class NativeGenerator:
 
         def model_forward(x: torch.Tensor, sigma: torch.Tensor, conditioning: dict) -> torch.Tensor:
             context = conditioning["context"]
-            # Flux1 pooled vector -> y; Klein has none. Accept either key name so
-            # a raw TE dict ("pooled") or a pipe-built dict ("y") both work.
             y = conditioning.get("y")
             if y is None:
                 y = conditioning.get("pooled")
-            guidance = conditioning.get("guidance")           # injected by EmbeddedGuidance
-            attention_mask = conditioning.get("attention_mask")  # Klein padding mask; None for Flux1
-            # FBCache step cache (denoise() injects it per guidance branch); only
-            # forwarded when present so archs without the kwarg stay unaffected.
-            extra = {}
-            step_cache = conditioning.get("step_cache")
-            if step_cache is not None:
-                extra["step_cache"] = step_cache
-            # Krea-2 Identity Edit: a plugin-built conditioning dict may
-            # carry pre-fit, pre-normalized source latent(s) for the in-context
-            # edit sequence. Same conditional-forwarding idiom as step_cache --
-            # only Krea2.forward declares the kwarg, every other arch is
-            # unaffected when it's absent.
-            ref_latents = conditioning.get("ref_latents")
-            if ref_latents is not None:
-                extra["ref_latents"] = ref_latents
-            image_slots = conditioning.get("image_slots")
-            if image_slots is not None:
-                extra["image_slots"] = image_slots
-            for _control_key in ("control_context", "control_context_scale", "control_sigma_range"):
-                _control = conditioning.get(_control_key)
-                if _control is not None:
-                    extra[_control_key] = _control
-            # Krea-2 edit ref_boost: scalar reference-fidelity dials the
-            # krea2-edit pipe puts in the cond dict. Same conditional-forwarding
-            # idiom -- only Krea2.forward declares these kwargs (defaults 1.0 =
-            # no bias), every other arch is unaffected when they're absent.
-            # ref_boost_mask rides the same seam: an optional region
-            # tensor, already moved to device/dtype by _move_cond like any
-            # other cond value.
-            for _boost_key in ("ref_boost", "ref_boost_a", "ref_boost_mask"):
-                _boost = conditioning.get(_boost_key)
-                if _boost is not None:
-                    extra[_boost_key] = _boost
-            flow_map_target = conditioning.get("flow_map_target")
-            if flow_map_target is not None:
-                extra["flow_map_target"] = flow_map_target
-            # Krea-2 NAG: the cond dict may carry the negative prompt's
-            # raw TE hidden states + NAG params (attached by the generator pipe
-            # when nag_scale > 1.0 -- see FlowMatchGeneratorPipe.generate_one).
-            # Same conditional-forwarding idiom as ref_boost -- only Krea2.forward
-            # declares these kwargs, every other arch is unaffected when absent.
-            nag_context = conditioning.get("nag_context")
-            if nag_context is not None:
-                extra["nag_context"] = nag_context
+            extra = {k: v for k in _FORWARD_KWARGS if (v := conditioning.get(k)) is not None}
+            if conditioning.get("skip_layers"):
+                extra["skip_layers"] = conditioning["skip_layers"]
+            if conditioning.get("nag_context") is not None:
+                extra["nag_context"] = conditioning["nag_context"]
                 extra["nag"] = conditioning.get("nag")
-                nag_attention_mask = conditioning.get("nag_attention_mask")
-                if nag_attention_mask is not None:
-                    extra["nag_attention_mask"] = nag_attention_mask
+                if conditioning.get("nag_attention_mask") is not None:
+                    extra["nag_attention_mask"] = conditioning["nag_attention_mask"]
+            guidance = conditioning.get("guidance")
+            attention_mask = conditioning.get("attention_mask")
             return module(x, sigma, context, y=y, guidance=guidance, attention_mask=attention_mask, **extra)
 
         return model_forward

@@ -43,10 +43,6 @@ class MiniMaxH3ModelBundle:
     video_vae: NativeModel = field(default=WeakModelRef())
     audio_vae: NativeModel = field(default=WeakModelRef())
     upsampler: Optional[NativeModel] = field(default=WeakModelRef())
-    # The MODELS cache key `te` was acquired under -- lets a generator pipe
-    # release the TE explicitly once prompt_encoder is done with it (same
-    # `release_idle_te`-style idiom as LTX's `te_cache_key`). `None` for a
-    # bundle built outside the MODELS cache (e.g. isolated pipe tests).
     te_cache_key: Optional[str] = None
 
     @property

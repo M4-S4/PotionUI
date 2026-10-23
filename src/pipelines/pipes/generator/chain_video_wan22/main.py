@@ -83,30 +83,29 @@ from src.pipelines.pipes.generator.chain_video_wan22.geometry import (
 )
 from src.pipelines.pipes.generator.chain_video_wan22.stitch import stitch_segments
 from src.pipelines.pipes.generator.img2vid_wan22.concat import build_i2v_concat
-from src.pipelines.pipes.generator.img2vid_wan22.main import _prep_start_frame
-from src.pipelines.pipes.generator.txt2vid_wan22.main import (
-    _attach_nag,
-    _decode_video,
-    _ExpertRouter,
-    _snap_geometry,
-    _TEMPORAL_DOWNSCALE,
-    _to_device,
+from src.pipelines.pipes._shared.generation.nag_inputs import attach_nag
+from src.pipelines.pipes._shared.video.frames import prep_start_frame
+from src.pipelines.pipes._shared.video.video_common import to_device
+from src.pipelines.pipes._shared.video.wan_experts import (
+    decode_wan_video,
+    ExpertRouter,
     resolve_expert_boundary,
+    snap_wan_geometry,
+    WAN_TEMPORAL_DOWNSCALE,
 )
 from src.pipelines.pipes.model_loader.wan22.acquire import acquire_wan_dit
+from src.pipelines.pipes._shared.generation.config_specs import (
+    device_config_spec,
+    nag_config_specs,
+    preview_config_spec,
+)
 
 _LOG_TAG = "GENERATOR WAN CHAIN"
 
 
 class _ChainForward:
-    """model_forward wrapping `_ExpertRouter`; prepends `concat` (the 20ch i2v
-    conditioning) to the 16ch noise when set, else passes the noise through
-    unchanged (t2v checkpoint / no concat). `.concat` is reassigned per
-    segment rather than rebuilding the wrapper each time; the router itself
-    is mutated in place (`.high`/`.low`) on a mid-chain LoRA swap.
-    """
 
-    def __init__(self, router: _ExpertRouter, concat: Optional[torch.Tensor] = None) -> None:
+    def __init__(self, router: ExpertRouter, concat: Optional[torch.Tensor] = None) -> None:
         self.router = router
         self.concat = concat
 
@@ -124,7 +123,6 @@ class _ChainForward:
 
 @dataclass
 class _DecodeCtx:
-    """Minimal duck-typed context `_decode_video` (txt2vid_wan22) needs."""
     vae: Any
     device: str
     latent_channels: int
@@ -158,10 +156,6 @@ def _compose_loras(
 
 
 def _tail_to_start_frames(tail: np.ndarray, device, dtype: torch.dtype) -> torch.Tensor:
-    """Convert a `(n, H, W, 3)` uint8 [0,255] tail (as `_decode_video` returns)
-    into the `(n, H, W, 3)` float [0,1] tensor `build_i2v_concat` expects as
-    `start_frames` -- the same convention `_prep_start_frame` produces for a
-    fresh upload."""
     t = torch.from_numpy(np.ascontiguousarray(tail)).to(device=device, dtype=dtype)
     return t / 255.0
 
@@ -194,7 +188,7 @@ class _ModelSet:
     bundle: Any
     high_path: Optional[str]
     low_path: Optional[str]
-    router: Optional[_ExpertRouter] = None
+    router: Optional[ExpertRouter] = None
     sampling_settings: Optional[dict] = None
     high_fp: Optional[str] = None
     low_fp: Optional[str] = None
@@ -223,56 +217,6 @@ class _ModelSet:
 class GeneratorWanChainVideoPipe(BasePipe):
     name = "generator"
     description = "Native Wan 2.2 sequential chain-video generator (SVI Pro 2.0-style continuation)"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "chain",
-            "document": None,
-            "motion_latent_count": 1,
-            "anchor_latent_strength": 1.0,
-            "seam_handoff": "latent",
-            "steps": 30,
-            "cfg": 5.0,
-            "sampler": "unipc",
-            "resolution": "832x480",
-            "fps": 16.0,
-            "expert_boundary": None,
-            "expert_switch_step": None,
-            "nag_scale": 1.0,
-            "nag_tau": 3.5,
-            "nag_alpha": 0.5,
-            "dtype": "bfloat16",
-            "t2v_high_noise_model": None,
-            "t2v_low_noise_model": None,
-            "i2v_high_noise_model": None,
-            "i2v_low_noise_model": None,
-            "device": "cuda",
-            "preview": True,
-            "cfg_zero_star": True,
-            "zero_init_steps": 0,
-            "riflex": False,
-            "riflex_trained_frames": None,
-            # None-sentinel: guidance_options.py's *_overrides() only emit a key
-            # when non-None, so an unset knob here lets the model's own
-            # ModelSpec.sampling_settings survive the merge (see that module's
-            # docstring; P5 fix).
-            "apg_eta": None,
-            "apg_norm_threshold": None,
-            "apg_momentum": None,
-            "slg_scale": None,
-            "slg_layers": None,
-            "slg_sigma_start": None,
-            "slg_sigma_end": None,
-            "sampler_options": {},
-            "step_cache": {},
-            "schedule": "",
-            "schedule_options": {},
-            "manual_sigmas": "",
-            "detail_strength": None,
-            "detail_start": None,
-            "detail_end": None,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:
@@ -320,20 +264,13 @@ class GeneratorWanChainVideoPipe(BasePipe):
                            "i2v high-noise (or only) DiT file -- re-acquire target for an i2v/chain segment's LoRA swap", required=False),
             PipeConfigSpec("i2v_low_noise_model", dict, None,
                            "i2v low-noise expert DiT file (Wan 2.2 dual-expert only)", required=False),
-            PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
-            PipeConfigSpec("preview", bool, True, "Emit live latent previews to the workbench during sampling", required=False),
+            device_config_spec(),
+            preview_config_spec(),
             PipeConfigSpec("cfg_zero_star", bool, True,
                            "CFG-Zero*: rescale the uncond branch onto cond before extrapolation", required=False),
             PipeConfigSpec("zero_init_steps", int, 0, "CFG-Zero*: zero velocity for the first N steps",
                            required=False, min_value=0, max_value=100),
-            PipeConfigSpec("nag_scale", float, 1.0, "Normalized Attention Guidance scale (1.0 = off). Injects the negative "
-                           "prompt into cross-attention so it's enforced even at cfg=1.0 (single-forward speed) — set "
-                           "cfg to 1.0 and nag_scale to ~1.1-1.5 for the speed win; NAG stacks with true CFG if both are on.",
-                           required=False, min_value=1.0, max_value=20.0),
-            PipeConfigSpec("nag_tau", float, 3.5, "NAG norm-clamp threshold (paper default 3.5)", required=False,
-                           min_value=0.1, max_value=20.0),
-            PipeConfigSpec("nag_alpha", float, 0.5, "NAG blend-back-toward-positive weight (paper default 0.5)", required=False,
-                           min_value=0.0, max_value=1.0),
+            *nag_config_specs(),
             *riflex_config_specs(),
             *apg_settings_config_specs(),
             *slg_settings_config_specs(),
@@ -444,7 +381,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
         # any pixel-frame count in this pipe (see `t_lat` below). seam_handoff
         # "latent" splices exactly this many of the previous segment's own
         # SAMPLED latent frames; "pixel" never reads it.
-        tail_latent_slots = (tail_count - 1) // _TEMPORAL_DOWNSCALE + 1
+        tail_latent_slots = (tail_count - 1) // WAN_TEMPORAL_DOWNSCALE + 1
         riflex = build_riflex(self.config)
 
         def prepare_set(mset: _ModelSet, set_name: str) -> _ModelSet:
@@ -508,7 +445,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
             # value for router construction; it is never relied on for a real
             # denoise.
             boundary = resolve_expert_boundary(spec, self.config, mset.sampling_settings, steps, log_tag=_LOG_TAG)
-            mset.router = _ExpertRouter(mset.base_high, mset.base_low, boundary, device, riflex=riflex)
+            mset.router = ExpertRouter(mset.base_high, mset.base_low, boundary, device, riflex=riflex)
             mset.high_fp = mset.low_fp = "base"
             return mset
 
@@ -661,7 +598,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                 frames_i = seg.get("frames")
                 if frames_i is None:
                     raise ValueError(f"generator/chain_video_wan22: segments[{i}] has no 'frames'")
-                seg_width, seg_height, frames_i = _snap_geometry(
+                seg_width, seg_height, frames_i = snap_wan_geometry(
                     bundle, lf, width, height, int(frames_i), patch_size=mset.patch_size)
 
                 # Build the segment's conditioning concat: nothing for a fresh
@@ -679,7 +616,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                             # context than the pixel trim/join agree this segment
                             # actually received.
                             context_latent_slots = (
-                                (context_frames - 1) // _TEMPORAL_DOWNSCALE + 1 if context_frames > 0 else 0
+                                (context_frames - 1) // WAN_TEMPORAL_DOWNSCALE + 1 if context_frames > 0 else 0
                             )
                             tail_latent = (
                                 prev_latent_tail[:, :, -context_latent_slots:].to(device=device, dtype=native_dtype)
@@ -691,8 +628,8 @@ class GeneratorWanChainVideoPipe(BasePipe):
                                 f"generator/chain_video_wan22: segment {i} ('{seg_id}') is '{sub_type}' but has "
                                 f"no start image."
                             )
-                        start = _prep_start_frame(images[first_index[seg_id]], seg_height, seg_width, device, native_dtype)
-                        end = (_prep_start_frame(end_images[last_index[seg_id]], seg_height, seg_width, device, native_dtype)
+                        start = prep_start_frame(images[first_index[seg_id]], seg_height, seg_width, device, native_dtype)
+                        end = (prep_start_frame(end_images[last_index[seg_id]], seg_height, seg_width, device, native_dtype)
                                if sub_type == "flf" and has_last else None)
                     make_room_for_wan_vae_encode(device, keep=(mset.vae, mset.base_high, mset.base_low))
                     mset.vae.move_to(device)
@@ -709,11 +646,11 @@ class GeneratorWanChainVideoPipe(BasePipe):
                 forward = _ChainForward(mset.router, concat)
 
                 cond_model = conditioning[i] if i < len(conditioning) else conditioning[-1]
-                cond = _to_device(cond_model.embeds, device, native_dtype)
-                uncond = _to_device(cond_model.n_embeds, device, native_dtype) if cond_model.n_embeds else None
-                cond = _attach_nag(cond, uncond, self.config)
+                cond = to_device(cond_model.embeds, device, native_dtype)
+                uncond = to_device(cond_model.n_embeds, device, native_dtype) if cond_model.n_embeds else None
+                cond = attach_nag(cond, uncond, self.config)
 
-                t_lat = (frames_i - 1) // _TEMPORAL_DOWNSCALE + 1
+                t_lat = (frames_i - 1) // WAN_TEMPORAL_DOWNSCALE + 1
                 spatial_downscale = lf.get("spatial_downscale", 8)
                 shape = (1, lf["latent_channels"], t_lat, seg_height // spatial_downscale, seg_width // spatial_downscale)
                 gen = torch.Generator(device=device).manual_seed(seed_i)
@@ -761,7 +698,7 @@ class GeneratorWanChainVideoPipe(BasePipe):
                     prev_latent_tail = latent[:, :, -n_avail:].detach().clone()
 
                 decode_ctx = _DecodeCtx(vae=mset.vae, device=device, latent_channels=lf["latent_channels"])
-                frames_px = _decode_video(decode_ctx, latent)
+                frames_px = decode_wan_video(decode_ctx, latent)
 
                 # A chain segment's front is locked to the previous segment's tail
                 # (rolling hand-off), not the chain's original frame; drop it from

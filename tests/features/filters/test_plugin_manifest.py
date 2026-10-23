@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from src.features.filters.plugin_ops import load_op_impl, load_op_impls, plugin_filter_ops, plugin_filter_roots
+from src.features.filters.plugin_ops import load_op_impl, plugin_filter_ops, plugin_filter_roots
 from src.platform.imaging.filters import ColourOp, SpatialOp
 from src.platform.plugins.manifest import PluginManifestSchema
 
@@ -157,20 +157,3 @@ def test_a_counterpart_that_raises_on_import_is_refused(tmp_path):
     (tmp_path / "ops.py").write_text("raise RuntimeError('boom')\n", encoding="utf-8")
 
     assert load_op_impl(tmp_path, "ops.py:Warmth") is None
-
-
-def test_impls_load_only_for_the_ops_asked_for(tmp_path):
-    (tmp_path / "ops.py").write_text(PLUGIN_CODE, encoding="utf-8")
-    entry = SimpleNamespace(
-        id="demo-pack",
-        plugin_dir=str(tmp_path),
-        filter_ops=[
-            {"id": "demo-pack.warmth", "python": "ops.py:Warmth"},
-            {"id": "demo-pack.scan", "python": "ops.py:Scan"},
-            {"id": "demo-pack.editor_only"},
-        ],
-    )
-
-    impls = load_op_impls([entry], ["demo-pack.warmth", "demo-pack.editor_only"])
-
-    assert list(impls) == ["demo-pack.warmth"]

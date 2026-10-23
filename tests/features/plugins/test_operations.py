@@ -289,6 +289,21 @@ def test_get_hooks_catalog_shape():
     assert bare["example"] == ""
 
 
+def test_the_digest_hook_is_in_the_catalog_with_its_payload():
+    from src.features.models.hooks import MODEL_INDEX_HOOKS
+
+    by_name = {entry["name"]: entry for entry in operations.get_hooks_catalog()}
+    entry = by_name["model_index.after_digests"]
+
+    assert MODEL_INDEX_HOOKS.after_digests == "model_index.after_digests"
+    assert entry["type"] == "backend"
+    assert "digest" in entry["description"] and "5 seconds" in entry["description"]
+    assert list(entry["payload"]) == ["model_ids"]
+    assert entry["payload"]["model_ids"]["type"] == "List[str]"
+    assert entry["mutable"] == []
+    assert entry["use_when"]
+
+
 # ========== disable_plugin Tests ==========
 
 def test_disable_plugin_success(mock_plugin_repo, mock_plugin_registry, sample_plugin):

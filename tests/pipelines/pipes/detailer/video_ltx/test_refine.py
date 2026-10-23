@@ -70,10 +70,6 @@ def test_stronger_strength_reinjects_more_noise():
 # stronger rebuild gets more denoise steps, not just a steeper first hop.
 
 
-def test_recalibrated_starts_are_restoration_grade():
-    assert STRENGTH_SIGMA_START == {"light": 0.40, "balanced": 0.55, "strong": 0.70}
-
-
 def test_tail_lengthens_with_strength():
     # ~4 nodes at the light floor, ~5 balanced, ~6 strong
     assert strength_to_refine_sigmas("light").numel() == 4

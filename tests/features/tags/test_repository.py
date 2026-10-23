@@ -47,6 +47,19 @@ def _count_cursor_executes(db_instance, fn):
     return counter["n"]
 
 
+_MEASURED_TAG_STATISTICS = (
+    ("generation_tags", "idx_generation_tags_tag_id", "563 9"),
+    ("generation_tags", "idx_generation_tags_generation_id", "563 2"),
+    ("generation_tags", "sqlite_autoindex_generation_tags_1", "563 2 1"),
+    ("tags", "idx_tags_type_user", "80 27 14"),
+    ("tags", "idx_tags_name_type_user", "80 1 1 1"),
+    ("tags", "idx_tags_user_id", "80 16"),
+    ("tags", "idx_tags_name", "80 1"),
+    ("tags", "sqlite_autoindex_tags_2", "80 1"),
+    ("tags", "sqlite_autoindex_tags_1", "80 1"),
+)
+
+
 class TestTagRepositoryGenerationTagsBulk(PersistenceTestBase):
 
     def setUp(self):
@@ -112,6 +125,49 @@ class TestTagRepositoryGenerationTagsBulk(PersistenceTestBase):
 
         self.assertEqual(small_query_count, large_query_count)
         self.assertEqual(small_query_count, 1)
+
+    def _plan_of_bulk_lookup(self, generation_ids):
+        statements = []
+        original_get_cursor = self.db.get_cursor
+
+        class _RecordingCursor:
+            def __init__(self, cursor):
+                self._cursor = cursor
+
+            def execute(self, sql, params=()):
+                statements.append((sql, list(params)))
+                return self._cursor.execute(sql, params)
+
+            def __getattr__(self, name):
+                return getattr(self._cursor, name)
+
+        @contextmanager
+        def recording_get_cursor():
+            with original_get_cursor() as cursor:
+                yield _RecordingCursor(cursor)
+
+        self.db.get_cursor = recording_get_cursor
+        try:
+            self.repo.get_generation_tags_bulk(generation_ids)
+        finally:
+            self.db.get_cursor = original_get_cursor
+        sql, params = statements[0]
+        with self.db.get_cursor() as cursor:
+            cursor.execute(f"EXPLAIN QUERY PLAN {sql}", params)
+            return [row[3] for row in cursor.fetchall()]
+
+    def test_bulk_lookup_starts_from_the_page_under_measured_statistics(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute("ANALYZE")
+            cursor.execute("DELETE FROM sqlite_stat1 WHERE tbl IN ('tags', 'generation_tags')")
+            cursor.executemany(
+                "INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)", _MEASURED_TAG_STATISTICS
+            )
+
+        plan = self._plan_of_bulk_lookup([f"gen_{i}" for i in range(50)])
+
+        self.assertTrue(plan[0].startswith("SEARCH gt"), plan)
+        self.assertFalse(any(step.startswith("SCAN t") for step in plan), plan)
 
 
 class TestTagRepositoryTimestampContract(PersistenceTestBase):

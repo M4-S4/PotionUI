@@ -8,7 +8,9 @@ like a real preset's.
 
 from unittest.mock import MagicMock, patch
 
-from src.features.llm.tools.builtin.utils import build_model_field_metadata
+import pytest
+
+from src.features.llm.tools.builtin.utils import build_model_field_metadata, parse_page
 
 NESTED_SCHEMA_PROPERTIES = {
     "tabs": {
@@ -91,3 +93,21 @@ class TestBuildModelFieldMetadata:
 
     def test_no_preset_id_returns_empty(self):
         assert build_model_field_metadata(_preset_collaborators(), {}) == {}
+
+
+class TestParsePage:
+    def test_defaults_when_unset(self):
+        assert parse_page({}, 20, 100) == (0, 20)
+        assert parse_page({"limit": "", "offset": None}, 20, 100) == (0, 20)
+
+    def test_clamps_limit_and_offset(self):
+        assert parse_page({"limit": 1000, "offset": -5}, 20, 100) == (0, 100)
+        assert parse_page({"limit": 0}, 20, 100) == (0, 1)
+
+    def test_accepts_numeric_strings(self):
+        assert parse_page({"limit": "7", "offset": "3"}, 20, 100) == (3, 7)
+
+    @pytest.mark.parametrize("kwargs", [{"limit": "many"}, {"offset": "x"}, {"limit": [1]}])
+    def test_rejects_non_integers(self, kwargs):
+        with pytest.raises(ValueError, match="must be integers"):
+            parse_page(kwargs, 20, 100)

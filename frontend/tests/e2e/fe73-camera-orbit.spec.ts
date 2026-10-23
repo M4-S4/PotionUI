@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Camera-orbit viewfinder — verifies the three orientation fixes:
 // 1. Dragging DOWN raises the camera over the subject (standard orbit
@@ -10,21 +11,6 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 // 3. A live caption under the stage names the quantized shots while dragging.
 
 const JOURNEY = 'fe73-camera-orbit';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function dragOnStage(page: Page, dx: number, dy: number) {
 	const stage = page.locator('.orbit .stage');
@@ -60,12 +46,10 @@ test('camera orbit — drag direction, face visibility, live caption', async ({ 
 	await page.setViewportSize({ width: 1440, height: 960 });
 	await page.goto('/generate');
 	await page.waitForLoadState('networkidle');
-	await page.waitForTimeout(1000);
 
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByRole('listbox', { name: 'Presets' }).getByText(sdxl.name, { exact: true }).click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(1000);
+	await presetOption(page, sdxl.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	await page.getByRole('tab', { name: 'Enhance' }).click();
 	await page.getByRole('button', { name: '3D' }).click();

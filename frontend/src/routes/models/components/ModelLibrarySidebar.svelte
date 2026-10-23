@@ -2,7 +2,13 @@
 	import { onMount } from 'svelte';
 	import { modelLibraryStore } from '$lib/stores/modelLibrary';
 	import CollectionLibrarySidebar from '$lib/components/collections/CollectionLibrarySidebar.svelte';
+	import CollectionActionsMenu from '$lib/components/collections/CollectionActionsMenu.svelte';
 	import type { SmartView, TreeActions } from '$lib/components/collections/types';
+	import { buildSmartViews } from '$lib/components/collections/scopeActions';
+
+	let allView: SmartView;
+	let favoritesView: SmartView;
+	let unsortedView: SmartView;
 
 	export let activeCollectionId: string | undefined;
 	export let favoritesOnly: boolean;
@@ -12,10 +18,11 @@
 	export let onSelectFavorites: () => void;
 	export let onSelectUnsorted: () => void;
 	export let onSelectCollection: (id: string) => void;
-	export let onDirectOnlyChange: (directOnly: boolean) => void;
-	export let onCollapse: () => void;
+	export let onCollapse: (() => void) | undefined = undefined;
+	export let part: 'sidebar' | 'actions' = 'sidebar';
 
 	$: collections = $modelLibraryStore.collections;
+	$: activeCollection = collections.find((c) => c.id === activeCollectionId);
 	$: smartCounts = $modelLibraryStore.smartCounts;
 	$: isAll = !activeCollectionId && !favoritesOnly && !unsorted;
 	$: void modelLibraryStore.setDirectOnly(directOnly);
@@ -32,30 +39,17 @@
 		return response;
 	}
 
-	$: allView = {
-		id: 'all',
+	$: ({ allView, favoritesView, unsortedView } = buildSmartViews({
 		icon: 'model',
 		label: 'All models',
-		active: isAll,
-		count: smartCounts?.all,
-		onSelect: onSelectAll
-	} satisfies SmartView;
-	$: favoritesView = {
-		id: 'favorites',
-		icon: 'heart',
-		label: 'Favorites',
-		active: favoritesOnly,
-		count: smartCounts?.favorites,
-		onSelect: onSelectFavorites
-	} satisfies SmartView;
-	$: unsortedView = {
-		id: 'unsorted',
-		icon: 'inbox',
-		label: 'Unsorted',
-		active: unsorted,
-		count: smartCounts?.unsorted,
-		onSelect: onSelectUnsorted
-	} satisfies SmartView;
+		isAll,
+		favoritesOnly,
+		unsorted,
+		counts: smartCounts,
+		onAll: onSelectAll,
+		onFavorites: onSelectFavorites,
+		onUnsorted: onSelectUnsorted
+	}));
 
 	const treeActions: TreeActions = {
 		onSelect: onSelectCollection,
@@ -67,18 +61,29 @@
 	};
 </script>
 
-<CollectionLibrarySidebar
-	storageKey="models-expanded-collections"
-	rulesScope="models"
-	{collections}
-	activeId={activeCollectionId}
-	{allView}
-	{favoritesView}
-	{unsortedView}
-	{directOnly}
-	{onDirectOnlyChange}
-	autoOrganizeSubject="models"
-	{treeActions}
-	onCreateRoot={(name) => modelLibraryStore.create(name, null)}
-	{onCollapse}
-/>
+{#if part === 'actions'}
+	{#if activeCollection}
+		<CollectionActionsMenu
+			variant="toolbar"
+			item={activeCollection}
+			{collections}
+			{treeActions}
+			rulesScope="models"
+		/>
+	{/if}
+{:else}
+	<CollectionLibrarySidebar
+		storageKey="models-expanded-collections"
+		label="Models"
+		rulesScope="models"
+		{collections}
+		activeId={activeCollectionId}
+		{allView}
+		{favoritesView}
+		{unsortedView}
+		autoOrganizeSubject="models"
+		{treeActions}
+		onCreateRoot={(name) => modelLibraryStore.create(name, null)}
+		{onCollapse}
+	/>
+{/if}

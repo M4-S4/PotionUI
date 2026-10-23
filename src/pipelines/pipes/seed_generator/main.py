@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import List
 
 from src.pipelines.outputs import SeedGenerationOutput
 from src.pipelines.contracts import BasePipe, logger
@@ -33,13 +33,6 @@ class SeedGeneratorPipe(BasePipe):
             seeds.append(generated_seed)
 
         return PipeOutput(output={"seed": seeds})
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "seed": -1,
-            "quantity": 1,
-        }
 
     @classmethod
     def configuration(cls) -> List[PipeConfigSpec]:

@@ -15,7 +15,8 @@ import type {
 	TraceStep,
 	TraceStepName,
 	BehaviorTraceManifest,
-	ContextLedger
+	ContextLedger,
+	ThinkingSegment
 } from '$lib/types/chat';
 import type { ChatMessageResponse } from '$lib/types/api';
 
@@ -53,8 +54,58 @@ export function applyToken(messages: Messages, accumulated: string): Messages {
 	const lastIdx = messages.length - 1;
 	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
 	const msgs = [...messages];
-	msgs[lastIdx] = { ...msgs[lastIdx], content: accumulated };
+	msgs[lastIdx] = {
+		...msgs[lastIdx],
+		content: accumulated,
+		...(accumulated.trim() ? closedThinking(msgs[lastIdx]) : {})
+	};
 	return msgs;
+}
+
+function closedSegment(segment: ThinkingSegment, now: number): ThinkingSegment {
+	if (!segment.open) return segment;
+	return {
+		text: segment.text,
+		started_at: segment.started_at,
+		duration_ms: segment.started_at ? now - segment.started_at : segment.duration_ms
+	};
+}
+
+function closedThinking(message: UnifiedChatMessageData): { thinking?: ThinkingSegment[] } {
+	if (!message.thinking?.some((segment) => segment.open)) return {};
+	const now = Date.now();
+	return { thinking: message.thinking.map((segment) => closedSegment(segment, now)) };
+}
+
+export function applyThinking(messages: Messages, segment: number, accumulated: string): Messages {
+	const lastIdx = messages.length - 1;
+	if (lastIdx < 0 || messages[lastIdx].role !== 'assistant') return messages;
+	const now = Date.now();
+	const existing = messages[lastIdx].thinking ?? [];
+	const index = Math.max(0, Math.min(segment, existing.length));
+	const next = existing.map((entry, i) => (i < index ? closedSegment(entry, now) : entry));
+	next[index] = {
+		text: accumulated,
+		started_at: existing[index]?.started_at ?? now,
+		open: true
+	};
+	const msgs = [...messages];
+	msgs[lastIdx] = { ...msgs[lastIdx], thinking: next };
+	return msgs;
+}
+
+export function thinkingFromMetadata(
+	metadata: Record<string, any> | undefined | null
+): ThinkingSegment[] | undefined {
+	const segments = metadata?.thinking?.segments;
+	if (!Array.isArray(segments)) return undefined;
+	const mapped = segments
+		.filter((segment) => typeof segment?.text === 'string' && segment.text.trim())
+		.map((segment) => ({
+			text: segment.text as string,
+			duration_ms: typeof segment.duration_ms === 'number' ? segment.duration_ms : undefined
+		}));
+	return mapped.length ? mapped : undefined;
 }
 
 /** `tool_start` event: append a running execution to the streaming assistant message. */
@@ -76,6 +127,7 @@ export function applyToolStart(
 	msgs[lastIdx] = {
 		...msgs[lastIdx],
 		tool_executions: [...(msgs[lastIdx].tool_executions || []), execution],
+		...closedThinking(msgs[lastIdx]),
 		isStreaming: true
 	};
 	return msgs;
@@ -266,6 +318,8 @@ function manifestStepDetail(
 			return manifest.pre_chat_actions?.length ? { actions: manifest.pre_chat_actions } : undefined;
 		case 'tools':
 			return { offered: manifest.tools_offered ?? [], withheld: manifest.tools_withheld ?? {} };
+		case 'thinking':
+			return manifest.thinking_visible ? { thinking_visible: true } : undefined;
 		default:
 			return undefined;
 	}
@@ -337,6 +391,7 @@ export function applyDone(
 			const traceSteps = manifest
 				? hydrateTraceSteps(manifest, toolExecutions.length)
 				: m.trace_steps || [];
+			const thinking = thinkingFromMetadata(assistantMsg?.metadata) ?? closedThinking(m).thinking ?? m.thinking;
 			return {
 				id: assistantMsg?.id,
 				clientKey: m.clientKey,
@@ -350,6 +405,7 @@ export function applyDone(
 				completion_tokens: assistantMsg?.completion_tokens,
 				tool_executions: toolExecutions,
 				trace_steps: traceSteps,
+				thinking,
 				sources: allSources.length > 0 ? allSources : m.sources || [],
 				isStreaming: false,
 				metadata: assistantMsg?.metadata || undefined,
@@ -454,6 +510,7 @@ export function mapPersistedMessage(msg: ChatMessageResponse): UnifiedChatMessag
 		prompt_tokens: msg.prompt_tokens,
 		completion_tokens: msg.completion_tokens,
 		tool_executions: toolExecs,
+		thinking: thinkingFromMetadata(metadata),
 		sources: toolExecs.flatMap((te: any) => te.result?.sources || []),
 		metadata
 	};

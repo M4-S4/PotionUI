@@ -1,6 +1,6 @@
 import type { PresetInfo } from '$lib/types/api';
 import { createFilterCodec, type FilterFieldDescriptor } from '$lib/components/library/filterCodec';
-import type { FilterChip, SortOption } from '$lib/components/library/librarySection';
+import type { SortOption } from '$lib/components/library/librarySection';
 import type { PresetLibrarySection } from './presetLibrarySections';
 
 export type PresetInstallFilter = 'all' | 'installed' | 'not-installed';
@@ -86,35 +86,11 @@ const FIELDS: readonly FilterFieldDescriptor<PresetFilters>[] = [
 	}
 ];
 
-const codec = createFilterCodec<PresetFilters>({
+export const presetFilters = createFilterCodec<PresetFilters>({
 	defaults: DEFAULT_PRESET_FILTERS,
 	fields: FIELDS,
 	sortValues: ['name', 'vram']
 });
-
-export function presetFiltersFromSearchParams(params: URLSearchParams): PresetFilters {
-	return codec.fromSearchParams(params);
-}
-
-export function presetFiltersToSearchParams(filters: PresetFilters): URLSearchParams {
-	return codec.toSearchParams(filters);
-}
-
-export function presetFilterChips(filters: PresetFilters): FilterChip[] {
-	return codec.chips(filters);
-}
-
-export function clearPresetFilterChip(filters: PresetFilters, key: string): PresetFilters {
-	return codec.clearChip(filters, key);
-}
-
-export function clearAllPresetFilters(filters: PresetFilters): PresetFilters {
-	return codec.clearAll(filters);
-}
-
-export function presetFilterActiveCount(filters: PresetFilters): number {
-	return codec.activeCount(filters);
-}
 
 export function presetEngines(presets: readonly PresetInfo[]): string[] {
 	return Array.from(

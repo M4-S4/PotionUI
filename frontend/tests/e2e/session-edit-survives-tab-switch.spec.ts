@@ -44,12 +44,10 @@ test('an unsaved session edit survives switching to another tab and back', async
 
 	const positiveList = page.locator('div[role="list"][aria-label="Positive segments"]');
 	await expect(positiveList).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(500);
 
 	// --- Seed and save a session containing the baseline text.
 	const editor = await positiveSegmentEditor(page);
 	await replaceSegmentText(page, editor, 'saved session baseline');
-	await page.waitForTimeout(300);
 
 	await page.locator('button[aria-label="Save as a new session"]').click();
 	const saveAsModal = page.locator('.fixed.inset-0');
@@ -60,17 +58,20 @@ test('an unsaved session edit survives switching to another tab and back', async
 	await expect(saveAsModal).toBeHidden({ timeout: 10000 });
 
 	// The pill now reflects a saved, non-dirty session.
-	const sessionTrigger = page.locator('button[aria-label="Session"]');
+	const sessionTrigger = page.getByTestId('session-trigger');
 	await expect(sessionTrigger).toContainText(sessionName, { timeout: 10000 });
 	await expect(page.locator('button[aria-label="Save session"]')).toBeHidden();
 	await screenshot(page, JOURNEY, '00-session-saved');
 
-	// --- Edit the segment without saving again. Give the session fetch,
-	// normalization, dirty-signature recompute and the localStorage
-	// persistence debounce time to settle before touching tabs, matching the
-	// audit's repro steps.
 	await replaceSegmentText(page, editor, 'edited draft must survive tab remount');
-	await page.waitForTimeout(2000);
+	await expect(page.locator('button[aria-label="Save session"]')).toBeVisible({ timeout: 10000 });
+	await expect
+		.poll(() =>
+			page.evaluate(() =>
+				Object.keys(localStorage).some((key) => (localStorage.getItem(key) || '').includes('edited draft must survive'))
+			)
+		)
+		.toBe(true);
 
 	await expect(positiveList).toContainText('edited draft must survive tab remount');
 	await expect(page.locator('button[aria-label="Save session"]')).toBeVisible({ timeout: 10000 });
@@ -78,10 +79,8 @@ test('an unsaved session edit survives switching to another tab and back', async
 
 	// --- Add a second tab, then switch back to the original one.
 	await page.locator('button[aria-label="Add new tab"]').click();
-	await page.waitForTimeout(1000);
 
 	await page.locator('.book-tab').filter({ hasText: 'Generation 1' }).click();
-	await page.waitForTimeout(1500);
 
 	const restoredEditor = await positiveSegmentEditor(page);
 	await screenshot(page, JOURNEY, '02-after-tab-switch-back');

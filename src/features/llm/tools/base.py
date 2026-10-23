@@ -1,8 +1,10 @@
 """Base classes and data models for the LLM tool system."""
 
+import inspect
+import json
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,31 @@ def serialize_approval_preview(preview: Optional[ToolApprovalPreview]) -> Option
     }
 
 
+@dataclass(frozen=True)
+class ToolServices:
+    segment_category_repository: Any = None
+    saved_segment_repository: Any = None
+    segment_template_repository: Any = None
+    model_index_manager: Any = None
+    preset_collaborators: Any = None
+    phrasebook_category_repository: Any = None
+    phrasebook_value_repository: Any = None
+    llm_repository: Any = None
+    prompt_database: Any = None
+    generation_orchestrator: Any = None
+    llm_memory_repository: Any = None
+    prompt_enhancement_manager: Any = None
+    media_indexer: Any = None
+    settings: Any = None
+    collection_repository: Any = None
+    tag_repository: Any = None
+    plugin_registry: Any = None
+    generation_history_facade: Any = None
+    content_safety: Any = None
+    library_collaborators: Any = None
+    tab_drafts: Any = None
+
+
 @dataclass
 class ToolContext:
     """Context passed to tools during execution.
@@ -124,7 +151,13 @@ class ToolContext:
     generation_history_facade: Any = None
     content_safety: Any = None
     library_collaborators: Any = None
+    tab_drafts: Any = None
     chat_session: bool = True
+
+    @classmethod
+    def for_session(cls, services: ToolServices, user_id: str, **fields_: Any) -> "ToolContext":
+        shared = {f.name: getattr(services, f.name) for f in fields(services)}
+        return cls(user_id=user_id, **{**shared, **fields_})
 
     def storage_dir(self) -> Optional[str]:
         """The requesting user's file storage root, or None if unavailable."""
@@ -164,26 +197,17 @@ class BaseTool(ABC):
     # Optional lucide icon name for UI display of tool activity.
     icon: Optional[str] = None
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Unique tool name used in API calls."""
-        ...
+    context_group: str = "core"
+
+    name: str
+    group: str = "Other"
+    user_description: str = ""
+    requires_approval: bool = False
 
     @property
     def label(self) -> str:
         """Human-readable display name for the UI. Defaults to the title-cased name."""
         return self.name.replace('_', ' ').title()
-
-    @property
-    def group(self) -> str:
-        """Human category the tool is listed under in the UI tool picker."""
-        return "Other"
-
-    @property
-    def user_description(self) -> str:
-        """One-sentence, user-facing summary shown in the UI tool picker."""
-        return ""
 
     @property
     @abstractmethod
@@ -206,16 +230,6 @@ class BaseTool(ABC):
         Override in subclasses. Returns empty string by default (tool won't appear in system prompt hints).
         """
         return ""
-
-    @property
-    def requires_approval(self) -> bool:
-        """Whether this tool requires user approval before its action is applied.
-
-        When True, `execute` returns a preview of the proposed action and the
-        tool loop is paused until the user approves or rejects.  After approval
-        `execute_confirmed` is called to apply the action.  Defaults to False.
-        """
-        return False
 
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
         """Whether this tool should be advertised for the turn's form state.
@@ -258,3 +272,45 @@ class BaseTool(ABC):
                 "parameters": self.parameters
             }
         }
+
+
+class ApprovalTool(BaseTool):
+    requires_approval = True
+    repositories: tuple = ()
+    unavailable_error = "Manager not available"
+
+    def _unavailable(self, context: ToolContext) -> Optional[ToolResult]:
+        if any(getattr(context, attr) is None for attr in self.repositories):
+            return ToolResult(success=False, data="", error=self.unavailable_error)
+        return None
+
+    async def _run(self, step, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        unavailable = self._unavailable(context)
+        if unavailable:
+            return unavailable
+        try:
+            result = step(context, kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except ValueError as exc:
+            return ToolResult(success=False, data="", error=str(exc))
+
+    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+        return await self._run(self._preview, context, kwargs)
+
+    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
+        return await self._run(self._apply, context, kwargs)
+
+    def _preview(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        raise NotImplementedError
+
+    def _apply(self, context: ToolContext, kwargs: Dict[str, Any]) -> ToolResult:
+        raise NotImplementedError
+
+    def _proposal(self, preview: ToolApprovalPreview, payload: Dict[str, Any], message: str) -> ToolResult:
+        return ToolResult(
+            success=True,
+            data=json.dumps({"action": self.name, "proposal": payload, "message": message}),
+            preview=preview,
+        )

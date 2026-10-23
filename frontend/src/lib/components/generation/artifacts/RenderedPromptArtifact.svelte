@@ -1,4 +1,5 @@
 <script lang="ts">
+	import tooltip from '$lib/actions/tooltip';
 	import { alignTemplateToRendered, type PromptAlignment } from '$lib/utils/promptResolution';
 
 	export let artifact: {
@@ -39,7 +40,7 @@
 			{#if span.type === 'resolved' && span.text}
 				<mark
 					class="rounded-sm bg-signal/10 text-signal px-0.5 no-underline"
-					title={span.ambiguous ? `${span.label} (boundary ambiguous)` : span.label}>{span.text}</mark
+					use:tooltip={span.ambiguous ? `${span.label} (boundary ambiguous)` : span.label}>{span.text}</mark
 				>
 			{:else}
 				{span.text}
@@ -57,7 +58,7 @@
 				<div class="flex flex-wrap items-baseline gap-x-1.5 text-2xs text-fg-subtle">
 					<span
 						class="break-words"
-						title={entry.ambiguous ? 'Boundary ambiguous - merged with an adjacent dynamic construct' : undefined}
+						use:tooltip={entry.ambiguous ? 'Boundary ambiguous - merged with an adjacent dynamic construct' : undefined}
 						>{entry.label}{entry.ambiguous ? ' *' : ''}</span
 					>
 					<span aria-hidden="true">→</span>

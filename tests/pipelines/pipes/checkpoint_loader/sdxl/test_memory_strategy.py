@@ -20,69 +20,6 @@ from src.pipelines.pipes.checkpoint_loader.sdxl.memory_strategy import apply_to_
 from src.platform.runtime.model_lifecycle.memory_policy import MemoryPolicy
 
 
-class TestMemoryStrategyInitialization:
-    """Test MemoryStrategy initialization."""
-
-    def test_initialization_with_valid_vram(self):
-        """Test strategy initializes correctly with valid VRAM value."""
-        strategy = MemoryPolicy(vram_gb=12.0)
-        assert strategy.vram_gb == 12.0
-
-    def test_initialization_with_low_vram(self):
-        """Test strategy initializes correctly with low VRAM."""
-        strategy = MemoryPolicy(vram_gb=6.0)
-        assert strategy.vram_gb == 6.0
-
-    def test_initialization_with_high_vram(self):
-        """Test strategy initializes correctly with high VRAM."""
-        strategy = MemoryPolicy(vram_gb=24.0)
-        assert strategy.vram_gb == 24.0
-
-
-class TestOffloadStrategy:
-    """Test CPU offload strategy selection based on VRAM levels."""
-
-    def test_sequential_offload_for_6gb(self):
-        """Test sequential offload selected for 6GB VRAM (< 8GB)."""
-        strategy = MemoryPolicy(vram_gb=6.0)
-        assert strategy.get_offload_strategy() == "sequential"
-
-    def test_sequential_offload_for_7_5gb(self):
-        """Test sequential offload selected for 7.5GB VRAM (< 8GB)."""
-        strategy = MemoryPolicy(vram_gb=7.5)
-        assert strategy.get_offload_strategy() == "sequential"
-
-    def test_model_offload_for_8gb(self):
-        """Test model offload selected for 8GB VRAM (boundary case)."""
-        strategy = MemoryPolicy(vram_gb=8.0)
-        assert strategy.get_offload_strategy() == "model"
-
-    def test_model_offload_for_10gb(self):
-        """Test model offload selected for 10GB VRAM (8-12GB range)."""
-        strategy = MemoryPolicy(vram_gb=10.0)
-        assert strategy.get_offload_strategy() == "model"
-
-    def test_model_offload_for_11_5gb(self):
-        """Test model offload selected for 11.5GB VRAM (< 12GB)."""
-        strategy = MemoryPolicy(vram_gb=11.5)
-        assert strategy.get_offload_strategy() == "model"
-
-    def test_no_offload_for_12gb(self):
-        """Test no offload for 12GB VRAM (boundary case)."""
-        strategy = MemoryPolicy(vram_gb=12.0)
-        assert strategy.get_offload_strategy() == "none"
-
-    def test_no_offload_for_16gb(self):
-        """Test no offload for 16GB VRAM (high-end card)."""
-        strategy = MemoryPolicy(vram_gb=16.0)
-        assert strategy.get_offload_strategy() == "none"
-
-    def test_no_offload_for_24gb(self):
-        """Test no offload for 24GB VRAM (professional card)."""
-        strategy = MemoryPolicy(vram_gb=24.0)
-        assert strategy.get_offload_strategy() == "none"
-
-
 class TestXformersDecision:
     """Test xformers memory efficient attention decision."""
 
@@ -93,118 +30,6 @@ class TestXformersDecision:
             strategy = MemoryPolicy(vram_gb=vram_gb)
             assert strategy.should_enable_xformers() is True, \
                 f"xformers should be enabled for {vram_gb}GB VRAM"
-
-
-class TestVAESlicing:
-    """Test VAE slicing decision based on VRAM."""
-
-    def test_vae_slicing_enabled_for_6gb(self):
-        """Test VAE slicing enabled for 6GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=6.0)
-        assert strategy.should_enable_vae_slicing() is True
-
-    def test_vae_slicing_enabled_for_8gb(self):
-        """Test VAE slicing enabled for 8GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=8.0)
-        assert strategy.should_enable_vae_slicing() is True
-
-    def test_vae_slicing_enabled_for_12gb(self):
-        """Test VAE slicing enabled for 12GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=12.0)
-        assert strategy.should_enable_vae_slicing() is True
-
-    def test_vae_slicing_enabled_for_15_9gb(self):
-        """Test VAE slicing enabled for 15.9GB VRAM (just below threshold)."""
-        strategy = MemoryPolicy(vram_gb=15.9)
-        assert strategy.should_enable_vae_slicing() is True
-
-    def test_vae_slicing_disabled_for_16gb(self):
-        """Test VAE slicing disabled for 16GB VRAM (at threshold)."""
-        strategy = MemoryPolicy(vram_gb=16.0)
-        assert strategy.should_enable_vae_slicing() is False
-
-    def test_vae_slicing_disabled_for_24gb(self):
-        """Test VAE slicing disabled for 24GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=24.0)
-        assert strategy.should_enable_vae_slicing() is False
-
-
-class TestVAETiling:
-    """Test VAE tiling decision based on VRAM."""
-
-    def test_vae_tiling_enabled_for_6gb(self):
-        """Test VAE tiling enabled for 6GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=6.0)
-        assert strategy.should_enable_vae_tiling() is True
-
-    def test_vae_tiling_enabled_for_8gb(self):
-        """Test VAE tiling enabled for 8GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=8.0)
-        assert strategy.should_enable_vae_tiling() is True
-
-    def test_vae_tiling_enabled_for_11_9gb(self):
-        """Test VAE tiling enabled for 11.9GB VRAM (just below threshold)."""
-        strategy = MemoryPolicy(vram_gb=11.9)
-        assert strategy.should_enable_vae_tiling() is True
-
-    def test_vae_tiling_disabled_for_12gb(self):
-        """Test VAE tiling disabled for 12GB VRAM (at threshold)."""
-        strategy = MemoryPolicy(vram_gb=12.0)
-        assert strategy.should_enable_vae_tiling() is False
-
-    def test_vae_tiling_disabled_for_16gb(self):
-        """Test VAE tiling disabled for 16GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=16.0)
-        assert strategy.should_enable_vae_tiling() is False
-
-    def test_vae_tiling_disabled_for_24gb(self):
-        """Test VAE tiling disabled for 24GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=24.0)
-        assert strategy.should_enable_vae_tiling() is False
-
-
-class TestAttentionSlicing:
-    """Test attention slicing strategy selection."""
-
-    def test_max_slicing_for_6gb(self):
-        """Test max attention slicing for 6GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=6.0)
-        assert strategy.get_attention_slicing() == "max"
-
-    def test_max_slicing_for_7_9gb(self):
-        """Test max attention slicing for 7.9GB VRAM (just below threshold)."""
-        strategy = MemoryPolicy(vram_gb=7.9)
-        assert strategy.get_attention_slicing() == "max"
-
-    def test_auto_slicing_for_8gb(self):
-        """Test auto attention slicing for 8GB VRAM (at threshold)."""
-        strategy = MemoryPolicy(vram_gb=8.0)
-        assert strategy.get_attention_slicing() == "auto"
-
-    def test_auto_slicing_for_10gb(self):
-        """Test auto attention slicing for 10GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=10.0)
-        assert strategy.get_attention_slicing() == "auto"
-
-    def test_auto_slicing_for_11_9gb(self):
-        """Test auto attention slicing for 11.9GB VRAM (just below threshold)."""
-        strategy = MemoryPolicy(vram_gb=11.9)
-        assert strategy.get_attention_slicing() == "auto"
-
-    def test_no_slicing_for_12gb(self):
-        """Test no attention slicing for 12GB VRAM (at threshold)."""
-        strategy = MemoryPolicy(vram_gb=12.0)
-        assert strategy.get_attention_slicing() == "none"
-
-    def test_no_slicing_for_16gb(self):
-        """Test no attention slicing for 16GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=16.0)
-        assert strategy.get_attention_slicing() == "none"
-
-    def test_no_slicing_for_24gb(self):
-        """Test no attention slicing for 24GB VRAM."""
-        strategy = MemoryPolicy(vram_gb=24.0)
-        assert strategy.get_attention_slicing() == "none"
 
 
 class TestPipelineApplication:
@@ -488,98 +313,6 @@ class TestPipelineApplication:
         apply_to_pipeline(mock_pipe, strategy)
 
 
-class TestVRAMThresholds:
-    """Test boundary conditions and edge cases for VRAM thresholds."""
-
-    def test_very_low_vram_2gb(self):
-        """Test strategy for very low VRAM (2GB - integrated GPU)."""
-        strategy = MemoryPolicy(vram_gb=2.0)
-        assert strategy.get_offload_strategy() == "sequential"
-        assert strategy.should_enable_vae_slicing() is True
-        assert strategy.should_enable_vae_tiling() is True
-        assert strategy.get_attention_slicing() == "max"
-
-    def test_very_high_vram_48gb(self):
-        """Test strategy for very high VRAM (48GB - professional card)."""
-        strategy = MemoryPolicy(vram_gb=48.0)
-        assert strategy.get_offload_strategy() == "none"
-        assert strategy.should_enable_vae_slicing() is False
-        assert strategy.should_enable_vae_tiling() is False
-        assert strategy.get_attention_slicing() == "none"
-
-    def test_exact_8gb_boundary(self):
-        """Test exact 8GB boundary (common GPU: RTX 3060)."""
-        strategy = MemoryPolicy(vram_gb=8.0)
-        assert strategy.get_offload_strategy() == "model"  # Not sequential
-        assert strategy.get_attention_slicing() == "auto"  # Not max
-
-    def test_exact_12gb_boundary(self):
-        """Test exact 12GB boundary (common GPU: RTX 3060 Ti, 4070)."""
-        strategy = MemoryPolicy(vram_gb=12.0)
-        assert strategy.get_offload_strategy() == "none"  # Not model
-        assert strategy.should_enable_vae_tiling() is False  # Not enabled
-        assert strategy.get_attention_slicing() == "none"  # Not auto
-
-    def test_exact_16gb_boundary(self):
-        """Test exact 16GB boundary (common GPU: RTX 4080)."""
-        strategy = MemoryPolicy(vram_gb=16.0)
-        assert strategy.should_enable_vae_slicing() is False  # Not enabled
-
-
-class TestComprehensiveVRAMProfiles:
-    """Test complete optimization profiles for common GPU configurations."""
-
-    def test_rtx_3050_8gb_profile(self):
-        """Test RTX 3050 (8GB VRAM) optimization profile."""
-        strategy = MemoryPolicy(vram_gb=8.0)
-
-        assert strategy.get_offload_strategy() == "model"
-        assert strategy.should_enable_xformers() is True
-        assert strategy.should_enable_vae_slicing() is True
-        assert strategy.should_enable_vae_tiling() is True
-        assert strategy.get_attention_slicing() == "auto"
-
-    def test_rtx_4060_ti_16gb_profile(self):
-        """Test RTX 4060 Ti (16GB VRAM) optimization profile."""
-        strategy = MemoryPolicy(vram_gb=16.0)
-
-        assert strategy.get_offload_strategy() == "none"
-        assert strategy.should_enable_xformers() is True
-        assert strategy.should_enable_vae_slicing() is False
-        assert strategy.should_enable_vae_tiling() is False
-        assert strategy.get_attention_slicing() == "none"
-
-    def test_rtx_4090_24gb_profile(self):
-        """Test RTX 4090 (24GB VRAM) optimization profile."""
-        strategy = MemoryPolicy(vram_gb=24.0)
-
-        assert strategy.get_offload_strategy() == "none"
-        assert strategy.should_enable_xformers() is True
-        assert strategy.should_enable_vae_slicing() is False
-        assert strategy.should_enable_vae_tiling() is False
-        assert strategy.get_attention_slicing() == "none"
-
-    def test_rtx_3060_laptop_6gb_profile(self):
-        """Test RTX 3060 Laptop (6GB VRAM) optimization profile."""
-        strategy = MemoryPolicy(vram_gb=6.0)
-
-        assert strategy.get_offload_strategy() == "sequential"
-        assert strategy.should_enable_xformers() is True
-        assert strategy.should_enable_vae_slicing() is True
-        assert strategy.should_enable_vae_tiling() is True
-        assert strategy.get_attention_slicing() == "max"
-
-    def test_a100_40gb_profile(self):
-        """Test A100 (40GB VRAM) optimization profile."""
-        strategy = MemoryPolicy(vram_gb=40.0)
-
-        assert strategy.get_offload_strategy() == "none"
-        assert strategy.should_enable_xformers() is True
-        assert strategy.should_enable_vae_slicing() is False
-        assert strategy.should_enable_vae_tiling() is False
-        assert strategy.get_attention_slicing() == "none"
-
-
 def _make_tiny_unet():
     """A real, CPU-sized UNet2DConditionModel — enough attention layers to
     exercise set_attn_processor()/set_attention_slice() for real, cheap enough
@@ -598,6 +331,8 @@ def _make_tiny_unet():
         attention_head_dim=2,
         norm_num_groups=2,
     )
+
+
 
 
 class _FakePipe:

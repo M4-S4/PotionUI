@@ -153,3 +153,78 @@ class TestDefaultsAndFailures:
             result = orchestrator._expand_prompts_per_image('gen1', request, prompts)
 
         assert result == prompts
+
+
+class TestMalformedTemplateWarning:
+    def test_malformed_template_raises_a_user_warning(self, orchestrator):
+        request = _request({'quantity': 3, 'seed': 1})
+        prompts = [{'positive': 'a {broken', 'negative': ''}]
+
+        with patch.object(orchestrator._notifier, 'notify_warning') as notify:
+            result = orchestrator._expand_prompts_per_image('gen1', request, prompts, 'user-1')
+
+        assert [p['positive'] for p in result] == ['a {broken'] * 3
+        notify.assert_called_once()
+        assert notify.call_args.args[:2] == ('gen1', 'user-1')
+        assert 'syntax error' in notify.call_args.args[2]
+
+    def test_valid_template_with_literal_symbols_raises_no_warning(self, orchestrator):
+        request = _request({'quantity': 2, 'seed': 1})
+        prompts = [{'positive': '$100 {a|a} 100%', 'negative': ''}]
+
+        with patch.object(orchestrator._notifier, 'notify_warning') as notify:
+            result = orchestrator._expand_prompts_per_image('gen1', request, prompts, 'user-1')
+
+        assert [p['positive'] for p in result] == ['$100 a 100%'] * 2
+        notify.assert_not_called()
+
+    def test_director_segment_warning_is_forwarded(self, orchestrator):
+        document = {'segments': [{'prompt': 'x {broken', 'negative_prompt': ''}]}
+        request = _request({'video_director': document})
+
+        with patch.object(orchestrator._notifier, 'notify_warning') as notify:
+            orchestrator._expand_prompts_per_image('gen1', request, None, 'user-1')
+
+        notify.assert_called_once()
+
+    def test_many_bad_director_segments_warn_once(self, orchestrator):
+        document = {'segments': [{'prompt': f'x {{broken{i}', 'negative_prompt': ''} for i in range(8)]}
+        request = _request({'video_director': document})
+
+        with patch.object(orchestrator._notifier, 'notify_warning') as notify:
+            orchestrator._expand_prompts_per_image('gen1', request, None, 'user-1')
+
+        notify.assert_called_once()
+
+    def test_music_director_section_warning_is_forwarded(self, orchestrator):
+        document = {'description': 'ok', 'sections': [{'lyrics': 'la {broken', 'style_hint': ''}]}
+        request = _request({'music_director': document})
+
+        with patch.object(orchestrator._notifier, 'notify_warning') as notify:
+            orchestrator._expand_prompts_per_image('gen1', request, None, 'user-1')
+
+        notify.assert_called_once()
+        assert document['sections'][0]['lyrics'] == 'la {broken'
+
+
+class TestNotifyWarning:
+    def test_raises_a_warning_toast_for_the_user(self):
+        from src.features.generation.notifier import GenerationNotifier
+
+        manager = Mock()
+        with patch('src.platform.plugins.runtime_registries.get_global_notification_manager', return_value=manager):
+            GenerationNotifier().notify_warning('gen1', 'user-1', 'check it')
+
+        kwargs = manager.call_args.kwargs
+        assert kwargs['level'] == 'warning'
+        assert kwargs['title'] == 'Check your prompt'
+        assert kwargs['message'] == 'check it'
+        assert kwargs['user_id'] == 'user-1'
+        assert kwargs['show_toast'] is True
+        assert kwargs['metadata'] == {'generation_id': 'gen1'}
+
+    def test_notification_failure_is_swallowed(self):
+        from src.features.generation.notifier import GenerationNotifier
+
+        with patch('src.platform.plugins.runtime_registries.get_global_notification_manager', side_effect=RuntimeError('x')):
+            GenerationNotifier().notify_warning('gen1', 'user-1', 'check it')

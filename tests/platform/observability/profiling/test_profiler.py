@@ -1,3 +1,4 @@
+import gc
 import json
 import logging
 import threading
@@ -19,7 +20,7 @@ from src.platform.settings import runtime_flags
 @pytest.fixture(autouse=True)
 def _isolate_profiling_state(monkeypatch):
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", False)
-    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", True)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", False)
     monkeypatch.setattr(GenerationProfiler, "_CENSUS_DELAY_S", 0.0)
     profiler_module._pinned_bytes_cum = 0
     original_stop = GenerationProfiler.stop
@@ -58,6 +59,39 @@ def _sampler_parks_before_start_returns(monkeypatch):
 
 def _enable(monkeypatch):
     monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_enabled", True)
+
+def _enable_census(monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", True)
+    monkeypatch.setattr(GenerationProfiler, "_CENSUS_MIN_BYTES", 1024 * 1024)
+
+
+def _isolate_census_heap(monkeypatch, *roots):
+    pool = []
+    seen = set()
+    pending = list(roots)
+    while pending:
+        obj = pending.pop()
+        if id(obj) in seen or isinstance(obj, torch.Tensor):
+            continue
+        seen.add(id(obj))
+        pool.append(obj)
+        pending.extend(ref for ref in gc.get_referents(obj) if isinstance(ref, (dict, list, tuple, set)))
+    tensors = [r for r in roots if isinstance(r, torch.Tensor)]
+    for holder in list(pool):
+        for ref in gc.get_referents(holder):
+            if isinstance(ref, torch.Tensor):
+                tensors.append(ref)
+    everything = pool + tensors
+
+    def referrers(*targets):
+        return [
+            candidate for candidate in pool
+            if any(ref is target for ref in gc.get_referents(candidate) for target in targets)
+        ]
+
+    monkeypatch.setattr(gc, "get_objects", lambda *args, **kwargs: list(everything))
+    monkeypatch.setattr(gc, "get_referrers", referrers)
 
 
 def test_disabled_start_creates_no_file_and_no_thread(tmp_path):
@@ -287,6 +321,14 @@ def test_disabled_profiling_writes_no_log_file(tmp_path):
 # -- CPU tensor census ------------------------------------------------------
 
 
+_BIG_ELEMENTS = 300_007
+_SMALL_ELEMENTS = 1031
+
+
+def _own_detail_rows(rows):
+    return [r for r in rows if r["kind"] == "census" and r.get("shape") == [_BIG_ELEMENTS]]
+
+
 class _TensorHolder:
     """Stand-in for a cached model bundle holding a big CPU tensor by attribute,
     so :meth:`GenerationProfiler._describe_owner` has something nameable to find."""
@@ -300,14 +342,13 @@ def _read_rows(tmp_path):
     return [json.loads(line) for line in profile_path.read_text().splitlines() if line.strip()]
 
 
-@pytest.mark.gc_sensitive
 def test_census_row_for_big_cpu_tensor_with_owner(tmp_path, monkeypatch):
-    _enable(monkeypatch)
-    # > 64MB: 20M float32 elements = ~76.3MB.
-    big = torch.zeros(20_000_000, dtype=torch.float32)
+    _enable_census(monkeypatch)
+    big = torch.zeros(_BIG_ELEMENTS, dtype=torch.float32)
     holder = _TensorHolder(big)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, holder, big)
     prof.start("gen-census-1", tmp_path)
     prof.stop("gen-census-1")
 
@@ -315,10 +356,8 @@ def test_census_row_for_big_cpu_tensor_with_owner(tmp_path, monkeypatch):
     census_rows = [r for r in rows if r["kind"] == "census"]
     assert census_rows, "expected at least one census row for the big CPU tensor"
 
-    big_row = next(
-        r for r in census_rows
-        if r["nbytes_gb"] * 1024 >= 64 and r["dtype"] == "torch.float32"
-    )
+    big_row = next(r for r in census_rows if r.get("shape") == [_BIG_ELEMENTS])
+    assert big_row["dtype"] == "torch.float32"
     assert big_row["is_pinned"] is False
     assert "_TensorHolder.big_weight" in big_row["owner"]
 
@@ -327,43 +366,49 @@ def test_census_row_for_big_cpu_tensor_with_owner(tmp_path, monkeypatch):
 
 
 def test_no_census_rows_when_profiling_disabled(tmp_path):
-    big = torch.zeros(20_000_000, dtype=torch.float32)  # noqa: F841 -- kept alive, unused otherwise
+    big = torch.zeros(_BIG_ELEMENTS, dtype=torch.float32)
     prof = GenerationProfiler()
     prof.start("gen-census-off", tmp_path)  # no-ops: profiling disabled
     prof.stop("gen-census-off")
     assert not (tmp_path / "profile.jsonl").exists()
 
+    del big
+
 
 def test_census_no_rows_for_small_cpu_tensor(tmp_path, monkeypatch):
-    _enable(monkeypatch)
-    small = torch.zeros(1024, dtype=torch.float32)  # noqa: F841 -- well under 64MB
+    _enable_census(monkeypatch)
+    small = torch.zeros(_SMALL_ELEMENTS, dtype=torch.float32)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, small)
     prof.start("gen-census-small", tmp_path)
     prof.stop("gen-census-small")
 
     rows = _read_rows(tmp_path)
-    assert not [r for r in rows if r["kind"] == "census"]
+    assert not [r for r in rows if r["kind"] == "census" and r.get("shape") == [_SMALL_ELEMENTS]]
+
+    del small
 
 
 def test_census_survives_meta_and_exotic_tensors(tmp_path, monkeypatch):
     """A meta-device tensor (no real storage) alive during the gc walk must be
     skipped, not crash it -- and a real big CPU tensor must still be found."""
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     meta = torch.empty((10_000, 10_000), device="meta")
-    big = torch.zeros(20_000_000, dtype=torch.float32)
+    big = torch.zeros(_BIG_ELEMENTS, dtype=torch.float32)
     holder = _TensorHolder(big)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, meta, holder, big)
     prof.start("gen-census-meta", tmp_path)
     prof.stop("gen-census-meta")
 
     rows = _read_rows(tmp_path)
     census_rows = [r for r in rows if r["kind"] == "census"]
-    assert census_rows
+    assert _own_detail_rows(rows)
     # The meta tensor has no real storage and must never be reported.
     assert all(r.get("shape") != list(meta.shape) for r in census_rows)
-    assert any("_TensorHolder.big_weight" in r["owner"] for r in census_rows)
+    assert any("_TensorHolder.big_weight" in r["owner"] for r in _own_detail_rows(rows))
 
     del holder, big, meta
 
@@ -373,18 +418,20 @@ def test_census_row_carries_a_device_field(tmp_path, monkeypatch):
     (`_write_cpu_tensor_census` vs `_write_cuda_tensor_census` share one row
     shape), so a profile.jsonl reader (or a human grepping it) can tell a
     stuck CPU tensor from a stuck CUDA one without guessing from context."""
-    _enable(monkeypatch)
-    big = torch.zeros(20_000_000, dtype=torch.float32)
+    _enable_census(monkeypatch)
+    big = torch.zeros(_BIG_ELEMENTS, dtype=torch.float32)
     holder = _TensorHolder(big)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, holder, big)
     prof.start("gen-census-device-field", tmp_path)
     prof.stop("gen-census-device-field")
 
     rows = _read_rows(tmp_path)
     census_rows = [r for r in rows if r["kind"] == "census"]
-    assert census_rows
-    assert all(r["device"] == "cpu" for r in census_rows)
+    own_rows = _own_detail_rows(rows)
+    assert own_rows
+    assert all(r["device"] == "cpu" for r in own_rows)
 
     del holder, big
 
@@ -397,15 +444,18 @@ def test_cuda_tensor_census_runs_as_a_safe_noop_without_cuda(tmp_path, monkeypat
     the GPU from an orphaned previous DiT, invisible to the CPU-only census)
     is meant to be a pure addition, never a new failure mode when CUDA simply
     isn't present."""
-    _enable(monkeypatch)
-    big = torch.zeros(20_000_000, dtype=torch.float32)  # noqa: F841 -- CPU only, on purpose
+    _enable_census(monkeypatch)
+    big = torch.zeros(_BIG_ELEMENTS, dtype=torch.float32)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, big)
     prof.start("gen-cuda-census-noop", tmp_path)
     prof.stop("gen-cuda-census-noop")  # must not raise even though _write_cuda_tensor_census runs
 
     rows = _read_rows(tmp_path)
     assert not [r for r in rows if r["kind"] == "census" and r.get("device") == "cuda"]
+
+    del big
 
 
 @pytest.mark.gc_sensitive
@@ -417,8 +467,8 @@ def test_write_tensor_census_dispatches_on_device_kind(tmp_path, monkeypatch):
 
     gc_sensitive: the `any(device == "cpu")` assert depends on what else the
     session's heap holds; a crowded census can push this test's tensor out."""
-    _enable(monkeypatch)
-    big = torch.zeros(20_000_000, dtype=torch.float32)
+    _enable_census(monkeypatch)
+    big = torch.zeros(_BIG_ELEMENTS, dtype=torch.float32)
     holder = _TensorHolder(big)
 
     prof = GenerationProfiler()
@@ -426,7 +476,7 @@ def test_write_tensor_census_dispatches_on_device_kind(tmp_path, monkeypatch):
     cpu_rows = prof._collect_tensor_census(("cpu",), budget_s=2.0)
 
     assert not [r for r in cuda_rows if r.get("device") != "cuda"]
-    assert any(r["kind"] == "census" and r["device"] == "cpu" for r in cpu_rows)
+    assert any(r["device"] == "cpu" for r in _own_detail_rows(cpu_rows))
 
     del holder, big
 
@@ -434,8 +484,8 @@ def test_write_tensor_census_dispatches_on_device_kind(tmp_path, monkeypatch):
 def test_census_walk_suppresses_future_warnings(tmp_path, monkeypatch):
     """The isinstance() scan over every live object must not spam FutureWarning
     (e.g. from deprecated torch aliases like torch.distributed.reduce_op)."""
-    _enable(monkeypatch)
-    big = torch.zeros(20_000_000, dtype=torch.float32)  # noqa: F841
+    _enable_census(monkeypatch)
+    big = torch.zeros(_BIG_ELEMENTS, dtype=torch.float32)
 
     prof = GenerationProfiler()
     prof.start("gen-census-warn", tmp_path)
@@ -444,6 +494,8 @@ def test_census_walk_suppresses_future_warnings(tmp_path, monkeypatch):
         prof.stop("gen-census-warn")
     future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
     assert not future_warnings
+
+    del big
 
 
 # -- grouped (aggregate) tensor census ---------------------------------------
@@ -460,11 +512,12 @@ def test_census_walk_suppresses_future_warnings(tmp_path, monkeypatch):
 def test_census_group_row_includes_small_tensor(tmp_path, monkeypatch):
     """A tensor well under the 64MB detail floor must still show up in the
     aggregate `census_group` section -- that's the whole point of the fix."""
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     small = torch.zeros(1024, dtype=torch.float32)
     holder = _TensorHolder(small)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, holder, small)
     prof.start("gen-census-group-small", tmp_path)
     prof.stop("gen-census-group-small")
 
@@ -472,24 +525,23 @@ def test_census_group_row_includes_small_tensor(tmp_path, monkeypatch):
     group_rows = [r for r in rows if r["kind"] == "census_group" and r["device"] == "cpu"]
     assert group_rows, "small CPU tensor must be visible in the grouped section"
     assert any("_TensorHolder.big_weight" in r["owner"] for r in group_rows)
-    # still true: the small tensor must NOT appear in the detail section.
-    assert not [r for r in rows if r["kind"] == "census"]
+    assert not [r for r in rows if r["kind"] == "census" and r.get("shape") == [1024]]
 
     del holder, small
 
 
-@pytest.mark.gc_sensitive
 def test_census_group_dedups_views_of_one_storage(tmp_path, monkeypatch):
     """Two Python Tensor objects that share one underlying storage (a base
     tensor and a view of it) must be counted ONCE in the grouped section's
     `count`/`nbytes_gb`, not twice -- otherwise the aggregate double-counts
     every alias a real model creates (`.data`, narrow/view slices, etc.)."""
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     base = torch.zeros(2_000_000, dtype=torch.float32)  # ~7.6MB, one storage
     view = base.view(-1)
     holder = _TensorHolder([base, view])
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, holder, base, view)
     prof.start("gen-census-group-dedup", tmp_path)
     prof.stop("gen-census-group-dedup")
 
@@ -500,26 +552,30 @@ def test_census_group_dedups_views_of_one_storage(tmp_path, monkeypatch):
     ]
     assert group_rows
     expected_gb = round(base.numel() * 4 / (1024**3), 4)
-    matching = [r for r in group_rows if abs(r["nbytes_gb"] - expected_gb) < 1e-4]
+    matching = [
+        r for r in group_rows
+        if abs(r["nbytes_gb"] - expected_gb) < 1e-4 and "_TensorHolder.big_weight" in r["owner"]
+    ]
     assert matching, f"expected a group sized to one storage, got {group_rows}"
     assert matching[0]["count"] == 1
 
     del holder, base, view
 
 
-@pytest.mark.gc_sensitive
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="pinning host memory needs a CUDA device")
 def test_census_group_separates_pinned_from_unpinned(tmp_path, monkeypatch):
     """A pinned and a non-pinned CPU tensor must land in DIFFERENT groups even
     if dtype/owner otherwise match -- pinned vs. glibc-heap memory are
     released through different allocators (see model_lifecycle.lifecycle's
     trim_host_allocator/empty_pinned_host_cache), so collapsing them would
     hide exactly the distinction a pinned-memory leak hunt needs."""
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     plain = torch.zeros(2_000_000, dtype=torch.float32)
     pinned = torch.zeros(2_000_000, dtype=torch.float32).pin_memory()
     holder = _TensorHolder([plain, pinned])
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, holder, plain, pinned)
     prof.start("gen-census-group-pinned", tmp_path)
     prof.stop("gen-census-group-pinned")
 
@@ -534,13 +590,13 @@ def test_census_group_separates_pinned_from_unpinned(tmp_path, monkeypatch):
     del holder, plain, pinned
 
 
-@pytest.mark.gc_sensitive
 def test_census_group_row_carries_device_field(tmp_path, monkeypatch):
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     small = torch.zeros(1024, dtype=torch.float32)
     holder = _TensorHolder(small)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, holder, small)
     prof.start("gen-census-group-device", tmp_path)
     prof.stop("gen-census-group-device")
 
@@ -555,7 +611,7 @@ def test_census_group_row_carries_device_field(tmp_path, monkeypatch):
 def test_census_group_rows_bounded_by_max_group_rows(tmp_path, monkeypatch):
     """The aggregate section must never grow unbounded: distinct groups beyond
     `_CENSUS_MAX_GROUP_ROWS` are dropped (largest-first), not all emitted."""
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     prof = GenerationProfiler()
     monkeypatch.setattr(prof, "_CENSUS_MAX_GROUP_ROWS", 2)
     # A different dtype per tensor forces a different group KEY (owner text
@@ -565,12 +621,13 @@ def test_census_group_rows_bounded_by_max_group_rows(tmp_path, monkeypatch):
     dtypes = [torch.float32, torch.float64, torch.int32, torch.int64, torch.bool]
     holders = [_TensorHolder(torch.zeros(1024, dtype=dt)) for dt in dtypes]
 
+    _isolate_census_heap(monkeypatch, *holders)
     prof.start("gen-census-group-bounded", tmp_path)
     prof.stop("gen-census-group-bounded")
 
     rows = _read_rows(tmp_path)
     group_rows = [r for r in rows if r["kind"] == "census_group" and r["device"] == "cpu"]
-    assert len(group_rows) <= 2
+    assert len(group_rows) == 2
 
     del holders
 
@@ -584,17 +641,17 @@ def test_census_group_rows_bounded_by_max_group_rows(tmp_path, monkeypatch):
 # coarse point mid-generation -- see profiler.py's docstring on the method.
 
 
-@pytest.mark.gc_sensitive
 def test_census_now_writes_tagged_rows_distinct_from_stop(tmp_path, monkeypatch):
     """census_now() must use its OWN row kind (`census_group_now`/
     `census_now`), never the `census_group`/`census` kinds stop() writes --
     mixing point-in-time snapshots into one section would double-count any
     tensor still live at both moments."""
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     small = torch.zeros(1024, dtype=torch.float32)
     holder = _TensorHolder(small)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, holder, small)
     prof.start("gen-census-now-1", tmp_path)
     prof.census_now("mid-run-checkpoint")
     prof.stop("gen-census-now-1")
@@ -622,7 +679,7 @@ def test_census_now_noop_when_profiling_disabled(tmp_path):
 def test_census_now_noop_before_start(tmp_path, monkeypatch):
     """Calling census_now() with no active generation (writer not open) must
     be a safe no-op, not raise."""
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     prof = GenerationProfiler()
     prof.census_now("no-file-yet")  # never started -- self._fh is None
     assert not (tmp_path / "profile.jsonl").exists()
@@ -631,11 +688,12 @@ def test_census_now_noop_before_start(tmp_path, monkeypatch):
 def test_census_now_can_be_called_multiple_times_with_different_tags(tmp_path, monkeypatch):
     """Several census_now() calls at different phase boundaries in the same
     generation must each keep their own tag, not get merged together."""
-    _enable(monkeypatch)
+    _enable_census(monkeypatch)
     small = torch.zeros(1024, dtype=torch.float32)
     holder = _TensorHolder(small)
 
     prof = GenerationProfiler()
+    _isolate_census_heap(monkeypatch, holder, small)
     prof.start("gen-census-now-multi", tmp_path)
     prof.census_now("first")
     prof.census_now("second")
@@ -766,7 +824,6 @@ def test_sample_rows_never_carry_the_anon_file_split(tmp_path, monkeypatch):
     )
 
     monkeypatch.setattr(GenerationProfiler, "_SAMPLE_INTERVAL_S", 0.02)
-    monkeypatch.setitem(runtime_flags.runtime_flag_values(), "profiling_census", False)
     prof = GenerationProfiler()
     prof.start("gen-anon-split-sample", tmp_path)
     time.sleep(prof._SAMPLE_INTERVAL_S * 5)

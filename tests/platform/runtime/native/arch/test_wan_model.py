@@ -19,7 +19,7 @@ from src.platform.runtime.native.arch.wan.model import (
     _rope_temporal_riflex,
 )
 from src.platform.runtime.native.base import NativeArchModule
-from vendor.gpl.comfyui.ops import pick_operations
+from .._native_ops import fp32_ops
 
 
 TINY_T2V = dict(
@@ -33,13 +33,9 @@ TINY_I2V = dict(
 )
 
 
-def _fp32_ops():
-    return pick_operations(torch.float32, torch.float32)
-
-
 def _build(config) -> WanModel:
     """from_config + fill empty params (norm scales -> 1, rest small random)."""
-    m = WanModel.from_config(config, _fp32_ops())
+    m = WanModel.from_config(config, fp32_ops())
     m.post_load()
     with torch.no_grad():
         for name, p in m.named_parameters():
@@ -101,7 +97,7 @@ def test_from_config_maps_fields():
 
 
 def test_post_load_is_noop_and_returns_none():
-    m = WanModel.from_config(TINY_T2V, _fp32_ops())
+    m = WanModel.from_config(TINY_T2V, fp32_ops())
     assert m.post_load() is None
 
 
@@ -218,18 +214,6 @@ def test_riflex_temporal_rope_touches_only_the_intrinsic_component():
             assert not torch.allclose(standard[:, :, idx], riflex_out[:, :, idx])
         else:
             assert torch.equal(standard[:, :, idx], riflex_out[:, :, idx])
-
-
-def test_riflex_modified_component_period_covers_test_length():
-    """The modified component's period must be >= L_test (eq. 8's
-    non-repetition condition) — verified by recovering theta_k from the
-    rotation angle at position 1 and checking round(2*pi/theta_k) >= L_test."""
-    dim, theta = 8, 10000.0
-    k = 1
-    l_test = 200
-    theta_k = 0.9 * 2.0 * math.pi / l_test
-    period = round(2.0 * math.pi / theta_k)
-    assert period >= l_test
 
 
 # -- RIFLEx clamps downward only, never accelerates (roadmap S14/#14) --------

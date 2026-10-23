@@ -55,6 +55,7 @@ async function openFixtureCard(page: Page, familyId: string) {
 
 	await page.goto('/admin?tab=presets');
 	await page.getByPlaceholder('Search presets by name, id, or tag…').fill(PRESET_NAME);
+	await expect(page.locator('[data-preset-card]')).toHaveCount(1, { timeout: 10000 });
 	const card = page.locator('[data-preset-card]').filter({ hasText: PRESET_NAME });
 	await expect(card).toBeVisible({ timeout: 10000 });
 	return card;
@@ -85,6 +86,9 @@ test.describe('desktop', () => {
 			await expect(video).toHaveJSProperty('muted', true);
 			await expect(video).toHaveAttribute('poster', /cover\.webm\?size=small/);
 			await expect.poll(() => isPaused(video)).toBe(true);
+			await expect
+				.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState), { timeout: 15000 })
+				.toBeGreaterThanOrEqual(3);
 
 			const scaleOf = () => video.evaluate((el) => getComputedStyle(el).transform);
 			expect(await scaleOf()).toBe('none');

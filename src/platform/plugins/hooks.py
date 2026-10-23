@@ -76,6 +76,27 @@ def execute_hook(plugins: "PluginRegistry", hook, data: dict) -> Tuple[dict, boo
     return context.data, blocked
 
 
+class BlockedByPlugin(ValueError):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def run_veto_hook(
+    plugins: "PluginRegistry",
+    hook,
+    data: dict,
+    default_reason: str,
+    error: Callable[[str], BaseException] = BlockedByPlugin,
+) -> dict:
+    result, blocked = execute_hook(plugins, hook, data)
+    if blocked:
+        reason = result.get("block_reason", default_reason)
+        logger.warning("%s blocked by plugin: %s", hook, reason)
+        raise error(reason)
+    return result
+
+
 HookKind = Literal["backend", "frontend"]
 
 # Fields a `specs`/`declare_one` payload dict may carry, beyond `description`.
@@ -523,18 +544,3 @@ class HookChain:
                 ))
 
         return context, results
-
-    def clear_handlers(self, hook_name: Optional[str] = None) -> None:
-        """
-        Clear handlers for a specific hook or all hooks.
-
-        Args:
-            hook_name: Name of the hook to clear, or None to clear all hooks
-        """
-        if hook_name is None:
-            self._handlers.clear()
-            logger.debug("Cleared all hook handlers")
-        else:
-            if hook_name in self._handlers:
-                del self._handlers[hook_name]
-                logger.debug(f"Cleared handlers for {hook_name}")

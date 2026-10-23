@@ -100,3 +100,13 @@ describe('hashVariableRolls', () => {
 		expect(hashVariableRolls({})).toBe('');
 	});
 });
+
+describe('variablePreview number', () => {
+	const number = { type: 'number', mode: 'shuffle', min: 18, max: 80, step: 1, value: 47 } as const;
+
+	it('shows the range, the pin or per image', () => {
+		expect(variablePreview('age', { age: number })).toBe('18–80');
+		expect(variablePreview('age', { age: { ...number, mode: 'pin' } })).toBe('pinned: 47');
+		expect(variablePreview('age', { age: { ...number, mode: 'per-image' } })).toBe('18–80 · per image');
+	});
+});

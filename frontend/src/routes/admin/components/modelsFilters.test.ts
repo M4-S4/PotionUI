@@ -2,17 +2,14 @@ import { describe, it, expect } from 'vitest';
 import {
 	DEFAULT_MODELS_FILTERS,
 	MODELS_SORT_VALUES,
-	clearAllModelsFilters,
-	clearModelsFilterChip,
-	modelsFilterActiveCount,
 	modelsFilterChips,
 	modelsFiltersFromSearchParams,
-	modelsFiltersToSearchParams,
 	modelsHasActiveFilters,
 	modelsQueryParams,
 	modelsSortParams,
 	withModelsUsage,
-	type ModelsFilters
+	type ModelsFilters,
+	modelsFilters
 } from './modelsFilters';
 
 const TAGS = [
@@ -20,10 +17,10 @@ const TAGS = [
 	{ id: 't2', name: 'photoreal' }
 ];
 
-describe('modelsFiltersFromSearchParams / modelsFiltersToSearchParams', () => {
+describe('modelsFiltersFromSearchParams / modelsFilters.toSearchParams', () => {
 	it('round-trips a non-default filter set', () => {
 		const filters: ModelsFilters = { ...DEFAULT_MODELS_FILTERS, q: 'flux', tags: ['t1', 't2'], sortBy: 'filename_asc' };
-		const params = modelsFiltersToSearchParams(filters);
+		const params = modelsFilters.toSearchParams(filters);
 		expect(params.get('q')).toBe('flux');
 		expect(params.get('tags')).toBe('t1,t2');
 		expect(params.get('sort_by')).toBe('filename_asc');
@@ -31,7 +28,7 @@ describe('modelsFiltersFromSearchParams / modelsFiltersToSearchParams', () => {
 	});
 
 	it('serializes the default filters to an empty query string', () => {
-		expect(modelsFiltersToSearchParams(DEFAULT_MODELS_FILTERS).toString()).toBe('');
+		expect(modelsFilters.toSearchParams(DEFAULT_MODELS_FILTERS).toString()).toBe('');
 	});
 
 	it('falls back to defaults for missing or unknown params', () => {
@@ -53,23 +50,7 @@ describe('models filter chips', () => {
 
 	it('emits no chips and zero active count for the default filters', () => {
 		expect(modelsFilterChips(DEFAULT_MODELS_FILTERS, TAGS)).toEqual([]);
-		expect(modelsFilterActiveCount(DEFAULT_MODELS_FILTERS)).toBe(0);
-	});
-
-	it('counts tags as one active filter group and excludes q and sortBy', () => {
-		const filters: ModelsFilters = { ...DEFAULT_MODELS_FILTERS, q: 'keep me', tags: ['t1', 't2'], sortBy: 'filename_asc' };
-		expect(modelsFilterActiveCount(filters)).toBe(1);
-	});
-
-	it('clears a single tag chip and leaves the rest untouched', () => {
-		const filters: ModelsFilters = { ...DEFAULT_MODELS_FILTERS, q: '', tags: ['t1', 't2'], sortBy: 'indexed_at_desc' };
-		expect(clearModelsFilterChip(filters, 'tag:t1')).toEqual({ ...filters, tags: ['t2'] });
-		expect(clearModelsFilterChip(filters, 'nothing')).toBe(filters);
-	});
-
-	it('clears tags but keeps query and sort when clearing all', () => {
-		const filters: ModelsFilters = { ...DEFAULT_MODELS_FILTERS, q: 'keep me', tags: ['t1'], sortBy: 'filename_asc' };
-		expect(clearAllModelsFilters(filters)).toEqual({ ...DEFAULT_MODELS_FILTERS, q: 'keep me', sortBy: 'filename_asc' });
+		expect(modelsFilters.activeCount(DEFAULT_MODELS_FILTERS)).toBe(0);
 	});
 });
 
@@ -119,7 +100,7 @@ describe('advanced model search filters', () => {
 	};
 
 	it('round-trips every advanced field through the URL', () => {
-		const params = modelsFiltersToSearchParams(advanced);
+		const params = modelsFilters.toSearchParams(advanced);
 		expect(params.get('q_mode')).toBe('regex');
 		expect(params.get('indexed_from')).toBe('2026-01-01');
 		expect(params.get('used')).toBe('used');
@@ -155,18 +136,18 @@ describe('advanced model search filters', () => {
 			{ key: 'lastUsedFrom', label: 'Last used from 2026-02-01' },
 			{ key: 'lastUsedTo', label: 'Last used to 2026-02-28' }
 		]);
-		expect(modelsFilterActiveCount(advanced)).toBe(6);
+		expect(modelsFilters.activeCount(advanced)).toBe(6);
 		expect(modelsFilterChips({ ...DEFAULT_MODELS_FILTERS, used: 'never' }, TAGS)).toEqual([{ key: 'used', label: 'Never used' }]);
 	});
 
 	it('clears a single advanced chip back to its default', () => {
-		expect(clearModelsFilterChip(advanced, 'indexedFrom').indexedFrom).toBe('');
-		expect(clearModelsFilterChip(advanced, 'used').used).toBe('any');
-		expect(clearModelsFilterChip(advanced, 'minUses')).toEqual({ ...advanced, minUses: '' });
+		expect(modelsFilters.clearChip(advanced, 'indexedFrom').indexedFrom).toBe('');
+		expect(modelsFilters.clearChip(advanced, 'used').used).toBe('any');
+		expect(modelsFilters.clearChip(advanced, 'minUses')).toEqual({ ...advanced, minUses: '' });
 	});
 
 	it('clear all keeps the query, its regex mode and the sort', () => {
-		expect(clearAllModelsFilters(advanced)).toEqual({ ...DEFAULT_MODELS_FILTERS, q: '^flux-.*', qMode: 'regex', sortBy: 'uses_desc' });
+		expect(modelsFilters.clearAll(advanced)).toEqual({ ...DEFAULT_MODELS_FILTERS, q: '^flux-.*', qMode: 'regex', sortBy: 'uses_desc' });
 	});
 
 	it('treats any advanced filter as active', () => {

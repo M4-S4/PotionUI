@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { logger } from '$lib/utils/logger';
+	import { logger, getApiErrorMessage } from '$lib/utils/logger';
 	import * as adminApi from '$lib/services/admin-api';
 	import type {
 		AdminChatSessionSummary,
@@ -89,7 +89,7 @@
 			}
 		} catch (e: any) {
 			logger.error('Failed to clear all traces:', e);
-			toasts.error(e.response?.data?.message || e.message || 'Failed to clear traces');
+			toasts.error(getApiErrorMessage(e, 'Failed to clear traces'));
 		} finally {
 			clearingScope = null;
 		}
@@ -115,7 +115,7 @@
 			}
 		} catch (e: any) {
 			logger.error('Failed to clear chat sessions:', e);
-			toasts.error(e.response?.data?.message || e.message || 'Failed to clear chat sessions');
+			toasts.error(getApiErrorMessage(e, 'Failed to clear chat sessions'));
 		} finally {
 			clearingScope = null;
 		}
@@ -134,7 +134,7 @@
 				listError = response.message || 'Failed to load sessions';
 			}
 		} catch (e: any) {
-			listError = e.response?.data?.message || e.message || 'Failed to load sessions';
+			listError = getApiErrorMessage(e, 'Failed to load sessions');
 		} finally {
 			listLoading = false;
 		}
@@ -165,7 +165,7 @@
 				detailError = response.message || 'Failed to load session detail';
 			}
 		} catch (e: any) {
-			detailError = e.response?.data?.message || e.message || 'Failed to load session detail';
+			detailError = getApiErrorMessage(e, 'Failed to load session detail');
 		} finally {
 			detailLoading = false;
 		}
@@ -208,7 +208,7 @@
 			}
 		} catch (e: any) {
 			logger.error('Failed to clear session traces:', e);
-			toasts.error(e.response?.data?.message || e.message || 'Failed to clear traces');
+			toasts.error(getApiErrorMessage(e, 'Failed to clear traces'));
 		} finally {
 			clearingScope = null;
 		}

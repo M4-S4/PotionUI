@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Callable, Optional
+from typing import List, Callable, Optional
 
 from src.pipelines.models import Model
 from src.pipelines.contracts import BasePipe, logger
@@ -27,29 +27,6 @@ class GeneratorSDXLPipe(BasePipe):
 
     name = "generator"
     description = "SDXL-optimized generator pipe"
-
-    @classmethod
-    def get_default_config(cls) -> Dict[str, Any]:
-        return {
-            "mode": "txt2img",
-            "model": None,
-            "vae": None,
-            "steps": 25,
-            "cfg": 6.0,
-            "sampler": "DPMPP_2M",
-            "scheduler": "karras",
-            "seed": -1,
-            "resolution": "1024x1024",
-            "quantity": 1,
-            "clip_skip": 2,
-            "denoise": 0.8,
-            "embeddings": {},
-            # Guidance rescale
-            "guidance_rescale": 0.0,
-            # Inpainting parameters
-            "inpaint_mode": False,
-            "mask_blur": 4,
-        }
 
     def process(
             self,

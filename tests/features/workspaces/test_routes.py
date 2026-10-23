@@ -14,6 +14,7 @@ from unittest.mock import Mock
 from datetime import datetime
 
 from src.features.workspaces import routes as routes_module
+from src.platform.http.errors import AccessDeniedError, NotFoundError
 from src.features.workspaces.routes import WorkspaceController
 from src.features.workspaces.dto import (
     SaveWorkspaceRequest,
@@ -119,7 +120,7 @@ class TestWorkspaceController:
 
         assert result.success is False
         assert result.error == 'get_workspaces_failed'
-        assert 'DB failure' in result.message
+        assert 'DB failure' not in result.message
 
     # ========== get_workspace_by_id (repository-backed pure read) ==========
 
@@ -227,7 +228,7 @@ class TestWorkspaceController:
     @pytest.mark.asyncio
     async def test_update_workspace_not_found(self, controller, mock_operations):
         """Returns workspace_not_found when operations raises 'not found'."""
-        mock_operations.update_workspace.side_effect = ValueError("Workspace not found")
+        mock_operations.update_workspace.side_effect = NotFoundError("workspace_not_found", "Workspace not found")
 
         result = await controller.update_workspace(
             'ws-missing', 'user-1', UpdateWorkspaceRequest()
@@ -239,7 +240,7 @@ class TestWorkspaceController:
     @pytest.mark.asyncio
     async def test_update_workspace_access_denied(self, controller, mock_operations):
         """Returns workspace_access_denied when operations raises 'access denied'."""
-        mock_operations.update_workspace.side_effect = ValueError("Access denied to this workspace")
+        mock_operations.update_workspace.side_effect = AccessDeniedError("workspace_access_denied", "Access denied to this workspace")
 
         result = await controller.update_workspace(
             'ws-1', 'attacker', UpdateWorkspaceRequest()
@@ -276,7 +277,7 @@ class TestWorkspaceController:
     @pytest.mark.asyncio
     async def test_delete_workspace_not_found(self, controller, mock_operations):
         """Returns workspace_not_found when operations raises 'not found'."""
-        mock_operations.delete_workspace.side_effect = ValueError("Workspace not found")
+        mock_operations.delete_workspace.side_effect = NotFoundError("workspace_not_found", "Workspace not found")
 
         result = await controller.delete_workspace('ws-missing', 'user-1')
 
@@ -286,7 +287,7 @@ class TestWorkspaceController:
     @pytest.mark.asyncio
     async def test_delete_workspace_access_denied(self, controller, mock_operations):
         """Returns workspace_access_denied when operations raises 'access denied'."""
-        mock_operations.delete_workspace.side_effect = ValueError("Access denied to this workspace")
+        mock_operations.delete_workspace.side_effect = AccessDeniedError("workspace_access_denied", "Access denied to this workspace")
 
         result = await controller.delete_workspace('ws-1', 'attacker')
 

@@ -35,10 +35,7 @@ import { MUSIC_MODE_ORDER, SECTION_KINDS } from '$lib/types/musicDirector';
 import { sectionKindColor, sectionKindLabel } from '$lib/components/music-director/sectionKindStyle';
 import { isSegmentEnabled, toEditorSegment } from '$lib/utils/richSegments';
 import { richTextToPlainText } from '$lib/utils/richTextUtils';
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
+import { isRecord, mergeRawCapabilities } from '$lib/utils/records';
 
 function num(v: unknown, fallback: number): number {
 	return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
@@ -134,22 +131,6 @@ function parseModeCapability(raw: unknown): MusicModeCapability {
  * (rather than merging already-parsed capabilities field-by-field) is what
  * keeps this byte-identical to the backend.
  */
-function mergeRawCapabilities(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
-	const merged: Record<string, unknown> = { ...base };
-	for (const [key, value] of Object.entries(override)) {
-		if (key !== 'modes') merged[key] = value;
-	}
-	const baseModes = isRecord(base.modes) ? base.modes : {};
-	const overrideModes = isRecord(override.modes) ? override.modes : {};
-	const mergedModes: Record<string, unknown> = { ...baseModes };
-	for (const [compMode, compOverride] of Object.entries(overrideModes)) {
-		const baseEntry = baseModes[compMode];
-		mergedModes[compMode] = isRecord(compOverride) && isRecord(baseEntry) ? { ...baseEntry, ...compOverride } : compOverride;
-	}
-	merged.modes = mergedModes;
-	return merged;
-}
-
 /**
  * The single entry point for reading Music Director capabilities everywhere
  * they're used (the editor mount gate, submission, validation): when

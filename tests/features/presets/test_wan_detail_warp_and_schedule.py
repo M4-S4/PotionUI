@@ -47,6 +47,9 @@ from src.pipelines.pipes._shared.generation.guidance_options import schedule_set
 from src.platform.runtime.native.sampling.flow_schedule import build_sigmas
 from src.platform.templating.processor import TemplateProcessor
 
+from ._bound_form import bound_form_data
+from tests.fixtures.form_lookup import field_by_name
+
 PRESET_DIR = Path("content/presets/marketplace/Wan")
 
 _GENERATOR_FOR_MODE = {
@@ -76,9 +79,9 @@ _LQ_ON = {
 def wan_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/Wan")), None)
+    template = next((p for p in loader.presets if Path(p.path).as_posix().endswith("/Wan")), None)
     if template is None:
-        pytest.skip("Wan preset not present")
+        pytest.fail("Wan preset not present")
     return template
 
 
@@ -116,11 +119,8 @@ def _process(wan_template, mode: str, form_over: dict | None = None):
     }
     if form_over:
         form_data.update(form_over)
-    bound = bind_form(
-        wan_template, "video", form_name=None, raw_form_data=form_data,
-        user_id=None, storage_dir=None,
-    )
-    generation_data = {"prompts": [], "mode": "video", "form_data": dict(bound.values)}
+    form_data = bound_form_data(wan_template, "video", form_data)
+    generation_data = {"prompts": [], "mode": "video", "form_data": form_data}
     return processor.process(wan_template, generation_data)
 
 
@@ -272,17 +272,6 @@ def test_manual_sigmas_takes_priority_over_linear_quadratic_end_to_end(wan_templ
 
 # -- form definition ----------------------------------------------------------
 
-def _field_by_name(fields, name):
-    for f in fields:
-        if f.get("name") == name:
-            return f
-        if "children" in f:
-            found = _field_by_name(f["children"], name)
-            if found is not None:
-                return found
-    return None
-
-
 @pytest.fixture(scope="module")
 def advanced_tab():
     return yaml.safe_load((PRESET_DIR / "modes/video/tabs/advanced.yml").read_text())
@@ -294,7 +283,7 @@ def advanced_tab():
     ("detail_end", 0.9, 0.0, 1.0, 0.05),
 ])
 def test_detail_warp_sliders_are_present_with_their_ranges(advanced_tab, name, default, min_v, max_v, step):
-    field = _field_by_name(advanced_tab["fields"], name)
+    field = field_by_name(advanced_tab["fields"], name)
     assert field is not None, f"{name} is not on the Advanced tab"
     assert field["type"] == "slider"
     assert field["default"] == default
@@ -308,7 +297,7 @@ def test_schedule_picker_is_registry_driven_and_offers_linear_quadratic(advanced
     # dropdown comes from schedule_registry, narrowed by family/exclude.
     # `manual` is excluded: it is a pipeline-authoring knob (the Manual sigmas
     # textbox on this same tab), never a dropdown row.
-    field = _field_by_name(advanced_tab["fields"], "schedule")
+    field = field_by_name(advanced_tab["fields"], "schedule")
     assert field["type"] == "schedule"
     assert field["default"] == "shift"
     assert "options" not in field["configuration"]
@@ -322,7 +311,7 @@ def test_schedule_picker_is_registry_driven_and_offers_linear_quadratic(advanced
 
 def test_linear_quadratic_threshold_and_auto_toggle_hidden_unless_schedule_picked(advanced_tab):
     for name in ("linear_quadratic_threshold_noise", "linear_quadratic_linear_steps_auto"):
-        field = _field_by_name(advanced_tab["fields"], name)
+        field = field_by_name(advanced_tab["fields"], name)
         assert field is not None, f"{name} is not on the Advanced tab"
         reactions = field["reactions"]
         shown = next(r for r in reactions if r["when"]["equals"] == "linear_quadratic")
@@ -332,7 +321,7 @@ def test_linear_quadratic_threshold_and_auto_toggle_hidden_unless_schedule_picke
 
 
 def test_linear_quadratic_linear_steps_auto_defaults_to_true(advanced_tab):
-    field = _field_by_name(advanced_tab["fields"], "linear_quadratic_linear_steps_auto")
+    field = field_by_name(advanced_tab["fields"], "linear_quadratic_linear_steps_auto")
     assert field["type"] == "checkbox"
     assert field["default"] is True
 
@@ -342,7 +331,7 @@ def test_linear_quadratic_linear_steps_visible_only_when_not_automatic(advanced_
     # AND/OR support -- see test_reaction_resolution.py's
     # TestRealPresetTreeReactionShapes): this field keys off the automatic
     # flag alone, not a compound condition with `schedule` too.
-    field = _field_by_name(advanced_tab["fields"], "linear_quadratic_linear_steps")
+    field = field_by_name(advanced_tab["fields"], "linear_quadratic_linear_steps")
     assert field is not None, "linear_quadratic_linear_steps is not on the Advanced tab"
     reactions = field["reactions"]
 
@@ -365,7 +354,7 @@ def test_linear_quadratic_linear_steps_min_is_zero_not_one(advanced_tab):
     # reaction above somehow didn't fire (e.g. a raw API resubmission of an
     # old payload), since `_linear_quadratic_sigmas` already floors it at 1
     # rather than erroring.
-    field = _field_by_name(advanced_tab["fields"], "linear_quadratic_linear_steps")
+    field = field_by_name(advanced_tab["fields"], "linear_quadratic_linear_steps")
     assert field["configuration"]["min"] == 0
 
 

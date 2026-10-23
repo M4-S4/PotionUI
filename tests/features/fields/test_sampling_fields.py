@@ -32,10 +32,6 @@ class TestSamplerField(unittest.TestCase):
         self.preset_loader = Mock()
         self.sampler_field = SamplerField(self.preset_loader)
 
-    def test_can_handle(self):
-        self.assertTrue(self.sampler_field.can_handle("sampler"))
-        self.assertFalse(self.sampler_field.can_handle("schedule"))
-
     def test_options_come_from_registry_family_filter(self):
         registry = _samplers(
             ("euler", ("*",)),
@@ -104,19 +100,11 @@ class TestSamplerField(unittest.TestCase):
 
         self.assertEqual(schema["configuration"], {"allow_empty": False})
 
-    def test_configuration_specs(self):
-        names = {spec.name for spec in SamplerField.configuration()}
-        self.assertEqual(names, {"family", "include", "exclude", "allow_empty"})
-
 
 class TestScheduleField(unittest.TestCase):
     def setUp(self):
         self.preset_loader = Mock()
         self.schedule_field = ScheduleField(self.preset_loader)
-
-    def test_can_handle(self):
-        self.assertTrue(self.schedule_field.can_handle("schedule"))
-        self.assertFalse(self.schedule_field.can_handle("sampler"))
 
     def test_options_come_from_registry_family_filter(self):
         registry = _schedules(

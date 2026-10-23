@@ -51,7 +51,7 @@ def _load(name):
 @pytest.fixture(autouse=True)
 def default_settings(plugin_modules_removed_afterwards, monkeypatch):
     settings = _load("backend.settings")
-    values = dict(settings.DEFAULTS)
+    values = {"nsfw_ceiling": "inherit", "nsfw_max_level": 2, "hide_poi": False, "civitai_api_base": "https://civitai.com/api/v1", "cache_ttl_minutes": 10}
     monkeypatch.setattr(settings, "get_setting", lambda key: values[key])
     return values
 

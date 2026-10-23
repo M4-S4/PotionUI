@@ -142,7 +142,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		expect(restoredTab.selectedVariant).toBe('default');
 	});
 
-	it('strips data: URI strings out of formData/variables before persisting', async () => {
+	it('strips data: URI strings out of formData before persisting', async () => {
 		const { saveTabsToLocalStorage, loadTabsFromLocalStorage } = await import('./tabPersistence');
 		const tab = fakeTab({
 			formData: {
@@ -150,7 +150,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 				maskPreview: 'data:image/png;base64,AAAAAAA=',
 				nested: { thumb: 'data:image/png;base64,BBBB=' }
 			},
-			variables: { note: { type: 'text', value: 'data:text/plain,hello' } } as any
+			variables: { note: { type: 'text', value: 'kept out of storage' } } as any
 		});
 
 		saveTabsToLocalStorage([tab], tab.id);
@@ -161,8 +161,7 @@ describe('saveTabsToLocalStorage / loadTabsFromLocalStorage', () => {
 		expect(formData.maskPreview).toBeNull();
 		expect(formData.nested.thumb).toBeNull();
 
-		const variables = restored!.tabs[0].variables as any;
-		expect(variables.note.value).toBeNull();
+		expect(restored!.tabs[0]).not.toHaveProperty('variables');
 	});
 
 	it('round-trips directorRuns, including a predecessorRef, through localStorage', async () => {

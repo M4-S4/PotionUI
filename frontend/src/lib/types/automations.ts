@@ -265,6 +265,25 @@ export interface RunAutomationInput {
 	payload?: Record<string, any>;
 }
 
+export interface TestHttpRequestInput {
+	config: Record<string, any>;
+	automation_id?: string;
+	node_id?: string;
+	event?: Record<string, any>;
+	upstream?: Record<string, any>;
+}
+
+export interface HttpRequestTestResult {
+	status: number;
+	ok: boolean;
+	headers: Record<string, string>;
+	body: unknown;
+	truncated: boolean;
+	url: string;
+	attempts: number;
+	pick: string | null;
+}
+
 export interface ListRunsOptions {
 	limit?: number;
 	before?: string;

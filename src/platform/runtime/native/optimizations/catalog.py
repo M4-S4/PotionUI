@@ -118,6 +118,30 @@ class Optimization:
         return ()
 
 
+def _cuda_arch_build_env(probe: SystemProbe, default_major: int = 8) -> dict:
+    cc = probe.compute_capability
+    major = cc[0] if cc else default_major
+    minor = cc[1] if cc else 0
+    cpu_count = os.cpu_count() or 1
+    env = {
+        "TORCH_CUDA_ARCH_LIST": f"{major}.{minor}",
+        "MAX_JOBS": str(min(8, max(1, cpu_count - 1))),
+    }
+    env.update(_venv_cuda_build_env(probe))
+    return env
+
+
+class AttentionBackendOptimization(Optimization):
+    def activate(self) -> dict:
+        import importlib
+
+        from src.platform.runtime.native import attention
+
+        importlib.invalidate_caches()
+        attention.reset_backend_cache()
+        return {"active_backend": attention.get_attention_backend()}
+
+
 def _cap_at_least(probe: SystemProbe, major: int, minor: int = 0) -> bool:
     if probe.compute_capability is None:
         return False
@@ -230,7 +254,7 @@ def _venv_cuda_build_env(probe: SystemProbe) -> dict[str, str]:
     return env
 
 
-class SageAttention2(Optimization):
+class SageAttention2(AttentionBackendOptimization):
     """SageAttention 2.x — quantized attention kernel, ~30% faster per step on Ampere+."""
 
     id = "sageattention2"
@@ -273,14 +297,7 @@ class SageAttention2(Optimization):
         return probe.sageattention_version
 
     def install_spec(self, probe: SystemProbe) -> InstallSpec:
-        major = probe.compute_capability[0] if probe.compute_capability else 8
-        minor = probe.compute_capability[1] if probe.compute_capability else 0
-        cpu_count = os.cpu_count() or 1
-        env = {
-            "TORCH_CUDA_ARCH_LIST": f"{major}.{minor}",
-            "MAX_JOBS": str(min(8, max(1, cpu_count - 1))),
-        }
-        env.update(_venv_cuda_build_env(probe))
+        env = _cuda_arch_build_env(probe, 8)
         # SageAttention's setup.py imports torch at build time, so pip's
         # isolated build env (which has no torch) fails in
         # get_requires_for_build_wheel — build against the venv directly.
@@ -288,15 +305,6 @@ class SageAttention2(Optimization):
             pip_args=["git+https://github.com/thu-ml/SageAttention", "--no-build-isolation"],
             env=env,
         )
-
-    def activate(self) -> dict:
-        import importlib
-
-        from src.platform.runtime.native import attention
-
-        importlib.invalidate_caches()
-        attention.reset_backend_cache()
-        return {"active_backend": attention.get_attention_backend()}
 
     def _active_backend_names(self) -> tuple[str, ...]:
         return ("sage2", "sage")
@@ -323,7 +331,7 @@ def _cuda_at_least(probe: SystemProbe, major: int, minor: int = 0) -> bool:
     return (v_major, v_minor) >= (major, minor)
 
 
-class SageAttention3(Optimization):
+class SageAttention3(AttentionBackendOptimization):
     """SageAttention 3 — FP4 attention for Blackwell (sm100/sm120/sm121 only).
 
     arXiv:2505.11594; thu-ml/SageAttention's ``sageattention3_blackwell``
@@ -422,14 +430,7 @@ class SageAttention3(Optimization):
         return probe.sageattn3_version
 
     def install_spec(self, probe: SystemProbe) -> InstallSpec:
-        major = probe.compute_capability[0] if probe.compute_capability else 12
-        minor = probe.compute_capability[1] if probe.compute_capability else 0
-        cpu_count = os.cpu_count() or 1
-        env = {
-            "TORCH_CUDA_ARCH_LIST": f"{major}.{minor}",
-            "MAX_JOBS": str(min(8, max(1, cpu_count - 1))),
-        }
-        env.update(_venv_cuda_build_env(probe))
+        env = _cuda_arch_build_env(probe, 12)
         # No PyPI package (source-only, see class docstring): clone the repo
         # and build the sageattention3_blackwell subdirectory specifically.
         # setup.py imports torch at build time (same reason as SageAttention2),
@@ -442,20 +443,11 @@ class SageAttention3(Optimization):
             env=env,
         )
 
-    def activate(self) -> dict:
-        import importlib
-
-        from src.platform.runtime.native import attention
-
-        importlib.invalidate_caches()
-        attention.reset_backend_cache()
-        return {"active_backend": attention.get_attention_backend()}
-
     def _active_backend_names(self) -> tuple[str, ...]:
         return ("sage3",)
 
 
-class SpargeAttention(Optimization):
+class SpargeAttention(AttentionBackendOptimization):
     """SpargeAttn — training-free SPARSE attention (thu-ml/SpargeAttn,
     arXiv:2502.18137, ICML2025). Built on SageAttention2's kernels; a two-stage
     online filter predicts and skips low-contribution attention blocks.
@@ -524,14 +516,7 @@ class SpargeAttention(Optimization):
         return probe.sparge_version
 
     def install_spec(self, probe: SystemProbe) -> InstallSpec:
-        major = probe.compute_capability[0] if probe.compute_capability else 8
-        minor = probe.compute_capability[1] if probe.compute_capability else 0
-        cpu_count = os.cpu_count() or 1
-        env = {
-            "TORCH_CUDA_ARCH_LIST": f"{major}.{minor}",
-            "MAX_JOBS": str(min(8, max(1, cpu_count - 1))),
-        }
-        env.update(_venv_cuda_build_env(probe))
+        env = _cuda_arch_build_env(probe, 8)
         # setup.py imports torch at build time (same reason as SageAttention2/3)
         # -- needs --no-build-isolation against the venv directly.
         return InstallSpec(
@@ -539,20 +524,11 @@ class SpargeAttention(Optimization):
             env=env,
         )
 
-    def activate(self) -> dict:
-        import importlib
-
-        from src.platform.runtime.native import attention
-
-        importlib.invalidate_caches()
-        attention.reset_backend_cache()
-        return {"active_backend": attention.get_attention_backend()}
-
     def _active_backend_names(self) -> tuple[str, ...]:
         return ("sparge",)
 
 
-class FlashAttn(Optimization):
+class FlashAttn(AttentionBackendOptimization):
     """flash-attn — the reference FlashAttention CUDA kernel."""
 
     id = "flash-attn"
@@ -589,15 +565,6 @@ class FlashAttn(Optimization):
         return InstallSpec(
             pip_args=["flash-attn", "--no-build-isolation"], env=_venv_cuda_build_env(probe),
         )
-
-    def activate(self) -> dict:
-        import importlib
-
-        from src.platform.runtime.native import attention
-
-        importlib.invalidate_caches()
-        attention.reset_backend_cache()
-        return {"active_backend": attention.get_attention_backend()}
 
     def _active_backend_names(self) -> tuple[str, ...]:
         return ("flash",)

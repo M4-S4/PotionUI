@@ -1,4 +1,4 @@
-export const MODES = ['blur', 'show', 'hide'];
+const MODES = ['blur', 'show', 'hide'];
 
 export const MODE_LABELS = { blur: 'Blur', show: 'Show', hide: 'Hide' };
 

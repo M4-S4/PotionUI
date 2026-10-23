@@ -55,3 +55,10 @@ export function validatePasswordChange({
 
 	return { valid: Object.keys(errors).length === 0, errors };
 }
+
+export function passwordErrorsFromServer(fieldErrors: Record<string, string>): PasswordChangeErrors | null {
+	const errors: PasswordChangeErrors = {};
+	if (fieldErrors.current_password) errors.current = fieldErrors.current_password;
+	if (fieldErrors.new_password) errors.new = fieldErrors.new_password;
+	return errors.current || errors.new ? errors : null;
+}

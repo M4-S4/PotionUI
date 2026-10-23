@@ -1,3 +1,5 @@
+import { sleep as defaultSleep } from '$lib/utils/time';
+
 /**
  * Polls until a single `check()` reports the server healthy again, or an
  * overall wall-clock budget is exhausted - used after actions that restart a
@@ -25,10 +27,6 @@ export interface HealthPollOptions {
 	sleep?: (ms: number) => Promise<void>;
 	/** Injectable for tests; defaults to Date.now. */
 	now?: () => number;
-}
-
-function defaultSleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Races `check()` against `ms`, resolving `{ healthy: false, timedOut: true }`

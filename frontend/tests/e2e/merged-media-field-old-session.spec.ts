@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { deflateSync } from 'node:zlib';
 import { loginAsOwner, ownerToken, scopedStorageKey, screenshot } from './helpers';
+import { chunk } from './mediaFieldHelpers';
 
 const JOURNEY = 'merged-media-field-old-session';
 const PRESET_ID = '01KX47H3MINIMAX000000000VA';
@@ -16,24 +17,6 @@ const SIZES = [
 
 type Kind = 'image' | 'video' | 'audio';
 type Item = Record<string, unknown>;
-
-function crc32(buf: Buffer): number {
-	let c = ~0;
-	for (const b of buf) {
-		c ^= b;
-		for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
-	}
-	return ~c >>> 0;
-}
-
-function chunk(type: string, data: Buffer): Buffer {
-	const head = Buffer.alloc(4);
-	head.writeUInt32BE(data.length);
-	const body = Buffer.concat([Buffer.from(type), data]);
-	const tail = Buffer.alloc(4);
-	tail.writeUInt32BE(crc32(body));
-	return Buffer.concat([head, body, tail]);
-}
 
 function fixturePng(size: number): Buffer {
 	const rows: Buffer[] = [];

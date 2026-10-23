@@ -477,6 +477,29 @@ class Gemma4Tokenizer:
         return _pad_batch(id_lists, self._pad_id, 1, device)   # min_length 1
 
 
+MOSS_IMAGE_TEMPLATE = "<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n<think>\n"
+MOSS_IMAGE_MAX_TOKENS = 4096
+
+
+class MossImageTokenizer:
+    def __init__(self) -> None:
+        from tokenizers import Tokenizer
+
+        path = _ASSETS / "qwen35_tokenizer" / "tokenizer.json"
+        if not path.is_file():
+            raise FileNotFoundError(f"bundled tokenizer assets missing: {path}")
+        self._tok = Tokenizer.from_file(str(path))
+
+    def encode(self, text: str) -> list[int]:
+        prompt = MOSS_IMAGE_TEMPLATE.format(prompt=text.strip())
+        return self._tok.encode(prompt).ids[:MOSS_IMAGE_MAX_TOKENS]
+
+    def __call__(self, texts: list[str], device: torch.device | str = "cpu") -> torch.Tensor:
+        if len(texts) != 1:
+            raise ValueError(f"the MOSS-Image tokenizer takes one prompt per call, got {len(texts)}")
+        return torch.tensor([self.encode(texts[0])], dtype=torch.long, device=device)
+
+
 class T5XXLTokenizerWrap:
     """Flux1 T5-XXL tokenizer (trailing EOS kept, min length 256)."""
 

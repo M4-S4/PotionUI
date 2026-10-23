@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
-import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath, apiGet, apiPost } from './helpers';
+import { presetOption } from './presetPreamble';
 
 // Bug report: in the Video Director, picking an image from Generation
 // History for a shot's leading frame did nothing visible — the compact media
@@ -23,25 +24,9 @@ import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
 // rework — see stage-rail/StageShot.svelte for the current call site).
 
 const JOURNEY = 'director-history-pick';
-const BEAT = 400;
 
 const TINY_PNG_BASE64 =
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-
-async function apiGet(page: Page, url: string, token: string) {
-	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
-	expect(res.ok(), `GET ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
-
-async function apiPost(page: Page, url: string, token: string, data?: unknown) {
-	const res = await page.request.post(url, {
-		headers: { Authorization: `Bearer ${token}` },
-		data: data ?? {}
-	});
-	expect(res.ok(), `POST ${url} -> ${res.status()}`).toBeTruthy();
-	return res.json();
-}
 
 async function checkSlotAtBothWidths(page: Page, field: Locator, state: string) {
 	for (const [tag, width, height] of [
@@ -49,7 +34,6 @@ async function checkSlotAtBothWidths(page: Page, field: Locator, state: string) 
 		['390', 390, 844]
 	] as const) {
 		await page.setViewportSize({ width, height });
-		await page.waitForTimeout(BEAT);
 		await field.scrollIntoViewIfNeeded();
 		const box = await field.boundingBox();
 		expect(box, `${state} slot at ${tag} has a box`).not.toBeNull();
@@ -60,7 +44,6 @@ async function checkSlotAtBothWidths(page: Page, field: Locator, state: string) 
 		await screenshot(page, JOURNEY, `slot-${state}-${tag}`);
 	}
 	await page.setViewportSize({ width: 1440, height: 900 });
-	await page.waitForTimeout(BEAT);
 }
 
 test('director history pick — i2v leading-frame media slot renders the picked image', async ({ page }) => {
@@ -110,16 +93,14 @@ test('director history pick — i2v leading-frame media slot renders the picked 
 
 	await page.goto('/generate');
 	await page.getByRole('button', { name: 'Choose a preset' }).click();
-	await page.getByText(videoPreset.name, { exact: true }).first().click();
-	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
-	await page.waitForTimeout(BEAT);
+	await presetOption(page, videoPreset.name).click();
+	await expect(page.getByRole('dialog', { name: 'Choose preset' })).toBeHidden();
 
 	// The modeless Stage & Rail editor has no mode tabs: a fresh document's
 	// default (first, auto-selected) shot shows its leading media well
 	// directly whenever the preset's capabilities make one legal there (e.g.
 	// Wan's first_only keyframes) -- the same compact call site the old i2v
 	// mode used.
-	await page.waitForTimeout(BEAT);
 
 	const slotDropzone = page.locator('[data-media-dropzone]').first();
 	if ((await slotDropzone.count()) === 0 || !(await slotDropzone.isVisible().catch(() => false))) {
@@ -135,14 +116,12 @@ test('director history pick — i2v leading-frame media slot renders the picked 
 
 	const historyModal = page.getByText('Select Image from Generation History');
 	await expect(historyModal).toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	const thumbnail = page.locator(`img[src*="${generationId}"]`).first();
 	await expect(thumbnail, 'seeded generation should appear in the history grid').toBeVisible({ timeout: 20000 });
 	await thumbnail.locator('xpath=ancestor::button[1]').click();
 
 	await expect(historyModal).not.toBeVisible({ timeout: 20000 });
-	await page.waitForTimeout(BEAT);
 
 	await expect(slotField.locator('[data-media-dropzone]')).not.toBeVisible();
 	const previewImage = page.locator(`img[src*="${generationId}"]`).first();

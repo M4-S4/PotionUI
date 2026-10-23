@@ -1,11 +1,7 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson } from './helpers';
 
 const JOURNEY = 'model-layout-add-folder';
-
-async function fulfillJson(route: Route, data: unknown, status = 200) {
-	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
-}
 
 function sug(model_type: string, subdir: string, label: string, write: boolean, count = 4) {
 	return {
@@ -156,7 +152,6 @@ test.describe('add folder with layout profiles - desktop', () => {
 		await expect(page.getByText('LyCORIS', { exact: true })).toBeVisible();
 		await expect(page.getByLabel('Downloads go here')).toHaveCount(2);
 		await page.getByText('Detected: StabilityMatrix').hover();
-		await page.waitForTimeout(600);
 		await screenshot(page, JOURNEY, 'desktop-stabilitymatrix');
 
 		await page.getByRole('radio').nth(1).check();

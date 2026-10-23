@@ -87,12 +87,6 @@ fields:
     configuration:
       summary: "Second img2img refine pass on the generated image before saving."
     children:
-      - name: "td_tile_size"
-        type: "slider"
-        label: "Tile Size"
-        default: 1536
-        configuration: { min: 256, max: 4096, step: 64 }
-
       - name: "td_overlap"
         type: "slider"
         label: "Tile Overlap"
@@ -138,36 +132,8 @@ fields:
       - name: "td_adaptive_tiles"
         type: "checkbox_group"
         label: "Advanced Options"
-        default: ["adaptive_tiles", "enable_detail_conditioning", "content_aware_denoise"]
+        default: ["enable_detail_conditioning", "content_aware_denoise"]
         configuration:
           options:
-            - { label: "Adaptive Tile Sizing", value: "adaptive_tiles", description: "Automatically adjust tile sizes based on image content and VRAM" }
             - { label: "Detail-Focused Conditioning", value: "enable_detail_conditioning", description: "Enhance prompts to focus on detail generation" }
             - { label: "Content-Aware Enhancement", value: "content_aware_denoise", description: "Adjust enhancement strength based on content complexity" }
-
-      - type: "group"
-        label: "Content-Aware Enhancement Settings"
-        visible: false
-        children:
-          - name: "td_min_denoise"
-            type: "slider"
-            label: "Minimum Enhancement"
-            default: 0.1
-            configuration: { min: 0.0, max: 1.0, step: 0.05 }
-
-          - name: "td_max_denoise"
-            type: "slider"
-            label: "Maximum Enhancement"
-            default: 0.35
-            configuration: { min: 0.0, max: 1.0, step: 0.05 }
-        reactions:
-          - when:
-              field: "td_adaptive_tiles"
-              contains: "content_aware_denoise"
-            then:
-              set_visibility: true
-          - when:
-              field: "td_adaptive_tiles"
-              not_contains: "content_aware_denoise"
-            then:
-              set_visibility: false

@@ -1,7 +1,8 @@
 // Pure definition-driven logic for ModelAttributesCard.svelte, kept separate
 // so it's unit-testable without mounting a component.
 
-import type { AttributeDefinition, AttributeFieldType } from '$lib/types/models';
+import type { AttributeDefinition } from '$lib/types/models';
+import { jsonEqual } from '$lib/utils/equal';
 import { formatRange, normalizeRange } from '$lib/utils/attributeRange';
 
 export type AttributeInputType = 'number' | 'text' | 'checkbox' | 'select' | 'tags' | 'range';
@@ -148,12 +149,6 @@ export function extractUpdatedUserMetadata(
 	return responseData?.values ?? values;
 }
 
-/** Which field types render a chip/tags editor rather than a bare input -
- * used by the card to decide when to reach for TagsChipInput. */
-export function isTagsAttribute(fieldType: AttributeFieldType): boolean {
-	return fieldType === 'tags';
-}
-
 export type DraftValue = string | boolean | string[];
 
 export function toDraftValue(definition: AttributeDefinition, value: unknown): DraftValue {
@@ -184,5 +179,5 @@ export function attributeDraftsAreDirty(
 	editValues: Record<string, DraftValue>,
 	baselineValues: Record<string, DraftValue>
 ): boolean {
-	return JSON.stringify(editValues) !== JSON.stringify(baselineValues);
+	return !jsonEqual(editValues, baselineValues);
 }

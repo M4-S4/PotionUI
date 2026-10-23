@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { IconButton } from '$lib/components/ui';
 	import type { Snippet } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { toggleOpen, sectionBoxClass, sectionBodyClass } from './detailSection';
@@ -41,18 +42,7 @@
 		<div class="flex items-center gap-2 flex-shrink-0">
 			{@render headerExtra?.()}
 			{#if collapsible}
-				<button
-					type="button"
-					class="inline-flex items-center justify-center w-6 h-6 rounded text-fg-muted hover:text-fg hover:bg-surface-2"
-					onclick={handleToggle}
-					aria-expanded={open}
-					aria-label={open ? 'Collapse' : 'Expand'}
-				>
-					<Icon
-						name="chevron-down"
-						className="w-3.5 h-3.5 transition-transform {open ? '' : '-rotate-90'}"
-					/>
-				</button>
+				<IconButton icon="chevron-down" label={open ? 'Collapse' : 'Expand'} size="xs" onclick={handleToggle} ariaExpanded={open} />
 			{/if}
 		</div>
 	</div>

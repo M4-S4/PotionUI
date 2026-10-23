@@ -27,24 +27,32 @@ async def search(
     return prompts
 
 
+async def semantic_ids(
+    collaborators: PromptDatabaseCollaborators,
+    user_id: str, query: str, limit: int, where: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    try:
+        if await collaborators.embedding_provider.is_available():
+            embeddings = await collaborators.embedding_provider.embed([query])
+            if embeddings:
+                return collaborators.vector_store.search(user_id, embeddings[0], limit, where or None)
+    except Exception as exc:
+        logger.warning("Prompt vector search failed: %s", exc)
+    return []
+
+
 async def _search(
     collaborators: PromptDatabaseCollaborators,
     user_id: str, query: str, limit: int,
     base_model: Optional[str], model_id: Optional[str], source_provider: Optional[str],
 ) -> List[Any]:
-    try:
-        if await collaborators.embedding_provider.is_available():
-            embeddings = await collaborators.embedding_provider.embed([query])
-            if embeddings:
-                where = {k: v for k, v in {
-                    "base_model": base_model, "model_id": model_id,
-                    "source_provider": source_provider,
-                }.items() if v is not None}
-                ids = collaborators.vector_store.search(user_id, embeddings[0], limit, where or None)
-                if ids:
-                    return collaborators.repository.get_by_ids(ids, user_id)
-    except Exception as exc:
-        logger.warning("Prompt vector search failed; using text search: %s", exc)
+    where = {k: v for k, v in {
+        "base_model": base_model, "model_id": model_id,
+        "source_provider": source_provider,
+    }.items() if v is not None}
+    ids = await semantic_ids(collaborators, user_id, query, limit, where)
+    if ids:
+        return collaborators.repository.get_by_ids(ids, user_id)
     return collaborators.repository.text_search(
         user_id, query, limit, base_model, model_id, source_provider,
     )

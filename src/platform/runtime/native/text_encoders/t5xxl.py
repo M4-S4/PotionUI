@@ -18,7 +18,7 @@ import torch.nn as nn
 
 from ..base import NativeArchModule
 from ._functional import cast_to_input, optimized_attention
-from .base import NativeTextEncoder, _module_to, _module_unload
+from .base import NativeTextEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -225,14 +225,6 @@ class T5XXLTextEncoder(NativeTextEncoder):
         self.tokenizer = tokenizer
         self._device = torch.device(device)
 
-    def to(self, device: str | torch.device) -> "T5XXLTextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
-
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:
         ids, _mask = self.tokenizer(texts, device=self._device)
@@ -256,14 +248,6 @@ class UMT5TextEncoder(NativeTextEncoder):
         self.module = module
         self.tokenizer = tokenizer
         self._device = torch.device(device)
-
-    def to(self, device: str | torch.device) -> "UMT5TextEncoder":
-        self._device = torch.device(device)
-        _module_to(self.module, device)
-        return self
-
-    def unload(self) -> None:
-        _module_unload(self.module)
 
     @torch.inference_mode()
     def encode(self, texts: list[str]) -> dict[str, torch.Tensor]:

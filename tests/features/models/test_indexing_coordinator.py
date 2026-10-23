@@ -9,7 +9,14 @@ import pytest
 from src.features.models.exceptions import ModelIndexingException
 from src.features.models.indexer import ModelScanner
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator
-from tests.features.models.test_indexing_scheduling import ThreadSpawner
+from src.features.models.indexing_governor import InvalidIndexingLevel
+from tests.features.models.fakes import (
+    CountingScanner,
+    ProgressScanner,
+    ThreadSpawner,
+    build_coordinator,
+    wait_until,
+)
 
 
 def _no_spawn(target):
@@ -82,6 +89,8 @@ def test_reconcile_failure_does_not_raise():
     reconciler.reconcile.assert_awaited_once()
 
 class FakeScanner:
+    digests = None
+
     def __init__(self, unindexed_files):
         self._unindexed = list(unindexed_files)
         self.index_models_calls = 0
@@ -205,6 +214,8 @@ def test_per_file_failures_from_the_scan_are_recorded_in_status():
 
 def test_progress_updates_processed_and_total_via_scanner_callback():
     class ProgressScanner:
+        digests = None
+
         def __init__(self):
             self._cb = None
 
@@ -238,6 +249,8 @@ def test_start_indexing_while_the_scan_is_executing_does_not_spawn_a_second_work
     call_count = {"n": 0}
 
     class BlockingScanner:
+        digests = None
+
         def set_progress_callback(self, cb):
             pass
 
@@ -264,11 +277,13 @@ def test_start_indexing_while_the_scan_is_executing_does_not_spawn_a_second_work
     assert coordinator.status()["state"] == "done"
 
 
-def test_cancel_and_restart_returns_immediately_without_waiting_for_the_running_scan():
+def test_rescan_returns_immediately_without_waiting_for_the_running_scan():
     started = threading.Event()
     release = threading.Event()
 
-    class IgnoresCancelScanner:
+    class HeldScanner:
+        digests = None
+
         def __init__(self):
             self.calls = 0
 
@@ -281,7 +296,7 @@ def test_cancel_and_restart_returns_immediately_without_waiting_for_the_running_
             release.wait(timeout=5)
             return {"indexed": 0, "found_on_disk": 1, "failed_files": [], "cancelled": False}
 
-    scanner = IgnoresCancelScanner()
+    scanner = HeldScanner()
     spawner = ThreadSpawner()
     coordinator = ModelIndexingCoordinator(
         spawn=spawner,
@@ -291,7 +306,7 @@ def test_cancel_and_restart_returns_immediately_without_waiting_for_the_running_
     assert started.wait(timeout=5)
 
     before = time.monotonic()
-    result = coordinator.cancel_and_restart(trigger="location_change")
+    result = coordinator.rescan(trigger="location_change")
     elapsed = time.monotonic() - before
 
     assert elapsed < 1.0
@@ -308,29 +323,47 @@ def test_cancel_and_restart_returns_immediately_without_waiting_for_the_running_
     assert status["state"] == "done"
 
 
-def test_cancel_and_restart_starts_normally_when_nothing_is_running():
+def test_rescan_starts_normally_when_nothing_is_running():
     coordinator = _coordinator(spawn=_no_spawn)
 
-    result = coordinator.cancel_and_restart(trigger="location_change")
+    result = coordinator.rescan(trigger="location_change")
 
     assert result["state"] == "scanning"
     assert result["trigger"] == "location_change"
     assert result["restart_pending"] is False
 
 
-def test_cancel_and_restart_while_a_start_is_still_queued_does_not_cancel_or_restart_it():
+def test_a_shutdown_during_a_pass_makes_the_scans_cancel_check_true_and_the_pass_is_reported_cancelled():
+    coordinator = _coordinator(spawn=_run_inline)
+    seen = []
+
+    def scan(cancel_check=None):
+        seen.append(cancel_check())
+        coordinator.shutdown(timeout=0)
+        seen.append(cancel_check())
+        return {"indexed": 0}
+
+    coordinator.scanner.index_models.side_effect = scan
+
+    coordinator.start_indexing(trigger="manual")
+
+    assert seen == [False, True]
+    assert coordinator.status()["state"] == "cancelled"
+
+
+def test_rescan_while_a_start_is_still_queued_does_not_cancel_or_restart_it():
     queued = []
     coordinator = _coordinator(spawn=queued.append)
 
     coordinator.start_indexing(trigger="manual")
-    result = coordinator.cancel_and_restart(trigger="roots_change")
+    result = coordinator.rescan(trigger="roots_change")
 
     assert len(queued) == 1
     assert result["restart_pending"] is False
-    assert coordinator._cancel_event.is_set() is False
     queued[0]()
     assert coordinator.status()["state"] == "done"
     assert coordinator.scanner.index_models.call_count == 1
+    assert coordinator.scanner.index_models.call_args.kwargs["cancel_check"]() is False
 
 
 def test_a_restart_requested_during_the_post_scan_window_is_scanned_after_the_current_run():
@@ -354,11 +387,11 @@ def test_a_restart_requested_during_the_post_scan_window_is_scanned_after_the_cu
     coordinator.start_indexing(trigger="manual")
     assert entered_reconcile.wait(timeout=5)
 
-    first = coordinator.cancel_and_restart(trigger="roots_change")
-    second = coordinator.cancel_and_restart(trigger="roots_change")
+    first = coordinator.rescan(trigger="roots_change")
+    second = coordinator.rescan(trigger="roots_change")
 
-    assert first["state"] == "scanning"
-    assert second["restart_pending"] is False
+    assert first["restart_pending"] is True
+    assert second["restart_pending"] is True
     hold.set()
     spawner.join()
 
@@ -584,3 +617,433 @@ def test_index_path_reports_a_same_bytes_copy_as_a_duplicate_instead_of_a_bare_f
     assert result["model_id"] is None
     assert result["duplicate_of"]["path"] == original.as_posix()
     assert result["duplicate_of"]["model_type"] == "checkpoint"
+
+
+def _inline_coordinator(scanner, plugin_registry=None, reconciler=None, backend_registry=None):
+    return ModelIndexingCoordinator(
+        spawn=_run_inline,
+        model_repository=MagicMock(),
+        plugin_registry=plugin_registry or FakePluginRegistry(),
+        scanner=scanner,
+        backend_registry=backend_registry,
+        native_availability_projector=reconciler,
+    )
+
+
+def test_run_and_wait_runs_a_pass_through_the_coordinator_and_returns_its_result():
+    scanner = ProgressScanner()
+    coordinator = _inline_coordinator(scanner)
+
+    result = coordinator.run_and_wait()
+
+    assert result["indexed"] == 2
+    assert result["total"] == 3
+    assert scanner.calls == 1
+    status = coordinator.status()
+    assert status["state"] == "done"
+    assert status["trigger"] == "recipe"
+
+
+def test_run_and_wait_forwards_progress_to_its_listener_only_while_it_runs():
+    scanner = ProgressScanner()
+    coordinator = _inline_coordinator(scanner)
+    ticks = []
+
+    coordinator.run_and_wait(on_progress=lambda current, total, message: ticks.append((current, total, message)))
+    coordinator.start_indexing()
+
+    assert ticks == [(1, 2, "first"), (2, 2, "second")]
+
+
+def test_run_and_wait_leaves_the_coordinators_own_progress_reporting_intact():
+    scanner = ProgressScanner()
+    coordinator = _inline_coordinator(scanner)
+
+    coordinator.run_and_wait(on_progress=lambda *args: None)
+
+    assert scanner.callback is None
+    status = coordinator.status()
+    assert (status["processed"], status["total"]) == (2, 2)
+
+
+def test_run_and_wait_raises_the_scan_error():
+    coordinator = _coordinator(scanner_raises=OSError("disk unavailable"))
+
+    with pytest.raises(ModelIndexingException, match="disk unavailable"):
+        coordinator.run_and_wait()
+
+
+def test_run_and_wait_raises_when_a_plugin_blocks_indexing():
+    coordinator = _coordinator(plugin_registry=FakePluginRegistry(blocked=True, block_reason="Maintenance window"))
+
+    with pytest.raises(ModelIndexingException, match="Maintenance window"):
+        coordinator.run_and_wait()
+
+    assert coordinator.scanner.index_models.call_count == 0
+
+
+def test_run_and_wait_joins_a_running_pass_and_runs_one_more_after_it_without_cancelling():
+
+    scanner = CountingScanner(hold_first_run=True)
+    spawner = ThreadSpawner()
+    coordinator = build_coordinator(scanner, spawner)
+    coordinator.start_indexing(trigger="manual")
+    assert scanner.first_run_entered.wait(timeout=5)
+    waiter, outcome = _run_and_wait_in_thread(coordinator)
+
+    assert coordinator.status()["restart_pending"] is True
+    assert waiter.is_alive()
+    scanner.release_first_run.set()
+    waiter.join(timeout=5)
+    spawner.join()
+
+    assert not waiter.is_alive()
+    assert scanner.first_run_was_cancelled is False
+    assert scanner.calls == 2
+    assert outcome["result"]["indexed"] == 0
+    assert coordinator.status()["state"] == "done"
+
+
+def test_run_and_wait_gives_up_after_its_timeout():
+
+    scanner = CountingScanner(hold_first_run=True)
+    spawner = ThreadSpawner()
+    coordinator = build_coordinator(scanner, spawner)
+    coordinator.start_indexing(trigger="manual")
+    assert scanner.first_run_entered.wait(timeout=5)
+
+    with pytest.raises(ModelIndexingException, match="Timed out"):
+        coordinator.run_and_wait(timeout=0.05)
+
+    scanner.release_first_run.set()
+    spawner.join()
+
+
+def test_reproject_on_an_idle_coordinator_refreshes_availability_without_scanning():
+    reconciler = MagicMock()
+    reconciler.reconcile = AsyncMock()
+    backend_registry = MagicMock()
+    queued = []
+    coordinator = ModelIndexingCoordinator(
+        spawn=queued.append,
+        model_repository=MagicMock(),
+        plugin_registry=FakePluginRegistry(),
+        scanner=ProgressScanner(),
+        backend_registry=backend_registry,
+        native_availability_projector=reconciler,
+    )
+
+    result = coordinator.reproject(trigger="roots_change")
+
+    assert result["state"] == "idle"
+    assert len(queued) == 1
+    queued[0]()
+    reconciler.reconcile.assert_awaited_once_with(backend_registry)
+    assert coordinator.scanner.calls == 0
+
+
+def test_reproject_while_a_pass_runs_leaves_it_alone_and_refreshes_availability_once_it_ends():
+
+    scanner = CountingScanner(hold_first_run=True)
+    spawner = ThreadSpawner()
+    coordinator = build_coordinator(scanner, spawner)
+    coordinator.start_indexing(trigger="manual")
+    assert scanner.first_run_entered.wait(timeout=5)
+
+    result = coordinator.reproject(trigger="roots_change")
+
+    assert result["restart_pending"] is False
+    assert len(spawner.threads) == 1
+    scanner.release_first_run.set()
+    spawner.join()
+    assert scanner.first_run_was_cancelled is False
+    assert scanner.calls == 1
+    assert coordinator.native_availability_projector.reconcile.await_count == 2
+
+
+def test_update_settings_changes_and_reports_the_level():
+    scanner = ProgressScanner()
+    coordinator = _inline_coordinator(scanner)
+
+    assert coordinator.update_settings() == {"level": "low"}
+    assert coordinator.update_settings(level="normal") == {"level": "normal"}
+    assert scanner.governor.level() == "normal"
+
+
+def test_update_settings_rejects_an_unknown_level():
+    coordinator = _inline_coordinator(ProgressScanner())
+
+    with pytest.raises(InvalidIndexingLevel):
+        coordinator.update_settings(level="turbo")
+
+
+def _run_and_wait_in_thread(coordinator):
+    outcome = {}
+
+    def waiting():
+        try:
+            outcome["result"] = coordinator.run_and_wait()
+        except ModelIndexingException as exc:
+            outcome["error"] = str(exc)
+
+    waiter = threading.Thread(target=waiting, daemon=True)
+    waiter.start()
+    wait_until(lambda: coordinator.status()["restart_pending"])
+    return waiter, outcome
+
+
+class BlockingReconciler:
+    def __init__(self):
+        self.calls = 0
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    async def reconcile(self, backend_registry):
+        self.calls += 1
+        if self.calls == 1:
+            self.entered.set()
+            await asyncio.to_thread(self.release.wait, 5)
+
+
+def _coordinator_in_the_post_scan_window(scanner, reconciler):
+    spawner = ThreadSpawner()
+    coordinator = ModelIndexingCoordinator(
+        spawn=spawner,
+        model_repository=MagicMock(),
+        plugin_registry=FakePluginRegistry(),
+        scanner=scanner,
+        native_availability_projector=reconciler,
+    )
+    coordinator.start_indexing(trigger="manual")
+    assert reconciler.entered.wait(5)
+    return coordinator, spawner
+
+
+def test_run_and_wait_during_the_post_scan_window_gets_a_fresh_pass_after_it():
+    scanner = ProgressScanner()
+    reconciler = BlockingReconciler()
+    coordinator, spawner = _coordinator_in_the_post_scan_window(scanner, reconciler)
+    waiter, outcome = _run_and_wait_in_thread(coordinator)
+
+    assert coordinator.status()["restart_pending"] is True
+    assert waiter.is_alive()
+    reconciler.release.set()
+    waiter.join(5)
+    spawner.join()
+
+    assert not waiter.is_alive()
+    assert scanner.calls == 2
+    assert outcome["result"]["indexed"] == 2
+    assert coordinator.status()["state"] == "done"
+
+
+def test_reproject_during_the_post_scan_window_refreshes_availability_again_without_scanning():
+    scanner = ProgressScanner()
+    reconciler = BlockingReconciler()
+    coordinator, spawner = _coordinator_in_the_post_scan_window(scanner, reconciler)
+
+    result = coordinator.reproject(trigger="roots_change")
+    reconciler.release.set()
+    spawner.join()
+
+    assert result["restart_pending"] is False
+    assert scanner.calls == 1
+    assert reconciler.calls == 2
+    assert len(spawner.threads) == 1
+
+
+def test_a_start_right_after_the_post_scan_window_is_not_lost():
+    scanner = ProgressScanner()
+    reconciler = BlockingReconciler()
+    coordinator, spawner = _coordinator_in_the_post_scan_window(scanner, reconciler)
+
+    coordinator.start_indexing(trigger="manual")
+    reconciler.release.set()
+    spawner.join()
+
+    assert scanner.calls == 2
+    assert coordinator.status()["state"] == "done"
+
+
+def _parked_pass(tmp_path):
+    from src.features.models.indexing_governor import IndexingGovernor
+    from src.features.models.read_throttle import ReadThrottle
+    from tests.features.models.test_indexer_roots import _binding, _resolver, _root, _write
+
+    home = tmp_path / "home"
+    for name in ("a.safetensors", "b.safetensors"):
+        _write(home / "loras" / name, name.encode() * 64)
+    resolver = _resolver([_root("r_home", home)], [_binding("r_home", "lora", home / "loras", 0)])
+    parked = threading.Event()
+    governor = IndexingGovernor(throttle=ReadThrottle(busy=lambda: parked.set() or True, poll_seconds=0.05))
+    governor.set_level("low")
+    scanner = ModelScanner(resolver, governor=governor)
+    spawner = ThreadSpawner()
+    coordinator = ModelIndexingCoordinator(
+        spawn=spawner,
+        model_repository=MagicMock(),
+        plugin_registry=FakePluginRegistry(),
+        scanner=scanner,
+        native_availability_projector=MagicMock(reconcile=AsyncMock()),
+    )
+    coordinator.start_indexing(trigger="manual")
+    assert parked.wait(5)
+    return coordinator, spawner
+
+
+def test_shutdown_releases_workers_parked_for_a_generation_within_a_second(tmp_path, threadsafe_db):
+    coordinator, spawner = _parked_pass(tmp_path)
+    started = time.monotonic()
+
+    stopped = coordinator.shutdown()
+
+    assert stopped is True
+    assert time.monotonic() - started < 1.0
+    spawner.join()
+    assert coordinator.status()["state"] == "cancelled"
+
+
+def test_shutdown_refuses_new_passes_and_ignores_restart_requests():
+    queued = []
+    coordinator = _coordinator(spawn=queued.append)
+
+    assert coordinator.shutdown() is True
+
+    with pytest.raises(ModelIndexingException, match="shutting down"):
+        coordinator.start_indexing()
+    with pytest.raises(ModelIndexingException, match="shutting down"):
+        coordinator.run_and_wait()
+    assert coordinator.rescan(trigger="roots_change")["state"] == "idle"
+    assert coordinator.reproject()["state"] == "idle"
+    assert queued == []
+
+
+def test_a_start_after_shutdown_does_not_run_the_before_index_hooks():
+    plugins = MagicMock()
+    coordinator = _coordinator(plugin_registry=plugins)
+    coordinator.shutdown()
+
+    with pytest.raises(ModelIndexingException, match="shutting down"):
+        coordinator.start_indexing()
+
+    plugins.execute_hook.assert_not_called()
+
+
+def test_a_restart_requested_while_a_start_is_queued_is_dropped_by_shutdown():
+    queued = []
+    coordinator = _coordinator(spawn=queued.append)
+    coordinator.start_indexing()
+    waiter, outcome = _run_and_wait_in_thread(coordinator)
+    assert coordinator.status()["restart_pending"] is True
+
+    coordinator.shutdown(timeout=0.01)
+    queued[0]()
+    waiter.join(5)
+
+    status = coordinator.status()
+    assert (status["state"], status["restart_pending"]) == ("cancelled", False)
+    assert coordinator.scanner.index_models.call_count == 0
+    assert "cancelled" in outcome["error"]
+
+
+def test_shutdown_drops_a_pending_restart_so_the_pass_is_not_run_again():
+
+    scanner = CountingScanner(hold_first_run=True)
+    spawner = ThreadSpawner()
+    coordinator = build_coordinator(scanner, spawner)
+    coordinator.start_indexing(trigger="manual")
+    assert scanner.first_run_entered.wait(timeout=5)
+    coordinator.rescan(trigger="roots_change")
+    assert coordinator.status()["restart_pending"] is True
+
+    assert coordinator.shutdown() is True
+
+    spawner.join()
+    assert scanner.calls == 1
+    assert scanner.first_run_was_cancelled is True
+    status = coordinator.status()
+    assert (status["state"], status["restart_pending"]) == ("cancelled", False)
+
+
+def test_shutdown_reports_a_pass_that_does_not_stop_in_time():
+    release = threading.Event()
+    started = threading.Event()
+
+    class IgnoresCancelScanner:
+        digests = None
+
+        governor = None
+
+        def set_progress_callback(self, cb):
+            return None
+
+        def index_models(self, cancel_check=None):
+            started.set()
+            release.wait(5)
+            return {"indexed": 0, "cancelled": True}
+
+    spawner = ThreadSpawner()
+    coordinator = ModelIndexingCoordinator(
+        spawn=spawner, model_repository=MagicMock(), plugin_registry=FakePluginRegistry(), scanner=IgnoresCancelScanner(),
+    )
+    coordinator.start_indexing()
+    assert started.wait(5)
+
+    assert coordinator.shutdown(timeout=0.05) is False
+
+    release.set()
+    spawner.join()
+
+
+def test_a_start_that_was_queued_before_shutdown_is_cancelled_when_its_worker_runs():
+    queued = []
+    coordinator = _coordinator(spawn=queued.append)
+    coordinator.start_indexing()
+
+    assert coordinator.shutdown(timeout=0.01) is False
+    queued[0]()
+
+    assert coordinator.scanner.index_models.call_count == 0
+    assert coordinator.status()["state"] == "cancelled"
+    assert coordinator.shutdown(timeout=1) is True
+
+
+def test_run_and_wait_fails_when_the_pass_it_joined_is_cancelled_by_shutdown():
+
+    scanner = CountingScanner(hold_first_run=True)
+    spawner = ThreadSpawner()
+    coordinator = build_coordinator(scanner, spawner)
+    coordinator.start_indexing(trigger="manual")
+    assert scanner.first_run_entered.wait(timeout=5)
+    waiter, outcome = _run_and_wait_in_thread(coordinator)
+
+    coordinator.shutdown()
+    waiter.join(5)
+    spawner.join()
+
+    assert not waiter.is_alive()
+    assert "result" not in outcome
+    assert "cancelled" in outcome["error"]
+
+
+def test_run_and_wait_fails_when_a_plugin_blocks_the_follow_up_pass():
+
+    plugins = FakePluginRegistry()
+    scanner = CountingScanner(hold_first_run=True)
+    spawner = ThreadSpawner()
+    coordinator = build_coordinator(scanner, spawner)
+    coordinator.plugins = plugins
+    coordinator.start_indexing(trigger="manual")
+    assert scanner.first_run_entered.wait(timeout=5)
+    waiter, outcome = _run_and_wait_in_thread(coordinator)
+    plugins.blocked = True
+    plugins.block_reason = "Maintenance window"
+
+    scanner.release_first_run.set()
+    waiter.join(5)
+    spawner.join()
+
+    assert "result" not in outcome
+    assert outcome["error"] == "Maintenance window"
+    assert coordinator.status()["state"] == "blocked"
+

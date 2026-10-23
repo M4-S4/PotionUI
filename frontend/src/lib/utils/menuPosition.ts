@@ -143,6 +143,23 @@ export function computeFlippedMenuPosition(
 		: { left, top: rect.bottom + gap, maxHeight };
 }
 
+export type FlippedMenuOptions = Parameters<typeof computeFlippedMenuPosition>[1];
+
+export function trackMenuPosition(
+	trigger: HTMLElement,
+	getOptions: () => FlippedMenuOptions,
+	apply: (position: FlippedMenuPosition) => void
+): () => void {
+	const update = () => apply(computeFlippedMenuPosition(trigger, getOptions()));
+	update();
+	window.addEventListener('resize', update);
+	window.addEventListener('scroll', update, true);
+	return () => {
+		window.removeEventListener('resize', update);
+		window.removeEventListener('scroll', update, true);
+	};
+}
+
 /** `right`/`top`-or-`bottom` inline style string, flipping upward when there's
  *  more room above the trigger than below and not enough room below to fit
  *  `heightEstimate`. */

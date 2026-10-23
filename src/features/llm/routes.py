@@ -14,8 +14,10 @@ from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
+from src.platform.http.error_pipeline import Fail, guarded, raw_detail
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.llm.dto import (
+    ContextWindowDiscoveryRequest,
     LLMConfigRequest,
     LLMGenerateRequest,
     ModelDiscoveryRequest,
@@ -36,9 +38,11 @@ from src.features.llm import (
 )
 from src.features.llm import operations
 from src.features.llm.mappers import config_to_response, assignment_config_to_response
+from src.features.llm import context_budget
 from src.features.llm.model_listing import ModelListingError
 from src.features.llm.repository import LLMRepository
 from src.features.llm.gateway import LLMGateway
+from src.platform.database.rows import dt_iso
 from src.platform.filesystem.model_roots import ModelRootResolver
 from src.platform.plugins import PluginRegistry
 from src.platform.settings.settings import Settings
@@ -80,25 +84,22 @@ class LLMController(BaseController):
     # Configuration Endpoints
     # =========================================================================
 
+    @guarded(
+        {},
+        Fail("get_configurations_failed", "Failed to get LLM configurations", detail=raw_detail),
+    )
     def get_all_configurations(self) -> APIResponse:
         """Get all LLM configurations."""
-        try:
-            configs = self.repository.get_all_configurations()
-            default_provider = self.repository.default_provider
-            data = {
-                "configurations": [
-                    config_to_response(config, config_id == default_provider)
-                    for config_id, config in configs.items()
-                ],
-                "default_provider": default_provider,
-            }
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting configurations: {e}")
-            return self.error_api_response(
-                error="get_configurations_failed",
-                message=f"Failed to get LLM configurations: {str(e)}"
-            )
+        configs = self.repository.get_all_configurations()
+        default_provider = self.repository.default_provider
+        data = {
+            "configurations": [
+                config_to_response(config, config_id == default_provider)
+                for config_id, config in configs.items()
+            ],
+            "default_provider": default_provider,
+        }
+        return self.success_response(data=data)
 
     def list_provider_types(self) -> APIResponse:
         return self.success_response(data={"types": self.llm_service.provider_types()})
@@ -124,23 +125,59 @@ class LLMController(BaseController):
             data={"supported": True, "models": [m.model_dump() for m in models], "error": None}
         )
 
+    async def discover_context_window(self, request: ContextWindowDiscoveryRequest) -> APIResponse:
+        empty = {
+            "supported": True, "detected": None, "detected_kind": None,
+            "effective": None, "discovered_at": None, "error": None,
+        }
+        if not self.llm_service.supports_context_window_discovery(request.type):
+            return self.success_response(data={**empty, "supported": False})
+        api_key = request.api_key or None
+        if not api_key and request.config_id:
+            stored = self.repository.get_configuration(request.config_id)
+            if stored is not None and stored.type == request.type:
+                api_key = stored.api_key or None
+        try:
+            probe = await self.llm_service.refresh_context_window(
+                request.type, request.base_url or "", api_key, request.model,
+            )
+        except Exception:
+            logger.exception("Context window discovery failed for LLM type %s", request.type)
+            return self.success_response(data={**empty, "error": "Context window discovery failed unexpectedly."})
+        discovered_at = dt_iso(probe.discovered_at)
+        if probe.window is None:
+            return self.success_response(data={
+                **empty,
+                "discovered_at": discovered_at,
+                "error": "Couldn't detect a context window for this model. "
+                         "Check the address and model name, or enter one manually.",
+            })
+        return self.success_response(data={
+            **empty,
+            "detected": probe.window.tokens,
+            "detected_kind": probe.window.kind,
+            "effective": context_budget.effective_discovered_tokens(request.type, probe.window),
+            "discovered_at": discovered_at,
+        })
+
+    @guarded(
+        {},
+        Fail("list_native_checkpoints_failed", "Failed to list native LLM checkpoints", detail=raw_detail),
+    )
     def list_native_checkpoints(self) -> APIResponse:
         """List HF-layout checkpoints under models/llm/, for the 'native'
         provider's config.model picker."""
-        try:
-            from dataclasses import asdict
+        from dataclasses import asdict
 
-            from src.features.llm.native_library import list_native_checkpoints
+        from src.features.llm.native_library import list_native_checkpoints
 
-            entries = [asdict(e) for e in list_native_checkpoints(self.model_roots)]
-            return self.success_response(data=entries)
-        except Exception as e:
-            logger.exception(f"Error listing native LLM checkpoints: {e}")
-            return self.error_api_response(
-                error="list_native_checkpoints_failed",
-                message=f"Failed to list native LLM checkpoints: {str(e)}"
-            )
+        entries = [asdict(e) for e in list_native_checkpoints(self.model_roots)]
+        return self.success_response(data=entries)
 
+    @guarded(
+        {},
+        Fail("fetch_gemma3_chat_tokenizer_failed", "Failed to fetch gemma3 chat tokenizer assets", detail=raw_detail),
+    )
     async def fetch_gemma3_chat_tokenizer(self) -> APIResponse:
         """Fetch the gemma3 chat-tokenizer assets (tokenizer.json +
         tokenizer_config.json) that lift the "tokenizer assets not downloaded
@@ -155,361 +192,238 @@ class LLMController(BaseController):
                 message="Native LLM provider: no download manager available yet "
                         "(the app container hasn't finished composing)",
             )
-        try:
-            import asyncio
+        import asyncio
 
-            from src.features.llm.native_te_adoption import ensure_gemma3_chat_tokenizer
+        from src.features.llm.native_te_adoption import ensure_gemma3_chat_tokenizer
 
-            path = await asyncio.to_thread(ensure_gemma3_chat_tokenizer, self.download_queue, self.model_roots)
-            return self.success_response(
-                data={"path": str(path)},
-                message="gemma3 chat tokenizer assets fetched",
-            )
-        except Exception as e:
-            logger.exception(f"Error fetching gemma3 chat tokenizer assets: {e}")
-            return self.error_api_response(
-                error="fetch_gemma3_chat_tokenizer_failed",
-                message=f"Failed to fetch gemma3 chat tokenizer assets: {str(e)}"
-            )
+        path = await asyncio.to_thread(ensure_gemma3_chat_tokenizer, self.download_queue, self.model_roots)
+        return self.success_response(
+            data={"path": str(path)},
+            message="gemma3 chat tokenizer assets fetched",
+        )
 
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("configuration_not_found"),
+        },
+        Fail("get_configuration_failed", "Failed to get LLM configuration", detail=raw_detail),
+    )
     def get_configuration(self, config_id: str) -> APIResponse:
         """Get a specific LLM configuration."""
-        try:
-            config = self.repository.get_configuration(config_id)
-            if not config:
-                raise ConfigurationNotFoundException(
-                    f"LLM configuration '{config_id}' not found"
-                )
-            response = config_to_response(config, config_id == self.repository.default_provider)
-            return self.success_response(data=response)
-        except ConfigurationNotFoundException as e:
-            return self.error_api_response(
-                error="configuration_not_found",
-                message=str(e)
+        config = self.repository.get_configuration(config_id)
+        if not config:
+            raise ConfigurationNotFoundException(
+                f"LLM configuration '{config_id}' not found"
             )
-        except Exception as e:
-            logger.exception(f"Error getting configuration: {e}")
-            return self.error_api_response(
-                error="get_configuration_failed",
-                message=f"Failed to get LLM configuration: {str(e)}"
-            )
+        response = config_to_response(config, config_id == self.repository.default_provider)
+        return self.success_response(data=response)
 
+    @guarded(
+        {
+            ConfigurationExistsException: Fail("configuration_already_exists"),
+            ConfigurationCreationFailedException: Fail("create_configuration_failed"),
+        },
+        Fail("create_configuration_failed", "Failed to create LLM configuration", detail=raw_detail),
+    )
     def create_configuration(self, request: LLMConfigRequest) -> APIResponse:
         """Create a new LLM configuration."""
-        try:
-            config_id = operations.create_configuration(self.repository, self.plugins, request)
-            return self.success_response(
-                data={"id": config_id},
-                message=f"LLM configuration '{config_id}' created successfully"
-            )
-        except ConfigurationExistsException as e:
-            return self.error_api_response(
-                error="configuration_already_exists",
-                message=str(e)
-            )
-        except ConfigurationCreationFailedException as e:
-            return self.error_api_response(
-                error="create_configuration_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error creating configuration: {e}")
-            return self.error_api_response(
-                error="create_configuration_failed",
-                message=f"Failed to create LLM configuration: {str(e)}"
-            )
+        config_id = operations.create_configuration(self.repository, self.plugins, request)
+        return self.success_response(
+            data={"id": config_id},
+            message=f"LLM configuration '{config_id}' created successfully"
+        )
 
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("configuration_not_found"),
+            ConfigurationUpdateFailedException: Fail("update_configuration_failed"),
+        },
+        Fail("update_configuration_failed", "Failed to update LLM configuration", detail=raw_detail),
+    )
     def update_configuration(self, config_id: str, request: LLMConfigRequest) -> APIResponse:
         """Update an existing LLM configuration."""
-        try:
-            updated_id = operations.update_configuration(self.repository, self.plugins, config_id, request)
-            return self.success_response(
-                data={"id": updated_id},
-                message=f"LLM configuration '{updated_id}' updated successfully"
-            )
-        except ConfigurationNotFoundException as e:
-            return self.error_api_response(
-                error="configuration_not_found",
-                message=str(e)
-            )
-        except ConfigurationUpdateFailedException as e:
-            return self.error_api_response(
-                error="update_configuration_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error updating configuration: {e}")
-            return self.error_api_response(
-                error="update_configuration_failed",
-                message=f"Failed to update LLM configuration: {str(e)}"
-            )
+        updated_id = operations.update_configuration(self.repository, self.plugins, config_id, request)
+        return self.success_response(
+            data={"id": updated_id},
+            message=f"LLM configuration '{updated_id}' updated successfully"
+        )
 
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("configuration_not_found"),
+            CannotDeleteDefaultConfigException: Fail("cannot_delete_default"),
+            ConfigurationDeletionFailedException: Fail("delete_configuration_failed"),
+        },
+        Fail("delete_configuration_failed", "Failed to delete LLM configuration", detail=raw_detail),
+    )
     def delete_configuration(self, config_id: str) -> APIResponse:
         """Delete an LLM configuration."""
-        try:
-            deleted_id = operations.delete_configuration(
-                self.repository, self.plugins, self.tool_governance_repository, config_id
-            )
-            return self.success_response(
-                data={"id": deleted_id},
-                message=f"LLM configuration '{deleted_id}' deleted successfully"
-            )
-        except ConfigurationNotFoundException as e:
-            return self.error_api_response(
-                error="configuration_not_found",
-                message=str(e)
-            )
-        except CannotDeleteDefaultConfigException as e:
-            return self.error_api_response(
-                error="cannot_delete_default",
-                message=str(e)
-            )
-        except ConfigurationDeletionFailedException as e:
-            return self.error_api_response(
-                error="delete_configuration_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error deleting configuration: {e}")
-            return self.error_api_response(
-                error="delete_configuration_failed",
-                message=f"Failed to delete LLM configuration: {str(e)}"
-            )
+        deleted_id = operations.delete_configuration(
+            self.repository, self.plugins, self.tool_governance_repository, config_id
+        )
+        return self.success_response(
+            data={"id": deleted_id},
+            message=f"LLM configuration '{deleted_id}' deleted successfully"
+        )
 
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("configuration_not_found"),
+            ConfigurationUpdateFailedException: Fail("set_default_failed"),
+        },
+        Fail("set_default_failed", "Failed to set default LLM provider", detail=raw_detail),
+    )
     def set_default_provider(self, config_id: str) -> APIResponse:
         """Set the default LLM provider."""
-        try:
-            default_id = operations.set_default_provider(self.repository, config_id)
-            return self.success_response(
-                data={"default_provider": default_id},
-                message=f"Default LLM provider set to '{default_id}'"
-            )
-        except ConfigurationNotFoundException as e:
-            return self.error_api_response(
-                error="configuration_not_found",
-                message=str(e)
-            )
-        except ConfigurationUpdateFailedException as e:
-            return self.error_api_response(
-                error="set_default_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error setting default provider: {e}")
-            return self.error_api_response(
-                error="set_default_failed",
-                message=f"Failed to set default LLM provider: {str(e)}"
-            )
+        default_id = operations.set_default_provider(self.repository, config_id)
+        return self.success_response(
+            data={"default_provider": default_id},
+            message=f"Default LLM provider set to '{default_id}'"
+        )
 
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("configuration_not_found"),
+        },
+        Fail("test_failed", "Failed to test LLM configuration", detail=raw_detail),
+    )
     async def test_configuration(self, config_id: str) -> APIResponse:
         """Test an LLM configuration."""
-        try:
-            config = self.repository.get_configuration(config_id)
-            if not config:
-                raise ConfigurationNotFoundException(
-                    f"LLM configuration '{config_id}' not found"
-                )
-            result = await self.llm_service.test_configuration(config)
-            if result["success"]:
-                return self.success_response(
-                    data=result,
-                    message=f"LLM configuration '{config_id}' test successful"
-                )
-            else:
-                return self.error_api_response(
-                    error="test_failed",
-                    message=f"LLM configuration test failed: {result.get('error', 'Unknown error')}"
-                )
-        except ConfigurationNotFoundException as e:
-            return self.error_api_response(
-                error="configuration_not_found",
-                message=str(e)
+        config = self.repository.get_configuration(config_id)
+        if not config:
+            raise ConfigurationNotFoundException(
+                f"LLM configuration '{config_id}' not found"
             )
-        except Exception as e:
-            logger.exception(f"Error testing configuration: {e}")
+        result = await self.llm_service.test_configuration(config)
+        if result["success"]:
+            return self.success_response(
+                data=result,
+                message=f"LLM configuration '{config_id}' test successful"
+            )
+        else:
             return self.error_api_response(
                 error="test_failed",
-                message=f"Failed to test LLM configuration: {str(e)}"
+                message=f"LLM configuration test failed: {result.get('error', 'Unknown error')}"
             )
 
-    # =========================================================================
-    # Generation Endpoint
-    # =========================================================================
-
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("configuration_not_found"),
+            VisionNotSupportedException: Fail("vision_not_supported"),
+            ImageLoadFailedException: Fail("image_load_failed"),
+            GenerationFailedException: Fail("generation_failed"),
+        },
+        Fail("generation_failed", "Failed to generate response", detail=raw_detail),
+    )
     async def generate_response(self, request: LLMGenerateRequest, user: User) -> APIResponse:
         """Generate a response using an LLM."""
-        try:
-            response = await operations.generate_response(
-                self.repository, self.llm_service, self.settings, self.plugins, request, user.id
-            )
-            return self.success_response(data=response)
-        except ConfigurationNotFoundException as e:
-            return self.error_api_response(
-                error="configuration_not_found",
-                message=str(e)
-            )
-        except VisionNotSupportedException as e:
-            return self.error_api_response(
-                error="vision_not_supported",
-                message=str(e)
-            )
-        except ImageLoadFailedException as e:
-            return self.error_api_response(
-                error="image_load_failed",
-                message=str(e)
-            )
-        except GenerationFailedException as e:
-            return self.error_api_response(
-                error="generation_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error generating response: {e}")
-            return self.error_api_response(
-                error="generation_failed",
-                message=f"Failed to generate response: {str(e)}"
-            )
+        response = await operations.generate_response(
+            self.repository, self.llm_service, self.settings, self.plugins, request, user.id
+        )
+        return self.success_response(data=response)
 
-    # =========================================================================
-    # User LLM Assignment Endpoints
-    # =========================================================================
-
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("llm_config_not_found"),
+            AssignmentFailedException: Fail("assignment_failed"),
+        },
+        Fail("assignment_failed", "Failed to assign LLM to user", detail=raw_detail),
+    )
     def assign_llm_to_user(self, request: UserLLMAssignmentRequest) -> APIResponse:
         """Assign an LLM configuration to a user."""
-        try:
-            result = operations.assign_llm_to_user(self.repository, request.user_id, request.llm_config_id)
-            return self.success_response(
-                data=result,
-                message="LLM assigned to user successfully"
-            )
-        except ConfigurationNotFoundException as e:
-            return self.error_api_response(
-                error="llm_config_not_found",
-                message=str(e)
-            )
-        except AssignmentFailedException as e:
-            return self.error_api_response(
-                error="assignment_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error assigning LLM to user: {e}")
-            return self.error_api_response(
-                error="assignment_failed",
-                message=f"Failed to assign LLM to user: {str(e)}"
-            )
+        result = operations.assign_llm_to_user(self.repository, request.user_id, request.llm_config_id)
+        return self.success_response(
+            data=result,
+            message="LLM assigned to user successfully"
+        )
 
+    @guarded(
+        {
+            AssignmentNotFoundException: Fail("assignment_not_found"),
+            AssignmentFailedException: Fail("unassignment_failed"),
+        },
+        Fail("unassignment_failed", "Failed to remove LLM assignment", detail=raw_detail),
+    )
     def unassign_llm_from_user(self, user_id: str, llm_config_id: str) -> APIResponse:
         """Remove LLM configuration assignment from a user."""
-        try:
-            result = operations.unassign_llm_from_user(self.repository, user_id, llm_config_id)
-            return self.success_response(
-                data=result,
-                message="LLM assignment removed successfully"
-            )
-        except AssignmentNotFoundException as e:
-            return self.error_api_response(
-                error="assignment_not_found",
-                message=str(e)
-            )
-        except AssignmentFailedException as e:
-            return self.error_api_response(
-                error="unassignment_failed",
-                message=str(e)
-            )
-        except Exception as e:
-            logger.exception(f"Error unassigning LLM from user: {e}")
-            return self.error_api_response(
-                error="unassignment_failed",
-                message=f"Failed to remove LLM assignment: {str(e)}"
-            )
+        result = operations.unassign_llm_from_user(self.repository, user_id, llm_config_id)
+        return self.success_response(
+            data=result,
+            message="LLM assignment removed successfully"
+        )
 
+    @guarded(
+        {},
+        Fail("get_assignments_failed", "Failed to get user LLM assignments", detail=raw_detail),
+    )
     def get_user_llm_assignments(self, user_id: str) -> APIResponse:
         """Get all LLM configurations assigned to a user."""
-        try:
-            user_configs = self.repository.get_user_llm_configurations(user_id)
-            llm_configs = [assignment_config_to_response(c) for c in user_configs.values()]
-            data = {
-                "user_id": user_id,
-                "llm_configs": [c.model_dump() for c in llm_configs],
-            }
-            return self.success_response(
-                data=data,
-                message=f"Found {len(data.get('llm_configs', []))} LLM configurations for user"
-            )
-        except Exception as e:
-            logger.exception(f"Error getting user LLM assignments: {e}")
-            return self.error_api_response(
-                error="get_assignments_failed",
-                message=f"Failed to get user LLM assignments: {str(e)}"
-            )
+        user_configs = self.repository.get_user_llm_configurations(user_id)
+        llm_configs = [assignment_config_to_response(c) for c in user_configs.values()]
+        data = {
+            "user_id": user_id,
+            "llm_configs": [c.model_dump() for c in llm_configs],
+        }
+        return self.success_response(
+            data=data,
+            message=f"Found {len(data.get('llm_configs', []))} LLM configurations for user"
+        )
 
+    @guarded(
+        {},
+        Fail("get_all_assignments_failed", "Failed to get all user LLM assignments", detail=raw_detail),
+    )
     def get_all_user_llm_assignments(self) -> APIResponse:
         """Get all user LLM assignments (admin only)."""
-        try:
-            assignments = self.repository.get_all_user_llm_assignments()
-            all_configs = self.repository.get_all_configurations()
+        assignments = self.repository.get_all_user_llm_assignments()
+        all_configs = self.repository.get_all_configurations()
 
-            formatted_assignments = []
-            for user_id, llm_config_ids in assignments.items():
-                user_llm_configs = [
-                    assignment_config_to_response(all_configs[config_id])
-                    for config_id in llm_config_ids
-                    if config_id in all_configs
-                ]
-                formatted_assignments.append({
-                    "user_id": user_id,
-                    "llm_configs": [c.model_dump() for c in user_llm_configs],
-                })
+        formatted_assignments = []
+        for user_id, llm_config_ids in assignments.items():
+            user_llm_configs = [
+                assignment_config_to_response(all_configs[config_id])
+                for config_id in llm_config_ids
+                if config_id in all_configs
+            ]
+            formatted_assignments.append({
+                "user_id": user_id,
+                "llm_configs": [c.model_dump() for c in user_llm_configs],
+            })
 
-            data = {"assignments": formatted_assignments}
-            return self.success_response(
-                data=data,
-                message=f"Found {len(data.get('assignments', []))} user LLM assignments"
-            )
-        except Exception as e:
-            logger.exception(f"Error getting all user LLM assignments: {e}")
-            return self.error_api_response(
-                error="get_all_assignments_failed",
-                message=f"Failed to get all user LLM assignments: {str(e)}"
-            )
+        data = {"assignments": formatted_assignments}
+        return self.success_response(
+            data=data,
+            message=f"Found {len(data.get('assignments', []))} user LLM assignments"
+        )
 
+    @guarded(
+        {
+            ConfigurationNotFoundException: Fail("configuration_not_found"),
+        },
+        Fail("get_assignments_failed", "Failed to get LLM assignments", detail=raw_detail),
+    )
     def get_llm_assignments(self, config_id: str) -> APIResponse:
         """Get the users directly assigned to an LLM configuration (admin only)."""
-        try:
-            if not self.repository.get_configuration(config_id):
-                raise ConfigurationNotFoundException(
-                    f"LLM configuration '{config_id}' not found"
-                )
-            user_ids = self.repository.get_llm_users(config_id)
-            data = {
-                "llm_config_id": config_id,
-                "assignments": [{"user_id": user_id} for user_id in user_ids],
-            }
-            return self.success_response(data=data)
-        except ConfigurationNotFoundException as e:
-            return self.error_api_response(
-                error="configuration_not_found",
-                message=str(e)
+        if not self.repository.get_configuration(config_id):
+            raise ConfigurationNotFoundException(
+                f"LLM configuration '{config_id}' not found"
             )
-        except Exception as e:
-            logger.exception(f"Error getting LLM assignments: {e}")
-            return self.error_api_response(
-                error="get_assignments_failed",
-                message=f"Failed to get LLM assignments: {str(e)}"
-            )
+        user_ids = self.repository.get_llm_users(config_id)
+        data = {
+            "llm_config_id": config_id,
+            "assignments": [{"user_id": user_id} for user_id in user_ids],
+        }
+        return self.success_response(data=data)
 
+    @guarded(
+        {},
+        Fail("get_assignment_summary_failed", "Failed to get LLM assignment summary", detail=raw_detail),
+    )
     def get_llm_assignment_summary(self) -> APIResponse:
         """Direct-user and group assignment counts for every LLM configuration (admin only)."""
-        try:
-            data = self.repository.get_llm_assignment_summary()
-            return self.success_response(data=data)
-        except Exception as e:
-            logger.exception(f"Error getting LLM assignment summary: {e}")
-            return self.error_api_response(
-                error="get_assignment_summary_failed",
-                message=f"Failed to get LLM assignment summary: {str(e)}"
-            )
+        data = self.repository.get_llm_assignment_summary()
+        return self.success_response(data=data)
+
 
 
 # ============================================================================
@@ -536,6 +450,14 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         return await controller.discover_models(request)
 
+    @router.post(
+        "/context-window/discover", response_model=APIResponse, summary="Discover Model Context Window",
+    )
+    async def discover_llm_context_window(
+        request: ContextWindowDiscoveryRequest, current_user: User = Depends(get_current_admin_user)
+    ):
+        return await controller.discover_context_window(request)
+
     @router.get("/native/checkpoints", response_model=APIResponse, summary="List Native LLM Checkpoints")
     async def list_native_llm_checkpoints(current_user: User = Depends(get_current_admin_user)):
         """List HF-layout checkpoints available to the 'native' LLM provider."""
@@ -544,6 +466,10 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.post(
         "/native/checkpoints/gemma3-tokenizer/fetch", response_model=APIResponse,
         summary="Fetch Gemma-3 Chat Tokenizer Assets",
+    )
+    @guarded(
+        {},
+        Fail("fetch_gemma3_chat_tokenizer_failed", "Failed to fetch gemma3 chat tokenizer assets", detail=raw_detail),
     )
     async def fetch_gemma3_chat_tokenizer(current_user: User = Depends(get_current_admin_user)):
         """Fetch the gemma3 chat-tokenizer assets that lift a gemma3 TE-adoption

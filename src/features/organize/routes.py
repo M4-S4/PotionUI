@@ -1,7 +1,6 @@
-import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Optional
+from typing import TYPE_CHECKING, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from src.features.organize.dto import (
     AdminControlsBody,
@@ -15,7 +14,6 @@ from src.features.organize.dto import (
 )
 from src.features.organize.admin import OrganizeAdmin
 from src.features.organize.backfill import BackfillManager
-from src.features.organize.errors import OrganizeError
 from src.features.organize.manager import OrganizeManager
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
@@ -25,24 +23,13 @@ if TYPE_CHECKING:
 
 
 class OrganizeController(BaseController):
+    failure_message = "Auto-organize request failed"
 
     def __init__(self, manager: OrganizeManager, backfill: BackfillManager, admin: OrganizeAdmin):
         super().__init__()
         self.manager = manager
         self.backfill = backfill
         self.admin = admin
-
-    async def run(self, error: str, func: Callable[..., Any], *args: Any) -> APIResponse:
-        try:
-            return self.success_response(data=await asyncio.to_thread(func, *args))
-        except OrganizeError as exc:
-            detail = {"success": False, "error": exc.code, "message": exc.message, **exc.extra}
-            self.logger.info(f"Auto-organize request refused: {exc.code}")
-            raise HTTPException(status_code=exc.status_code, detail=detail)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            self.handle_exception(exc, error_code=error, message="Auto-organize request failed")
 
 
 def build_router(container: "AppContainer") -> APIRouter:

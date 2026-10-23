@@ -37,6 +37,7 @@
  */
 
 import { logger } from '$lib/utils/logger';
+import { jsonEqual } from '$lib/utils/equal';
 
 // ====================
 // Types
@@ -272,7 +273,7 @@ function conditionFields(when: any, out: Set<string>) {
 function sameValue(a: unknown, b: unknown): boolean {
 	if (a === b) return true;
 	if (a && b && typeof a === 'object' && typeof b === 'object') {
-		return JSON.stringify(a) === JSON.stringify(b);
+		return jsonEqual(a, b);
 	}
 	return false;
 }

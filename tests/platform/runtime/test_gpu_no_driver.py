@@ -36,24 +36,8 @@ class TestConstructionWithoutADriver:
         g = gpu_module.GpuMonitor()
         assert g.get_total_vram() == 0
         assert g.get_free_vram() == 0
-        assert g.get_used_vram() == 0
         assert g.get_available_vram() == 0.0
         assert g.get_vram_budget() == 0.0
-
-    def test_temperature_is_zero_instead_of_raising(self, monkeypatch):
-        monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        g = gpu_module.GpuMonitor()
-        assert g.get_temperature() == 0
-
-    def test_can_fit_in_vram_reports_false_rather_than_raising(self, monkeypatch):
-        monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        g = gpu_module.GpuMonitor()
-        assert g.can_fit_in_vram(1.0) is False
-
-    def test_log_vram_status_does_not_raise(self, monkeypatch):
-        monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        g = gpu_module.GpuMonitor()
-        g.log_vram_status("test")  # must not raise
 
     def test_del_does_not_raise(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)

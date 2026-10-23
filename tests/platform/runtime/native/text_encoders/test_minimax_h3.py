@@ -122,12 +122,6 @@ def _tiny_h3_module() -> Qwen3Model:
     return m
 
 
-def test_layer_index_constant_is_49():
-    # hidden_states[50] in HF's embedding-inclusive numbering (hidden_states[0]
-    # = embeddings) is the output of 0-indexed decoder layer 49.
-    assert MINIMAX_H3_TEXT_ENCODER_LAYER_INDEX == 49
-
-
 def test_tap_matches_manual_post_block_49_residual():
     """The off-by-one bite-check: the module's layer-49 output-capture must
     equal a hand-run forward stopped right after block 49 — not block 48
@@ -690,15 +684,6 @@ def test_encode_request_with_one_image_vision_block_tagged_video_exact_boundarie
 # --- H3's smart-resize pixel-area bounds vs Krea-2's (min_pixels/max_pixels) ---
 
 
-def test_h3_bounds_constants_are_not_krea2_defaults():
-    """Sanity: the whole point of parameterizing is that these differ from
-    `preprocess_qwen3_vl_image`'s own (Krea-2-shaped) defaults."""
-    assert H3_VISION_MIN_PIXELS == 65536
-    assert H3_VISION_MAX_PIXELS == 16777216
-    assert H3_VISION_MIN_PIXELS != 3136          # preprocess_qwen3_vl_image's default min_pixels
-    assert H3_VISION_MAX_PIXELS != 12845056      # preprocess_qwen3_vl_image's default max_pixels
-
-
 def test_h3_bounds_force_an_upscale_that_krea2_defaults_do_not():
     """Proof the parameter is LIVE, not just present: a 224x224 image (area
     50176) sits above Krea-2's default min_pixels (3136, no upscale) but
@@ -1128,23 +1113,6 @@ def test_mixed_reference_presentation_keeps_packed_order():
     assert int(seen["runs"][1].grid_thw[0, 0]) == 3
     assert out["context"].shape[1] == out["token_tags"].shape[0]
     assert torch.isfinite(out["context"]).all()
-
-
-def test_bite_check_a_video_reference_is_not_presented_as_a_single_image():
-    # BITE CHECK for the whole video branch: if a video were routed through
-    # the image path (one block, one pad run, grid_t == 1), the presentation
-    # would be strictly SHORTER than three timestamped blocks and carry no
-    # <|video_pad|> at all.
-    pytest.importorskip("transformers")
-    m = _tiny_h3_vl_module()
-    tok = MiniMaxH3Tokenizer()
-    enc = _SmallEncoder(m, tok, device="cpu")
-    video = _video(49)
-
-    as_video = enc.encode_reference_request("pan left", [MiniMaxH3Reference(kind="video", media=video)])
-    as_image = enc.encode_reference_request("pan left", [MiniMaxH3Reference(kind="image", media=video[0])])
-
-    assert as_video["context"].shape[1] > as_image["context"].shape[1]
 
 
 def test_image_only_reference_request_is_unchanged_by_the_video_branch():

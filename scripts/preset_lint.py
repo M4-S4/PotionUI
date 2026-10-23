@@ -46,14 +46,13 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-import yaml
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.features.presets.linter import PresetLinter, LintIssue  # noqa: E402
 from src.features.presets.loader import plugin_preset_roots  # noqa: E402
 from src.features.presets.schema import SEMVER_RE  # noqa: E402
 from src.platform.plugins.loader import PluginLoader  # noqa: E402
+from src.platform.filesystem.yaml_io import load_yaml, load_yaml_file
 
 DEAD_TOP_LEVEL_KEYS = ("resolutions", "prompt_helpers", "author", "model", "extras")
 
@@ -188,7 +187,7 @@ def detect_engine(preset_dir: Path, mode_names: List[str]) -> str:
         if not pipeline_file.exists():
             continue
         try:
-            data = yaml.safe_load(pipeline_file.read_text()) or {}
+            data = load_yaml_file(pipeline_file) or {}
         except Exception:
             continue
         for pipe in (data.get("pipeline") or []):
@@ -225,11 +224,11 @@ def migrate_preset(preset_path: Path) -> List[str]:
     """Migrate a single preset.yml in place. Returns a human-readable summary of changes."""
     changes: List[str] = []
     preset_dir = preset_path.parent
-    original_text = preset_path.read_text()
+    original_text = preset_path.read_text(encoding="utf-8")
     lines = original_text.splitlines()
 
     try:
-        original_data = yaml.safe_load(original_text) or {}
+        original_data = load_yaml(original_text) or {}
     except Exception as e:
         return [f"SKIPPED (unparsable YAML: {e})"]
 
@@ -331,7 +330,6 @@ def render_check(paths: List[str], presets_root: Optional[Path] = None) -> List[
     """
     from scripts.preset_render import (
         build_fixture_form_data,
-        build_form_serializer,
         build_generation_data,
         build_processor,
         load_all_presets,
@@ -343,14 +341,13 @@ def render_check(paths: List[str], presets_root: Optional[Path] = None) -> List[
     scoped_roots = [Path(p).resolve() for p in paths]
 
     processor = build_processor()
-    form_serializer = build_form_serializer()
 
     for preset in sorted(presets, key=lambda p: p.id):
         if not _in_scope(preset.path, scoped_roots):
             continue
         for mode in sorted(preset.modes.keys()):
             try:
-                form_data = build_fixture_form_data(form_serializer, preset, mode)
+                form_data = build_fixture_form_data(preset, mode)
                 generation_data = build_generation_data(mode, form_data, preset.modes.get(mode))
                 processor.process(preset, generation_data)
             except TemplateEvaluationError as e:

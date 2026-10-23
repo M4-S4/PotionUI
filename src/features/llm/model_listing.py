@@ -1,10 +1,13 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel
 
+from src.platform.http.tls import client_ssl_context
+
 DISCOVERY_TIMEOUT_SECONDS = 8.0
+CONTEXT_WINDOW_PROBE_TIMEOUT_SECONDS = 3.0
 
 
 class DiscoveredModel(BaseModel):
@@ -13,6 +16,11 @@ class DiscoveredModel(BaseModel):
     size: Optional[int] = None
     modified_at: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
+
+
+class DiscoveredWindow(BaseModel):
+    tokens: int
+    kind: Literal["runtime", "trained"]
 
 
 class ModelListingError(Exception):
@@ -27,17 +35,28 @@ def normalize_base_url(base_url: str) -> str:
     return url
 
 
-async def fetch_json(provider: str, base_url: str, path: str, headers: Optional[Dict[str, str]] = None) -> Any:
+async def fetch_json(
+    provider: str,
+    base_url: str,
+    path: str,
+    headers: Optional[Dict[str, str]] = None,
+    *,
+    body: Optional[Dict[str, Any]] = None,
+    timeout: float = DISCOVERY_TIMEOUT_SECONDS,
+) -> Any:
     url = normalize_base_url(base_url)
     target = f"{provider} at {url}"
     try:
-        async with httpx.AsyncClient(timeout=DISCOVERY_TIMEOUT_SECONDS, follow_redirects=False) as client:
-            response = await client.get(f"{url}{path}", headers=headers or {})
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, verify=client_ssl_context()) as client:
+            if body is None:
+                response = await client.get(f"{url}{path}", headers=headers or {})
+            else:
+                response = await client.post(f"{url}{path}", headers=headers or {}, json=body)
     except httpx.ConnectError:
         raise ModelListingError(f"Couldn't reach {target}: connection refused.")
     except httpx.TimeoutException:
         raise ModelListingError(
-            f"Couldn't reach {target}: timed out after {DISCOVERY_TIMEOUT_SECONDS:g}s."
+            f"Couldn't reach {target}: timed out after {timeout:g}s."
         )
     except httpx.HTTPError as exc:
         raise ModelListingError(f"Couldn't reach {target}: {type(exc).__name__}.")
@@ -57,3 +76,9 @@ async def fetch_json(provider: str, base_url: str, path: str, headers: Optional[
 
 def sorted_models(models: List[DiscoveredModel]) -> List[DiscoveredModel]:
     return sorted(models, key=lambda m: m.id.lower())
+
+
+def positive_int(value: Any) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value) if value >= 1 else None

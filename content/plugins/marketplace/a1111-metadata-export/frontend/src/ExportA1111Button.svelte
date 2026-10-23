@@ -19,14 +19,11 @@
     exporting = true;
 
     try {
-      const token = localStorage.getItem('auth_token');
       const params = new URLSearchParams({
         generation_id: context.generationId,
         index: String(context.fileIndex ?? 0)
       });
-      const response = await fetch(`/api/plugins/a1111-metadata-export/export-png?${params}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
+      const response = await window.__potionui.api.fetch(`/api/plugins/a1111-metadata-export/export-png?${params}`);
 
       if (!response.ok) {
         throw new Error(`Export failed (${response.status})`);

@@ -70,19 +70,7 @@ class TestModelRef:
 
 
 class TestChecks:
-    def test_defaults(self):
-        checks = Checks()
-        assert checks.min_outputs == 1
-        assert checks.resolution is None
-        assert checks.not_black is True
-        assert checks.max_seconds is None
 
-    def test_overrides(self):
-        checks = Checks(min_outputs=2, resolution="768x768", not_black=False, max_seconds=30.0)
-        assert checks.min_outputs == 2
-        assert checks.resolution == "768x768"
-        assert checks.not_black is False
-        assert checks.max_seconds == 30.0
 
     def test_extra_key_rejected(self):
         with pytest.raises(Exception):

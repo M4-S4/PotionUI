@@ -67,7 +67,7 @@ def test_a_valid_key_is_accepted_and_stripped():
 
 
 def test_the_config_offers_no_user_id_setting():
-    assert not [name for name in GoogleConfig.model_fields if "user" in name]
+    assert not [spec for spec in GoogleConfig.engine_fields() if "user" in spec["name"]]
 
 
 def test_presets_reference_only_shared_blocks_that_exist():

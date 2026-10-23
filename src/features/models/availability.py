@@ -48,6 +48,9 @@ def models_for_engine(
     cloud_catalog=None,
     preset_id: Optional[str] = None,
     scope_repository=None,
+    model_types: Optional[List[str]] = None,
+    unquantized_only: bool = False,
+    path_for_model=None,
     **list_kwargs,
 ) -> List[Dict]:
     """Every model loadable by at least one enabled backend of `engine`.
@@ -137,6 +140,16 @@ def models_for_engine(
         backend_registry.engine_extracts_diffusion_model_from_checkpoint(engine)
     )
 
+    if unquantized_only and path_for_model is None:
+        return []
+
+    page_limit = page_offset = None
+    if unquantized_only:
+        page_limit = list_kwargs.pop("limit", None)
+        page_offset = list_kwargs.pop("offset", 0) or 0
+    if model_types and not model_type:
+        list_kwargs["model_types"] = list(model_types)
+
     models = model_repository.get_all(
         model_type=model_type,
         include_extractable_checkpoints=extract_from_checkpoints,
@@ -146,6 +159,13 @@ def models_for_engine(
         include_tags=list_kwargs.pop("include_tags", True),
         **list_kwargs,
     )
+
+    if unquantized_only:
+        from src.features.models.quant_filter import keep_unquantized
+
+        models = keep_unquantized(models, path_for_model)
+        if page_limit:
+            models = models[page_offset:page_offset + page_limit]
 
     if not indexed:
         presentation = CloudModelPresentation(backend_registry)

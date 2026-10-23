@@ -25,6 +25,7 @@ from src.bootstrap.errors import register_error_handlers
 from src.bootstrap.middleware import register_middleware
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
+from src.features.providers.registry import ensure_providers_discovered
 from src.platform.runtime.offload.pool import shutdown_offload
 from src.platform.plugins.router_mounter import MOUNT_FAILURE_MESSAGE, MountResult
 
@@ -213,6 +214,14 @@ def run_migrations_sync():
         logging.info("Database already up to date")
 
 
+def ensure_database_statistics():
+    from src.platform.database.database import db
+    from src.platform.database.statistics import analyze_if_missing
+
+    if analyze_if_missing(db):
+        logging.info("Collected query planner statistics (ANALYZE)")
+
+
 # Environment variable -> `settings` table key. Both settings are read fresh
 # from the database by every call site that needs them (Settings,
 # ModelScanner, ArtifactsFetchExecutor, ...) rather than cached off the
@@ -335,6 +344,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
     """Build and return the fully-assembled FastAPI application."""
     # Run database migrations BEFORE building the container (it needs DB access).
     run_migrations_sync()
+    ensure_database_statistics()
     apply_startup_env_overrides()
 
     if container is None:
@@ -348,6 +358,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         container.backend_registry.backend_config_store,
         container.llm_repository.config_repo,
         container.plugin_registry,
+        container.setting_repository,
     )
 
     automation_runtime = container.automation_runtime
@@ -357,6 +368,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         """Application lifespan events"""
         # Startup
         from src.bootstrap.middleware import DEBUG_MODE
+        from src.platform.database.database import Database
         logging.info("Starting PotionUI API server...")
         logging.info(f"DEBUG mode: {'ENABLED' if DEBUG_MODE else 'DISABLED'} (set DEBUG=true to enable verbose logging)")
         # Note: Migrations are run synchronously before app creation (see run_migrations_sync())
@@ -387,6 +399,11 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         container.app_loop = asyncio.get_running_loop()
         container.plugin_registry.run_ready_hooks()
+
+        try:
+            await ensure_providers_discovered()
+        except Exception as exc:
+            logging.error(f"Provider discovery failed at startup: {exc}")
 
         # Same idea for native.remote rows: reclaim any lease a dead process
         # left dangling, expire anything past its package deadline, fail
@@ -432,6 +449,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
             except Exception as exc:
                 logging.error(f"Resuming interrupted model indexing failed at startup: {exc}")
 
+        container.model_index_manager.digests.start()
+
         asyncio.create_task(asyncio.to_thread(_resume_model_indexing))
 
         # Heartbeat for rented compute: a pod paused or deleted in the
@@ -452,6 +471,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
+        await asyncio.to_thread(container.model_index_manager.indexing.shutdown)
+        await asyncio.to_thread(container.model_index_manager.digests.stop)
         await container.housekeeping_worker.stop()
         container.organize_worker.stop()
         container.organize_manager.shutdown()
@@ -462,6 +483,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         container.generation_history_facade.shutdown()
         container.chat_call_trace_recorder.shutdown(drain=True)
         await asyncio.to_thread(shutdown_offload)
+        Database.close_pool()
 
     # Create FastAPI app
     app = FastAPI(

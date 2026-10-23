@@ -1,12 +1,8 @@
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, fulfillJson } from './helpers';
 
 const JOURNEY = 'model-folder-picker';
 const ROOT = '/srv/sm';
-
-async function fulfillJson(route: Route, data: unknown, status = 200) {
-	await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
-}
 
 type Folder = { name: string; has_models: boolean; linked?: boolean };
 
@@ -205,7 +201,6 @@ test.describe('folder picker - desktop', () => {
 		await expect(page.getByRole('button', { name: /Extra\s+Empty/ })).toBeVisible();
 		await page.getByRole('button', { name: /Extra\s+Empty/ }).click();
 		await expect(page.getByText('will use Data/Models/Extra')).toBeVisible();
-		await page.waitForTimeout(400);
 		await screenshot(page, JOURNEY, 'desktop-add-folder-picker');
 
 		await page.getByRole('button', { name: 'Add Base model folder' }).click();
@@ -269,7 +264,6 @@ test.describe('folder picker - desktop', () => {
 		await page.getByRole('button', { name: 'Data', exact: true }).click();
 		await page.getByRole('button', { name: 'Models', exact: true }).click();
 		await page.getByRole('button', { name: /Extra\s+Empty/ }).click();
-		await page.waitForTimeout(400);
 		await screenshot(page, JOURNEY, 'desktop-panel-picker');
 		await page.getByRole('button', { name: 'Add LoRA folder' }).click();
 
@@ -340,7 +334,6 @@ test.describe('folder picker - mobile', () => {
 		await expect(page.getByRole('button', { name: 'Data', exact: true })).toBeVisible();
 		const scrolls = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
 		expect(scrolls).toBe(false);
-		await page.waitForTimeout(400);
 		await screenshot(page, JOURNEY, 'mobile-panel-picker');
 	});
 });
