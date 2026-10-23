@@ -66,7 +66,7 @@
 	};
 
 	const labeledSizeClasses: Record<Size, string> = {
-		xs: 'px-2.5 py-1 text-xs font-medium gap-1.5',
+		xs: 'px-2 py-1 text-sm font-medium gap-1',
 		sm: 'px-3 py-1.5 text-sm font-medium gap-1.5',
 		md: 'px-4 py-2 text-base font-medium gap-1.5',
 		lg: 'h-11 px-4 text-md font-semibold gap-1.5'
